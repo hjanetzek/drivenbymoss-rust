@@ -1,0 +1,339 @@
+// Copyright (c) 2026 Hannes Janetzek
+// Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+
+package de.mossgrabers.dbm.bitwig;
+
+import com.bitwig.extension.controller.api.Application;
+import com.bitwig.extension.controller.api.Channel;
+import com.bitwig.extension.controller.api.ControllerHost;
+import com.bitwig.extension.controller.api.CursorDeviceFollowMode;
+import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
+import com.bitwig.extension.controller.api.CursorTrack;
+import com.bitwig.extension.controller.api.Device;
+import com.bitwig.extension.controller.api.DeviceBank;
+import com.bitwig.extension.controller.api.MasterTrack;
+import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.PinnableCursorDevice;
+import com.bitwig.extension.controller.api.Send;
+import com.bitwig.extension.controller.api.Track;
+import com.bitwig.extension.controller.api.TrackBank;
+import com.bitwig.extension.controller.api.Transport;
+
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+
+/**
+ * The Bitwig objects the core needs, created during init from the core's model setup, and the
+ * collection of their state as model update lines (stage 1 of doc/BITWIG_BACKEND_PLAN.md: the
+ * existing protocol, flat lists from bounded banks).
+ */
+public final class BitwigModel
+{
+    /** The size of the flat track bank; the core pages over it. */
+    public static final int  NUM_TRACKS          = 64;
+    /** The size of the device sibling window, as in the Reaper backend. */
+    public static final int  NUM_SIBLINGS        = 8;
+    /** The parameters per remote control page. */
+    public static final int  PARAMS_PER_PAGE     = 8;
+    /** VU meter range. */
+    private static final int VU_RANGE            = 128;
+
+    final Transport          transport;
+    final Application        application;
+    final TrackBank          trackBank;
+    final CursorTrack        cursorTrack;
+    final MasterTrack        masterTrack;
+    final PinnableCursorDevice cursorDevice;
+    final DeviceBank         siblings;
+    final CursorRemoteControlsPage [] pages;
+    final int                numSends;
+
+    private final boolean [] trackSelected       = new boolean [NUM_TRACKS];
+    private final int []     trackVu             = new int [NUM_TRACKS];
+    private boolean          masterSelected;
+    private int              masterVu;
+
+
+    /**
+     * Create all Bitwig objects; must be called during init.
+     *
+     * @param host The host
+     * @param modelSetup The model setup of the core as JSON (see dbm_get_model_setup)
+     */
+    public BitwigModel (final ControllerHost host, final String modelSetup)
+    {
+        this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
+        final int numScenes = Math.max (0, getInt (modelSetup, "numScenes", 8));
+        final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
+
+        this.transport = host.createTransport ();
+        this.application = host.createApplication ();
+        this.trackBank = host.createTrackBank (NUM_TRACKS, this.numSends, numScenes, true);
+        this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, numScenes, true);
+        this.masterTrack = host.createMasterTrack (0);
+        this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
+        this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
+        this.pages = new CursorRemoteControlsPage [numParamPages];
+        for (int i = 0; i < numParamPages; i++)
+            this.pages[i] = this.cursorDevice.createCursorRemoteControlsPage ("DBM page " + (i + 1), PARAMS_PER_PAGE, "");
+
+        this.markInterested ();
+    }
+
+
+    private void markInterested ()
+    {
+        this.transport.isPlaying ().markInterested ();
+        this.transport.isArrangerRecordEnabled ().markInterested ();
+        this.transport.isArrangerLoopEnabled ().markInterested ();
+        this.transport.isMetronomeEnabled ().markInterested ();
+        this.transport.metronomeVolume ().markInterested ();
+        this.transport.metronomeVolume ().displayedValue ().markInterested ();
+        this.transport.tempo ().value ().markInterested ();
+        this.transport.getPosition ().markInterested ();
+        this.transport.timeSignature ().numerator ().markInterested ();
+        this.transport.timeSignature ().denominator ().markInterested ();
+        this.application.canUndo ().markInterested ();
+        this.application.canRedo ().markInterested ();
+
+        this.trackBank.itemCount ().markInterested ();
+        for (int i = 0; i < NUM_TRACKS; i++)
+        {
+            final Track track = this.trackBank.getItemAt (i);
+            final int index = i;
+            this.markChannel (track);
+            track.trackType ().markInterested ();
+            track.isGroup ().markInterested ();
+            track.isGroupExpanded ().markInterested ();
+            track.arm ().markInterested ();
+            track.monitorMode ().markInterested ();
+            track.addIsSelectedInEditorObserver (selected -> this.trackSelected[index] = selected);
+            track.addVuMeterObserver (VU_RANGE, -1, true, value -> this.trackVu[index] = value);
+            track.sendBank ().itemCount ().markInterested ();
+            for (int s = 0; s < this.numSends; s++)
+            {
+                final Send send = track.sendBank ().getItemAt (s);
+                send.exists ().markInterested ();
+                send.name ().markInterested ();
+                send.value ().markInterested ();
+                send.displayedValue ().markInterested ();
+                send.isEnabled ().markInterested ();
+            }
+        }
+
+        this.markChannel (this.masterTrack);
+        this.masterTrack.addIsSelectedInEditorObserver (selected -> this.masterSelected = selected);
+        this.masterTrack.addVuMeterObserver (VU_RANGE, -1, true, value -> this.masterVu = value);
+
+        this.cursorDevice.exists ().markInterested ();
+        this.cursorDevice.position ().markInterested ();
+        this.cursorDevice.name ().markInterested ();
+        this.cursorDevice.isEnabled ().markInterested ();
+        this.cursorDevice.isWindowOpen ().markInterested ();
+        this.cursorDevice.isExpanded ().markInterested ();
+        this.siblings.itemCount ().markInterested ();
+        for (int i = 0; i < NUM_SIBLINGS; i++)
+        {
+            final Device device = this.siblings.getItemAt (i);
+            device.exists ().markInterested ();
+            device.name ().markInterested ();
+            device.isEnabled ().markInterested ();
+            device.position ().markInterested ();
+        }
+        for (final CursorRemoteControlsPage page: this.pages)
+        {
+            page.pageCount ().markInterested ();
+            page.selectedPageIndex ().markInterested ();
+            for (int i = 0; i < PARAMS_PER_PAGE; i++)
+                markParameter (page.getParameter (i));
+        }
+    }
+
+
+    private void markChannel (final Channel channel)
+    {
+        channel.exists ().markInterested ();
+        channel.name ().markInterested ();
+        channel.color ().markInterested ();
+        channel.mute ().markInterested ();
+        channel.solo ().markInterested ();
+        markParameter (channel.volume ());
+        markParameter (channel.pan ());
+    }
+
+
+    private static void markParameter (final Parameter parameter)
+    {
+        parameter.exists ().markInterested ();
+        parameter.name ().markInterested ();
+        parameter.value ().markInterested ();
+        parameter.displayedValue ().markInterested ();
+    }
+
+
+    /**
+     * Report the current state.
+     *
+     * @param reporter Where to report to
+     */
+    public void collect (final ModelReporter reporter)
+    {
+        this.collectTransport (reporter);
+        this.collectTracks (reporter);
+        this.collectMaster (reporter);
+        this.collectDevice (reporter);
+    }
+
+
+    private void collectTransport (final ModelReporter reporter)
+    {
+        final double tempo = this.transport.tempo ().value ().getRaw ();
+        final double beats = this.transport.getPosition ().get ();
+        final double seconds = tempo > 0 ? beats * 60.0 / tempo : 0;
+
+        reporter.put ("/play", this.transport.isPlaying ().get ());
+        reporter.put ("/record", this.transport.isArrangerRecordEnabled ().get ());
+        reporter.put ("/repeat", this.transport.isArrangerLoopEnabled ().get ());
+        reporter.put ("/tempo", tempo);
+        reporter.put ("/numerator", this.transport.timeSignature ().numerator ().get ());
+        reporter.put ("/denominator", this.transport.timeSignature ().denominator ().get ());
+        reporter.put ("/time", seconds);
+        reporter.put ("/time/str", formatTime (seconds));
+        reporter.put ("/beat", this.transport.getPosition ().getFormatted ());
+        reporter.put ("/click", this.transport.isMetronomeEnabled ().get ());
+        reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
+        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().get ());
+        reporter.put ("/project/canUndo", this.application.canUndo ().get ());
+        reporter.put ("/project/canRedo", this.application.canRedo ().get ());
+    }
+
+
+    private void collectTracks (final ModelReporter reporter)
+    {
+        final int count = Math.min (this.trackBank.itemCount ().get (), NUM_TRACKS);
+        for (int i = 0; i < count; i++)
+        {
+            final Track track = this.trackBank.getItemAt (i);
+            final String prefix = "/track/" + i + "/";
+            reporter.put (prefix + "exists", 1);
+            reporter.put (prefix + "number", i);
+            reporter.put (prefix + "type", trackType (track));
+            reporter.put (prefix + "isGroupExpanded", track.isGroupExpanded ().get ());
+            reporter.put (prefix + "select", this.trackSelected[i]);
+            reporter.put (prefix + "recarm", track.arm ().get ());
+            final String monitorMode = track.monitorMode ().get ();
+            reporter.put (prefix + "monitor", "ON".equals (monitorMode));
+            reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
+            reporter.put (prefix + "vu", this.trackVu[i] / (double) (VU_RANGE - 1));
+            this.collectChannel (reporter, prefix, track);
+
+            final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
+            for (int s = 0; s < sendCount; s++)
+            {
+                final Send send = track.sendBank ().getItemAt (s);
+                final String sendPrefix = prefix + "send/" + s + "/";
+                reporter.put (sendPrefix + "name", send.name ().get ());
+                reporter.put (sendPrefix + "volume", send.value ().get ());
+                reporter.put (sendPrefix + "volume/str", send.displayedValue ().get ());
+                reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+            }
+            reporter.put (prefix + "send/count", sendCount);
+        }
+        reporter.put ("/track/count", count);
+    }
+
+
+    private void collectMaster (final ModelReporter reporter)
+    {
+        reporter.put ("/master/select", this.masterSelected);
+        reporter.put ("/master/vu", this.masterVu / (double) (VU_RANGE - 1));
+        this.collectChannel (reporter, "/master/", this.masterTrack);
+    }
+
+
+    private void collectChannel (final ModelReporter reporter, final String prefix, final Channel channel)
+    {
+        reporter.put (prefix + "name", channel.name ().get ());
+        reporter.putColor (prefix + "color", channel.color ().red (), channel.color ().green (), channel.color ().blue ());
+        reporter.put (prefix + "mute", channel.mute ().get ());
+        reporter.put (prefix + "solo", channel.solo ().get ());
+        reporter.put (prefix + "volume", channel.volume ().value ().get ());
+        reporter.put (prefix + "volume/str", channel.volume ().displayedValue ().get ());
+        reporter.put (prefix + "pan", channel.pan ().value ().get ());
+        reporter.put (prefix + "pan/str", channel.pan ().displayedValue ().get ());
+    }
+
+
+    private void collectDevice (final ModelReporter reporter)
+    {
+        final int position = this.cursorDevice.position ().get ();
+        reporter.put ("/device/count", this.siblings.itemCount ().get ());
+        reporter.put ("/device/exists", this.cursorDevice.exists ().get ());
+        reporter.put ("/device/position", this.cursorDevice.exists ().get () ? position : -1);
+        reporter.put ("/device/name", this.cursorDevice.name ().get ());
+        reporter.put ("/device/bypass", !this.cursorDevice.isEnabled ().get ());
+        reporter.put ("/device/window", this.cursorDevice.isWindowOpen ().get ());
+        reporter.put ("/device/expand", this.cursorDevice.isExpanded ().get ());
+
+        for (int i = 0; i < NUM_SIBLINGS; i++)
+        {
+            final Device device = this.siblings.getItemAt (i);
+            final String prefix = "/device/sibling/" + (i + 1) + "/";
+            final boolean exists = device.exists ().get ();
+            reporter.put (prefix + "name", exists ? device.name ().get () : "");
+            reporter.put (prefix + "bypass", exists && !device.isEnabled ().get ());
+            reporter.put (prefix + "position", exists ? device.position ().get () : -1);
+            reporter.put (prefix + "selected", exists && device.position ().get () == position);
+        }
+
+        // Each remote control page object shows one page of the device: together a flat list
+        final int pageCount = this.pages[0].pageCount ().get ();
+        final int numPages = Math.min (pageCount, this.pages.length);
+        for (int p = 0; p < this.pages.length; p++)
+        {
+            final CursorRemoteControlsPage page = this.pages[p];
+            final boolean isUsed = p < numPages;
+            if (isUsed && page.selectedPageIndex ().get () != p)
+                page.selectedPageIndex ().set (p);
+            for (int i = 0; i < PARAMS_PER_PAGE; i++)
+            {
+                final Parameter parameter = page.getParameter (i);
+                final String prefix = "/device/param/" + (p * PARAMS_PER_PAGE + i) + "/";
+                final boolean exists = isUsed && parameter.exists ().get ();
+                reporter.put (prefix + "name", exists ? parameter.name ().get () : "");
+                reporter.put (prefix + "value", exists ? parameter.value ().get () : 0);
+                reporter.put (prefix + "value/str", exists ? parameter.displayedValue ().get () : "");
+                reporter.put (prefix + "steps", -1);
+            }
+        }
+        reporter.put ("/device/param/count", numPages * PARAMS_PER_PAGE);
+    }
+
+
+    private static String trackType (final Track track)
+    {
+        if (track.isGroup ().get ())
+            return "GROUP";
+        final String type = track.trackType ().get ().toUpperCase (Locale.ROOT);
+        return type.isEmpty () ? "HYBRID" : type;
+    }
+
+
+    /**
+     * Format seconds like Reaper's time display (minutes:seconds.milliseconds).
+     */
+    private static String formatTime (final double seconds)
+    {
+        final long millis = Math.round (Math.max (0, seconds) * 1000);
+        return String.format (Locale.ROOT, "%d:%02d.%03d", Long.valueOf (millis / 60000), Long.valueOf (millis / 1000 % 60), Long.valueOf (millis % 1000));
+    }
+
+
+    private static int getInt (final String json, final String key, final int defaultValue)
+    {
+        final Matcher matcher = Pattern.compile ("\"" + Pattern.quote (key) + "\"\\s*:\\s*(-?\\d+)").matcher (json);
+        return matcher.find () ? Integer.parseInt (matcher.group (1)) : defaultValue;
+    }
+}

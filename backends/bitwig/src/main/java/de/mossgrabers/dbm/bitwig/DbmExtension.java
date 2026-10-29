@@ -41,7 +41,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     private final DbmExtensionDefinition     definition;
     private final Map<Integer, NoteInput>    noteInputs         = new HashMap<> ();
     private final Set<String>                unhandledCommands  = new TreeSet<> ();
+    private final ModelReporter              reporter           = new ModelReporter ();
     private NativeCore                       core;
+    private BitwigModel                      model;
+    private CommandHandler                   commands;
     private MidiIn                           midiIn;
     private MidiOut                          midiOut;
     private boolean                          isInitializing;
@@ -144,7 +147,11 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.core.startInfrastructure ();
         this.isInitializing = false;
 
-        host.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + this.core.getModelSetup ());
+        // The Bitwig objects the controller needs; they can only be created during init
+        final String modelSetup = this.core.getModelSetup ();
+        this.model = new BitwigModel (host, modelSetup);
+        this.commands = new CommandHandler (this.model, this.reporter, command -> this.unhandled (command));
+        host.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
         this.isRunning = true;
         host.scheduleTask (this::tickLoop, TICK_INTERVAL);
     }
@@ -154,7 +161,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void flush ()
     {
-        // The model updates will be sent from here (stage 1)
+        // The state is collected in the tick loop
     }
 
 
@@ -189,6 +196,9 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         if (!this.isRunning || this.core == null)
             return;
+        // Send the changed state first, so that the controller is updated with fresh values
+        this.model.collect (this.reporter);
+        this.core.updateModel (this.reporter.take ());
         this.core.tick ();
         this.getHost ().scheduleTask (this::tickLoop, TICK_INTERVAL);
     }
@@ -222,7 +232,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processNoArg (final String processor, final String command)
     {
-        this.unhandled (processor, command);
+        if ("refresh".equals (processor))
+            this.reporter.requestDump ();
+        else if (this.commands != null)
+            this.commands.handle (processor, command);
     }
 
 
@@ -230,7 +243,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processStringArg (final String processor, final String command, final String value)
     {
-        this.unhandled (processor, command);
+        if (this.commands != null)
+            this.commands.handle (processor, command, value);
     }
 
 
@@ -238,7 +252,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processStringArgs (final String processor, final String command, final String [] values)
     {
-        this.unhandled (processor, command);
+        this.unhandled (processor + " " + command);
     }
 
 
@@ -246,7 +260,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processIntArg (final String processor, final String command, final int value)
     {
-        this.unhandled (processor, command);
+        if (this.commands != null)
+            this.commands.handle (processor, command, value);
     }
 
 
@@ -254,7 +269,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processDoubleArg (final String processor, final String command, final double value)
     {
-        this.unhandled (processor, command);
+        if (this.commands != null)
+            this.commands.handle (processor, command, value);
     }
 
 
@@ -332,7 +348,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             this.getHost ().errorln ("Note input " + noteInputIndex + " can only be created while the extension starts.");
             return;
         }
-        final NoteInput noteInput = this.midiIn.createNoteInput (this.definition.getHardwareModel () + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1)), filters);
+        final NoteInput noteInput = this.midiIn.createNoteInput (this.definition.getHardwareModel () + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1)), toBitwigMasks (filters));
         // The core needs to see the notes as well (e.g. to light the pads)
         noteInput.setShouldConsumeEvents (false);
         this.noteInputs.put (Integer.valueOf (noteInputIndex), noteInput);
@@ -380,11 +396,24 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     /**
      * Log each command which is not handled yet once.
      */
-    private void unhandled (final String processor, final String command)
+    private void unhandled (final String command)
     {
-        final String key = processor + " " + command.replaceAll ("\\d+", "<n>");
+        final String key = command.replaceAll ("\\d+", "<n>");
         if (this.unhandledCommands.add (key))
             this.getHost ().println ("Not handled yet: " + key);
+    }
+
+
+    /**
+     * The core sends the filters as prefixes for the Reaper backend (e.g. "B6" or "B040", the
+     * wildcards of the channel already expanded). Bitwig needs masks of 3 bytes: "B6????".
+     */
+    private static String [] toBitwigMasks (final String [] filters)
+    {
+        final String [] masks = new String [filters.length];
+        for (int i = 0; i < filters.length; i++)
+            masks[i] = (filters[i] + "??????").substring (0, Math.max (6, filters[i].length ()));
+        return masks;
     }
 
 

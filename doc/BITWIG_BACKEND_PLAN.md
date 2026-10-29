@@ -13,11 +13,12 @@ restarting Bitwig.
   extension calls the C ABI directly: no JNI code, no JNA. Bitwig 5.x would need JNA or a JNI
   shim, and is not a target.
 
-Status (2026-10-29): steps 1 and 2 are implemented (C ABI for single-controller hosts, the
-extension skeleton in `backends/bitwig/` with FFM binding, generated definitions and dev mode),
-tested outside Bitwig, not yet in Bitwig. For development on Bitwig 5.3 the extension builds
-against API 21, and Bitwig 5.3 runs on a JDK 25 through a wrapper (§3, "Bitwig 5.3 with a newer
-JDK").
+Status (2026-10-29): steps 1–3 are implemented. The C ABI for single-controller hosts, the
+extension in `backends/bitwig/` (FFM binding, generated definitions, dev mode) and the stage 1
+model and commands (transport, tracks, sends, master, cursor device with remote-control pages,
+mapped action IDs). Tested in Bitwig 5.3 on JDK 25 with the Maschine Mk2, Maschine JAM and Launch
+Control XL. For development on Bitwig 5.3 the extension builds against API 21 (§3, "Bitwig 5.3
+with a newer JDK").
 
 ## 1. Architecture
 
