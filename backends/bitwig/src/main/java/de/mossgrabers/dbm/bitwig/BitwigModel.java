@@ -64,6 +64,8 @@ public final class BitwigModel
     final PinnableCursorDevice cursorDevice;
     final DeviceBank         siblings;
     final CursorRemoteControlsPage [] pages;
+    /** Follows the page selected in Bitwig (as the remote controls page of the Java version). */
+    final CursorRemoteControlsPage remoteControls;
     final int                numSends;
     /** The note repeat of the default note input, null if the controller has none. */
     final Arpeggiator        arpeggiator;
@@ -101,6 +103,7 @@ public final class BitwigModel
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
+        this.remoteControls = this.cursorDevice.createCursorRemoteControlsPage (PARAMS_PER_PAGE);
         this.pages = new CursorRemoteControlsPage [numParamPages];
         for (int i = 0; i < numParamPages; i++)
             this.pages[i] = this.cursorDevice.createCursorRemoteControlsPage ("DBM page " + (i + 1), PARAMS_PER_PAGE, "");
@@ -213,6 +216,10 @@ public final class BitwigModel
             this.arpeggiator.usePressureToVelocity ().markInterested ();
         }
 
+        this.remoteControls.pageCount ().markInterested ();
+        this.remoteControls.pageNames ().markInterested ();
+        this.remoteControls.selectedPageIndex ().markInterested ();
+
         for (final CursorRemoteControlsPage page: this.pages)
         {
             page.pageCount ().markInterested ();
@@ -241,6 +248,7 @@ public final class BitwigModel
         parameter.name ().markInterested ();
         parameter.value ().markInterested ();
         parameter.displayedValue ().markInterested ();
+        parameter.modulatedValue ().markInterested ();
     }
 
 
@@ -479,9 +487,18 @@ public final class BitwigModel
                 reporter.put (prefix + "value", exists ? parameter.value ().get () : 0);
                 reporter.put (prefix + "value/str", exists ? parameter.displayedValue ().get () : "");
                 reporter.put (prefix + "steps", -1);
+                reporter.put (prefix + "modulated", exists ? parameter.modulatedValue ().get () : 0);
             }
         }
         reporter.put ("/device/param/count", numPages * PARAMS_PER_PAGE);
+
+        // The page names and the page selected in Bitwig (protocol v2)
+        final String [] pageNames = this.remoteControls.pageNames ().get ();
+        final int namedPages = Math.min (pageNames.length, this.pages.length);
+        for (int p = 0; p < namedPages; p++)
+            reporter.put ("/device/page/" + p + "/name", pageNames[p]);
+        reporter.put ("/device/page/count", namedPages);
+        reporter.put ("/device/page/selected", this.remoteControls.selectedPageIndex ().get ());
     }
 
 

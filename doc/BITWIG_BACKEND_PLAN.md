@@ -206,8 +206,9 @@ Reaper backend keeps working:
    and return to arrangement, slot color and paste, new clips in a given slot, scenes without
    positions (BACKEND_PROTOCOL.md §2, §3). Reported slot states replace the derived ones, so no
    capability is needed; Reaper keeps its behaviour.
-4. **Parameter pages:** page names, count, selected page, page select command; parameter
-   `modulated` value, `touch`, `indicate`.
+4. **Parameter pages** (done): page names and the page selected in Bitwig are reported, the core
+   tells the host its selected page (`device parameterPage`); parameter `modulated` value,
+   `touch`, `indicate`. The parameters stay a flat list of up to `numParamPages` pages.
 5. **Host-side paging** (optional): `scroll`/`offset`/`canScroll` messages, so tracks and
    devices no longer need large flat banks.
 6. **Drum pads and layers** as channels with their own addresses (`/drumpad/<i>/…`,

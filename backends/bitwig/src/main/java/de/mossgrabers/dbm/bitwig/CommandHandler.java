@@ -550,6 +550,13 @@ public final class CommandHandler
                 if (index >= 0 && index < BitwigModel.NUM_SIBLINGS)
                     this.model.siblings.getItemAt (index).selectInEditor ();
             }
+            case "parameterPage" ->
+            {
+                // Show the page in Bitwig as well (ParameterPageBankImpl.scrollTo)
+                final int count = this.model.remoteControls.pageCount ().get ();
+                if (count > 0)
+                    this.model.remoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
+            }
             case "window" -> this.model.cursorDevice.isWindowOpen ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
             default -> this.handleDeviceIndexed (command, value);
@@ -560,13 +567,21 @@ public final class CommandHandler
     private void handleDeviceIndexed (final String command, final double value)
     {
         final String [] parts = command.split ("/");
-        // param/<index>/value
-        if (parts.length == 3 && "param".equals (parts[0]) && "value".equals (parts[2]))
+        // param/<index>/value, touch, indicate
+        if (parts.length == 3 && "param".equals (parts[0]))
         {
             final int index = parseIndex (parts[1]);
             final int page = index / BitwigModel.PARAMS_PER_PAGE;
-            if (index >= 0 && page < this.model.pages.length)
-                this.model.pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE).value ().set (value);
+            if (index < 0 || page >= this.model.pages.length)
+                return;
+            final Parameter parameter = this.model.pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
+            switch (parts[2])
+            {
+                case "value" -> parameter.value ().set (value);
+                case "touch" -> parameter.touch (value > 0);
+                case "indicate" -> parameter.setIndication (value > 0);
+                default -> this.unhandled.accept ("device " + command);
+            }
             return;
         }
         // <position+1>/bypass, remove, duplicate

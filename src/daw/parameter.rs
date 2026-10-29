@@ -56,6 +56,8 @@ pub struct Parameter {
     last_received_value: f64,
     number_of_steps: i32,
     default_value: i32,
+    /// The modulated value reported by the host (Bitwig), `None` if not reported (Reaper).
+    modulated: Option<f64>,
 }
 
 impl Parameter {
@@ -77,6 +79,7 @@ impl Parameter {
             last_received_value: -1.0,
             number_of_steps: 0,
             default_value,
+            modulated: None,
         };
         match kind {
             ParameterKind::TrackVolume => p.name = "Volume".into(),
@@ -160,9 +163,16 @@ impl Parameter {
         self.vc().from_normalized_value(self.value.max(0.0))
     }
 
-    /// The modulated value (same as the value in Reaper).
+    /// The modulated value as reported by the host (Bitwig), otherwise the value (Reaper).
     pub fn modulated_value(&self) -> i32 {
-        self.value()
+        match self.modulated {
+            Some(modulated) => self.vc().from_normalized_value(modulated.max(0.0)),
+            None => self.value(),
+        }
+    }
+
+    pub fn set_modulated_value(&mut self, value: f64) {
+        self.modulated = Some(value);
     }
 
     /// The normalized value [0..1].
@@ -253,6 +263,7 @@ impl Parameter {
             ParameterKind::TrackPan => self.ctx.send_int(Processor::Track, &format!("{}/pan/touch", self.index), touch),
             ParameterKind::MasterVolume => self.ctx.send_int(Processor::Master, "volume/touch", touch),
             ParameterKind::MasterPan => self.ctx.send_int(Processor::Master, "pan/touch", touch),
+            ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
             _ => {}
         }
         self.is_being_touched = is_being_touched;
@@ -263,8 +274,14 @@ impl Parameter {
         self.last_received_value = -1.0;
     }
 
-    /// Indicate the parameter on the DAW UI (not supported).
-    pub fn set_indication(&mut self, _enable: bool) {}
+    /// Indicate the parameter on the DAW UI (device parameters, not supported by Reaper).
+    pub fn set_indication(&mut self, enable: bool) {
+        if let ParameterKind::Device(processor) = self.kind {
+            if self.position >= 0 {
+                self.ctx.send_int(processor, &format!("param/{}/indicate", self.position), if enable { 1 } else { 0 });
+            }
+        }
+    }
 
     fn send_value(&self) {
         match self.kind {

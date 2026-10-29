@@ -31,8 +31,8 @@ These do not change what a controller does, but explain the other differences.
 | Scenes and slots | Scene bank of `numScenes`, scrolled by Bitwig; slot banks per track | Flat scene bank of 32 (`BitwigModel.NUM_SCENES`) that never scrolls, each track with 32 slots; the core pages over them. Scenes beyond 32 are not reachable. Extra scene and slot banks (`getSceneBank`, `getSlotBank`) are not created |
 | Effect tracks, drum pad banks, device layers, browser, note clip grids | Created from the ModelSetup | Not created yet (protocol v2 items 4–8) |
 | Device siblings | `createSiblingsDeviceBank (numDevicesInBank)` | Always 8 siblings (the Reaper protocol's fixed window) |
-| Device parameters | Remote-control page bank: named pages, page selection by Bitwig | `numParamPages` page cursors, each fixed to one page, reported as one flat list of parameters; the core names the pages "Page n". Page names are not shown (protocol v2 item 4) |
-| Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `touch` only for track and master volume and pan |
+| Device parameters | One remote-control page cursor; its selected page is the page shown on the controller and in Bitwig, page names from `pageNames` | Same page names and the same page selection in both directions (an extra page cursor follows Bitwig's selection). The parameter values come from `numParamPages` page cursors, each fixed to one page, as one flat list; pages beyond `numParamPages` are not reachable. When pages are switched quickly, the controller can briefly show the previous page while Bitwig catches up |
+| Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `modulatedValue`, `setIndication` and `touch` for the cursor device's parameters, `touch` for track and master volume and pan; not for sends, the track and project remote controls |
 
 ## 3. Transport and time
 

@@ -408,6 +408,14 @@ slot (scene) index.
 | `scene` | `<n>/launchRelease`, `launchReleaseAlt` | none | release | ignored |
 | `scene` | `stop`, `stopAlt` | none | stop all clips | ignored |
 
+#### Protocol v2: parameter pages
+
+| Processor | Command | Type | Meaning | Reaper |
+|---|---|---|---|---|
+| `device` | `parameterPage` | int | the core selected this parameter page (0-based); the host shows the same page | ignored |
+| `device` | `param/<i>/touch` | int | a touch sensitive control touches the parameter (1) or releases it (0) | ignored |
+| `device` | `param/<i>/indicate` | int | indicate the parameter on the DAW's user interface | ignored |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -577,6 +585,7 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `<prefix>/param/<i>/value` | double 0..1 normalized | | yes | yes (+value observers) |
 | `<prefix>/param/<i>/value/str` | string ≤ 60 | `TrackFX_FormatParamValue`; only sent with a value change or dump | yes | yes |
 | `<prefix>/param/<i>/steps` | int: 2 = toggle, −1 = continuous | | yes | yes |
+| `<prefix>/param/<i>/modulated` | double 0..1 | the modulated value; without it the core uses the value | Bitwig (v2) | yes |
 
 `<prefix>` ∈ `/device`, `/primary`, `/eq`, `/track/fx` (TCP FX params of the cursor track → selected track's parameter bank), `/master/fx`.
 
@@ -590,6 +599,9 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/device/name` | string ≤ 50 (slow) | core shortens it (test: `VST: ReaEQ (Cockos)` → `ReaEQ`) | yes | yes |
 | `/device/bypass` | int, 1 = bypassed (slow) | | yes | yes |
 | `/device/touchedParam` | int | last touched param (only when FX focused on cursor track) | yes (conditional) | yes |
+| `/device/page/count` | int | number of named parameter pages | Bitwig (v2) | yes |
+| `/device/page/<p>/name` | string | name of a parameter page; without names the core shows "Page n" | Bitwig (v2) | yes |
+| `/device/page/selected` | int | the page selected in the host's user interface; the core shows it | Bitwig (v2) | yes |
 | `/device/param/count` | int | | yes | yes (+RebindKnobs) |
 | `/device/sibling/<k>/name` | string; k = **1..8** | FX at `deviceBankOffset + k-1`; parser: `exists = !empty` | yes (slow) | yes (k-1 must be < device bank page size) |
 | `/device/sibling/<k>/bypass` | int, 1 = bypassed | | yes (slow) | yes |

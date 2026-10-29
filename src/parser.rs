@@ -714,6 +714,30 @@ impl Parser {
                     device.set_last_touched_parameter_index(v);
                 }
             }
+            // The named parameter pages (protocol v2): count, selected, <index>/name
+            "page" => {
+                if let Some(bank) = device.parameter_bank_mut() {
+                    match (parts.poll(), parts.poll()) {
+                        (Some(TAG_COUNT), None) => {
+                            if let Some(v) = parse_int(value) {
+                                bank.set_page_count(v.max(0) as usize);
+                            }
+                        }
+                        (Some("selected"), None) => {
+                            if let Some(v) = parse_int(value) {
+                                if v >= 0 {
+                                    bank.set_selected_page_from_host(v as usize);
+                                }
+                            }
+                        }
+                        (Some(index), Some(TAG_NAME)) => match parse_index(index) {
+                            Some(page) => bank.set_page_name(page, value),
+                            None => host.error(&format!("Unhandled Device Page parameter: {index}")),
+                        },
+                        _ => host.error("Unhandled Device Page parameter"),
+                    }
+                }
+            }
             "band" => {
                 if target == DeviceTarget::Specific(DeviceId::Eq) {
                     let band_index = parts.poll().unwrap_or("");
@@ -815,6 +839,11 @@ impl Parser {
             "steps" => {
                 if let Some(v) = parse_int(value) {
                     bank.unpaged_item_mut(param_no).set_internal_number_of_steps(v);
+                }
+            }
+            "modulated" => {
+                if let Some(v) = parse_double(value) {
+                    bank.unpaged_item_mut(param_no).set_modulated_value(v);
                 }
             }
             _ => host.error(&format!("Unhandled FX Param Value: {command}")),

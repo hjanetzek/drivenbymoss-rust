@@ -28,6 +28,9 @@ pub struct ParameterBank {
     /// Remembers the selected parameter page per device name.
     selected_device_pages: HashMap<String, usize>,
     device_name: Option<String>,
+    /// The names of the parameter pages reported by the host (Bitwig's remote control pages);
+    /// empty if the host has no named pages (Reaper).
+    page_names: Vec<String>,
 }
 
 impl ParameterBank {
@@ -53,6 +56,7 @@ impl ParameterBank {
             num_pages_in_page: num_params,
             selected_device_pages: HashMap::new(),
             device_name: if has_device { Some(String::new()) } else { None },
+            page_names: Vec::new(),
         }
     }
 
@@ -88,12 +92,40 @@ impl ParameterBank {
         }
     }
 
-    /// Scroll to the given parameter position.
+    /// Scroll to the given parameter position. The host is told the selected page (protocol v2,
+    /// Bitwig then shows the same remote control page).
     pub fn scroll_to(&mut self, position: i64, adjust_page: bool) {
         if position >= 0 && (position as usize) < self.bank.item_count() {
             let ps = self.bank.page_size().max(1) as i64;
             self.set_bank_offset(if adjust_page { position / ps * ps } else { position });
+            if self.id == ParameterBankId::CursorDevice {
+                let page = self.bank.bank_offset as i64 / ps;
+                self.bank.ctx.send_int(Processor::Device, "parameterPage", page as i32);
+            }
         }
+    }
+
+    /// The page selected in the host (e.g. in Bitwig's remote controls panel): show it, as the
+    /// Java version for Bitwig does.
+    pub fn set_selected_page_from_host(&mut self, page: usize) {
+        let ps = self.bank.page_size().max(1);
+        let position = page * ps;
+        if position < self.bank.item_count() && position != self.bank.bank_offset {
+            self.set_bank_offset(position as i64);
+        }
+    }
+
+    /// Set the number of named parameter pages reported by the host.
+    pub fn set_page_count(&mut self, count: usize) {
+        self.page_names.resize(count, String::new());
+    }
+
+    /// Set the name of a parameter page reported by the host.
+    pub fn set_page_name(&mut self, page: usize, name: &str) {
+        if page >= self.page_names.len() {
+            self.page_names.resize(page + 1, String::new());
+        }
+        self.page_names[page] = name.to_string();
     }
 
     /// Move to the previous parameter page.
@@ -223,10 +255,12 @@ impl ParameterPageBank<'_> {
     /// The name of the page at the index of the page bank page ("" if it does not exist).
     pub fn item(&self, index: usize) -> String {
         let pos = self.scroll_position() + index;
-        if pos < self.item_count() {
-            format!("Page {}", pos + 1)
-        } else {
-            String::new()
+        if pos >= self.item_count() {
+            return String::new();
+        }
+        match self.bank.page_names.get(pos) {
+            Some(name) if !name.is_empty() => name.clone(),
+            _ => format!("Page {}", pos + 1),
         }
     }
 
@@ -286,6 +320,24 @@ impl ParameterPageBank<'_> {
 mod tests {
     use super::*;
     use crate::daw::bank::tests::test_ctx;
+
+    #[test]
+    fn named_pages_and_host_selection() {
+        let (ctx, backend) = test_ctx();
+        let mut bank = ParameterBank::new(ctx, ParameterBankId::CursorDevice, Processor::Device, 8, true);
+        bank.set_item_count(24);
+        bank.set_page_count(3);
+        bank.set_page_name(1, "Filter");
+        assert_eq!(bank.page_bank().item(0), "Page 1");
+        assert_eq!(bank.page_bank().item(1), "Filter");
+        // The host selected the third page: no command back
+        bank.set_selected_page_from_host(2);
+        assert_eq!(bank.scroll_position(), 16);
+        assert!(backend.take_calls().is_empty());
+        // The core selects a page: the host is told
+        bank.select_previous_item();
+        assert_eq!(backend.take_calls(), vec![crate::backend::BackendCall::IntArg("device".into(), "parameterPage".into(), 1)]);
+    }
 
     #[test]
     fn pages() {
