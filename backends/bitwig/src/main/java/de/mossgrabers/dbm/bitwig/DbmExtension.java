@@ -35,6 +35,9 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     /** The interval to check the development library for changes in milliseconds. */
     private static final int                 DEV_CHECK_INTERVAL = 500;
 
+    /** Log all MIDI from and to the controller to stderr if the environment variable is set. */
+    private static final boolean             LOG_MIDI           = System.getenv ("DBM_LOG_MIDI") != null && !System.getenv ("DBM_LOG_MIDI").isBlank ();
+
     /** Document settings kept across restarts (dev reloads), per extension ID. */
     private static final Map<String, String> KEPT_SETTINGS      = new ConcurrentHashMap<> ();
 
@@ -135,13 +138,15 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
         this.midiIn = host.getMidiInPort (0);
         this.midiOut = host.getMidiOutPort (0);
-        this.midiIn.setMidiCallback ( (status, data1, data2) -> this.core.onMidiEvent (0, new byte []
+        this.midiIn.setMidiCallback ( (status, data1, data2) -> this.receiveMidi (new byte []
         {
             (byte) status,
             (byte) data1,
             (byte) data2
         }));
-        this.midiIn.setSysexCallback (data -> this.core.onMidiEvent (0, HexFormat.of ().parseHex (data)));
+        this.midiIn.setSysexCallback (data -> this.receiveMidi (HexFormat.of ().parseHex (data)));
+        if (LOG_MIDI)
+            this.println ("Logging MIDI to stderr (DBM_LOG_MIDI).");
 
         final String settings = KEPT_SETTINGS.remove (this.definition.getId ().toString ());
         if (settings != null)
@@ -179,6 +184,21 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         if (this.core != null)
             KEPT_SETTINGS.put (this.definition.getId ().toString (), this.core.getFormattedDocumentSettings ());
         this.closeCore ();
+    }
+
+
+    private void receiveMidi (final byte [] data)
+    {
+        if (LOG_MIDI)
+            this.logMidi ("in ", data);
+        if (this.core != null)
+            this.core.onMidiEvent (0, data);
+    }
+
+
+    private void logMidi (final String direction, final byte [] data)
+    {
+        System.err.println ("[DrivenByMoss-Bitwig] " + this.definition.getHardwareModel () + ": MIDI " + direction + " " + HexFormat.ofDelimiter (" ").withUpperCase ().formatHex (data));
     }
 
 
@@ -334,6 +354,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         if (deviceId != 0 || this.midiOut == null || data.length == 0)
             return;
+        if (LOG_MIDI)
+            this.logMidi ("out", data);
         if ((data[0] & 0xFF) == 0xF0)
             this.midiOut.sendSysex (data);
         else if (data.length >= 3)

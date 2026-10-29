@@ -43,8 +43,8 @@ public final class BitwigModel
     public static final int  PARAMS_PER_PAGE     = 8;
     /** The Bitwig arpeggiator modes in the order of the core's modes (Down, Up, Down-Up, Up-Down). */
     static final List<String> ARPEGGIATOR_MODES = List.of ("down", "up", "down-up", "up-down");
-    /** VU meter range. */
-    private static final int VU_RANGE            = 128;
+    /** VU meter resolution, as ChannelImpl of the Java version. */
+    private static final int VU_RANGE            = 16384;
 
     final Transport          transport;
     final Application        application;
@@ -61,9 +61,11 @@ public final class BitwigModel
     final Arpeggiator        arpeggiator;
 
     private final boolean [] trackSelected       = new boolean [NUM_TRACKS];
-    private final int []     trackVu             = new int [NUM_TRACKS];
+    private final int []     trackVuLeft         = new int [NUM_TRACKS];
+    private final int []     trackVuRight        = new int [NUM_TRACKS];
     private boolean          masterSelected;
-    private int              masterVu;
+    private int              masterVuLeft;
+    private int              masterVuRight;
 
 
     /**
@@ -132,7 +134,8 @@ public final class BitwigModel
             track.arm ().markInterested ();
             track.monitorMode ().markInterested ();
             track.addIsSelectedInEditorObserver (selected -> this.trackSelected[index] = selected);
-            track.addVuMeterObserver (VU_RANGE, -1, true, value -> this.trackVu[index] = value);
+            track.addVuMeterObserver (VU_RANGE, 0, true, value -> this.trackVuLeft[index] = value);
+            track.addVuMeterObserver (VU_RANGE, 1, true, value -> this.trackVuRight[index] = value);
             track.sendBank ().itemCount ().markInterested ();
             for (int s = 0; s < this.numSends; s++)
             {
@@ -147,7 +150,8 @@ public final class BitwigModel
 
         this.markChannel (this.masterTrack);
         this.masterTrack.addIsSelectedInEditorObserver (selected -> this.masterSelected = selected);
-        this.masterTrack.addVuMeterObserver (VU_RANGE, -1, true, value -> this.masterVu = value);
+        this.masterTrack.addVuMeterObserver (VU_RANGE, 0, true, value -> this.masterVuLeft = value);
+        this.masterTrack.addVuMeterObserver (VU_RANGE, 1, true, value -> this.masterVuRight = value);
 
         this.cursorDevice.exists ().markInterested ();
         this.cursorDevice.position ().markInterested ();
@@ -290,7 +294,7 @@ public final class BitwigModel
             final String monitorMode = track.monitorMode ().get ();
             reporter.put (prefix + "monitor", "ON".equals (monitorMode));
             reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
-            reporter.put (prefix + "vu", this.trackVu[i] / (double) (VU_RANGE - 1));
+            reportVu (reporter, prefix, this.trackVuLeft[i], this.trackVuRight[i]);
             this.collectChannel (reporter, prefix, track);
 
             final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
@@ -312,8 +316,22 @@ public final class BitwigModel
     private void collectMaster (final ModelReporter reporter)
     {
         reporter.put ("/master/select", this.masterSelected);
-        reporter.put ("/master/vu", this.masterVu / (double) (VU_RANGE - 1));
+        reportVu (reporter, "/master/", this.masterVuLeft, this.masterVuRight);
         this.collectChannel (reporter, "/master/", this.masterTrack);
+    }
+
+
+    /**
+     * Report the VU meters (0..1): left, right and the mono value as their average (as ChannelImpl
+     * of the Java version).
+     */
+    private static void reportVu (final ModelReporter reporter, final String prefix, final int left, final int right)
+    {
+        final double vuLeft = Math.min (left, VU_RANGE - 1) / (double) VU_RANGE;
+        final double vuRight = Math.min (right, VU_RANGE - 1) / (double) VU_RANGE;
+        reporter.put (prefix + "vuleft", vuLeft);
+        reporter.put (prefix + "vuright", vuRight);
+        reporter.put (prefix + "vu", (vuLeft + vuRight) / 2.0);
     }
 
 

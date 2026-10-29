@@ -209,6 +209,25 @@ hosts and works for the Java version too. Add the in-process route when Zynthian
     extension; `.github/workflows/linux.yml` runs it once `rust/` is its own repository.
 - [ ] **9. In-process route (§4.1)** for the Reaper backend and Zynthian.
 
+## 7a. Beyond NI's MIDI mode (todo)
+
+NI's driver cannot send some Mk2 controls in MIDI mode, so DrivenByMoss works around them (from
+the DrivenByMoss manual, Maschine Mk2):
+
+- SHIFT does not work; STEP LEFT (above REC) replaces both STOP and SHIFT
+  (`shift_button` in `controller/maschine/core/surface.rs` returns Stop for the Mk2).
+- Page left / right cannot be used; NAVIGATE and the pads are used instead.
+- 4D encoder left/right and up/down: the two arrows below the encoder (with Shift for up/down).
+- The Events button is STEP LEFT + Select/Events.
+
+`dbm-nihost` reads the HID reports itself and sees all of these buttons. It could send them:
+the real SHIFT as NI's Shift sysex (as on the JAM; the core already knows the Mk2's message,
+`Maschine::Mk2.message_shift_down`), Page left/right and the encoder directions as additional
+notes or CCs outside the template. The core then needs a Mk2 variant which uses them (e.g. a
+flag that `dbm-nihost` is the host, so that SHIFT is the Shift button and STEP LEFT is STOP
+again). This only works with `dbm-nihost`, not with NI's driver on Windows and macOS, so it has
+to stay optional.
+
 ## 8. Testing
 
 - **Unit tests** (no hardware): feed recorded or synthetic HID reports into the translators and
