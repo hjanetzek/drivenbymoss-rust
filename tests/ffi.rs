@@ -18,6 +18,7 @@ struct Recorder {
     opened: Vec<i32>,
     inputs: Vec<(i32, String)>,
     outputs: Vec<(i32, String)>,
+    logs: Vec<String>,
 }
 
 fn recorder<'a>(user: *mut c_void) -> std::sync::MutexGuard<'a, Recorder> {
@@ -76,6 +77,16 @@ extern "C" fn send_midi(user: *mut c_void, device: c_int, data: *const u8, lengt
 }
 extern "C" fn filters(_user: *mut c_void, _device: c_int, _index: c_int, _filters: *const *const c_char, _count: c_int) {}
 extern "C" fn table(_user: *mut c_void, _device: c_int, _index: c_int, _table: *const c_int, _count: c_int) {}
+extern "C" fn log(user: *mut c_void, message: *const c_char) {
+    recorder(user).logs.push(s(message));
+}
+
+/// Take ownership of a string returned by the library.
+fn take_string(text: *mut c_char) -> String {
+    let result = s(text);
+    unsafe { dbm_free_string(text) };
+    result
+}
 
 /// A host with its recorder and an instance.
 struct Host {
@@ -86,6 +97,15 @@ struct Host {
 
 impl Host {
     fn new(name: &str, flags: u32, with_launchpad: bool) -> Host {
+        Self::create(name, flags, with_launchpad, None)
+    }
+
+    /// A host which runs only the controller with the given UUID (`dbm_create_controller`).
+    fn single(name: &str, uuid: &str) -> Host {
+        Self::create(name, DBM_FLAG_HOST_TICK, false, Some(uuid))
+    }
+
+    fn create(name: &str, flags: u32, with_launchpad: bool, uuid: Option<&str>) -> Host {
         let dir = std::env::temp_dir().join(format!("dbm-ffi-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -120,10 +140,17 @@ impl Host {
             set_note_input_filters: Some(filters),
             set_note_input_key_translation_table: Some(table),
             set_note_input_velocity_translation_table: Some(table),
+            log: Some(log),
         };
         let ini = CString::new(dir.to_str().unwrap()).unwrap();
         let version = CString::new("7.22/linux-x86_64").unwrap();
-        let app = unsafe { dbm_create(&callbacks, ini.as_ptr(), version.as_ptr(), flags) };
+        let app = match uuid {
+            Some(uuid) => {
+                let uuid = CString::new(uuid).unwrap();
+                unsafe { dbm_create_controller(&callbacks, uuid.as_ptr(), ini.as_ptr(), version.as_ptr(), flags) }
+            }
+            None => unsafe { dbm_create(&callbacks, ini.as_ptr(), version.as_ptr(), flags) },
+        };
         assert!(!app.is_null());
         Host { recorder, app, dir }
     }
@@ -173,6 +200,7 @@ fn null_callbacks_are_ignored() {
         set_note_input_filters: None,
         set_note_input_key_translation_table: None,
         set_note_input_velocity_translation_table: None,
+        log: None,
     };
     unsafe {
         let app = dbm_create(&callbacks, std::ptr::null(), std::ptr::null(), DBM_FLAG_HOST_TICK);
@@ -260,6 +288,54 @@ fn instances_are_independent() {
 
 /// Compiles a small C program against the generated header with the system C and C++ compiler
 /// (skipped if there is none).
+#[test]
+fn controller_catalog() {
+    let json = take_string(dbm_list_controllers());
+    assert!(json.starts_with('[') && json.ends_with(']'), "{json}");
+    // The Launch Control XL with its ports and the Linux port names of the Maschine Mk2
+    assert!(json.contains(r#""uuid":"5AFA5045-FF92-4737-A091-5B371CD5E529","vendor":"Novation","model":"Launch Control XL","numMidiInPorts":1,"numMidiOutPorts":1"#), "{json}");
+    assert!(json.contains(r#""inputs":["Maschine MK2 In"],"outputs":["Maschine MK2 Out"]"#), "{json}");
+}
+
+#[test]
+fn single_controller_instance() {
+    // Unknown controllers are refused
+    let callbacks = DbmCallbacks {
+        user: std::ptr::null_mut(),
+        process_no_arg: None,
+        process_string_arg: None,
+        process_string_args: None,
+        process_int_arg: None,
+        process_double_arg: None,
+        delay_updates: None,
+        enable_updates: None,
+        process_midi_arg: None,
+        get_midi_inputs: None,
+        get_midi_outputs: None,
+        open_midi_input: None,
+        open_midi_output: None,
+        close_midi_input: None,
+        close_midi_output: None,
+        send_midi_data: None,
+        set_note_input_filters: None,
+        set_note_input_key_translation_table: None,
+        set_note_input_velocity_translation_table: None,
+        log: None,
+    };
+    let unknown = CString::new("00000000-0000-0000-0000-000000000000").unwrap();
+    assert!(unsafe { dbm_create_controller(&callbacks, unknown.as_ptr(), std::ptr::null(), std::ptr::null(), DBM_FLAG_HOST_TICK) }.is_null());
+
+    // The Launch Control XL runs on the ports 0 without any configuration or port list
+    let host = Host::single("single", "5afa5045-ff92-4737-a091-5b371cd5e529");
+    assert_eq!(take_string(unsafe { dbm_get_model_setup(host.app) }), "");
+    unsafe { dbm_start_infrastructure(host.app) };
+    assert_eq!(host.rec().opened, vec![0, 0]);
+    assert!(host.rec().commands.iter().any(|c| c == "refresh "), "{:?}", host.rec().commands);
+    let setup = take_string(unsafe { dbm_get_model_setup(host.app) });
+    assert!(setup.contains(r#""numSends":2"#) && setup.contains(r#""deviceIds":["EQ","FIRST_INSTRUMENT"]"#), "{setup}");
+    assert!(host.rec().logs.iter().any(|l| l.contains("Launch Control XL")), "{:?}", host.rec().logs);
+}
+
 #[test]
 fn header_compiles_as_c_and_cpp() {
     let root = env!("CARGO_MANIFEST_DIR");

@@ -13,7 +13,11 @@ restarting Bitwig.
   extension calls the C ABI directly: no JNI code, no JNA. Bitwig 5.x would need JNA or a JNI
   shim, and is not a target.
 
-Status: draft for discussion, nothing implemented.
+Status (2026-10-29): steps 1 and 2 are implemented (C ABI for single-controller hosts, the
+extension skeleton in `backends/bitwig/` with FFM binding, generated definitions and dev mode),
+tested outside Bitwig, not yet in Bitwig. For development on Bitwig 5.3 the extension builds
+against API 21, and Bitwig 5.3 runs on a JDK 25 through a wrapper (§3, "Bitwig 5.3 with a newer
+JDK").
 
 ## 1. Architecture
 
@@ -112,6 +116,17 @@ and allows them (Java 22–25 default). Check what Bitwig 6.1 shows (?).
 - **Loop:** `cargo watch -x 'build --lib'` (or plain `cargo build --lib`) in `rust/`, Bitwig
   open with the controller active. Logs: the core's log callback goes to `host.println`
   (Controller Script Console) and stderr.
+
+### Bitwig 5.3 with a newer JDK
+
+Until a Bitwig 6.1 license is available, a copy of Bitwig 5.3 runs on JDK 25:
+
+- Copy `/opt/bitwig-studio` to `~/.local/opt/bitwig-studio-jdk25` (the package stays untouched).
+- Replace `lib/jre` by a folder whose `bin/java` is a script that drops `-XX:+ZGenerational`
+  (newer JDKs reject it) and executes `/usr/lib/jvm/java-25-openjdk/bin/java` (or
+  `$BITWIG_JAVA_HOME/bin/java`). Bitwig starts Java through `bin/BitwigStudio` → `lib/jre/bin/java`.
+- Java extensions work. Bitwig's JavaScript controller scripts do not load (its GraalJS needs
+  `sun.misc.Unsafe.ensureClassInitialized`, removed after Java 21).
 
 ## 4. Model and protocol
 

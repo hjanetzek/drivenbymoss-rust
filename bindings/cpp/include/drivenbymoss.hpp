@@ -71,6 +71,9 @@ public:
     /** Translation table (128 entries, -1 blocks a note) for the notes of a note input. */
     virtual void setNoteInputKeyTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
     virtual void setNoteInputVelocityTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
+
+    /** A log message of the library (it is also written to stderr). */
+    virtual void log (const std::string &message) { (void) message; }
 };
 
 
@@ -124,6 +127,15 @@ namespace detail
     inline void filters (void *u, int d, int i, const char *const *f, int n) { DBM_GUARD (backend (u).setNoteInputFilters (d, i, strings (f, n))) }
     inline void keyTable (void *u, int d, int i, const int *t, int n) { DBM_GUARD (backend (u).setNoteInputKeyTranslationTable (d, i, ints (t, n))) }
     inline void velocityTable (void *u, int d, int i, const int *t, int n) { DBM_GUARD (backend (u).setNoteInputVelocityTranslationTable (d, i, ints (t, n))) }
+    inline void log (void *u, const char *m) { DBM_GUARD (backend (u).log (str (m))) }
+
+    /** Take ownership of a string returned by the library. */
+    inline std::string take (char *text)
+    {
+        std::string result = str (text);
+        dbm_free_string (text);
+        return result;
+    }
 
     #undef DBM_GUARD
 
@@ -149,6 +161,7 @@ namespace detail
         c.set_note_input_filters = filters;
         c.set_note_input_key_translation_table = keyTable;
         c.set_note_input_velocity_translation_table = velocityTable;
+        c.log = log;
         return c;
     }
 }
@@ -158,6 +171,13 @@ namespace detail
 inline std::string version ()
 {
     return detail::str (dbm_version ());
+}
+
+
+/** The supported controllers as JSON, see dbm_list_controllers. */
+inline std::string listControllers ()
+{
+    return detail::take (dbm_list_controllers ());
 }
 
 
@@ -179,6 +199,23 @@ public:
     {
         const DbmCallbacks callbacks = detail::callbacks (backend);
         this->app = dbm_create (&callbacks, iniPath.c_str (), appVersion.c_str (), flags);
+    }
+
+    /**
+     * Create an instance which runs exactly one controller on the MIDI ports 0, see
+     * dbm_create_controller.
+     *
+     * @param backend The functions of the host, must outlive the app
+     * @param controllerId The UUID of the controller
+     * @param configPath The folder of the controller's configuration file
+     * @param appVersion The version of the host application
+     * @param flags A combination of the DBM_FLAG_* values
+     * @return The instance, check isValid () since the controller might not be supported
+     */
+    static App forController (Backend &backend, const std::string &controllerId, const std::string &configPath, const std::string &appVersion, uint32_t flags = 0)
+    {
+        const DbmCallbacks callbacks = detail::callbacks (backend);
+        return App (dbm_create_controller (&callbacks, controllerId.c_str (), configPath.c_str (), appVersion.c_str (), flags));
     }
 
     ~App () { dbm_destroy (this->app); }
@@ -212,15 +249,14 @@ public:
     void setDefaultDocumentSettings () { dbm_set_default_document_settings (this->app); }
     void setFormattedDocumentSettings (const std::string &data) { dbm_set_formatted_document_settings (this->app, data.c_str ()); }
 
-    std::string getFormattedDocumentSettings ()
-    {
-        char *text = dbm_get_formatted_document_settings (this->app);
-        std::string result = detail::str (text);
-        dbm_free_string (text);
-        return result;
-    }
+    std::string getFormattedDocumentSettings () { return detail::take (dbm_get_formatted_document_settings (this->app)); }
+
+    /** The model setup of the running controller as JSON, see dbm_get_model_setup. */
+    std::string getModelSetup () { return detail::take (dbm_get_model_setup (this->app)); }
 
 private:
+    explicit App (DbmApp *handle) noexcept : app (handle) {}
+
     DbmApp *app{ nullptr };
 };
 

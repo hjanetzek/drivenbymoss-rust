@@ -5,6 +5,7 @@
 //! The configuration of the size of the model (former `ModelSetup`).
 
 use super::constants::DeviceId;
+use crate::json::JsonWriter;
 
 /// The configuration of the model: number of tracks, scenes, sends, parameters, etc.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +64,48 @@ impl Default for ModelSetup {
 impl ModelSetup {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Format the setup as JSON, for hosts which have to create all banks up front (Bitwig). The
+    /// keys are the field names in camel case, as in the Java `ModelSetup`.
+    pub fn to_json(&self) -> String {
+        let mut json = JsonWriter::new();
+        json.begin_object();
+        json.key("hasFlatTrackList").boolean(self.has_flat_track_list);
+        json.key("hasFullFlatTrackList").boolean(self.has_full_flat_track_list);
+        json.key("numTracks").number(self.num_tracks as i64);
+        json.key("numFxTracks").number(self.num_fx_tracks as i64);
+        json.key("numScenes").number(self.num_scenes as i64);
+        json.key("numSends").number(self.num_sends as i64);
+        json.key("wantsClipLauncherNavigator").boolean(self.wants_clip_launcher_navigator);
+        json.key("wantsDrumDevice").boolean(self.wants_drum_device);
+        json.key("additionalDrumDevices").begin_array();
+        for size in &self.additional_drum_devices {
+            json.number(*size as i64);
+        }
+        json.end_array();
+        json.key("numDevicesInBank").number(self.num_devices_in_bank as i64);
+        json.key("numDeviceLayers").number(self.num_device_layers as i64);
+        json.key("numParamPages").number(self.num_param_pages as i64);
+        json.key("numParams").number(self.num_params as i64);
+        json.key("numDrumPadLayers").number(self.num_drum_pad_layers as i64);
+        json.key("numListParams").number(self.num_list_params as i64);
+        json.key("wantsCursorLayer").boolean(self.wants_cursor_layer);
+        json.key("wantsFocusedParameter").boolean(self.wants_focused_parameter);
+        json.key("numFilterColumnEntries").number(self.num_filter_column_entries as i64);
+        json.key("numResults").number(self.num_results as i64);
+        json.key("numMarkers").number(self.num_markers as i64);
+        json.key("deviceIds").begin_array();
+        for id in &self.device_ids {
+            json.string(match id {
+                DeviceId::FirstInstrument => "FIRST_INSTRUMENT",
+                DeviceId::Eq => "EQ",
+                DeviceId::NiKomplete => "NI_KOMPLETE",
+            });
+        }
+        json.end_array();
+        json.end_object();
+        json.finish()
     }
 
     pub fn enable_main_drum_device(&mut self, wants_drum_device: bool) {

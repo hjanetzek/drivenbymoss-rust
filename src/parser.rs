@@ -76,10 +76,6 @@ impl<'a> Parts<'a> {
         self.parts.get(self.pos).copied()
     }
 
-    fn is_empty(&self) -> bool {
-        self.pos >= self.parts.len()
-    }
-
     fn remaining(&self) -> Parts<'a> {
         Parts { parts: self.parts.clone(), pos: self.pos }
     }

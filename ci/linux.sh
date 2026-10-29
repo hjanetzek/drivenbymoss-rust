@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds and tests everything that builds on Linux: the Rust crate, the C++ wrapper, the NI host
-# emulation (dbm-nihost) and the Reaper extension. Needs Rust, CMake, a C++17 compiler and the
-# ALSA headers. Build directories go to $BUILD_DIR (default target/ci).
+# emulation (dbm-nihost), the Reaper extension and the Bitwig extension. Needs Rust, CMake, a
+# C++17 compiler, the ALSA headers, and Maven with a JDK 25 for the Bitwig extension (skipped
+# without Maven). Build directories go to $BUILD_DIR (default target/ci).
 set -e
 cd "$(dirname "$0")/.."
 BUILD_DIR="${BUILD_DIR:-target/ci}"
@@ -20,3 +21,10 @@ ctest --test-dir "$BUILD_DIR/ni_host" --output-on-failure
 echo "--- Reaper extension"
 cmake -S backends/reaper/CMake -B "$BUILD_DIR/reaper" -D CMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD_DIR/reaper"
+
+echo "--- Bitwig extension"
+if command -v mvn >/dev/null; then
+    mvn -q -f backends/bitwig/pom.xml package
+else
+    echo "Maven not found, skipped"
+fi

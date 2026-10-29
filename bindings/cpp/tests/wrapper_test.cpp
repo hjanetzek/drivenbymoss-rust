@@ -27,7 +27,10 @@ public:
     std::vector<std::string> commands;
     std::vector<std::pair<int, std::vector<uint8_t>>> midiOut;
     std::vector<int> opened;
+    std::vector<std::string> logs;
     bool throwOnCommand{ false };
+
+    void log (const std::string &message) override { this->logs.push_back (message); }
 
     void processNoArg (const std::string &processor, const std::string &command) override
     {
@@ -102,6 +105,21 @@ int main (int argc, char **argv)
         CHECK (moved.isValid ());
         CHECK (!app.isValid ());
         moved.tick ();
+    }
+
+    // A single controller on the ports 0 (as for Bitwig)
+    CHECK (dbm::listControllers ().find ("\"model\":\"Launch Control XL\"") != std::string::npos);
+    {
+        RecordingBackend single;
+        dbm::App unknown = dbm::App::forController (single, "unknown", dir, "", DBM_FLAG_HOST_TICK);
+        CHECK (!unknown.isValid ());
+        dbm::App app = dbm::App::forController (single, "5AFA5045-FF92-4737-A091-5B371CD5E529", dir, "Bitwig Studio 5.3", DBM_FLAG_HOST_TICK);
+        CHECK (app.isValid ());
+        CHECK (app.getModelSetup ().empty ());
+        app.startInfrastructure ();
+        CHECK (single.opened == (std::vector<int>{ 0, 0 }));
+        CHECK (app.getModelSetup ().find ("\"numSends\":2") != std::string::npos);
+        CHECK (!single.logs.empty ());
     }
 
     // A second, empty backend with all default (no-op) functions

@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Bitwig Studio extension of the DrivenByMoss Rust core (see doc/BITWIG_BACKEND_PLAN.md).
+
+    mvn package    builds target/DrivenByMoss-Rust.bwextension
+    mvn install    also copies it to ${bitwig.extension.directory}
+
+    The native library is bundled from ../../target/release (a release build of the crate) if it
+    exists (XML comments cannot contain the double dash of the cargo options).
+    Without it, set DBM_DEV_LIBRARY to the library (dev mode).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>de.mossgrabers</groupId>
+    <artifactId>drivenbymoss-rust-bitwig</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+    <name>DrivenByMoss (Rust) for Bitwig Studio</name>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Java 22+ for the Foreign Function & Memory API; Bitwig Studio 6.1 ships Java 25 -->
+        <maven.compiler.release>25</maven.compiler.release>
+        <!-- API 21 runs on Bitwig Studio 5.3 (with a newer JDK) and 6.x; raise when newer API is needed -->
+        <bitwig.api.version>21</bitwig.api.version>
+        <bitwig.extension.directory>${user.home}/Bitwig Studio/Extensions</bitwig.extension.directory>
+        <native.directory>${project.basedir}/../../target/release</native.directory>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>bitwig</id>
+            <name>Bitwig Maven Repository</name>
+            <url>https://maven.bitwig.com</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.bitwig</groupId>
+            <artifactId>extension-api</artifactId>
+            <version>${bitwig.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>DrivenByMoss-Rust</finalName>
+
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- The native library of the current platform -->
+            <resource>
+                <directory>${native.directory}</directory>
+                <targetPath>native/linux-x86_64</targetPath>
+                <includes>
+                    <include>libdrivenbymoss.so</include>
+                </includes>
+            </resource>
+        </resources>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.16.0</version>
+                <configuration>
+                    <compilerArgs>
+                        <arg>-Xlint:all</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.0</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.1</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <!-- Allows the FFM calls without a warning where the JVM honours it -->
+                            <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!-- Install the extension: copy the jar as .bwextension into Bitwig's extension folder -->
+            <plugin>
+                <groupId>com.coderplus.maven.plugins</groupId>
+                <artifactId>copy-rename-maven-plugin</artifactId>
+                <version>1.0.1</version>
+                <executions>
+                    <execution>
+                        <id>install-extension</id>
+                        <phase>install</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <sourceFile>${project.build.directory}/${project.build.finalName}.jar</sourceFile>
+                            <destinationFile>${bitwig.extension.directory}/DrivenByMoss-Rust.bwextension</destinationFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

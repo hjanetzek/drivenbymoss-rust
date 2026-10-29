@@ -80,6 +80,8 @@ typedef struct DbmCallbacks {
                                                     int note_input_index,
                                                     const int *table,
                                                     int count);
+  // A log message of the library (also written to stderr).
+  void (*log)(void *user, const char *message);
 } DbmCallbacks;
 
 #ifdef __cplusplus
@@ -101,6 +103,38 @@ struct DbmApp *dbm_create(const struct DbmCallbacks *callbacks,
                           const char *ini_path,
                           const char *app_version,
                           uint32_t flags);
+
+// Create an instance which runs exactly one controller, for hosts which declare each
+// controller themselves and assign its MIDI ports (Bitwig). `controller_id` is the UUID of the
+// controller (see [`dbm_list_controllers`]); its MIDI input and output are the device IDs 0.
+// `config_path` is the folder of the controller's configuration file. There is no main
+// configuration and no port discovery; `get_midi_inputs`/`get_midi_outputs` are not used.
+// Otherwise like [`dbm_create`]. Returns null if `callbacks` is null or the controller is not
+// supported.
+//
+// # Safety
+// See [`dbm_create`].
+struct DbmApp *dbm_create_controller(const struct DbmCallbacks *callbacks,
+                                     const char *controller_id,
+                                     const char *config_path,
+                                     const char *app_version,
+                                     uint32_t flags);
+
+// The supported controllers as a JSON array: per controller its `uuid`, `vendor`, `model`,
+// `numMidiInPorts`, `numMidiOutPorts` and `discovery`, the port names for the automatic
+// detection per operating system (`windows`, `linux`, `mac`: lists of
+// `{"inputs": [...], "outputs": [...]}`). Release the string with [`dbm_free_string`].
+char *dbm_list_controllers(void);
+
+// The model setup of the running controller as a JSON object: the numbers of tracks, scenes,
+// sends, devices, parameters, etc. that the controller uses (keys as in the Java `ModelSetup`,
+// e.g. `numTracks`). Hosts which create all their objects up front (Bitwig) create them from
+// it. Empty until [`dbm_start_infrastructure`] started the controller. Release the string with
+// [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_get_model_setup(struct DbmApp *app);
 
 // Shutdown all controllers and release the instance. The handle must not be used afterwards.
 // Must not be called from within a callback.

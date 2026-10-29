@@ -16,6 +16,7 @@ pub mod daw;
 pub mod ffi;
 pub mod framework;
 pub mod host;
+pub mod json;
 pub mod midi;
 pub mod parser;
 pub mod scale;

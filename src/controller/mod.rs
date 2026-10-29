@@ -113,3 +113,41 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(launchcontrol::factories());
     factories
 }
+
+/// Find the controller with the given UUID (case is ignored).
+pub fn find_factory(uuid: &str) -> Option<Box<dyn ControllerFactory>> {
+    all_factories().into_iter().find(|f| f.info().uuid.eq_ignore_ascii_case(uuid))
+}
+
+/// The supported controllers as JSON, for hosts which declare each controller themselves
+/// (Bitwig): an array of objects with uuid, vendor, model, the number of MIDI ports and the port
+/// names for the automatic detection per operating system (`windows`, `linux`, `mac`; each a
+/// list of `{"inputs": [...], "outputs": [...]}`).
+pub fn catalog_json() -> String {
+    let mut json = crate::json::JsonWriter::new();
+    json.begin_array();
+    for factory in all_factories() {
+        let info = factory.info();
+        json.begin_object();
+        json.key("uuid").string(&info.uuid);
+        json.key("vendor").string(&info.vendor);
+        json.key("model").string(&info.hardware_model);
+        json.key("numMidiInPorts").number(info.num_midi_in_ports as i64);
+        json.key("numMidiOutPorts").number(info.num_midi_out_ports as i64);
+        json.key("discovery").begin_object();
+        for (key, os) in [("windows", OperatingSystem::Windows), ("linux", OperatingSystem::Linux), ("mac", OperatingSystem::Mac)] {
+            json.key(key).begin_array();
+            for (inputs, outputs) in factory.midi_discovery_pairs(os) {
+                json.begin_object();
+                json.key("inputs").string_array(&inputs);
+                json.key("outputs").string_array(&outputs);
+                json.end_object();
+            }
+            json.end_array();
+        }
+        json.end_object();
+        json.end_object();
+    }
+    json.end_array();
+    json.finish()
+}

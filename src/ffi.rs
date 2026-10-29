@@ -49,6 +49,8 @@ pub struct DbmCallbacks {
     pub set_note_input_filters: Option<extern "C" fn(user: *mut c_void, device_id: c_int, note_input_index: c_int, filters: *const *const c_char, count: c_int)>,
     pub set_note_input_key_translation_table: Option<extern "C" fn(user: *mut c_void, device_id: c_int, note_input_index: c_int, table: *const c_int, count: c_int)>,
     pub set_note_input_velocity_translation_table: Option<extern "C" fn(user: *mut c_void, device_id: c_int, note_input_index: c_int, table: *const c_int, count: c_int)>,
+    /// A log message of the library (also written to stderr).
+    pub log: Option<extern "C" fn(user: *mut c_void, message: *const c_char)>,
 }
 
 /// Converts a Rust string to a C string, removing interior NUL characters.
@@ -201,6 +203,13 @@ impl Backend for FfiBackend {
             f(self.callbacks.user, device_id, note_input_index, table.as_ptr(), table.len() as c_int);
         }
     }
+
+    fn log(&self, message: &str) {
+        let m = c_string(message);
+        if let Some(f) = self.callbacks.log {
+            f(self.callbacks.user, m.as_ptr());
+        }
+    }
 }
 
 /// Holds the application. The application uses `Rc` internally and is therefore not `Send`; it
@@ -319,17 +328,75 @@ pub unsafe extern "C" fn dbm_create(callbacks: *const DbmCallbacks, ini_path: *c
     let callbacks = unsafe { *callbacks };
     let ini_path = unsafe { from_c(ini_path) };
     let app_version = unsafe { from_c(app_version) };
-    let result = std::panic::catch_unwind(|| {
+    new_handle(flags, || {
         let (major, minor) = parse_version(&app_version);
         let backend: Rc<dyn Backend> = Rc::new(FfiBackend { callbacks });
-        App::new(backend, &ini_path, major, minor)
-    });
-    let Ok(app) = result else {
-        eprintln!("[DrivenByMoss] Panic in the Rust library caught.");
+        Some(App::new(backend, &ini_path, major, minor))
+    })
+}
+
+/// Create an instance which runs exactly one controller, for hosts which declare each
+/// controller themselves and assign its MIDI ports (Bitwig). `controller_id` is the UUID of the
+/// controller (see [`dbm_list_controllers`]); its MIDI input and output are the device IDs 0.
+/// `config_path` is the folder of the controller's configuration file. There is no main
+/// configuration and no port discovery; `get_midi_inputs`/`get_midi_outputs` are not used.
+/// Otherwise like [`dbm_create`]. Returns null if `callbacks` is null or the controller is not
+/// supported.
+///
+/// # Safety
+/// See [`dbm_create`].
+#[no_mangle]
+pub unsafe extern "C" fn dbm_create_controller(callbacks: *const DbmCallbacks, controller_id: *const c_char, config_path: *const c_char, app_version: *const c_char, flags: u32) -> *mut DbmApp {
+    if callbacks.is_null() {
         return std::ptr::null_mut();
+    }
+    let callbacks = unsafe { *callbacks };
+    let controller_id = unsafe { from_c(controller_id) };
+    let config_path = unsafe { from_c(config_path) };
+    let app_version = unsafe { from_c(app_version) };
+    new_handle(flags, || {
+        let backend: Rc<dyn Backend> = Rc::new(FfiBackend { callbacks });
+        App::new_single(backend, &config_path, &controller_id, &app_version)
+    })
+}
+
+/// Create the application with the given function and wrap it in a handle. Returns null if the
+/// function returns `None` or panics.
+fn new_handle(flags: u32, create: impl FnOnce() -> Option<App> + std::panic::UnwindSafe) -> *mut DbmApp {
+    let app = match std::panic::catch_unwind(create) {
+        Ok(Some(app)) => app,
+        Ok(None) => return std::ptr::null_mut(),
+        Err(_) => {
+            eprintln!("[DrivenByMoss] Panic in the Rust library caught.");
+            return std::ptr::null_mut();
+        }
     };
     let inner = Arc::new(Inner { app: Mutex::new(AppHolder(Some(app))), timer_running: AtomicBool::new(false) });
     Box::into_raw(Box::new(DbmApp { inner, flags, timer: Mutex::new(None) }))
+}
+
+/// The supported controllers as a JSON array: per controller its `uuid`, `vendor`, `model`,
+/// `numMidiInPorts`, `numMidiOutPorts` and `discovery`, the port names for the automatic
+/// detection per operating system (`windows`, `linux`, `mac`: lists of
+/// `{"inputs": [...], "outputs": [...]}`). Release the string with [`dbm_free_string`].
+#[no_mangle]
+pub extern "C" fn dbm_list_controllers() -> *mut c_char {
+    let json = std::panic::catch_unwind(crate::controller::catalog_json).unwrap_or_else(|_| "[]".to_string());
+    c_string(&json).into_raw()
+}
+
+/// The model setup of the running controller as a JSON object: the numbers of tracks, scenes,
+/// sends, devices, parameters, etc. that the controller uses (keys as in the Java `ModelSetup`,
+/// e.g. `numTracks`). Hosts which create all their objects up front (Bitwig) create them from
+/// it. Empty until [`dbm_start_infrastructure`] started the controller. Release the string with
+/// [`dbm_free_string`].
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_get_model_setup(app: *mut DbmApp) -> *mut c_char {
+    let json = unsafe { with_handle(app, String::new(), |app| app.model_setup_json()) };
+    c_string(&json).into_raw()
 }
 
 /// Shutdown all controllers and release the instance. The handle must not be used afterwards.

@@ -98,6 +98,9 @@ pub trait Backend {
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]);
     fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
+
+    /// A log message of the library. The default ignores it (it is also written to stderr).
+    fn log(&self, _message: &str) {}
 }
 
 /// Convenience wrapper around a backend which is shared by all parts of the model.

@@ -13,7 +13,7 @@ use crate::backend::{Backend, Sender};
 use crate::config::properties::Properties;
 use crate::config::reaper::{apply_document_settings, document_tag, format_document_settings, parse_document_settings, ControllerConfigFile};
 use crate::config::Scope;
-use crate::controller::{all_factories, ControllerFactory, ControllerSetup, MidiPorts, OperatingSystem};
+use crate::controller::{all_factories, find_factory, ControllerFactory, ControllerSetup, MidiPorts, OperatingSystem};
 use crate::framework::ctx::Ctx;
 use crate::host::{Host, MemoryLog, StderrLog, LogSink};
 use crate::parser::{Parser, ParserEvent, UPDATE_NOTE_MAPPING_DELAY_MS};
@@ -28,12 +28,14 @@ const STARTUP_DELAY_MS: u64 = 1000;
 /// Logs to stderr and keeps the messages in memory (displayed with `dbm_display_window`).
 struct AppLog {
     memory: Rc<MemoryLog>,
+    backend: Rc<dyn Backend>,
 }
 
 impl LogSink for AppLog {
     fn log(&self, message: &str) {
         StderrLog.log(message);
         self.memory.log(message);
+        self.backend.log(message);
     }
 }
 
@@ -71,14 +73,34 @@ pub struct App {
     instances: Vec<Instance>,
     devices: Vec<(String, String)>,
     is_started: bool,
+    /// True for a host which runs exactly one controller on its own MIDI ports (Bitwig): there is
+    /// no main configuration, the ports are not discovered and the controller is always enabled.
+    single: bool,
 }
 
 impl App {
     pub fn new(backend: Rc<dyn Backend>, ini_path: &str, major_version: i32, minor_version: i32) -> Self {
+        let mut app = Self::create(backend, ini_path, false);
+        app.host.println(&format!("DrivenByMoss (Rust) starting, Reaper {major_version}.{minor_version}"));
+        app.load_instances();
+        app
+    }
+
+    /// Create the application for exactly one controller, identified by the UUID of its
+    /// definition. The controller uses the host's MIDI ports 0. Returns `None` if the controller
+    /// is not supported.
+    pub fn new_single(backend: Rc<dyn Backend>, config_path: &str, uuid: &str, app_version: &str) -> Option<Self> {
+        let factory = find_factory(uuid)?;
+        let mut app = Self::create(backend, config_path, true);
+        app.host.println(&format!("DrivenByMoss (Rust) starting {}, {app_version}", factory.info()));
+        app.add_instance(factory);
+        Some(app)
+    }
+
+    fn create(backend: Rc<dyn Backend>, ini_path: &str, single: bool) -> Self {
         let log = Rc::new(MemoryLog::default());
-        let host = Host::new(Rc::new(AppLog { memory: log.clone() }));
-        host.println(&format!("DrivenByMoss (Rust) starting, Reaper {major_version}.{minor_version}"));
-        let mut app = App {
+        let host = Host::new(Rc::new(AppLog { memory: log.clone(), backend: backend.clone() }));
+        App {
             host,
             sender: Sender::new(backend),
             log,
@@ -86,9 +108,8 @@ impl App {
             instances: Vec::new(),
             devices: Vec::new(),
             is_started: false,
-        };
-        app.load_instances();
-        app
+            single,
+        }
     }
 
     fn main_config_path(&self) -> PathBuf {
@@ -143,6 +164,9 @@ impl App {
 
     /// Add a controller of the given hardware model (only one instance per type).
     pub fn add_controller(&mut self, hardware_model: &str) -> bool {
+        if self.single {
+            return false;
+        }
         if self.instances.iter().any(|i| i.hardware_model() == hardware_model) {
             self.host.println("Only one instance of a controller type is supported!");
             return false;
@@ -196,6 +220,9 @@ impl App {
 
     /// Get the configured MIDI ports of an instance, try to detect them if not configured.
     fn resolve_ports(&mut self, index: usize) -> Option<MidiPorts> {
+        if self.single {
+            return Some(MidiPorts { input: 0, output: 0 });
+        }
         let inputs = self.sender.backend().midi_inputs();
         let outputs = self.sender.backend().midi_outputs();
         let instance = &mut self.instances[index];
@@ -233,7 +260,7 @@ impl App {
             return;
         }
         let name = self.instances[index].factory.info().to_string();
-        if !self.instances[index].config_file.is_enabled() {
+        if !self.single && !self.instances[index].config_file.is_enabled() {
             self.host.println(&format!("{name}: Deactivated."));
             return;
         }
@@ -403,6 +430,14 @@ impl App {
     /// Number of configured controller instances.
     pub fn instance_count(&self) -> usize {
         self.instances.len()
+    }
+
+    /// The model setup of the first running instance as JSON (see [`ModelSetup::to_json`]), or
+    /// an empty string if no instance is running.
+    ///
+    /// [`ModelSetup::to_json`]: crate::daw::model_setup::ModelSetup::to_json
+    pub fn model_setup_json(&self) -> String {
+        self.instances.iter().find_map(|i| i.running.as_ref()).map(|r| r.ctx.model.setup().to_json()).unwrap_or_default()
     }
 
     /// Access the context of a running instance (for tests).
