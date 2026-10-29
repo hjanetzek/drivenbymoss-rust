@@ -95,11 +95,12 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
 
 ## 8. Known issues
 
-- **Maschine Mk2, Shift view plays notes:** Shift (STEP LEFT on the Mk2) shows the Shift view
-  with the undo/redo pads. Undo and redo are executed, but the pads also play their MIDI notes
-  into Bitwig. Probably the note input still passes the pads through while the Shift view is
-  active (the key translation table should block them, as the Java version does); to be
-  investigated. Found 2026-10-29.
+- **Maschine Mk2, Shift view plays notes** (fixed 2026-10-29, to be confirmed): Shift (STEP
+  LEFT on the Mk2) shows the Shift view with the undo/redo pads; the pads also played their MIDI
+  notes. Not specific to Bitwig: the port's views kept the key translation table of the previous
+  view, since the default `update_note_mapping` did nothing and was not called on activation.
+  Now, as `AbstractView` of the Java version, activating a view calls `update_note_mapping`,
+  whose default blocks the pads.
 - **Launch Control XL, Layer Mix (3rd factory template):** in a first test only the knobs
   changed a panning, of an unknown target; the layers were not followed. To be investigated with
   the OSC monitor (which commands arrive, `/primary/hasDrumPads` and `hasLayers` of the tested

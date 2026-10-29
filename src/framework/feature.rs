@@ -62,8 +62,14 @@ pub trait View: Any {
         ctx.update_active_mode_display();
     }
 
-    /// Update the key translation table, e.g. after the scale has changed.
-    fn update_note_mapping(&mut self, _ctx: &mut Ctx) {}
+    /// Update the key translation table, e.g. after the scale has changed. Also called when the
+    /// view is activated (after [`View::on_activate`]). The default blocks all notes from the
+    /// pads (former `AbstractView.updateNoteMapping` with `EMPTY_TABLE`), so that a view which
+    /// does not play notes does not keep the table of the previous view.
+    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
+        let table = ctx.model.scales().translate_matrix_to_grid(&crate::scale::Scales::empty_matrix());
+        ctx.surface.set_key_translation_table(table.to_vec());
+    }
 
     fn select_track(&mut self, ctx: &mut Ctx, index: usize) {
         ctx.model.current_track_bank_mut().item_mut(index).select();

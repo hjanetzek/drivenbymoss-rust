@@ -137,15 +137,15 @@ impl Ctx {
     }
 
     pub fn set_active_view(&mut self, id: Views) {
-        set_active::<Views, dyn View, _>(self, Some(id), Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        set_active::<Views, dyn View, _>(self, Some(id), Self::views_of, activate_view, |v, c| v.on_deactivate(c));
     }
 
     pub fn set_temporary_view(&mut self, id: Views) {
-        set_temporary::<Views, dyn View, _>(self, id, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        set_temporary::<Views, dyn View, _>(self, id, Self::views_of, activate_view, |v, c| v.on_deactivate(c));
     }
 
     pub fn restore_view(&mut self) {
-        restore::<Views, dyn View, _>(self, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        restore::<Views, dyn View, _>(self, Self::views_of, activate_view, |v, c| v.on_deactivate(c));
     }
 
     fn views_of(ctx: &mut Ctx) -> &mut ViewManager {
@@ -791,4 +791,11 @@ fn restore<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized, A: Fn(&mut Ctx) 
     if let Some(new_id) = new_id {
         notify(ctx, access, Some(old_id), new_id);
     }
+}
+
+/// Activate a view: `on_activate`, then `update_note_mapping` (former `AbstractView.onActivate`,
+/// which calls `updateNoteMapping`).
+fn activate_view(view: &mut dyn View, ctx: &mut Ctx) {
+    view.on_activate(ctx);
+    view.update_note_mapping(ctx);
 }
