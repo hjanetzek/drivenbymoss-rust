@@ -4,7 +4,9 @@
 
 //! The supported controllers.
 
+pub mod launchcontrol;
 pub mod launchpad;
+pub mod maschine;
 
 use crate::framework::ctx::Ctx;
 
@@ -106,5 +108,8 @@ pub trait ControllerFactory {
 
 /// All supported controllers.
 pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
-    launchpad::factories()
+    let mut factories = launchpad::factories();
+    factories.extend(maschine::factories());
+    factories.extend(launchcontrol::factories());
+    factories
 }

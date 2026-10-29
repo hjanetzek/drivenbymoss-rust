@@ -109,6 +109,18 @@ pub trait View: Any {
     /// Former `AbstractSequencerView.onRight` (next page of the clip).
     fn on_sequencer_right(&mut self, _ctx: &mut Ctx, _event: ButtonEvent) {}
 
+    /// Former `instanceof AbstractSequencerView` + `getResolutionIndex`: the index of the
+    /// sequencer resolution (0-7), `None` if the view is not a sequencer.
+    fn sequencer_resolution_index(&self, _ctx: &Ctx) -> Option<usize> {
+        None
+    }
+
+    /// Former `instanceof AbstractSequencerView` + `setResolutionIndex`: set the index of the
+    /// sequencer resolution (0-7). Returns false if the view is not a sequencer.
+    fn set_sequencer_resolution_index(&mut self, _ctx: &mut Ctx, _index: i32) -> bool {
+        false
+    }
+
     /// Former `AbstractSessionView.isBirdsEyeActive`.
     fn is_birds_eye_active(&self) -> bool {
         false

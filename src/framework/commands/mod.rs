@@ -10,3 +10,6 @@ pub mod cursor;
 pub mod mv_helper;
 pub mod transport;
 pub mod view;
+pub mod mode;
+pub mod transport_ext;
+pub mod misc;

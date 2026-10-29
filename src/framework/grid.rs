@@ -43,6 +43,30 @@ pub enum BlinkMode {
     Channels,
     /// Collect the blink states, the controller sends them on flush (e.g. as sysex).
     Collect,
+    /// The pad states are collected and sent with [`PadGrid::flush_blinking`]; blinking is
+    /// emulated by toggling between the color and the blink color every 600ms (former
+    /// `BlinkingPadGrid`, e.g. Maschine).
+    Emulated,
+}
+
+/// The speed of the emulated blinking in milliseconds (former `BlinkingPadGrid.BLINK_SPEED`).
+pub const BLINK_SPEED: u128 = 600;
+
+/// The state of the emulated blinking (former `BlinkingPadGrid`).
+#[derive(Debug, Clone)]
+pub struct BlinkingState {
+    /// The pad states which were changed since the last flush (by controller note).
+    pub pad_infos: BTreeMap<i32, LightInfo>,
+    /// The pads which are currently blinking (by controller note).
+    pub blinking_lights: BTreeMap<i32, LightInfo>,
+    pub is_blink: bool,
+    pub update_time: std::time::Instant,
+}
+
+impl Default for BlinkingState {
+    fn default() -> Self {
+        BlinkingState { pad_infos: BTreeMap::new(), blinking_lights: BTreeMap::new(), is_blink: false, update_time: std::time::Instant::now() }
+    }
 }
 
 /// Translates a grid note into a (MIDI channel, MIDI note) pair of the controller.
@@ -66,6 +90,8 @@ pub struct PadGrid {
     blink_mode: BlinkMode,
     /// The collected blink states (only used with [`BlinkMode::Collect`]).
     pub pending_blinks: BTreeMap<i32, LightInfo>,
+    /// The state of the emulated blinking (only used with [`BlinkMode::Emulated`]).
+    pub blinking: BlinkingState,
 }
 
 impl PadGrid {
@@ -80,6 +106,7 @@ impl PadGrid {
             translation: default_translation,
             blink_mode: BlinkMode::Channels,
             pending_blinks: BTreeMap::new(),
+            blinking: BlinkingState::default(),
         }
     }
 
@@ -182,11 +209,22 @@ impl PadGrid {
         let state = self.light_info(note);
         let (channel, controller_note) = self.translate_to_controller(note);
         let channel = channel.max(0);
+        if self.blink_mode == BlinkMode::Emulated {
+            // Former BlinkingPadGrid.sendNoteState/sendBlinkState
+            let info = self.blinking.pad_infos.entry(controller_note).or_insert(LightInfo { color: 0, blink_color: -1, fast: false });
+            info.color = state.color.max(0);
+            if state.blink_color > 0 && state.blink_color < 128 {
+                info.blink_color = state.blink_color;
+                info.fast = state.fast;
+            }
+            return;
+        }
         output.send_note_ex(channel, controller_note, state.color.max(0));
         let blink_color = state.blink_color;
         if blink_color > 0 && blink_color < 128 {
             match self.blink_mode {
                 BlinkMode::Channels => output.send_note_ex(if state.fast { 14 } else { 10 }, controller_note, blink_color),
+                BlinkMode::Emulated => {}
                 BlinkMode::Collect => {
                     let info = self.pending_blinks.entry(controller_note).or_default();
                     info.blink_color = blink_color;
@@ -194,6 +232,45 @@ impl PadGrid {
                 }
             }
         }
+    }
+}
+
+impl PadGrid {
+    /// Send the changed pad states and toggle the colors of the blinking pads every 600ms
+    /// (former `BlinkingPadGrid.flush`). Only used with [`BlinkMode::Emulated`].
+    pub fn flush_blinking(&mut self, output: &MidiOutput) {
+        let infos = std::mem::take(&mut self.blinking.pad_infos);
+        for (note, info) in infos {
+            Self::send_pad_update(output, note, info.color);
+            if info.blink_color > 0 {
+                self.blinking.blinking_lights.insert(note, info);
+            } else {
+                self.blinking.blinking_lights.remove(&note);
+            }
+        }
+
+        // Toggle blink colors every 600ms
+        if !self.check_blinking() {
+            return;
+        }
+        for (note, info) in &self.blinking.blinking_lights {
+            let color_index = if self.blinking.is_blink { info.blink_color } else { info.color };
+            Self::send_pad_update(output, *note, color_index);
+        }
+    }
+
+    fn check_blinking(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        if now.duration_since(self.blinking.update_time).as_millis() > BLINK_SPEED {
+            self.blinking.update_time = now;
+            self.blinking.is_blink = !self.blinking.is_blink;
+            return true;
+        }
+        false
+    }
+
+    fn send_pad_update(output: &MidiOutput, note: i32, color_index: i32) {
+        output.send_note_ex(0, note, color_index);
     }
 }
 
@@ -209,6 +286,29 @@ mod tests {
         assert_eq!(grid.light_info(36 + 56).color, 5);
         grid.light_ex(7, 7, 6);
         assert_eq!(grid.light_info(43).color, 6);
+    }
+
+    #[test]
+    fn emulated_blinking() {
+        use crate::backend::{BackendCall, RecordingBackend, Sender};
+        let backend = std::rc::Rc::new(RecordingBackend::default());
+        let output = MidiOutput::new(Sender::new(backend.clone()), Some(1));
+        let colors = ColorManager::new();
+        let mut grid = PadGrid::new(&colors, 4, 4, 36).with_blink_mode(BlinkMode::Emulated);
+        grid.light_blink(36, 5, 7, false);
+        grid.light(37, 3);
+        grid.send_state(&output, 36);
+        grid.send_state(&output, 37);
+        assert!(backend.take_calls().is_empty());
+        grid.flush_blinking(&output);
+        let calls = backend.take_calls();
+        assert_eq!(calls.len(), 2);
+        assert!(matches!(&calls[0], BackendCall::SendMidi(1, data) if data == &vec![0x90, 36, 5]));
+        assert_eq!(grid.blinking.blinking_lights.len(), 1);
+        grid.blinking.update_time -= std::time::Duration::from_millis(700);
+        grid.flush_blinking(&output);
+        let calls = backend.take_calls();
+        assert!(matches!(&calls[0], BackendCall::SendMidi(1, data) if data == &vec![0x90, 36, 7]));
     }
 
     #[test]

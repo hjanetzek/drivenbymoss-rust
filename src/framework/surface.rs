@@ -120,6 +120,9 @@ pub enum ContinuousKind {
     RelativeKnob,
 }
 
+/// Is called when a value is received for a continuous control.
+pub type ChangedObserver = Rc<dyn Fn(&mut Ctx)>;
+
 /// A knob or fader.
 pub struct HwContinuous {
     pub id: ContinuousId,
@@ -129,6 +132,11 @@ pub struct HwContinuous {
     pub touch_command: Option<SharedTrigger>,
     pub binding: Option<(BindType, i32, i32)>,
     pub is_touched: bool,
+    /// If set, the control changes the parameter directly instead of executing the command
+    /// (former `IHwContinuousControl.bind (IParameter)`), see `AbstractParameterMode`.
+    pub parameter: Option<crate::framework::parameterprovider::ParamRef>,
+    /// Called whenever a value is received for the control (former `addHasChangedObserver`).
+    pub changed_observer: Option<ChangedObserver>,
 }
 
 /// Translates a trigger (button LED) update into MIDI. The default sends a note or CC depending
@@ -158,6 +166,9 @@ pub struct Surface {
     pub(crate) update_requested: bool,
     pub(crate) is_shutting_down: bool,
     last_notification: Option<String>,
+    /// The button which acts as the Shift button (e.g. the Maschine Mk2 uses Stop), see
+    /// [`Surface::is_shift_pressed`].
+    pub shift_button: ButtonId,
 }
 
 impl Surface {
@@ -175,6 +186,7 @@ impl Surface {
             update_requested: false,
             is_shutting_down: false,
             last_notification: None,
+            shift_button: ButtonId::Shift,
         }
     }
 
@@ -255,13 +267,35 @@ impl Surface {
     pub fn create_continuous(&mut self, id: ContinuousId, label: &str, kind: ContinuousKind) -> &mut HwContinuous {
         self.continuous.insert(
             id,
-            HwContinuous { id, label: label.to_string(), kind, command: None, touch_command: None, binding: None, is_touched: false },
+            HwContinuous {
+                id,
+                label: label.to_string(),
+                kind,
+                command: None,
+                touch_command: None,
+                binding: None,
+                is_touched: false,
+                parameter: None,
+                changed_observer: None,
+            },
         );
         self.continuous.get_mut(&id).unwrap()
     }
 
     pub fn continuous(&self, id: ContinuousId) -> Option<&HwContinuous> {
         self.continuous.get(&id)
+    }
+
+    pub fn continuous_mut(&mut self, id: ContinuousId) -> Option<&mut HwContinuous> {
+        self.continuous.get_mut(&id)
+    }
+
+    /// Bind a control to a parameter (or remove the binding with `None`). While bound, the
+    /// values of the control change the parameter instead of executing its command.
+    pub fn bind_continuous_parameter(&mut self, id: ContinuousId, parameter: Option<crate::framework::parameterprovider::ParamRef>) {
+        if let Some(control) = self.continuous.get_mut(&id) {
+            control.parameter = parameter;
+        }
     }
 
     pub fn bind_continuous(&mut self, id: ContinuousId, bind_type: BindType, channel: i32, control: i32) {
@@ -280,7 +314,7 @@ impl Surface {
     }
 
     pub fn is_shift_pressed(&self) -> bool {
-        self.is_pressed(ButtonId::Shift)
+        self.is_pressed(self.shift_button)
     }
 
     pub fn is_select_pressed(&self) -> bool {

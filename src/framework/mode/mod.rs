@@ -5,3 +5,9 @@
 //! Generic modes (former `framework.mode`).
 pub mod note_editor;
 pub mod track;
+pub mod parameter_mode;
+pub mod device;
+pub mod dummy;
+pub mod layer;
+pub mod master;
+pub mod sequencer;

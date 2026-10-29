@@ -18,3 +18,5 @@ pub mod commands;
 pub mod mode;
 pub mod chord_identifier;
 pub mod virtual_fader;
+pub mod display;
+pub mod parameterprovider;

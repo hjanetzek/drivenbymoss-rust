@@ -12,11 +12,10 @@
 //! `TrackMuteMode::new(ctx)`.
 //!
 //! Simplifications compared to Java:
-//! - The parameter providers (`VolumeParameterProvider` etc.), which bind hardware knobs directly
-//!   to parameters, are not ported. None of the ported controllers uses them (the Launchpad has
-//!   no knobs; it uses the modes for its button rows). The knob functions (`on_knob_value`,
-//!   `knob_value`, `on_knob_touch`) work on the tracks directly, like the Java modes without
-//!   controls.
+//! - Modes created with controls (e.g. `TrackVolumeMode::new_with_controls`) bind the controls
+//!   to the parameters of their provider (`VolumeParameterProvider` etc.) while active. Without
+//!   controls (e.g. the Launchpad, which uses the modes for its button rows) the knob functions
+//!   (`on_knob_value`, `knob_value`, `on_knob_touch`) work on the tracks directly.
 //! - The bank is always the current track bank of the model (Java switches it with a track bank
 //!   observer).
 //! - The clip launcher navigator is not used (it is only created on request of the model setup,
@@ -29,7 +28,11 @@ use crate::daw::track::Track;
 use crate::framework::commands::clip::NewCommand;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::Mode;
-use crate::framework::ids::ButtonId;
+use crate::framework::ids::{ButtonId, ContinuousId};
+use crate::framework::mode::parameter_mode::ParameterBinding;
+use crate::framework::parameterprovider::{
+    provider, PanParameterProvider, SelectedTrackParameterProvider, SendParameterProvider, SharedProvider, VolumeParameterProvider,
+};
 use crate::midi::ButtonEvent;
 
 /// The mode specific functions of a track mode.
@@ -47,6 +50,11 @@ pub trait TrackModeBehavior: 'static {
     }
 
     fn on_knob_touch(_ctx: &mut Ctx, _track_index: usize, _is_touched: bool, _send_index: i32) {}
+
+    /// The provider for the parameters which are bound to the controls of the mode.
+    fn parameter_provider(_ctx: &Ctx, _send_index: i32) -> Option<SharedProvider> {
+        None
+    }
 }
 
 fn track_mut(ctx: &mut Ctx, index: usize) -> &mut Track {
@@ -66,12 +74,27 @@ pub struct DefaultTrackMode<B: TrackModeBehavior> {
     send_index: i32,
     /// If true, the bank is scrolled instead of selecting the previous/next item.
     pub scroll_bank: bool,
+    /// The controls which are bound to the parameters of the provider of the behavior.
+    pub binding: ParameterBinding,
     behavior: PhantomData<B>,
 }
 
 impl<B: TrackModeBehavior> DefaultTrackMode<B> {
     pub fn with_name(name: &str, is_absolute: bool, send_index: i32) -> Self {
-        DefaultTrackMode { name: name.to_string(), is_absolute, send_index, scroll_bank: false, behavior: PhantomData }
+        DefaultTrackMode { name: name.to_string(), is_absolute, send_index, scroll_bank: false, binding: ParameterBinding::new(Vec::new()), behavior: PhantomData }
+    }
+
+    /// A mode which binds the controls to the parameters of the provider of the behavior while
+    /// it is active (former constructors with a list of controls).
+    pub fn with_name_and_controls(ctx: &Ctx, name: &str, is_absolute: bool, send_index: i32, controls: Vec<ContinuousId>) -> Self {
+        let mode = Self::with_name(name, is_absolute, send_index);
+        if !controls.is_empty() {
+            mode.binding.set_controls(controls);
+            if let Some(provider) = B::parameter_provider(ctx, send_index) {
+                mode.binding.set_provider(ctx, provider);
+            }
+        }
+        mode
     }
 
     pub fn is_absolute(&self) -> bool {
@@ -119,6 +142,16 @@ impl<B: TrackModeBehavior> DefaultTrackMode<B> {
 impl<B: TrackModeBehavior> Mode for DefaultTrackMode<B> {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn on_activate(&mut self, ctx: &mut Ctx) {
+        self.binding.set_active(true);
+        self.binding.bind_controls(ctx);
+    }
+
+    fn on_deactivate(&mut self, ctx: &mut Ctx) {
+        self.binding.set_active(false);
+        self.binding.unbind_controls(ctx);
     }
 
     fn on_button(&mut self, ctx: &mut Ctx, row: usize, index: usize, event: ButtonEvent) {
@@ -267,6 +300,10 @@ impl TrackModeBehavior for VolumeBehavior {
         track(ctx, track_index).volume()
     }
 
+    fn parameter_provider(ctx: &Ctx, _send_index: i32) -> Option<SharedProvider> {
+        Some(provider(VolumeParameterProvider::new(ctx)))
+    }
+
     fn on_knob_touch(ctx: &mut Ctx, track_index: usize, is_touched: bool, _send_index: i32) {
         let is_delete = ctx.surface.is_delete_pressed();
         let track = track_mut(ctx, track_index);
@@ -291,6 +328,10 @@ impl TrackModeBehavior for PanBehavior {
 
     fn knob_value(ctx: &Ctx, track_index: usize, _send_index: i32) -> i32 {
         track(ctx, track_index).pan()
+    }
+
+    fn parameter_provider(ctx: &Ctx, _send_index: i32) -> Option<SharedProvider> {
+        Some(provider(PanParameterProvider::new(ctx)))
     }
 
     fn on_knob_touch(ctx: &mut Ctx, track_index: usize, is_touched: bool, _send_index: i32) {
@@ -327,6 +368,10 @@ impl TrackModeBehavior for SendBehavior {
         }
     }
 
+    fn parameter_provider(ctx: &Ctx, send_index: i32) -> Option<SharedProvider> {
+        (send_index >= 0).then(|| provider(SendParameterProvider::new(ctx, send_index, 0)))
+    }
+
     fn on_knob_touch(ctx: &mut Ctx, track_index: usize, is_touched: bool, send_index: i32) {
         let Ok(send_index) = usize::try_from(send_index) else {
             return;
@@ -342,6 +387,100 @@ impl TrackModeBehavior for SendBehavior {
     }
 }
 
+/// Edits volume, panorama and the sends of the selected track with the knobs (former
+/// `TrackMode`). The index of the knob functions is the parameter index: 0 = volume, 1 = pan,
+/// 2.. = sends.
+pub struct TrackBehavior;
+impl TrackModeBehavior for TrackBehavior {
+    fn on_knob_value(ctx: &mut Ctx, index: usize, value: i32, is_absolute: bool, _send_index: i32) {
+        let Some(track) = ctx.model.current_track_bank_mut().selected_item_mut() else {
+            return;
+        };
+        match index {
+            0 => {
+                if is_absolute {
+                    track.set_volume(value);
+                } else {
+                    track.change_volume(value);
+                }
+            }
+            1 => {
+                if is_absolute {
+                    track.set_pan(value);
+                } else {
+                    track.change_pan(value);
+                }
+            }
+            _ => {
+                let send_bank = track.send_bank_mut();
+                if !send_bank.has_existing_items() {
+                    return;
+                }
+                let send = send_bank.item_mut(index - 2);
+                if is_absolute {
+                    send.set_value(value);
+                } else {
+                    send.change_value(value);
+                }
+            }
+        }
+    }
+
+    fn knob_value(ctx: &Ctx, index: usize, _send_index: i32) -> i32 {
+        let Some(track) = ctx.model.current_track_bank().selected_item() else {
+            return -1;
+        };
+        match index {
+            0 => track.volume(),
+            1 => track.pan(),
+            _ => {
+                let send_bank = track.send_bank();
+                if send_bank.has_existing_items() {
+                    send_bank.item(index - 2).value()
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    fn on_knob_touch(ctx: &mut Ctx, index: usize, is_touched: bool, _send_index: i32) {
+        let is_delete = ctx.surface.is_delete_pressed();
+        let Some(track) = ctx.model.current_track_bank_mut().selected_item_mut() else {
+            return;
+        };
+        match index {
+            0 => {
+                if is_touched && is_delete {
+                    track.reset_volume();
+                }
+                track.touch_volume(is_touched);
+            }
+            1 => {
+                if is_touched && is_delete {
+                    track.reset_pan();
+                }
+                track.touch_pan(is_touched);
+            }
+            _ => {
+                let send_bank = track.send_bank_mut();
+                if !send_bank.has_existing_items() {
+                    return;
+                }
+                let item = send_bank.item_mut(index - 2);
+                if is_touched && is_delete {
+                    item.reset_value();
+                }
+                item.touch_value(is_touched);
+            }
+        }
+    }
+
+    fn parameter_provider(ctx: &Ctx, _send_index: i32) -> Option<SharedProvider> {
+        Some(provider(SelectedTrackParameterProvider::new(ctx)))
+    }
+}
+
 // ------------------------------------------------------------------------------------------
 // The concrete modes
 
@@ -353,6 +492,17 @@ pub type TrackStopClipMode = DefaultTrackMode<StopClipBehavior>;
 pub type TrackVolumeMode = DefaultTrackMode<VolumeBehavior>;
 pub type TrackPanMode = DefaultTrackMode<PanBehavior>;
 pub type TrackSendMode = DefaultTrackMode<SendBehavior>;
+pub type TrackMode = DefaultTrackMode<TrackBehavior>;
+
+impl DefaultTrackMode<TrackBehavior> {
+    pub fn new(_ctx: &Ctx, is_absolute: bool) -> Self {
+        Self::with_name("Track", is_absolute, -1)
+    }
+
+    pub fn new_with_controls(ctx: &Ctx, is_absolute: bool, controls: Vec<ContinuousId>) -> Self {
+        Self::with_name_and_controls(ctx, "Track", is_absolute, -1, controls)
+    }
+}
 
 impl DefaultTrackMode<SelectBehavior> {
     pub fn new(_ctx: &Ctx) -> Self {
@@ -388,11 +538,19 @@ impl DefaultTrackMode<VolumeBehavior> {
     pub fn new(_ctx: &Ctx, is_absolute: bool) -> Self {
         Self::with_name("Volume", is_absolute, -1)
     }
+
+    pub fn new_with_controls(ctx: &Ctx, is_absolute: bool, controls: Vec<ContinuousId>) -> Self {
+        Self::with_name_and_controls(ctx, "Volume", is_absolute, -1, controls)
+    }
 }
 
 impl DefaultTrackMode<PanBehavior> {
     pub fn new(_ctx: &Ctx, is_absolute: bool) -> Self {
         Self::with_name("Panning", is_absolute, -1)
+    }
+
+    pub fn new_with_controls(ctx: &Ctx, is_absolute: bool, controls: Vec<ContinuousId>) -> Self {
+        Self::with_name_and_controls(ctx, "Panning", is_absolute, -1, controls)
     }
 }
 
@@ -400,6 +558,10 @@ impl DefaultTrackMode<SendBehavior> {
     /// A negative send index (as used by the Launchpad) creates a mode without a send.
     pub fn new(send_index: i32, _ctx: &Ctx, is_absolute: bool) -> Self {
         Self::with_name(&format!("Send {}", send_index + 1), is_absolute, send_index)
+    }
+
+    pub fn new_with_controls(send_index: i32, ctx: &Ctx, is_absolute: bool, controls: Vec<ContinuousId>) -> Self {
+        Self::with_name_and_controls(ctx, &format!("Send {}", send_index + 1), is_absolute, send_index, controls)
     }
 
     pub fn send_index(&self) -> i32 {

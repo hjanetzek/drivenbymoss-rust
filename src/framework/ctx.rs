@@ -23,6 +23,11 @@ use crate::daw::model::Model;
 use crate::host::{Host, Scheduler};
 use crate::midi::{BindType, ButtonEvent, MidiDispatch, CMD_CC, CMD_CHANNEL_AFTERTOUCH, CMD_NOTE_OFF, CMD_NOTE_ON, CMD_POLY_AFTERTOUCH};
 
+/// The index of a mode manager, see [`Ctx::mode_manager`].
+pub type ModeManagerId = usize;
+/// The index of the main mode manager ([`Ctx::modes`]).
+pub const MAIN_MODE_MANAGER: ModeManagerId = 0;
+
 /// Handles MIDI messages which are not bound to a control (status, data1, data2).
 pub type MidiHandler = Rc<dyn Fn(&mut Ctx, i32, i32, i32)>;
 /// Handles incoming system exclusive messages (as an upper case hex string).
@@ -37,6 +42,9 @@ pub struct Ctx {
     pub surface: Surface,
     pub views: ViewManager,
     pub modes: ModeManager,
+    /// Additional mode managers (index 1.. of [`Ctx::mode_manager`]), e.g. for the button rows
+    /// or the faders of a controller. Index 0 is [`Ctx::modes`].
+    pub extra_modes: Vec<ModeManager>,
     pub colors: ColorManager,
     pub scheduler: Scheduler<Ctx>,
     /// Handler for MIDI messages which are not bound to a control.
@@ -46,6 +54,9 @@ pub struct Ctx {
     pub notify_view_change: bool,
     /// Controller specific state, use [`Ctx::ext`] to access it.
     pub ext: Box<dyn Any>,
+    /// The text display of the controller, if any. Notifications are shown on it instead of
+    /// the host.
+    pub text_display: Option<super::display::TextDisplay>,
 }
 
 impl Ctx {
@@ -58,12 +69,14 @@ impl Ctx {
             surface,
             views: FeatureGroupManager::default(),
             modes: FeatureGroupManager::default(),
+            extra_modes: Vec::new(),
             colors,
             scheduler: Scheduler::default(),
             midi_handler: None,
             sysex_handler: None,
             notify_view_change: true,
             ext: Box::new(()),
+            text_display: None,
         }
     }
 
@@ -74,6 +87,15 @@ impl Ctx {
 
     pub fn ext_mut<T: 'static>(&mut self) -> &mut T {
         self.ext.downcast_mut::<T>().expect("Wrong controller extension type")
+    }
+
+    /// Removes the notification from the text display when the notification time is over.
+    fn watch_notification(ctx: &mut Ctx) {
+        if let Some(display) = &mut ctx.text_display {
+            if display.watch() {
+                ctx.schedule(super::display::NOTIFICATION_WATCH_INTERVAL as u64, Self::watch_notification);
+            }
+        }
     }
 
     /// Execute a task after the given delay in milliseconds.
@@ -89,8 +111,15 @@ impl Ctx {
         }
     }
 
-    /// Show a notification (the Launchpad has no display, the notification is shown by the host).
+    /// Show a notification on the text display. Without a text display (e.g. the Launchpad) the
+    /// notification is shown by the host.
     pub fn notify(&mut self, message: &str) {
+        if let Some(display) = &mut self.text_display {
+            if display.notify(message) {
+                self.schedule(super::display::NOTIFICATION_WATCH_INTERVAL as u64, Self::watch_notification);
+            }
+            return;
+        }
         if self.surface.check_notification(message) {
             self.host.show_notification(message);
         }
@@ -108,15 +137,15 @@ impl Ctx {
     }
 
     pub fn set_active_view(&mut self, id: Views) {
-        set_active::<Views, dyn View>(self, Some(id), Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        set_active::<Views, dyn View, _>(self, Some(id), Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
     }
 
     pub fn set_temporary_view(&mut self, id: Views) {
-        set_temporary::<Views, dyn View>(self, id, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        set_temporary::<Views, dyn View, _>(self, id, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
     }
 
     pub fn restore_view(&mut self) {
-        restore::<Views, dyn View>(self, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
+        restore::<Views, dyn View, _>(self, Self::views_of, |v, c| v.on_activate(c), |v, c| v.on_deactivate(c));
     }
 
     fn views_of(ctx: &mut Ctx) -> &mut ViewManager {
@@ -215,15 +244,15 @@ impl Ctx {
     }
 
     pub fn set_active_mode(&mut self, id: Modes) {
-        set_active::<Modes, dyn Mode>(self, Some(id), Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+        set_active::<Modes, dyn Mode, _>(self, Some(id), Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
     }
 
     pub fn set_temporary_mode(&mut self, id: Modes) {
-        set_temporary::<Modes, dyn Mode>(self, id, Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+        set_temporary::<Modes, dyn Mode, _>(self, id, Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
     }
 
     pub fn restore_mode(&mut self) {
-        restore::<Modes, dyn Mode>(self, Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+        restore::<Modes, dyn Mode, _>(self, Self::modes_of, |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
     }
 
     fn modes_of(ctx: &mut Ctx) -> &mut ModeManager {
@@ -233,6 +262,60 @@ impl Ctx {
     /// Get the color of a button from the active mode.
     pub fn mode_button_color(&self, id: ButtonId) -> i32 {
         self.modes.active().map(|m| m.borrow().button_color(self, id)).unwrap_or(0)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Additional mode managers (e.g. the Java `getTrackButtonModeManager` and
+    // `getFaderModeManager` of the Launch Control XL). Index [`MAIN_MODE_MANAGER`] (0) is
+    // [`Ctx::modes`].
+
+    /// Add a mode manager and return its index.
+    pub fn add_mode_manager(&mut self) -> ModeManagerId {
+        self.extra_modes.push(FeatureGroupManager::default());
+        self.extra_modes.len()
+    }
+
+    /// Get the mode manager with the given index (0 is the main mode manager).
+    pub fn mode_manager(&self, manager: ModeManagerId) -> &ModeManager {
+        if manager == MAIN_MODE_MANAGER {
+            &self.modes
+        } else {
+            &self.extra_modes[manager - 1]
+        }
+    }
+
+    pub fn mode_manager_mut(&mut self, manager: ModeManagerId) -> &mut ModeManager {
+        if manager == MAIN_MODE_MANAGER {
+            &mut self.modes
+        } else {
+            &mut self.extra_modes[manager - 1]
+        }
+    }
+
+    /// Register a mode in the given mode manager.
+    pub fn register_mode_in(&mut self, manager: ModeManagerId, id: Modes, mode: impl Mode + 'static) {
+        self.mode_manager_mut(manager).register(id, Rc::new(RefCell::new(mode)));
+    }
+
+    pub fn active_mode_in(&self, manager: ModeManagerId) -> Option<Rc<RefCell<dyn Mode>>> {
+        self.mode_manager(manager).active()
+    }
+
+    pub fn set_active_mode_in(&mut self, manager: ModeManagerId, id: Modes) {
+        set_active::<Modes, dyn Mode, _>(self, Some(id), move |ctx: &mut Ctx| ctx.mode_manager_mut(manager), |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+    }
+
+    pub fn set_temporary_mode_in(&mut self, manager: ModeManagerId, id: Modes) {
+        set_temporary::<Modes, dyn Mode, _>(self, id, move |ctx: &mut Ctx| ctx.mode_manager_mut(manager), |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+    }
+
+    pub fn restore_mode_in(&mut self, manager: ModeManagerId) {
+        restore::<Modes, dyn Mode, _>(self, move |ctx: &mut Ctx| ctx.mode_manager_mut(manager), |m, c| m.on_activate(c), |m, c| m.on_deactivate(c));
+    }
+
+    /// Get the color of a button from the active mode of the given mode manager.
+    pub fn mode_button_color_in(&self, manager: ModeManagerId, id: ButtonId) -> i32 {
+        self.mode_manager(manager).active().and_then(|m| m.try_borrow().ok().map(|m| m.button_color(self, id))).unwrap_or(0)
     }
 
     pub fn update_active_mode_display(&mut self) {
@@ -516,6 +599,21 @@ impl Ctx {
         let Some(control) = self.surface.continuous(id) else {
             return;
         };
+        if let Some(observer) = control.changed_observer.clone() {
+            observer(self);
+        }
+        let Some(control) = self.surface.continuous(id) else {
+            return;
+        };
+        // A control which is bound to a parameter changes the parameter directly (former
+        // `IHwContinuousControl.bind (IParameter)`)
+        if let Some(parameter) = control.parameter.clone() {
+            match control.kind {
+                ContinuousKind::Fader | ContinuousKind::AbsoluteKnob => parameter.set_normalized_value(self, value),
+                ContinuousKind::RelativeKnob => parameter.change_value(self, (value * 127.0).round() as i32),
+            }
+            return;
+        }
         let Some(command) = control.command.clone() else {
             return;
         };
@@ -552,6 +650,9 @@ impl Ctx {
             }
         }
         self.flush_lights();
+        if let Some(display) = &mut self.text_display {
+            display.flush();
+        }
     }
 
     /// Send all changed light states.
@@ -583,7 +684,6 @@ impl Ctx {
 // -------------------------------------------------------------------------------------------
 // Feature group manager functions which need access to the context
 
-type Accessor<E, F> = fn(&mut Ctx) -> &mut FeatureGroupManager<E, F>;
 type Handler<F> = fn(&mut F, &mut Ctx);
 
 fn call<F: ?Sized>(ctx: &mut Ctx, group: Option<Rc<RefCell<F>>>, handler: Handler<F>) {
@@ -595,17 +695,22 @@ fn call<F: ?Sized>(ctx: &mut Ctx, group: Option<Rc<RefCell<F>>>, handler: Handle
     }
 }
 
-fn notify<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(ctx: &mut Ctx, access: Accessor<E, F>, old: Option<E>, new: E) {
+fn notify<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized, A: Fn(&mut Ctx) -> &mut FeatureGroupManager<E, F> + Copy>(
+    ctx: &mut Ctx,
+    access: A,
+    old: Option<E>,
+    new: E,
+) {
     let listeners = access(ctx).listeners.clone();
     for listener in listeners {
         listener(ctx, old, new);
     }
 }
 
-fn set_active<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(
+fn set_active<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized, A: Fn(&mut Ctx) -> &mut FeatureGroupManager<E, F> + Copy>(
     ctx: &mut Ctx,
     id: Option<E>,
-    access: Accessor<E, F>,
+    access: A,
     activate: Handler<F>,
     deactivate: Handler<F>,
 ) {
@@ -629,10 +734,10 @@ fn set_active<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(
     notify(ctx, access, previous, id);
 }
 
-fn set_temporary<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(
+fn set_temporary<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized, A: Fn(&mut Ctx) -> &mut FeatureGroupManager<E, F> + Copy>(
     ctx: &mut Ctx,
     id: E,
-    access: Accessor<E, F>,
+    access: A,
     activate: Handler<F>,
     deactivate: Handler<F>,
 ) {
@@ -650,7 +755,12 @@ fn set_temporary<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(
     notify(ctx, access, active, id);
 }
 
-fn restore<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized>(ctx: &mut Ctx, access: Accessor<E, F>, activate: Handler<F>, deactivate: Handler<F>) {
+fn restore<E: Copy + Eq + std::hash::Hash + 'static, F: ?Sized, A: Fn(&mut Ctx) -> &mut FeatureGroupManager<E, F> + Copy>(
+    ctx: &mut Ctx,
+    access: A,
+    activate: Handler<F>,
+    deactivate: Handler<F>,
+) {
     let manager = access(ctx);
     let old_id;
     if let Some(temporary) = manager.temporary_id {

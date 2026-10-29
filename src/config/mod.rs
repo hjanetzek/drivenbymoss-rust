@@ -6,7 +6,10 @@
 //! `reaper.framework.configuration` packages) without any UI.
 
 pub mod configuration;
+pub mod launchcontrol;
 pub mod launchpad;
+pub mod maschine;
+pub mod maschine_jam;
 pub mod properties;
 pub mod reaper;
 pub mod setting;
