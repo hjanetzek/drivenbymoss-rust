@@ -10,7 +10,6 @@ use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
 
-use super::actions;
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
 use super::constants::ChannelType;
@@ -423,11 +422,9 @@ impl Channel {
         self.send_cmd("remove");
     }
 
-    /// Duplicate the channel. The track is selected first and duplicated after a delay.
+    /// Duplicate the channel.
     pub fn duplicate(&mut self) {
-        self.select_channel();
-        let ctx = self.ctx.clone();
-        self.ctx.schedule(200, move |_| ctx.invoke_action(actions::DUPLICATE_TRACKS));
+        self.send_cmd("duplicate");
     }
 
     /// Add the device with the given creation name to the channel.

@@ -5,6 +5,7 @@ package de.mossgrabers.dbm.bitwig;
 
 import com.bitwig.extension.controller.api.Application;
 import com.bitwig.extension.controller.api.Arpeggiator;
+import com.bitwig.extension.controller.api.Arranger;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.CursorDeviceFollowMode;
@@ -13,6 +14,7 @@ import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.DeviceBank;
 import com.bitwig.extension.controller.api.MasterTrack;
+import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Send;
@@ -46,6 +48,8 @@ public final class BitwigModel
 
     final Transport          transport;
     final Application        application;
+    final Arranger           arranger;
+    final Mixer              mixer;
     final TrackBank          trackBank;
     final CursorTrack        cursorTrack;
     final MasterTrack        masterTrack;
@@ -78,6 +82,8 @@ public final class BitwigModel
 
         this.transport = host.createTransport ();
         this.application = host.createApplication ();
+        this.arranger = host.createArranger ();
+        this.mixer = host.createMixer ();
         this.trackBank = host.createTrackBank (NUM_TRACKS, this.numSends, numScenes, true);
         this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, numScenes, true);
         this.masterTrack = host.createMasterTrack (0);
@@ -97,6 +103,10 @@ public final class BitwigModel
         this.transport.isArrangerRecordEnabled ().markInterested ();
         this.transport.isArrangerLoopEnabled ().markInterested ();
         this.transport.isMetronomeEnabled ().markInterested ();
+        this.transport.isMetronomeAudibleDuringPreRoll ().markInterested ();
+        this.transport.isPunchInEnabled ().markInterested ();
+        this.transport.isPunchOutEnabled ().markInterested ();
+        this.arranger.isPlaybackFollowEnabled ().markInterested ();
         this.transport.metronomeVolume ().markInterested ();
         this.transport.metronomeVolume ().displayedValue ().markInterested ();
         this.transport.tempo ().value ().markInterested ();
@@ -239,6 +249,9 @@ public final class BitwigModel
         reporter.put ("/time/str", formatTime (seconds));
         reporter.put ("/beat", this.transport.getPosition ().getFormatted ());
         reporter.put ("/click", this.transport.isMetronomeEnabled ().get ());
+        // As Reaper's pre-roll bit field: 2 = the metronome is audible during the pre-roll
+        reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
+        reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());
         reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
         reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().get ());
         reporter.put ("/project/canUndo", this.application.canUndo ().get ());

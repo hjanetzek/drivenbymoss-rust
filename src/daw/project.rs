@@ -8,7 +8,6 @@
 
 use crate::backend::Processor;
 
-use super::actions;
 use super::context::DawContext;
 use super::events::ParameterBankId;
 use super::parameter_bank::ParameterBank;
@@ -43,12 +42,12 @@ impl Project {
 
     /// Switch to the previous project tab.
     pub fn previous(&mut self) {
-        self.ctx.invoke_action(actions::PROJECT_TAB_PREVIOUS);
+        self.ctx.send(Processor::Project, "previous");
     }
 
     /// Switch to the next project tab.
     pub fn next(&mut self) {
-        self.ctx.invoke_action(actions::PROJECT_TAB_NEXT);
+        self.ctx.send(Processor::Project, "next");
     }
 
     pub fn create_scene_from_playing_launcher_clips(&mut self) {
@@ -66,11 +65,11 @@ impl Project {
     }
 
     pub fn save(&mut self) {
-        self.ctx.invoke_action(actions::PROJECT_SAVE);
+        self.ctx.send(Processor::Project, "save");
     }
 
     pub fn load(&mut self) {
-        self.ctx.invoke_action(actions::PROJECT_LOAD);
+        self.ctx.send(Processor::Project, "load");
     }
 
     /// The parameter bank of the project (master FX).

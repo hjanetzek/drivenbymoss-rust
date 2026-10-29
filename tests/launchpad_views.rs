@@ -311,6 +311,5 @@ fn project_view_toggles_the_mixer() {
     backend.take_calls();
     pad(&mut app, 97, 127);
     let calls = backend.take_calls();
-    // Next project is a Reaper action
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, _, _) if p == "action")), "{calls:?}");
+    assert!(calls.contains(&BackendCall::NoArg("project".into(), "next".into())), "{calls:?}");
 }

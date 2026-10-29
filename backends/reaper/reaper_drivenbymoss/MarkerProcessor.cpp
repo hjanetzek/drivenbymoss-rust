@@ -41,6 +41,18 @@ void MarkerProcessor::Process(std::deque<std::string> &path)
 		return;
 	}
 
+	// Markers: Go to previous/next marker/project start/end
+	if (std::strcmp(part, "previous") == 0)
+	{
+		Main_OnCommandEx(40172, 0, project);
+		return;
+	}
+	if (std::strcmp(part, "next") == 0)
+	{
+		Main_OnCommandEx(40173, 0, project);
+		return;
+	}
+
 	if (path.size() < 2)
 		return;
 

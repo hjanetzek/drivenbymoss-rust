@@ -15,23 +15,16 @@ import java.util.regex.Pattern;
 
 /**
  * Executes the commands of the core (processor, command, value; see doc/BACKEND_PROTOCOL.md §2)
- * with the Bitwig API. Stage 1: transport, tracks, master, cursor device and the Reaper action
- * IDs the core uses for features without a command.
+ * with the Bitwig API: transport, tracks, master, cursor device, note repeat, and the commands
+ * of protocol v2 (application, arranger, mixer, project, marker).
  */
 public final class CommandHandler
 {
+    /** The panel layouts in the order of the core's layout index. */
+    private static final String [] PANEL_LAYOUTS = { "ARRANGE", "MIX", "EDIT", "PLAY" };
+
     private static final Pattern COLOR_PATTERN = Pattern.compile ("RGB\\((\\d+),(\\d+),(\\d+)\\)");
 
-    // Reaper action IDs (src/daw/actions.rs) which have a Bitwig equivalent
-    private static final int     TRANSPORT_TAP_TEMPO   = 1134;
-    private static final int     TOGGLE_METRONOME      = 40364;
-    private static final int     ENABLE_METRONOME      = 41745;
-    private static final int     DISABLE_METRONOME     = 41746;
-    private static final int     DUPLICATE_TRACKS      = 40062;
-    private static final int     TOGGLE_MIXER_VISIBLE  = 40078;
-    private static final int     TOGGLE_FULLSCREEN     = 40346;
-    private static final int     GO_TO_NEXT_TRACK      = 40285;
-    private static final int     GO_TO_PREV_TRACK      = 40286;
 
     private final BitwigModel    model;
     private final ModelReporter  reporter;
@@ -63,6 +56,12 @@ public final class CommandHandler
     {
         switch (processor)
         {
+            case "transport" -> this.handleTransport (command, 1);
+            case "application" -> this.handleApplication (command, 1);
+            case "arranger" -> this.handleArranger (command);
+            case "mixer" -> this.handleMixer (command);
+            case "project" -> this.handleProject (command);
+            case "marker" -> this.handleMarker (command);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -88,10 +87,11 @@ public final class CommandHandler
     {
         switch (processor)
         {
+            case "transport" -> this.handleTransport (command, value);
+            case "application" -> this.handleApplication (command, value);
             case "repeat" -> this.model.transport.isArrangerLoopEnabled ().toggle ();
             case "tempo" -> this.model.transport.tempo ().value ().setRaw (value);
             case "time" -> this.handleTime (command, value);
-            case "action" -> this.handleAction ((int) value);
             case "track" -> this.handleTrack (command, value, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
@@ -148,6 +148,108 @@ public final class CommandHandler
     }
 
 
+    private void handleTransport (final String command, final double value)
+    {
+        switch (command)
+        {
+            case "metronome" -> this.model.transport.isMetronomeEnabled ().set (value > 0);
+            case "toggleMetronome" -> this.model.transport.isMetronomeEnabled ().toggle ();
+            case "togglePrerollMetronome" -> this.model.transport.isMetronomeAudibleDuringPreRoll ().toggle ();
+            case "punchIn" -> this.model.transport.isPunchInEnabled ().set (value > 0);
+            case "punchOut" -> this.model.transport.isPunchOutEnabled ().set (value > 0);
+            case "tapTempo" -> this.model.transport.tapTempo ();
+            default -> this.unhandled.accept ("transport " + command);
+        }
+    }
+
+
+    private void handleApplication (final String command, final double value)
+    {
+        switch (command)
+        {
+            case "layout" ->
+            {
+                final int index = (int) value;
+                if (index >= 0 && index < PANEL_LAYOUTS.length)
+                    this.model.application.setPanelLayout (PANEL_LAYOUTS[index]);
+            }
+            case "toggleNoteEditor" -> this.model.application.toggleNoteEditor ();
+            case "toggleAutomationEditor" -> this.model.application.toggleAutomationEditor ();
+            case "toggleDevices" -> this.model.application.toggleDevices ();
+            case "toggleInspector" -> this.model.application.toggleInspector ();
+            case "toggleMixer" -> this.model.application.toggleMixer ();
+            case "toggleFullScreen" -> this.model.application.toggleFullScreen ();
+            case "toggleBrowser" -> this.model.application.toggleBrowserVisibility ();
+            case "duplicate" -> this.model.application.duplicate ();
+            case "deleteSelection" -> this.model.application.remove ();
+            case "arrowLeft" -> this.model.application.arrowKeyLeft ();
+            case "arrowRight" -> this.model.application.arrowKeyRight ();
+            case "arrowUp" -> this.model.application.arrowKeyUp ();
+            case "arrowDown" -> this.model.application.arrowKeyDown ();
+            case "zoomIn" -> this.model.application.zoomIn ();
+            case "zoomOut" -> this.model.application.zoomOut ();
+            case "incTrackHeight" -> this.model.arranger.zoomInLaneHeightsAll ();
+            case "decTrackHeight" -> this.model.arranger.zoomOutLaneHeightsAll ();
+            case "enter" -> this.model.application.enter ();
+            case "escape" -> this.model.application.escape ();
+            default -> this.unhandled.accept ("application " + command);
+        }
+    }
+
+
+    private void handleArranger (final String command)
+    {
+        switch (command)
+        {
+            case "toggleCueMarkers" -> this.model.arranger.areCueMarkersVisible ().toggle ();
+            case "togglePlaybackFollow" -> this.model.arranger.isPlaybackFollowEnabled ().toggle ();
+            case "toggleTrackRowHeight" -> this.model.arranger.hasDoubleRowTrackHeight ().toggle ();
+            case "toggleClipLauncher" -> this.model.arranger.isClipLauncherVisible ().toggle ();
+            case "toggleTimeLine" -> this.model.arranger.isTimelineVisible ().toggle ();
+            case "toggleIoSection" -> this.model.arranger.isIoSectionVisible ().toggle ();
+            case "toggleEffectTracks" -> this.model.arranger.areEffectTracksVisible ().toggle ();
+            default -> this.unhandled.accept ("arranger " + command);
+        }
+    }
+
+
+    private void handleMixer (final String command)
+    {
+        switch (command)
+        {
+            case "toggleClipLauncherSection" -> this.model.mixer.isClipLauncherSectionVisible ().toggle ();
+            case "toggleCrossFadeSection" -> this.model.mixer.isCrossFadeSectionVisible ().toggle ();
+            case "toggleDeviceSection" -> this.model.mixer.isDeviceSectionVisible ().toggle ();
+            case "toggleIoSection" -> this.model.mixer.isIoSectionVisible ().toggle ();
+            case "toggleMeterSection" -> this.model.mixer.isMeterSectionVisible ().toggle ();
+            case "toggleSendsSection" -> this.model.mixer.isSendSectionVisible ().toggle ();
+            default -> this.unhandled.accept ("mixer " + command);
+        }
+    }
+
+
+    private void handleProject (final String command)
+    {
+        switch (command)
+        {
+            case "previous" -> this.model.application.previousProject ();
+            case "next" -> this.model.application.nextProject ();
+            default -> this.unhandled.accept ("project " + command);
+        }
+    }
+
+
+    private void handleMarker (final String command)
+    {
+        switch (command)
+        {
+            case "previous" -> this.model.transport.jumpToPreviousCueMarker ();
+            case "next" -> this.model.transport.jumpToNextCueMarker ();
+            default -> this.unhandled.accept ("marker " + command);
+        }
+    }
+
+
     private void changeTempo (final String command)
     {
         final double delta = switch (command)
@@ -171,24 +273,6 @@ public final class CommandHandler
         {
             case "", "nosnap" -> this.model.transport.getPosition ().set (beats);
             default -> this.unhandled.accept ("time " + command);
-        }
-    }
-
-
-    private void handleAction (final int id)
-    {
-        switch (id)
-        {
-            case TRANSPORT_TAP_TEMPO -> this.model.transport.tapTempo ();
-            case TOGGLE_METRONOME -> this.model.transport.isMetronomeEnabled ().toggle ();
-            case ENABLE_METRONOME -> this.model.transport.isMetronomeEnabled ().set (true);
-            case DISABLE_METRONOME -> this.model.transport.isMetronomeEnabled ().set (false);
-            case DUPLICATE_TRACKS -> this.model.cursorTrack.duplicateObject ();
-            case TOGGLE_MIXER_VISIBLE -> this.model.application.toggleMixer ();
-            case TOGGLE_FULLSCREEN -> this.model.application.toggleFullScreen ();
-            case GO_TO_NEXT_TRACK -> this.model.cursorTrack.selectNext ();
-            case GO_TO_PREV_TRACK -> this.model.cursorTrack.selectPrevious ();
-            default -> this.unhandled.accept ("action " + id);
         }
     }
 
@@ -223,6 +307,7 @@ public final class CommandHandler
             case "autoMonitor" -> track.monitorMode ().set (value > 0 ? "AUTO" : "OFF");
             case "isGroupExpanded" -> track.isGroupExpanded ().set (value > 0);
             case "remove" -> track.deleteObject ();
+            case "duplicate" -> track.duplicateObject ();
             case "name" ->
             {
                 if (text != null)

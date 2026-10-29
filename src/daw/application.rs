@@ -7,7 +7,6 @@
 
 use crate::backend::Processor;
 
-use super::actions;
 use super::color::ColorEx;
 use super::constants::ChannelType;
 use super::context::DawContext;
@@ -54,7 +53,7 @@ impl Application {
             Some(index) => {
                 self.panel_layout = PANEL_LAYOUTS[index];
                 self.window_layout = index as i32;
-                self.ctx.invoke_action(actions::LOAD_WINDOW_SET_1 + index as i32);
+                self.ctx.send_int(Processor::Application, "layout", index as i32);
             }
             None => self.ctx.host().println(&format!("Not a supported layout: {panel_layout}")),
         }
@@ -80,7 +79,7 @@ impl Application {
         }
         self.window_layout = index;
         self.panel_layout = PANEL_LAYOUTS[index as usize];
-        self.ctx.invoke_action(actions::LOAD_WINDOW_SET_1 + index);
+        self.ctx.send_int(Processor::Application, "layout", index);
     }
 
     pub fn is_arrange_layout(&self) -> bool {
@@ -100,35 +99,39 @@ impl Application {
     }
 
     pub fn toggle_note_editor(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_SHOW_MIDI_EDITOR_WINDOWS);
+        self.ctx.send(Processor::Application, "toggleNoteEditor");
     }
 
     pub fn toggle_automation_editor(&mut self) {
-        self.ctx.invoke_action(actions::SHOW_ALL_ACTIVE_ENVELOPES);
+        self.ctx.send(Processor::Application, "toggleAutomationEditor");
     }
 
-    pub fn toggle_devices(&mut self) {}
+    pub fn toggle_devices(&mut self) {
+        self.ctx.send(Processor::Application, "toggleDevices");
+    }
 
     pub fn toggle_inspector(&mut self) {
-        self.ctx.invoke_action(actions::SHOW_TRACK_MANAGER_WINDOW);
+        self.ctx.send(Processor::Application, "toggleInspector");
     }
 
     pub fn toggle_mixer(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_MIXER_VISIBLE);
+        self.ctx.send(Processor::Application, "toggleMixer");
     }
 
     pub fn toggle_full_screen(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_FULLSCREEN);
+        self.ctx.send(Processor::Application, "toggleFullScreen");
     }
 
     pub fn toggle_browser_visibility(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_MEDIA_EXPLORER);
+        self.ctx.send(Processor::Application, "toggleBrowser");
     }
 
-    pub fn duplicate(&mut self) {}
+    pub fn duplicate(&mut self) {
+        self.ctx.send(Processor::Application, "duplicate");
+    }
 
     pub fn delete_selection(&mut self) {
-        self.ctx.invoke_action(actions::REMOVE_ITEMS);
+        self.ctx.send(Processor::Application, "deleteSelection");
     }
 
     pub fn undo(&mut self) {
@@ -165,27 +168,27 @@ impl Application {
     }
 
     pub fn arrow_key_left(&mut self) {
-        self.ctx.invoke_action(actions::GO_TO_PREV_TRACK);
+        self.ctx.send(Processor::Application, "arrowLeft");
     }
 
     pub fn arrow_key_up(&mut self) {
-        self.ctx.invoke_action(actions::GO_TO_PREV_TRACK);
+        self.ctx.send(Processor::Application, "arrowUp");
     }
 
     pub fn arrow_key_right(&mut self) {
-        self.ctx.invoke_action(actions::GO_TO_NEXT_TRACK);
+        self.ctx.send(Processor::Application, "arrowRight");
     }
 
     pub fn arrow_key_down(&mut self) {
-        self.ctx.invoke_action(actions::GO_TO_NEXT_TRACK);
+        self.ctx.send(Processor::Application, "arrowDown");
     }
 
     pub fn zoom_out(&mut self) {
-        self.ctx.invoke_action(actions::ZOOM_OUT_HORIZ);
+        self.ctx.send(Processor::Application, "zoomOut");
     }
 
     pub fn zoom_in(&mut self) {
-        self.ctx.invoke_action(actions::ZOOM_IN_HORIZ);
+        self.ctx.send(Processor::Application, "zoomIn");
     }
 
     /// Change the horizontal zoom with a relative knob value (former zoom parameter).
@@ -198,11 +201,11 @@ impl Application {
     }
 
     pub fn dec_track_height(&mut self) {
-        self.ctx.invoke_action(actions::ZOOM_OUT_VERT);
+        self.ctx.send(Processor::Application, "decTrackHeight");
     }
 
     pub fn inc_track_height(&mut self) {
-        self.ctx.invoke_action(actions::ZOOM_IN_VERT);
+        self.ctx.send(Processor::Application, "incTrackHeight");
     }
 
     /// Change the track height with a relative knob value (former track height parameter).
@@ -214,22 +217,22 @@ impl Application {
         }
     }
 
-    /// Not supported (sending key presses needs a robot).
+    /// Not supported by the Reaper backend (sending key presses needs a robot).
     pub fn enter(&mut self) {
-        self.ctx.host().println("Sending key presses not supported on this platform.");
+        self.ctx.send(Processor::Application, "enter");
     }
 
-    /// Not supported (sending key presses needs a robot).
+    /// Not supported by the Reaper backend (sending key presses needs a robot).
     pub fn escape(&mut self) {
-        self.ctx.host().println("Sending key presses not supported on this platform.");
+        self.ctx.send(Processor::Application, "escape");
     }
 
     pub fn slice_to_sampler(&mut self) {
-        self.ctx.invoke_action(actions::DYNAMIC_SPLIT);
+        self.ctx.send(Processor::Application, "sliceToSampler");
     }
 
     pub fn slice_to_drum_machine(&mut self) {
-        self.ctx.invoke_action(actions::DYNAMIC_SPLIT);
+        self.ctx.send(Processor::Application, "sliceToDrumMachine");
     }
 
     /// Invoke an action by its (named) ID.
@@ -271,7 +274,7 @@ impl Arranger {
     }
 
     pub fn toggle_cue_marker_visibility(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_MARKER_LANE);
+        self.ctx.send(Processor::Arranger, "toggleCueMarkers");
     }
 
     pub fn is_playback_follow_enabled(&self) -> bool {
@@ -279,7 +282,7 @@ impl Arranger {
     }
 
     pub fn toggle_playback_follow(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_FOLLOW_PLAYBACK);
+        self.ctx.send(Processor::Arranger, "togglePlaybackFollow");
     }
 
     pub fn has_double_row_track_height(&self) -> bool {
@@ -287,32 +290,40 @@ impl Arranger {
     }
 
     pub fn toggle_track_row_height(&mut self) {
-        self.ctx.invoke_action(actions::CYCLE_TRACK_ZOOM);
+        self.ctx.send(Processor::Arranger, "toggleTrackRowHeight");
     }
 
     pub fn is_clip_launcher_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_clip_launcher(&mut self) {}
+    pub fn toggle_clip_launcher(&mut self) {
+        self.ctx.send(Processor::Arranger, "toggleClipLauncher");
+    }
 
     pub fn is_timeline_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_time_line(&mut self) {}
+    pub fn toggle_time_line(&mut self) {
+        self.ctx.send(Processor::Arranger, "toggleTimeLine");
+    }
 
     pub fn is_io_section_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_io_section(&mut self) {}
+    pub fn toggle_io_section(&mut self) {
+        self.ctx.send(Processor::Arranger, "toggleIoSection");
+    }
 
     pub fn are_effect_tracks_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_effect_tracks(&mut self) {}
+    pub fn toggle_effect_tracks(&mut self) {
+        self.ctx.send(Processor::Arranger, "toggleEffectTracks");
+    }
 
     /// Internal setter.
     pub fn set_playback_follow(&mut self, enabled: bool) {
@@ -334,20 +345,24 @@ impl Mixer {
         false
     }
 
-    pub fn toggle_clip_launcher_section_visibility(&mut self) {}
+    pub fn toggle_clip_launcher_section_visibility(&mut self) {
+        self.ctx.send(Processor::Mixer, "toggleClipLauncherSection");
+    }
 
     pub fn is_cross_fade_section_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_cross_fade_section_visibility(&mut self) {}
+    pub fn toggle_cross_fade_section_visibility(&mut self) {
+        self.ctx.send(Processor::Mixer, "toggleCrossFadeSection");
+    }
 
     pub fn is_device_section_visible(&self) -> bool {
         false
     }
 
     pub fn toggle_device_section_visibility(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_FX_INSERTS);
+        self.ctx.send(Processor::Mixer, "toggleDeviceSection");
     }
 
     pub fn is_io_section_visible(&self) -> bool {
@@ -355,20 +370,22 @@ impl Mixer {
     }
 
     pub fn toggle_io_section_visibility(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_FX_PARAMETERS);
+        self.ctx.send(Processor::Mixer, "toggleIoSection");
     }
 
     pub fn is_meter_section_visible(&self) -> bool {
         false
     }
 
-    pub fn toggle_meter_section_visibility(&mut self) {}
+    pub fn toggle_meter_section_visibility(&mut self) {
+        self.ctx.send(Processor::Mixer, "toggleMeterSection");
+    }
 
     pub fn is_send_section_visible(&self) -> bool {
         false
     }
 
     pub fn toggle_sends_section_visibility(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_FX_SENDS);
+        self.ctx.send(Processor::Mixer, "toggleSendsSection");
     }
 }

@@ -42,6 +42,13 @@ void TrackProcessor::Process(std::deque<std::string>& path) noexcept
 
 	const char* cmd = SafeGet(path, 1);
 
+	if (std::strcmp(cmd, "duplicate") == 0)
+	{
+		SetOnlyTrackSelected(track);
+		Main_OnCommandEx(DUPLICATE_TRACKS, 0, project);
+		return;
+	}
+
 	if (std::strcmp(cmd, "scrollto") == 0)
 	{
 		SetOnlyTrackSelected(track);

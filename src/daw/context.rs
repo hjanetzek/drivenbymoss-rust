@@ -187,11 +187,6 @@ impl DawContext {
         std::mem::take(&mut *self.shared.events.borrow_mut())
     }
 
-    pub fn invoke_action(&self, action_id: i32) {
-        if !self.muted {
-            self.sender.invoke_action(action_id);
-        }
-    }
 
     pub fn delay_updates(&self, processor: Processor) {
         if !self.muted {

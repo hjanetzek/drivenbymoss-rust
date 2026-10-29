@@ -25,6 +25,7 @@
 #include "NoteRepeatProcessor.h"
 #include "GrooveProcessor.h"
 #include "IniFileProcessor.h"
+#include "CommandProcessors.h"
 
 
 /**
@@ -78,6 +79,10 @@ private:
 	SceneProcessor 					 sceneProcessor;
 	GrooveProcessor 				 grooveProcessor;
 	IniFileProcessor                 iniFileProcessor;
+	TransportCommandProcessor        transportCommandProcessor;
+	ApplicationProcessor             applicationProcessor;
+	ArrangerProcessor                arrangerProcessor;
+	MixerProcessor                   mixerProcessor;
 
 	std::map<std::string, OscProcessor*> processors;
 	Model& theModel;

@@ -343,10 +343,43 @@ Int overload = default (1 -> no-arg). Double/strings empty.
 |---|---|---|---|---|
 | `<section>/<key>` (exactly 2 parts) | int | value | Write `REAPER.ini` `[section] key=value` if changed; also writes the in-memory config var if it is a double | yes: `reaper/prerollmeas` (`transport.rs`) |
 
+#### Protocol v2: commands instead of Reaper action IDs
+
+The core used to invoke Reaper action IDs for these features (`action` with an int). It now sends
+commands named after its methods; the Reaper backend maps them to the same actions
+(`CommandProcessors.h`, `ProjectProcessor.cpp`, `MarkerProcessor.cpp`, `TrackProcessor.cpp`), the
+Bitwig backend to the Bitwig API. A backend ignores the commands of features it does not have.
+
+| Processor | Command | Type | Meaning | Reaper | Bitwig |
+|---|---|---|---|---|---|
+| `transport` | `metronome` | int | metronome on (1) / off (0) | 41745 / 41746 | `isMetronomeEnabled` |
+| `transport` | `toggleMetronome` | none | | 40364 | `isMetronomeEnabled ().toggle` |
+| `transport` | `togglePrerollMetronome` | none | | 41819 | `isMetronomeAudibleDuringPreRoll` |
+| `transport` | `punchIn` / `punchOut` | int | on / off | 40076 / 40253, off: 40252 | `isPunchInEnabled` / `isPunchOutEnabled` |
+| `transport` | `tapTempo` | none | | 1134 | `tapTempo` |
+| `transport` | `end` | none | go to the end of the project | 40043 | - |
+| `project` | `previous` / `next` | none | previous / next project | 40862 / 40861 | `previousProject` / `nextProject` |
+| `project` | `save` / `load` | none | | 40026 / 40025 | - |
+| `marker` | `previous` / `next` | none | go to the previous / next marker | 40172 / 40173 | `jumpToPreviousCueMarker` / `jumpToNextCueMarker` |
+| `track` | `<t>/duplicate` | none | | select, 40062 | `duplicateObject` |
+| `application` | `layout` | int | panel layout: 0 arrange, 1 mix, 2 edit, 3 play | window sets 40454 + n | `setPanelLayout` |
+| `application` | `toggleNoteEditor`, `toggleAutomationEditor`, `toggleDevices`, `toggleInspector`, `toggleMixer`, `toggleFullScreen`, `toggleBrowser` | none | | 40716, 40926, -, 40906, 40078, 40346, 50124 | the `Application` toggles |
+| `application` | `duplicate`, `deleteSelection` | none | | -, 40006 | `duplicate`, `remove` |
+| `application` | `arrowLeft`, `arrowUp`, `arrowRight`, `arrowDown` | none | | previous / next track (40286 / 40285) | `arrowKey*` |
+| `application` | `zoomIn`, `zoomOut`, `incTrackHeight`, `decTrackHeight` | none | | 1012, 1011, 40111, 40112 | `zoomIn`, `zoomOut`, `zoom*LaneHeightsAll` |
+| `application` | `sliceToSampler`, `sliceToDrumMachine` | none | | 40760 | - |
+| `application` | `enter`, `escape` | none | | - | `enter`, `escape` |
+| `arranger` | `toggleCueMarkers`, `togglePlaybackFollow`, `toggleTrackRowHeight` | none | | 42328, 40036, 42698 | the `Arranger` toggles |
+| `arranger` | `toggleClipLauncher`, `toggleTimeLine`, `toggleIoSection`, `toggleEffectTracks` | none | | - | the `Arranger` toggles |
+| `mixer` | `toggleDeviceSection`, `toggleIoSection`, `toggleSendsSection` | none | | 40549, 40910, 40557 | the `Mixer` toggles |
+| `mixer` | `toggleClipLauncherSection`, `toggleCrossFadeSection`, `toggleMeterSection` | none | | - | the `Mixer` toggles |
+
+`action` with a string (user-configured Reaper actions, `Application::invoke_action`) stays.
+
 #### Names without a command processor
 
-`transport`, `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`.
-Rust never sends commands to them.
+`browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
+never sends commands to them. `transport` is valid for both.
 
 ## 3. Model updates (host → core)
 
@@ -629,7 +662,7 @@ controller display stays at the last value the host reported. No error surfaces.
 
 | Part | Rust users | If the host ignores it |
 |---|---|---|
-| `action` with Reaper command IDs (`src/daw/actions.rs`: `PROJECT_TAB_PREVIOUS/NEXT`, `PROJECT_SAVE/LOAD`, `TRANSPORT_TAP_TEMPO`, `REMOVE_ITEMS`, `RECORD_MODE_NORMAL/PUNCH_ITEMS/AUTO_PUNCH`, `RECORD_PREROLL`, `TOGGLE/ENABLE/DISABLE_METRONOME`, `DUPLICATE_TRACKS`, `LOAD_WINDOW_SET_1..4`, `SHOW_ALL_ACTIVE_ENVELOPES`, `TOGGLE_MIXER_VISIBLE`, `TOGGLE_SHOW_MIDI_EDITOR_WINDOWS`, `SHOW_TRACK_MANAGER_WINDOW`, `TOGGLE_FULLSCREEN`, `TOGGLE_MEDIA_EXPLORER`, `TOGGLE_FX_INSERTS/SENDS/PARAMETERS`, `DYNAMIC_SPLIT`, `GO_TO_NEXT/PREV_TRACK`, `GO_TO_NEXT/PREV_MARKER`, `ZOOM_*`, `TOGGLE_FOLLOW_PLAYBACK`, `TOGGLE_MARKER_LANE`, `CYCLE_TRACK_ZOOM`, `GO_TO_END_OF_PROJECT`) | `transport.rs`, `project.rs`, `application.rs`, `marker.rs`, `channel.rs` | Those features do nothing. Note: metronome on/off, tap tempo, preroll, punch modes, track duplicate, marker prev/next and project save/load exist **only** as action IDs - a portable host must map these IDs or the core needs real commands. `INSERT_NEW_TRACK_FROM_TEMPLATE` is defined but unused. |
+| ~~`action` with Reaper command IDs~~ (replaced by commands in protocol v2, see §2; the former list: `src/daw/actions.rs`: `PROJECT_TAB_PREVIOUS/NEXT`, `PROJECT_SAVE/LOAD`, `TRANSPORT_TAP_TEMPO`, `REMOVE_ITEMS`, `RECORD_MODE_NORMAL/PUNCH_ITEMS/AUTO_PUNCH`, `RECORD_PREROLL`, `TOGGLE/ENABLE/DISABLE_METRONOME`, `DUPLICATE_TRACKS`, `LOAD_WINDOW_SET_1..4`, `SHOW_ALL_ACTIVE_ENVELOPES`, `TOGGLE_MIXER_VISIBLE`, `TOGGLE_SHOW_MIDI_EDITOR_WINDOWS`, `SHOW_TRACK_MANAGER_WINDOW`, `TOGGLE_FULLSCREEN`, `TOGGLE_MEDIA_EXPLORER`, `TOGGLE_FX_INSERTS/SENDS/PARAMETERS`, `DYNAMIC_SPLIT`, `GO_TO_NEXT/PREV_TRACK`, `GO_TO_NEXT/PREV_MARKER`, `ZOOM_*`, `TOGGLE_FOLLOW_PLAYBACK`, `TOGGLE_MARKER_LANE`, `CYCLE_TRACK_ZOOM`, `GO_TO_END_OF_PROJECT`) | `transport.rs`, `project.rs`, `application.rs`, `marker.rs`, `channel.rs` | Those features do nothing. Note: metronome on/off, tap tempo, preroll, punch modes, track duplicate, marker prev/next and project save/load exist **only** as action IDs - a portable host must map these IDs or the core needs real commands. `INSERT_NEW_TRACK_FROM_TEMPLATE` is defined but unused. |
 | `action ""` string (named commands) | `application.rs` | User-configured Reaper actions do nothing. |
 | `action select` (action list prompt) | host only | - |
 | `inifile reaper/prerollmeas` | `transport.rs` | Preroll length not written; local `preroll_measures` still updated. |
@@ -654,9 +687,8 @@ controller display stays at the last value the host reported. No error surfaces.
 | `cursor` (`CSurf_OnArrow`) | host only | - |
 
 **Todo (from the bindings plan):** turn the Reaper-specific parts into optional capabilities
-that a backend declares, e.g. a capability flag set passed to `dbm_create`, and replace the
-action IDs the core needs on every host (metronome, tap tempo, preroll, punch modes, track
-duplicate, marker previous/next, project save/load) by real commands.
+that a backend declares, e.g. a capability flag set passed to `dbm_create`. The action IDs are
+replaced by real commands (protocol v2, §2).
 
 ## 6. Known mismatches and issues
 

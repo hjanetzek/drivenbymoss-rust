@@ -8,7 +8,6 @@ use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
 
-use super::actions;
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
 use super::context::DawContext;
@@ -148,12 +147,12 @@ impl MarkerBank {
 
     /// Move the play cursor to the previous marker.
     pub fn select_previous_item(&mut self) {
-        self.bank.ctx.invoke_action(actions::GO_TO_PREV_MARKER);
+        self.bank.ctx.send(Processor::Marker, "previous");
     }
 
     /// Move the play cursor to the next marker.
     pub fn select_next_item(&mut self) {
-        self.bank.ctx.invoke_action(actions::GO_TO_NEXT_MARKER);
+        self.bank.ctx.send(Processor::Marker, "next");
     }
 }
 

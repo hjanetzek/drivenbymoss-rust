@@ -5,7 +5,6 @@
 //! The DAW model: tracks, devices, clips, transport, etc. (former `framework.daw` interfaces
 //! merged with their Reaper implementations).
 
-pub mod actions;
 pub mod application;
 pub mod bank;
 pub mod browser;

@@ -36,6 +36,10 @@ OscParser::OscParser(Model& model) :
 	sceneProcessor(model),
 	grooveProcessor(model),
 	iniFileProcessor(model),
+	transportCommandProcessor(model),
+	applicationProcessor(model),
+	arrangerProcessor(model),
+	mixerProcessor(model),
 	theModel(model)
 {
 	try
@@ -65,6 +69,10 @@ OscParser::OscParser(Model& model) :
 		this->processors["scene"] = &sceneProcessor;
 		this->processors["groove"] = &grooveProcessor;
 		this->processors["inifile"] = &iniFileProcessor;
+		this->processors["transport"] = &transportCommandProcessor;
+		this->processors["application"] = &applicationProcessor;
+		this->processors["arranger"] = &arrangerProcessor;
+		this->processors["mixer"] = &mixerProcessor;
 	}
 	catch (...)
 	{

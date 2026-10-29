@@ -189,8 +189,11 @@ the dev loop.
 Each item is a capability the backend declares at create time (the BINDINGS_PLAN todo), so the
 Reaper backend keeps working:
 
-1. **Real commands instead of action IDs** (metronome, tap tempo, preroll, punch, automation
-   write mode, panel layout, view toggles). The Reaper backend maps them back to its action IDs.
+1. **Real commands instead of action IDs** (done): metronome, tap tempo, preroll, punch, panel
+   layout, view toggles, project and marker navigation, track duplicate (BACKEND_PROTOCOL.md §2).
+   The Reaper backend maps them back to its action IDs. No capability is needed: a backend
+   ignores the commands of features it does not have. The automation write mode is still in
+   Reaper's numbering.
 2. **Time in beats** (`/beat/position`, loop start and length in beats), seconds stay for Reaper.
 3. **Slots and scenes:** explicit slot states and launch commands with release/alt; scenes without
    positions. The core stops deriving slot states from the transport when the host reports them.

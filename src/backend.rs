@@ -39,6 +39,9 @@ pub enum Processor {
     Cursor,
     Refresh,
     IniFile,
+    Application,
+    Arranger,
+    Mixer,
 }
 
 impl Processor {
@@ -74,6 +77,9 @@ impl Processor {
             Processor::Cursor => "cursor",
             Processor::Refresh => "refresh",
             Processor::IniFile => "inifile",
+            Processor::Application => "application",
+            Processor::Arranger => "arranger",
+            Processor::Mixer => "mixer",
         }
     }
 }
@@ -150,9 +156,6 @@ impl Sender {
         self.backend.enable_updates(processor.id(), enable);
     }
 
-    pub fn invoke_action(&self, action_id: i32) {
-        self.backend.process_int_arg("action", "", action_id);
-    }
 
     /// Send a refresh command to the backend, which then sends all data again.
     pub fn refresh(&self) {

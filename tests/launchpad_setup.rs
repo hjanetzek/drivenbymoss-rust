@@ -180,8 +180,7 @@ fn shift_with_solo_toggles_the_metronome_on_the_pro() {
     press(&mut app, 3);
     cc(&mut app, 90, 0);
     let calls = backend.take_calls();
-    // Toggle metronome is a Reaper action
-    assert!(calls.contains(&BackendCall::IntArg("action".into(), "".into(), 40364)), "{calls:?}");
+    assert!(calls.contains(&BackendCall::NoArg("transport".into(), "toggleMetronome".into())), "{calls:?}");
     assert!(!ctx(&mut app).modes.is_active(Modes::Solo));
 }
 

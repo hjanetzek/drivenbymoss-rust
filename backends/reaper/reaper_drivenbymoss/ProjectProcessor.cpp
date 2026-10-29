@@ -28,6 +28,29 @@ void ProjectProcessor::Process(std::deque<std::string>& path)
 
 	const char* cmd = SafeGet(path, 0);
 
+	if (std::strcmp(cmd, "previous") == 0)
+	{
+		Main_OnCommandEx(PROJECT_TAB_PREVIOUS, 0, ReaperUtils::GetProject());
+		return;
+	}
+	if (std::strcmp(cmd, "next") == 0)
+	{
+		Main_OnCommandEx(PROJECT_TAB_NEXT, 0, ReaperUtils::GetProject());
+		return;
+	}
+	// File: Save project
+	if (std::strcmp(cmd, "save") == 0)
+	{
+		Main_OnCommandEx(40026, 0, ReaperUtils::GetProject());
+		return;
+	}
+	// File: Open project
+	if (std::strcmp(cmd, "load") == 0)
+	{
+		Main_OnCommandEx(40025, 0, ReaperUtils::GetProject());
+		return;
+	}
+
 	if (std::strcmp(cmd, "createSceneFromPlayingLauncherClips") == 0)
 	{
 		ReaProject* project = ReaperUtils::GetProject();

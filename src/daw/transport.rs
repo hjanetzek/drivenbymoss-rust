@@ -12,7 +12,6 @@
 use crate::backend::Processor;
 use crate::framework::value_changer::ValueChanger;
 
-use super::actions;
 use super::constants::{transport_constants, AutomationMode, LaunchQuantization, PostRecordingAction};
 use super::context::DawContext;
 
@@ -280,7 +279,7 @@ impl Transport {
     // Metronome
 
     pub fn set_metronome(&mut self, on: bool) {
-        self.ctx.invoke_action(if on { actions::ENABLE_METRONOME } else { actions::DISABLE_METRONOME });
+        self.ctx.send_bool(Processor::Transport, "metronome", on);
     }
 
     pub fn is_metronome_on(&self) -> bool {
@@ -288,7 +287,7 @@ impl Transport {
     }
 
     pub fn toggle_metronome(&mut self) {
-        self.ctx.invoke_action(actions::TOGGLE_METRONOME);
+        self.ctx.send(Processor::Transport, "toggleMetronome");
     }
 
     pub fn is_metronome_ticks_on(&self) -> bool {
@@ -329,7 +328,7 @@ impl Transport {
     }
 
     pub fn toggle_preroll_metronome(&mut self) {
-        self.ctx.invoke_action(actions::RECORD_PREROLL);
+        self.ctx.send(Processor::Transport, "togglePrerollMetronome");
     }
 
     pub fn preroll_measures(&self) -> i32 {
@@ -467,7 +466,7 @@ impl Transport {
     }
 
     pub fn set_position_to_end(&mut self) {
-        self.ctx.invoke_action(actions::GO_TO_END_OF_PROJECT);
+        self.ctx.send(Processor::Transport, "end");
     }
 
     /// Move the play position depending on the zoom level.
@@ -571,13 +570,8 @@ impl Transport {
     }
 
     pub fn set_punch_in(&mut self, enable: bool) {
-        if enable {
-            self.ctx.invoke_action(actions::RECORD_MODE_AUTO_PUNCH);
-            self.punch_mode = PUNCH_LOOP;
-        } else {
-            self.ctx.invoke_action(actions::RECORD_MODE_NORMAL);
-            self.punch_mode = PUNCH_OFF;
-        }
+        self.ctx.send_bool(Processor::Transport, "punchIn", enable);
+        self.punch_mode = if enable { PUNCH_LOOP } else { PUNCH_OFF };
     }
 
     pub fn is_punch_in_enabled(&self) -> bool {
@@ -590,13 +584,8 @@ impl Transport {
     }
 
     pub fn set_punch_out(&mut self, enable: bool) {
-        if enable {
-            self.ctx.invoke_action(actions::RECORD_MODE_PUNCH_ITEMS);
-            self.punch_mode = PUNCH_ITEMS;
-        } else {
-            self.ctx.invoke_action(actions::RECORD_MODE_NORMAL);
-            self.punch_mode = PUNCH_OFF;
-        }
+        self.ctx.send_bool(Processor::Transport, "punchOut", enable);
+        self.punch_mode = if enable { PUNCH_ITEMS } else { PUNCH_OFF };
     }
 
     pub fn is_punch_out_enabled(&self) -> bool {
@@ -607,7 +596,7 @@ impl Transport {
     // Tempo
 
     pub fn tap_tempo(&mut self) {
-        self.ctx.invoke_action(actions::TRANSPORT_TAP_TEMPO);
+        self.ctx.send(Processor::Transport, "tapTempo");
     }
 
     pub fn change_tempo(&mut self, increase: bool, slow: bool) {
@@ -858,7 +847,7 @@ mod tests {
             vec![
                 BackendCall::NoArg("record".into(), "".into()),
                 BackendCall::NoArg("stop".into(), "".into()),
-                BackendCall::IntArg("action".into(), "".into(), actions::TOGGLE_METRONOME),
+                BackendCall::NoArg("transport".into(), "toggleMetronome".into()),
                 BackendCall::IntArg("automation".into(), "".into(), 4),
             ]
         );
