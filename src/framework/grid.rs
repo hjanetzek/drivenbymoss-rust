@@ -1,0 +1,219 @@
+// Written by Jürgen Moßgraber - mossgrabers.de
+// (c) 2017-2026
+// Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+
+//! The pad grid (former `IPadGrid`, `PadGridImpl` and `LightInfo`).
+
+use std::collections::BTreeMap;
+
+use super::color::ColorManager;
+use crate::midi::MidiOutput;
+
+/// The color key used for pads which are off.
+pub const GRID_OFF: &str = "GRID_COLOR_OFF";
+
+/// The light state of a pad: a color, an optional blink color and the blink speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LightInfo {
+    pub color: i32,
+    /// -1 for off.
+    pub blink_color: i32,
+    pub fast: bool,
+}
+
+impl LightInfo {
+    pub fn new(color: i32, blink_color: i32, fast: bool) -> Self {
+        assert!((0..=127).contains(&color), "color must be in the range of 0..127.");
+        assert!((-1..=127).contains(&blink_color), "blinkColor must be in the range of 0..127 or -1 for off.");
+        LightInfo { color, blink_color, fast }
+    }
+
+    /// Encode all three values into one integer, used to detect changes.
+    pub fn encoded(&self) -> i32 {
+        let code_blink_color = if self.blink_color < 0 { 1 << 15 } else { self.blink_color << 8 };
+        let code_fast = if self.fast { 1 << 16 } else { 0 };
+        code_fast + code_blink_color + self.color
+    }
+}
+
+/// How blinking pads are sent to the controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlinkMode {
+    /// Send the blink color as a note on MIDI channel 14 (fast) or 10 (slow), e.g. Push.
+    Channels,
+    /// Collect the blink states, the controller sends them on flush (e.g. as sysex).
+    Collect,
+}
+
+/// Translates a grid note into a (MIDI channel, MIDI note) pair of the controller.
+pub type GridTranslation = fn(note: i32) -> (i32, i32);
+
+fn default_translation(note: i32) -> (i32, i32) {
+    (0, note)
+}
+
+const NUM_NOTES: usize = 128;
+
+/// A grid of pads. The pads are addressed by notes starting at `start_note` (lower left pad).
+pub struct PadGrid {
+    pad_states: Vec<LightInfo>,
+    rows: i32,
+    columns: i32,
+    start_note: i32,
+    end_note: i32,
+    off_color: i32,
+    translation: GridTranslation,
+    blink_mode: BlinkMode,
+    /// The collected blink states (only used with [`BlinkMode::Collect`]).
+    pub pending_blinks: BTreeMap<i32, LightInfo>,
+}
+
+impl PadGrid {
+    pub fn new(colors: &ColorManager, rows: i32, columns: i32, start_note: i32) -> Self {
+        PadGrid {
+            pad_states: vec![LightInfo::default(); NUM_NOTES],
+            rows,
+            columns,
+            start_note,
+            end_note: start_note + rows * columns - 1,
+            off_color: if colors.has_color_index(GRID_OFF) { colors.color_index(GRID_OFF) } else { 0 },
+            translation: default_translation,
+            blink_mode: BlinkMode::Channels,
+            pending_blinks: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_translation(mut self, translation: GridTranslation) -> Self {
+        self.translation = translation;
+        self
+    }
+
+    pub fn with_blink_mode(mut self, blink_mode: BlinkMode) -> Self {
+        self.blink_mode = blink_mode;
+        self
+    }
+
+    pub fn rows(&self) -> i32 {
+        self.rows
+    }
+
+    pub fn cols(&self) -> i32 {
+        self.columns
+    }
+
+    pub fn start_note(&self) -> i32 {
+        self.start_note
+    }
+
+    pub fn end_note(&self) -> i32 {
+        self.end_note
+    }
+
+    /// Light a pad addressed by its note.
+    pub fn light(&mut self, note: i32, color: i32) {
+        self.light_blink(note, color, -1, false);
+    }
+
+    pub fn light_blink(&mut self, note: i32, color: i32, blink_color: i32, fast: bool) {
+        self.set_light(note, color, blink_color, fast);
+    }
+
+    /// Light a pad addressed by column (x) and row (y), y = 0 is the top row.
+    pub fn light_ex(&mut self, x: i32, y: i32, color: i32) {
+        self.light_ex_blink(x, y, color, -1, false);
+    }
+
+    pub fn light_ex_blink(&mut self, x: i32, y: i32, color: i32, blink_color: i32, fast: bool) {
+        let off = (self.rows - 1) * self.columns + self.start_note;
+        self.set_light(off + x - self.columns * y, color, blink_color, fast);
+    }
+
+    /// Light a pad addressed by column (x) and row (y) with color IDs.
+    pub fn light_ex_id(&mut self, colors: &ColorManager, x: i32, y: i32, color_id: &str) {
+        self.light_ex(x, y, colors.color_index(color_id));
+    }
+
+    pub fn light_id(&mut self, colors: &ColorManager, note: i32, color_id: &str) {
+        self.light(note, colors.color_index(color_id));
+    }
+
+    pub fn light_id_blink(&mut self, colors: &ColorManager, note: i32, color_id: &str, blink_color_id: Option<&str>, fast: bool) {
+        let blink = blink_color_id.map(|id| colors.color_index(id)).unwrap_or(-1);
+        self.light_blink(note, colors.color_index(color_id), blink, fast);
+    }
+
+    fn set_light(&mut self, note: i32, color: i32, blink_color: i32, fast: bool) {
+        if !(0..NUM_NOTES as i32).contains(&note) {
+            return;
+        }
+        let blink = if blink_color >= 0 { blink_color } else { self.off_color };
+        self.pad_states[note as usize] = LightInfo::new(color.clamp(0, 127), blink, fast);
+    }
+
+    pub fn light_info(&self, note: i32) -> LightInfo {
+        self.pad_states.get(note as usize).copied().unwrap_or_default()
+    }
+
+    /// Clear all pad states which forces an update on the next flush.
+    pub fn force_flush(&mut self) {
+        for note in self.start_note..=self.end_note {
+            self.pad_states[note as usize] = LightInfo::default();
+        }
+    }
+
+    /// Turn off all pads.
+    pub fn turn_off(&mut self) {
+        for note in self.start_note..=self.end_note {
+            self.light(note, 0);
+        }
+    }
+
+    pub fn translate_to_controller(&self, note: i32) -> (i32, i32) {
+        (self.translation)(note)
+    }
+
+    /// Translate a controller note back to the grid (identity in the default implementation).
+    pub fn translate_to_grid(&self, note: i32) -> i32 {
+        note
+    }
+
+    /// Send the state of the pad to the controller.
+    pub fn send_state(&mut self, output: &MidiOutput, note: i32) {
+        let state = self.light_info(note);
+        let (channel, controller_note) = self.translate_to_controller(note);
+        let channel = channel.max(0);
+        output.send_note_ex(channel, controller_note, state.color.max(0));
+        let blink_color = state.blink_color;
+        if blink_color > 0 && blink_color < 128 {
+            match self.blink_mode {
+                BlinkMode::Channels => output.send_note_ex(if state.fast { 14 } else { 10 }, controller_note, blink_color),
+                BlinkMode::Collect => {
+                    let info = self.pending_blinks.entry(controller_note).or_default();
+                    info.blink_color = blink_color;
+                    info.fast = state.fast;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn light_ex_addresses_rows_from_top() {
+        let colors = ColorManager::new();
+        let mut grid = PadGrid::new(&colors, 8, 8, 36);
+        grid.light_ex(0, 0, 5);
+        assert_eq!(grid.light_info(36 + 56).color, 5);
+        grid.light_ex(7, 7, 6);
+        assert_eq!(grid.light_info(43).color, 6);
+    }
+
+    #[test]
+    fn encoding() {
+        assert_eq!(LightInfo::new(3, -1, false).encoded(), (1 << 15) + 3);
+        assert_eq!(LightInfo::new(3, 2, true).encoded(), (1 << 16) + (2 << 8) + 3);
+    }
+}

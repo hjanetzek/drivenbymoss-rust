@@ -1,0 +1,16 @@
+[package]
+name = "drivenbymoss"
+version = "26.1.0"
+edition = "2021"
+description = "Rust port of DrivenByMoss4Reaper: support for hardware controllers in Reaper"
+license = "LGPL-3.0-only"
+authors = ["Jürgen Moßgraber (original Java implementation)"]
+
+[lib]
+name = "drivenbymoss"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+lto = true
