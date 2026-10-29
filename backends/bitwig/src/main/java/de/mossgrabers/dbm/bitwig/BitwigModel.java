@@ -14,6 +14,8 @@ import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.DeviceBank;
+import com.bitwig.extension.controller.api.DrumPad;
+import com.bitwig.extension.controller.api.DrumPadBank;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
@@ -28,6 +30,7 @@ import com.bitwig.extension.controller.api.Transport;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,6 +45,10 @@ public final class BitwigModel
 {
     /** The size of the bank for commands to tracks outside of the window (as CursorTrackImpl of the Java version). */
     public static final int  NUM_LARGE_TRACKS    = 400;
+    /** The number of drum pads: all pads of a drum machine, the core pages over them. */
+    public static final int  NUM_DRUM_PADS       = 128;
+    /** The Bitwig Drum Machine (ModelImpl.INSTRUMENT_DRUM_MACHINE of the Java version). */
+    private static final UUID INSTRUMENT_DRUM_MACHINE = UUID.fromString ("8ea97e45-0255-40fd-bc7e-94419741e9d1");
     /** The size of the device sibling window, as in the Reaper backend. */
     public static final int  NUM_SIBLINGS        = 8;
     /** The parameters per remote control page. */
@@ -74,6 +81,13 @@ public final class BitwigModel
     /** Follows the page selected in Bitwig (as the remote controls page of the Java version). */
     final CursorRemoteControlsPage remoteControls;
     final int                numSends;
+    /** The first drum machine of the cursor track, null if the controller does not need it. */
+    final Device             drumDevice;
+    /** The pads of the drum machine, null if the controller does not need them. */
+    final DrumPadBank        drumPadBank;
+    /** The first device of each pad: a pad exists if it has a device (LayerImpl). */
+    private final Device []  drumPadFirstDevices = new Device [NUM_DRUM_PADS];
+    private final boolean [] drumPadSelected     = new boolean [NUM_DRUM_PADS];
     /** The note repeat of the default note input, null if the controller has none. */
     final Arpeggiator        arpeggiator;
 
@@ -118,6 +132,22 @@ public final class BitwigModel
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
         this.remoteControls = this.cursorDevice.createCursorRemoteControlsPage (PARAMS_PER_PAGE);
+
+        // The drum machine of the cursor track, as ModelImpl of the Java version
+        if (getBoolean (modelSetup, "wantsDrumDevice", true))
+        {
+            final DeviceBank drumDeviceBank = this.cursorTrack.createDeviceBank (1);
+            drumDeviceBank.setDeviceMatcher (host.createBitwigDeviceMatcher (INSTRUMENT_DRUM_MACHINE));
+            this.drumDevice = drumDeviceBank.getItemAt (0);
+            this.drumPadBank = this.drumDevice.createDrumPadBank (NUM_DRUM_PADS);
+            for (int i = 0; i < NUM_DRUM_PADS; i++)
+                this.drumPadFirstDevices[i] = this.drumPadBank.getItemAt (i).createDeviceBank (1).getItemAt (0);
+        }
+        else
+        {
+            this.drumDevice = null;
+            this.drumPadBank = null;
+        }
         this.pages = new CursorRemoteControlsPage [numParamPages];
         for (int i = 0; i < numParamPages; i++)
             this.pages[i] = this.cursorDevice.createCursorRemoteControlsPage ("DBM page " + (i + 1), PARAMS_PER_PAGE, "");
@@ -232,6 +262,22 @@ public final class BitwigModel
             this.arpeggiator.usePressureToVelocity ().markInterested ();
         }
 
+        if (this.drumPadBank != null)
+        {
+            this.drumDevice.exists ().markInterested ();
+            this.drumPadBank.hasMutedPads ().markInterested ();
+            this.drumPadBank.hasSoloedPads ().markInterested ();
+            for (int i = 0; i < NUM_DRUM_PADS; i++)
+            {
+                final DrumPad pad = this.drumPadBank.getItemAt (i);
+                final int index = i;
+                this.markChannel (pad);
+                pad.isActivated ().markInterested ();
+                pad.addIsSelectedInEditorObserver (selected -> this.drumPadSelected[index] = selected);
+                this.drumPadFirstDevices[i].exists ().markInterested ();
+            }
+        }
+
         this.remoteControls.pageCount ().markInterested ();
         this.remoteControls.pageNames ().markInterested ();
         this.remoteControls.selectedPageIndex ().markInterested ();
@@ -281,6 +327,31 @@ public final class BitwigModel
         this.collectMaster (reporter);
         this.collectDevice (reporter);
         this.collectNoteRepeat (reporter);
+        this.collectDrumPads (reporter);
+    }
+
+
+    /**
+     * The drum machine of the cursor track and all its pads (protocol v2), as DrumPadBankImpl of
+     * the Java version.
+     */
+    private void collectDrumPads (final ModelReporter reporter)
+    {
+        if (this.drumPadBank == null)
+            return;
+        final boolean exists = this.drumDevice.exists ().get ();
+        reporter.put ("/drum/exists", exists);
+        reporter.put ("/drum/hasMutedPads", exists && this.drumPadBank.hasMutedPads ().get ());
+        reporter.put ("/drum/hasSoloedPads", exists && this.drumPadBank.hasSoloedPads ().get ());
+        for (int i = 0; i < NUM_DRUM_PADS; i++)
+        {
+            final DrumPad pad = this.drumPadBank.getItemAt (i);
+            final String prefix = "/drum/pad/" + i + "/";
+            reporter.put (prefix + "exists", exists && this.drumPadFirstDevices[i].exists ().get ());
+            reporter.put (prefix + "select", this.drumPadSelected[i]);
+            reporter.put (prefix + "active", pad.isActivated ().get ());
+            this.collectChannel (reporter, prefix, pad);
+        }
     }
 
 
@@ -606,6 +677,13 @@ public final class BitwigModel
     }
 
 
+
+
+    private static boolean getBoolean (final String json, final String key, final boolean defaultValue)
+    {
+        final Matcher matcher = Pattern.compile ("\"" + Pattern.quote (key) + "\"\\s*:\\s*(true|false)").matcher (json);
+        return matcher.find () ? Boolean.parseBoolean (matcher.group (1)) : defaultValue;
+    }
 
 
     private static int getInt (final String json, final String key, final int defaultValue)

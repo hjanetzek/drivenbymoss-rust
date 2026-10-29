@@ -44,6 +44,7 @@ pub enum Processor {
     Mixer,
     Beats,
     Bank,
+    Drum,
 }
 
 impl Processor {
@@ -84,6 +85,7 @@ impl Processor {
             Processor::Mixer => "mixer",
             Processor::Beats => "beats",
             Processor::Bank => "bank",
+            Processor::Drum => "drum",
         }
     }
 }

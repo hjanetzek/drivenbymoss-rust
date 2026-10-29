@@ -7,6 +7,8 @@ import com.bitwig.extension.controller.api.Action;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.Device;
+import com.bitwig.extension.controller.api.DrumPad;
+import com.bitwig.extension.controller.api.DrumPadBank;
 import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.Track;
@@ -66,6 +68,7 @@ public final class CommandHandler
             case "project" -> this.handleProject (command);
             case "marker" -> this.handleMarker (command);
             case "scene" -> this.handleScene (command, null);
+            case "drum" -> this.handleDrum (command, 1, null);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -103,6 +106,7 @@ public final class CommandHandler
             case "device" -> this.handleDevice (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
             case "project" -> this.handleProject (command);
+            case "drum" -> this.handleDrum (command, value, null);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -151,8 +155,57 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
+            case "drum" -> this.handleDrum (command, 0, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
+    }
+
+
+    /**
+     * The drum machine of the cursor track: "pad/&lt;pad&gt;/&lt;command&gt;", "clearMute",
+     * "clearSolo", "indicate", as DrumPadBankImpl and ChannelImpl of the Java version.
+     */
+    private void handleDrum (final String command, final double value, final String text)
+    {
+        final DrumPadBank bank = this.model.drumPadBank;
+        if (bank == null)
+            return;
+        switch (command)
+        {
+            case "clearMute" -> bank.clearMutedPads ();
+            case "clearSolo" -> bank.clearSoloedPads ();
+            case "indicate" -> bank.setIndication (value > 0);
+            default ->
+            {
+                final String [] parts = command.split ("/", 3);
+                final int index = parts.length == 3 && "pad".equals (parts[0]) ? parseIndex (parts[1]) : -1;
+                if (index < 0 || index >= BitwigModel.NUM_DRUM_PADS)
+                {
+                    this.unhandled.accept ("drum " + command);
+                    return;
+                }
+                final DrumPad pad = bank.getItemAt (index);
+                if ("select".equals (parts[2]))
+                {
+                    if (value > 0)
+                        selectChannel (pad);
+                }
+                else
+                    this.handleChannel (pad, parts[2], value, text);
+            }
+        }
+    }
+
+
+    /**
+     * Select a channel as ChannelImpl.select of the Java version.
+     */
+    private static void selectChannel (final Channel channel)
+    {
+        channel.selectInEditor ();
+        channel.selectInMixer ();
+        channel.makeVisibleInArranger ();
+        channel.makeVisibleInMixer ();
     }
 
 
@@ -354,11 +407,7 @@ public final class CommandHandler
             case "select", "scrollto" ->
             {
                 if (value > 0)
-                {
-                    track.selectInEditor ();
-                    track.makeVisibleInArranger ();
-                    track.makeVisibleInMixer ();
-                }
+                    selectChannel (track);
             }
             case "recarm" -> track.arm ().set (value > 0);
             case "monitor" -> track.monitorMode ().set (value > 0 ? "ON" : "OFF");
@@ -540,6 +589,7 @@ public final class CommandHandler
                     channel.selectInEditor ();
             }
             case "mute" -> channel.mute ().set (value > 0);
+            case "active" -> channel.isActivated ().set (value > 0);
             case "solo" -> channel.solo ().set (value > 0);
             case "volume" -> channel.volume ().value ().set (value);
             case "pan" -> channel.pan ().value ().set (value);

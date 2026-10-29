@@ -213,8 +213,8 @@ Reaper backend keeps working:
    `/scene/offset` and gets the core's offsets (`bank track|scene`); Bitwig's track and scene banks
    are windows of `numTracks` and `numScenes` as in the Java version. Device siblings and
    parameter pages are not host paged yet.
-6. **Drum pads and layers** as channels with their own addresses (`/drumpad/<i>/…`,
-   `/layer/<i>/…`).
+6. **Drum pads** (done) as channels with their own addresses and commands (`/drum/pad/<p>/…`,
+   `drum pad/<p>/…`); **device layers** (todo, `/layer/<i>/…`).
 7. **Browser** with content types, filter columns and results.
 8. **Cursor clip step grid** with the Bitwig step fields; the grid size comes from the manifest.
 

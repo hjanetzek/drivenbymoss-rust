@@ -594,6 +594,17 @@ impl Model {
         self.additional_drum_devices.iter_mut().find(|(n, _)| *n == page_size).map(|(_, d)| d)
     }
 
+    /// Call the function for the main and all additional drum devices: they show the same drum
+    /// machine with different page sizes.
+    pub(crate) fn for_each_drum_device(&mut self, mut f: impl FnMut(&mut SpecificDevice)) {
+        if let Some(device) = &mut self.drum_device {
+            f(device);
+        }
+        for (_, device) in &mut self.additional_drum_devices {
+            f(device);
+        }
+    }
+
     /// True if the selected track is the master track.
     pub fn is_cursor_device_on_master_track(&self) -> bool {
         self.track_bank.master().is_selected()

@@ -173,7 +173,11 @@ impl DrumBase {
     pub fn on_activate(&mut self, ctx: &mut Ctx) {
         self.seq.clip(ctx);
         self.update_note_mapping(ctx);
+        // Show the pads of the drum offset (the Java version relies on the position of Bitwig's
+        // drum pad bank; Reaper's pages are aligned anyway)
+        let drum_offset = ctx.model.scales().drum_offset().max(0) as usize;
         if let Some(bank) = self.drum_pad_bank_mut(ctx) {
+            bank.scroll_to(drum_offset, false);
             bank.set_indication(true);
         }
         self.register_button_monitors(ctx);

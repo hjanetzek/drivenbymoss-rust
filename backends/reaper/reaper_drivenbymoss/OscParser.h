@@ -84,6 +84,8 @@ private:
 	ArrangerProcessor                arrangerProcessor;
 	MixerProcessor                   mixerProcessor;
 	BeatsProcessor                   beatsProcessor;
+	// Reaper has no drum machines: the drum pad commands (protocol v2) are ignored
+	ActionCommandProcessor           drumProcessor;
 
 	std::map<std::string, OscProcessor*> processors;
 	Model& theModel;

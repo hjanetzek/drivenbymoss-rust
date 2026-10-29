@@ -199,7 +199,8 @@ impl DeviceBank {
 // Drum pads
 
 /// A drum pad (former `IDrumPad` / `DrumPadImpl`). Reaper has no real drum pads; they are
-/// virtual channels for the 128 notes. Derefs to [`Channel`].
+/// virtual channels for the 128 notes. Hosts with drum machines (Bitwig) report the pads
+/// (protocol v2). Derefs to [`Channel`].
 pub struct DrumPad {
     channel: Channel,
 }
@@ -246,6 +247,11 @@ impl BankItem for DrumPad {
 /// [`PagedBank<DrumPad>`]. Use [`DrumPadBank::select_pad`] to select a pad.
 pub struct DrumPadBank {
     bank: PagedBank<DrumPad>,
+    /// True if the host reports the pads (protocol v2): their colors are not overridden with the
+    /// track color and the mute/solo summaries come from the host.
+    host_reported: bool,
+    has_muted_pads: bool,
+    has_soloed_pads: bool,
 }
 
 impl DrumPadBank {
@@ -267,7 +273,7 @@ impl DrumPadBank {
         if num_layers > 0 {
             bank.set_item_count(128);
         }
-        let mut pad_bank = DrumPadBank { bank };
+        let mut pad_bank = DrumPadBank { bank, host_reported: false, has_muted_pads: false, has_soloed_pads: false };
         if num_layers > 0 {
             pad_bank.set_selected_drum_pad(36);
             pad_bank.scroll_to(36, true);
@@ -280,10 +286,15 @@ impl DrumPadBank {
         self.bank.item_mut(index)
     }
 
-    /// Scroll to the page which contains the given pad position.
+    /// Scroll to the given pad position. As the Java versions: Bitwig (pads reported by the
+    /// host) scrolls exactly to the position, Reaper to the page which contains it.
     pub fn scroll_to(&mut self, position: usize, _adjust_page: bool) {
-        let ps = self.bank.page_size().max(1);
-        self.bank.set_bank_offset((position / ps * ps) as i64);
+        if self.host_reported {
+            self.bank.set_bank_offset(position as i64);
+        } else {
+            let ps = self.bank.page_size().max(1);
+            self.bank.set_bank_offset((position / ps * ps) as i64);
+        }
     }
 
     pub fn scroll_page_backwards(&mut self) {
@@ -310,12 +321,38 @@ impl DrumPadBank {
         }
     }
 
-    /// Select the drum pad at the given absolute position (note).
+    /// Select the drum pad at the given absolute position (note). The host selects the pad as
+    /// well (protocol v2, Reaper ignores it).
     pub fn set_selected_drum_pad(&mut self, position: usize) {
         let count = self.bank.item_count();
         for i in 0..count {
             self.bank.unpaged_item_mut(i).set_selected(i == position);
         }
+        if self.host_reported {
+            self.bank.ctx.send(crate::backend::Processor::Drum, &format!("pad/{position}/select"));
+        }
+    }
+
+    /// Get the drum pad at the absolute position (note) for modification.
+    pub fn unpaged_item_mut(&mut self, position: usize) -> &mut DrumPad {
+        self.bank.unpaged_item_mut(position)
+    }
+
+    /// The host reports the pads (protocol v2): from now on their colors are not overridden with
+    /// the track color.
+    pub(crate) fn set_host_reported(&mut self) {
+        if !self.host_reported {
+            self.host_reported = true;
+            self.set_pad_color(None);
+        }
+    }
+
+    pub(crate) fn set_has_muted_pads(&mut self, value: bool) {
+        self.has_muted_pads = value;
+    }
+
+    pub(crate) fn set_has_soloed_pads(&mut self, value: bool) {
+        self.has_soloed_pads = value;
     }
 
     /// The color ID of the selected pad.
@@ -326,23 +363,31 @@ impl DrumPadBank {
         }
     }
 
-    /// Set the color of all pads (the color of the selected track).
+    /// Set the color of all pads (the color of the selected track). Not if the host reports the
+    /// colors of the pads.
     pub(crate) fn set_pad_color(&mut self, color: Option<ColorEx>) {
+        let color = if self.host_reported { None } else { color };
         for pad in self.bank.all_items_mut() {
             pad.set_color_override(color);
         }
     }
 
-    pub fn clear_mute(&mut self) {}
+    /// Unmute all pads (not supported by Reaper).
+    pub fn clear_mute(&mut self) {
+        self.bank.ctx.send(crate::backend::Processor::Drum, "clearMute");
+    }
 
-    pub fn clear_solo(&mut self) {}
+    /// Unsolo all pads (not supported by Reaper).
+    pub fn clear_solo(&mut self) {
+        self.bank.ctx.send(crate::backend::Processor::Drum, "clearSolo");
+    }
 
     pub fn has_muted_pads(&self) -> bool {
-        false
+        self.has_muted_pads
     }
 
     pub fn has_soloed_pads(&self) -> bool {
-        false
+        self.has_soloed_pads
     }
 
     pub fn can_edit_send(&self, _send_index: usize) -> bool {
@@ -353,7 +398,10 @@ impl DrumPadBank {
         String::new()
     }
 
-    pub fn set_indication(&mut self, _indicate: bool) {}
+    /// Indicate the pads on the DAW user interface (not supported by Reaper).
+    pub fn set_indication(&mut self, indicate: bool) {
+        self.bank.ctx.send_int(crate::backend::Processor::Drum, "indicate", if indicate { 1 } else { 0 });
+    }
 }
 
 impl Deref for DrumPadBank {

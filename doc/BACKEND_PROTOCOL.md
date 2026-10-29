@@ -428,6 +428,20 @@ everything and never reports an offset.
 | `bank` | `track` | int | the offset of the core's track bank (the first visible track) |
 | `bank` | `scene` | int | the offset of the core's scene bank (the first visible scene and slot) |
 
+#### Protocol v2: drum pads
+
+The pads of the cursor track's drum machine are channels of their own. Their commands used to go
+to `track <pad>/…` (mismatch f); Reaper has no drum machines and ignores the `drum` commands.
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `drum` | `pad/<p>/select` | none | select the pad (`<p>` = 0..127, the note) |
+| `drum` | `pad/<p>/mute`, `solo`, `active` | int | 1 / 0 |
+| `drum` | `pad/<p>/volume`, `pan` | double | 0..1 |
+| `drum` | `pad/<p>/color` | string | `RGB(r,g,b)` |
+| `drum` | `clearMute`, `clearSolo` | none | unmute / unsolo all pads |
+| `drum` | `indicate` | int | indicate the pads on the DAW's user interface |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -677,6 +691,11 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/browser/presetsfile` | string path | `TrackFX_GetUserPresetFilename` | yes | yes (if browser exists) |
 | `/browser/selected/name` | string | current preset name | yes | **no-op** |
 | `/browser/selected/index` | int | `TrackFX_GetPresetIndex` | yes | yes |
+| `/drum/exists` | int bool | the cursor track has a drum machine | Bitwig (v2) | yes (all drum devices) |
+| `/drum/hasMutedPads`, `/drum/hasSoloedPads` | int bool | | Bitwig (v2) | yes |
+| `/drum/pad/<p>/exists`, `select`, `active`, `mute`, `solo` | int bool | a pad exists if it has a device | Bitwig (v2) | yes |
+| `/drum/pad/<p>/name`, `color` | string, colour | reported colours are not replaced with the track colour | Bitwig (v2) | yes |
+| `/drum/pad/<p>/volume`, `pan` (`/str`) | double 0..1, string | | Bitwig (v2) | yes |
 | `/noterepeat/active` | int bool | MIDI arp plugin enabled on selected track input FX | yes | yes → `NoteRepeatActive` |
 | `/noterepeat/period` | double (plugin rate param) | parser emits `NoteRepeatPeriod(1/v)` | yes | yes |
 | `/noterepeat/notelength` | double | | yes | yes |
@@ -791,7 +810,7 @@ the "Host"/"Parser" columns in §3 show the same information per command and add
 | c | `automation ""` int 5 | `transport.rs` | Rust means LatchPreview; Reaper `SetGlobalAutomationOverride(5)` = bypass. Same in Java (?). |
 | d | `device param/<p>/value` from FirstInstrument / Drum device banks | `device.rs`, `parameter.rs` | Always applied to the cursor (selected) device, not the first instrument (?). |
 | e | `eq selected` int | `device.rs` | Inherited DeviceProcessor: moves the normal cursor device, not EQ-specific (?). |
-| f | Drum pad channel commands (`ChannelKind::DrumPad` -> `track <padPosition>/mute`, `/solo`, `/volume`, `/color`, ...) | `channel.rs` | Pads are virtual; commands hit the *track* with the pad's position. Same in Java (`DrumPadImpl` uses `Processor.TRACK`) (?). |
+| f (fixed) | Drum pad channel commands (`ChannelKind::DrumPad` -> `track <padPosition>/mute`, `/solo`, `/volume`, `/color`, ...) | `channel.rs` | Pads are virtual; commands hit the *track* with the pad's position. Same in Java (`DrumPadImpl` uses `Processor.TRACK`) (?). Fixed in protocol v2: the `drum` processor. |
 | g | Master send parameters | `channel.rs` (`SendBank::new(.., position)` with master position 0) | Would be sent as `track 0/send/<s>/volume` (track 0, not master); only if master sends exist (?). |
 | h | `time loop/length` | `transport.rs` | Host sets loop end (not a length); consistent with what the host reports, just misnamed. |
 

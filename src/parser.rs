@@ -206,8 +206,55 @@ impl Parser {
             }
             "noterepeat" => self.parse_note_repeat(model, &mut parts, value),
             "groove" => Self::parse_groove(model, &mut parts, value),
+            "drum" => Self::parse_drum(model, &mut parts, value),
             _ => Self::error(model, &format!("Unhandled OSC address: {osc} {value}")),
         }
+    }
+
+    /// The drum machine of the cursor track with its 128 pads (protocol v2), applied to the main
+    /// and the additional drum devices.
+    fn parse_drum(model: &mut Model, parts: &mut Parts, value: &str) {
+        let host = model.host().clone();
+        let flag = parse_double(value).map(|v| v > 0.0);
+        let command = parts.poll().unwrap_or("");
+        let (pad, field, sub) = (parts.poll(), parts.poll(), parts.poll());
+        let color = if field == Some(TAG_COLOR) { parse_color_static(&host, value) } else { None };
+        model.for_each_drum_device(|device| match command {
+            TAG_EXISTS => device.set_exists(flag.unwrap_or(false)),
+            "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(flag.unwrap_or(false)),
+            "hasSoloedPads" => device.drum_pad_bank_mut().set_has_soloed_pads(flag.unwrap_or(false)),
+            "pad" => {
+                let Some(position) = pad.and_then(parse_index) else {
+                    return;
+                };
+                let bank = device.drum_pad_bank_mut();
+                bank.set_host_reported();
+                let pad = bank.unpaged_item_mut(position);
+                match (field.unwrap_or(""), sub) {
+                    (TAG_EXISTS, None) => pad.set_exists(flag.unwrap_or(false)),
+                    (TAG_NAME, None) => pad.set_internal_name(value),
+                    (TAG_COLOR, None) => pad.set_color_state(color.unwrap_or(ColorEx::GRAY.to_double_rgb())),
+                    (TAG_SELECT, None) => pad.set_selected(flag.unwrap_or(false)),
+                    (TAG_ACTIVE, None) => pad.set_internal_is_activated(flag.unwrap_or(false)),
+                    ("mute", None) => pad.set_mute_state(flag.unwrap_or(false)),
+                    ("solo", None) => pad.set_solo_state(flag.unwrap_or(false)),
+                    (TAG_VOLUME, None) => {
+                        if let Some(v) = parse_double(value) {
+                            pad.set_internal_volume(v);
+                        }
+                    }
+                    (TAG_VOLUME, Some("str")) => pad.set_volume_str(value),
+                    ("pan", None) => {
+                        if let Some(v) = parse_double(value) {
+                            pad.set_internal_pan(v);
+                        }
+                    }
+                    ("pan", Some("str")) => pad.set_pan_str(value),
+                    (other, _) => host.error(&format!("Unhandled Drum Pad parameter: {other}")),
+                }
+            }
+            other => host.error(&format!("Unhandled Drum parameter: {other}")),
+        });
     }
 
     fn parse_click(model: &mut Model, parts: &mut Parts, value: &str) {
@@ -1467,6 +1514,49 @@ mod tests {
         assert_eq!(
             bank_calls(backend.take_calls()),
             vec![BackendCall::IntArg("bank".into(), "track".into(), 0), BackendCall::IntArg("bank".into(), "scene".into(), 8)]
+        );
+    }
+
+    #[test]
+    fn drum_pads() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/drum/exists 1",
+                "/drum/hasSoloedPads 1",
+                "/drum/pad/36/exists 1",
+                "/drum/pad/36/name Kick",
+                "/drum/pad/36/color 255 0 0",
+                "/drum/pad/36/mute 1",
+                "/drum/pad/37/exists 0",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        // The drum pad bank shows the page of pad 36 (16 pads from 32)
+        let bank = model.drum_device().unwrap().drum_pad_bank();
+        let kick = bank.item(4);
+        assert!(kick.does_exist() && kick.is_mute());
+        assert_eq!(kick.name(), "Kick");
+        assert_eq!(kick.color(), ColorEx::RED);
+        assert!(!bank.item(5).does_exist());
+        assert!(bank.has_soloed_pads() && !bank.has_muted_pads());
+        // With reported pads the bank scrolls exactly to the drum offset, as in Bitwig
+        model.drum_device_mut().unwrap().drum_pad_bank_mut().scroll_to(36, false);
+        assert_eq!(model.drum_device().unwrap().drum_pad_bank().item(0).name(), "Kick");
+        model.drum_device_mut().unwrap().drum_pad_bank_mut().scroll_to(32, false);
+        // The pad color is not replaced with the track color
+        model.track_bank_mut().item_mut(0).set_color_state([0.0, 0.0, 1.0]);
+        assert_eq!(model.drum_device().unwrap().drum_pad_bank().item(4).color(), ColorEx::RED);
+
+        backend.take_calls();
+        let bank = model.drum_device_mut().unwrap().drum_pad_bank_mut();
+        bank.item_mut(4).set_mute(false);
+        bank.clear_solo();
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
         );
     }
 

@@ -106,10 +106,10 @@ pub struct Channel {
 impl Channel {
     /// Create a channel. `index` is the index in the page, `position` the absolute position.
     pub fn new(ctx: DawContext, kind: ChannelKind, index: i32, position: i32, num_sends: usize) -> Self {
-        let (vol_kind, pan_kind) = if kind == ChannelKind::Master {
-            (ParameterKind::MasterVolume, ParameterKind::MasterPan)
-        } else {
-            (ParameterKind::TrackVolume, ParameterKind::TrackPan)
+        let (vol_kind, pan_kind) = match kind {
+            ChannelKind::Master => (ParameterKind::MasterVolume, ParameterKind::MasterPan),
+            ChannelKind::DrumPad => (ParameterKind::DrumPadVolume, ParameterKind::DrumPadPan),
+            _ => (ParameterKind::TrackVolume, ParameterKind::TrackPan),
         };
         // Volume and panorama use the position as index (it is the index at creation in Java)
         let param_index = if kind == ChannelKind::Master { 0 } else { position };
@@ -458,19 +458,20 @@ impl Channel {
     // Sending
 
     fn processor(&self) -> Processor {
-        if self.kind == ChannelKind::Master {
-            Processor::Master
-        } else {
-            Processor::Track
+        match self.kind {
+            ChannelKind::Master => Processor::Master,
+            // Drum pads have their own commands (protocol v2); Reaper ignores them
+            ChannelKind::DrumPad => Processor::Drum,
+            _ => Processor::Track,
         }
     }
 
     /// Create the command with the position prefix.
     pub(crate) fn create_command(&self, command: &str) -> String {
-        if self.kind == ChannelKind::Master {
-            command.to_string()
-        } else {
-            format!("{}/{}", self.position, command)
+        match self.kind {
+            ChannelKind::Master => command.to_string(),
+            ChannelKind::DrumPad => format!("pad/{}/{}", self.position, command),
+            _ => format!("{}/{}", self.position, command),
         }
     }
 
