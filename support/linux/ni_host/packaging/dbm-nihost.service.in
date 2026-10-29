@@ -1,0 +1,18 @@
+# NI host emulation for DrivenByMoss: the Maschine Mk2 and JAM as MIDI ports.
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now dbm-nihost
+#   journalctl --user -u dbm-nihost -f
+# Devices can be plugged in and out while it runs; it also connects the snd-virmidi devices (for
+# Bitwig) when the module is loaded later.
+
+[Unit]
+Description=NI Maschine host emulation for DrivenByMoss (dbm-nihost)
+Documentation=https://github.com/git-moss/DrivenByMoss4Reaper
+
+[Service]
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/dbm-nihost --virmidi
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

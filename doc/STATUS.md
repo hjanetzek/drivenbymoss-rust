@@ -13,7 +13,8 @@ handle-based C ABI.
 **First successful test in Reaper (2026-10-29):** the Reaper extension in `backends/reaper`,
 switched from the JVM to the C ABI through the C++ wrapper (`bindings/cpp`), was built on Linux,
 loaded in Reaper and tested with a Novation Launch Control XL, including template switching. The
-Launchpad and Maschine support have not been tested with hardware yet.
+Maschine Mk2 and JAM work in Reaper on Linux through `dbm-nihost` (see below). The Launchpad has
+not been tested with hardware yet.
 
 The CMake paths for Windows and macOS are written but untested. The Visual Studio, Xcode and
 Eclipse project files in `backends/reaper` still reference the removed JVM files; CMake is the
@@ -29,6 +30,10 @@ cmake --build build
 
 CMake runs cargo itself and links the core statically into `reaper_drivenbymoss.so` (`.dll` on
 Windows, `.dylib` on macOS).
+
+`ci/linux.sh` builds and tests everything that builds on Linux: the crate, the C++ wrapper,
+`dbm-nihost` and the Reaper extension. `.github/workflows/linux.yml` runs it once `rust/` is its
+own repository.
 
 | Controller | Models registered | Rust path | Integration tests |
 | --- | --- | --- | --- |
@@ -47,6 +52,15 @@ Commits:
 **Maschine on Linux:** NI's driver doesn't exist on Linux. `support/linux/ni_host` (`dbm-nihost`)
 emulates it for the Mk2 and the JAM: hidraw on one side, ALSA ports with NI's names on the other.
 The Linux guard of the Maschine factories is removed.
+- Tested on both devices with the Rust port in Reaper, and with the Java DrivenByMoss in Bitwig.
+  The Java version needed its Linux check removed (local branch `linux-maschine` in the
+  DrivenByMoss repository).
+- Reaper sees the ports through PipeWire's MIDI bridge (`Midi-Bridge:Maschine MK2: In (capture)`);
+  the discovery pairs include these names.
+- Bitwig only opens raw MIDI devices; `dbm-nihost --virmidi` connects the ports to the devices of
+  `snd-virmidi`.
+- It installs with CMake, including a systemd user service. See
+  `support/linux/ni_host/README.md`.
 
 **Scope and size:**
 
@@ -135,8 +149,8 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
-1. Test the Launchpad and Maschine (Mk2, Jam) with hardware in Reaper, and test the Launch
-   Control XL in more depth. Compare the behaviour with the Java version.
+1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
+   (Mk2, JAM) in more depth. Compare the behaviour with the Java version.
 2. Verify the Windows and macOS CMake builds, and update or remove the Visual Studio, Xcode and
    Eclipse project files.
 3. Register and test Maschine Mk3, Mikro Mk3 and Plus, and port the Studio monitor-encoder

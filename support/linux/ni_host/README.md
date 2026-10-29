@@ -24,7 +24,39 @@ build-nihost/dbm-nihost            # both devices; --mk2 / --jam for one, --log-
 ```
 
 The devices can be plugged in and out while it runs. Access to `/dev/hidraw*` needs the udev rule
-in `udev/70-ni-maschine.rules`.
+`packaging/70-dbm-nihost.rules`.
+
+## Install
+
+```
+cmake -S support/linux/ni_host -B build-nihost -D CMAKE_INSTALL_PREFIX=$HOME/.local
+cmake --build build-nihost
+cmake --install build-nihost
+```
+
+This installs:
+
+- `bin/dbm-nihost`.
+- `share/systemd/user/dbm-nihost.service`, a systemd user service that runs `dbm-nihost --virmidi`.
+- `share/dbm-nihost/`: the udev rule and the `snd-virmidi` setup. These belong in `/etc` and need
+  root:
+
+```
+sudo cp ~/.local/share/dbm-nihost/70-dbm-nihost.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger
+sudo cp ~/.local/share/dbm-nihost/modprobe-dbm-nihost.conf /etc/modprobe.d/dbm-nihost.conf        # Bitwig only
+sudo cp ~/.local/share/dbm-nihost/modules-load-dbm-nihost.conf /etc/modules-load.d/dbm-nihost.conf
+```
+
+Then start the service, and on every login from then on:
+
+```
+systemctl --user daemon-reload
+systemctl --user enable --now dbm-nihost
+journalctl --user -u dbm-nihost -f              # the log
+```
+
+## Use in a DAW
 
 ### Reaper
 
@@ -36,20 +68,17 @@ Reaper opens the sequencer ports through PipeWire's MIDI bridge, named
 Bitwig only opens raw MIDI devices (`/dev/snd/midiC*D*`), not sequencer ports. The kernel's
 virtual MIDI driver bridges the two:
 
-```
-sudo modprobe snd-virmidi midi_devs=2
-aconnect -l                                    # find the VirMIDI and dbm-nihost clients
-aconnect 'Maschine MK2:0' 'Virtual Raw MIDI 5-0:0'
-aconnect 'Virtual Raw MIDI 5-0:0' 'Maschine MK2:1'
-aconnect 'Maschine Jam - 1:0' 'Virtual Raw MIDI 5-1:0'
-aconnect 'Virtual Raw MIDI 5-1:0' 'Maschine Jam - 1:1'
-```
-
-In Bitwig, select `Virtual Raw MIDI/1` (input and output) for the Mk2 and `Virtual Raw MIDI 2/1`
-for the JAM. Do not select the Mk2's own `Maschine Controller MK2 MIDI 1`, which disturbs the HID
-connection. The connections are lost when the daemon restarts. The Java DrivenByMoss refuses the
-Maschine on Linux unless its Linux check is removed (`MaschineControllerSetup.init`,
-`MaschineJamControllerSetup.init`).
+- `snd-virmidi` with `midi_devs=2` creates two raw MIDI devices, each also a sequencer client
+  (`Virtual Raw MIDI N-0`, `N-1`). The files in `packaging/` load it at boot; for a quick test,
+  `sudo modprobe snd-virmidi midi_devs=2`.
+- `dbm-nihost --virmidi` connects its ports to them: the 1st to the Mk2, the 2nd to the JAM (in this
+  order, for the enabled devices). It checks every 2 seconds, so the module can also be loaded
+  after the start.
+- In Bitwig, select `Virtual Raw MIDI/1` (input and output) for the Mk2 and `Virtual Raw MIDI 2/1`
+  for the JAM. Bitwig lists the 16 subdevices of each device; they all carry the same MIDI.
+- Do not select the Mk2's own `Maschine Controller MK2 MIDI 1`, which disturbs the HID connection.
+- The Java DrivenByMoss refuses the Maschine on Linux unless its Linux check is removed
+  (`MaschineControllerSetup.init`, `MaschineJamControllerSetup.init`).
 
 ## Tools and tests
 

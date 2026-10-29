@@ -40,7 +40,15 @@ pkg_check_modules(ALSA REQUIRED IMPORTED_TARGET alsa)
 add_executable(dbm-nihost src/alsa_ports.cpp src/daemon.cpp)
 target_link_libraries(dbm-nihost dbm_ni_host PkgConfig::ALSA)
 target_compile_options(dbm-nihost PRIVATE -Wall -Wextra)
-install(TARGETS dbm-nihost RUNTIME DESTINATION bin)
+
+# Installation: the daemon, the systemd user service and the system files (udev rule, snd-virmidi
+# setup), which have to be copied to /etc by hand when not installing to /usr
+include(GNUInstallDirs)
+install(TARGETS dbm-nihost RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+configure_file(packaging/dbm-nihost.service.in dbm-nihost.service @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dbm-nihost.service DESTINATION ${CMAKE_INSTALL_DATADIR}/systemd/user)
+install(FILES packaging/70-dbm-nihost.rules packaging/modprobe-dbm-nihost.conf packaging/modules-load-dbm-nihost.conf
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/dbm-nihost)
 
 enable_testing()
 add_executable(nihost-test tests/host_test.cpp)

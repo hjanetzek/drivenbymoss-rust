@@ -4,6 +4,8 @@
 // dbm-nihost: emulates NI's driver on Linux. For each supported Maschine it creates the MIDI
 // ports NI's driver creates on Windows and macOS and translates between them and the device's
 // USB HID reports, with the numbering of the DrivenByMoss Controller Editor templates.
+// With --virmidi the ports are also connected to the virtual raw MIDI devices of snd-virmidi, for
+// DAWs that only open raw MIDI devices (Bitwig): in the order Mk2, JAM, as far as they are enabled.
 // Stop with Ctrl+C or SIGTERM.
 
 #include "alsa_ports.h"
@@ -32,6 +34,9 @@ namespace
 
     bool logMidi = false;
 
+    // The name prefix of the sequencer clients of snd-virmidi
+    const std::string virmidiPrefix = "Virtual Raw MIDI";
+
     std::string hex( const uint8_t* data, size_t length )
     {
         std::string text;
@@ -55,6 +60,8 @@ namespace
         virtual void stop() = 0;
         // Receive MIDI from the DAW, then send the changed LED reports; called every few ms.
         virtual void poll() = 0;
+        virtual const std::string& getName() const = 0;
+        virtual AlsaPorts& getPorts() = 0;
     };
 
     template <typename Host, typename Protocol>
@@ -66,6 +73,9 @@ namespace
               hidraw( Protocol::vendorId, Protocol::productId, name, *this )
         {
         }
+
+        const std::string& getName() const override { return this->name; }
+        AlsaPorts& getPorts() override { return this->ports; }
 
         void start() override { this->hidraw.start(); }
         void stop() override { this->hidraw.stop(); }
@@ -111,23 +121,50 @@ namespace
         HidrawDevice      hidraw;
     };
 
+    // Connect the devices in order to the snd-virmidi clients they are not yet connected to.
+    // connected holds the client of each device, -1 if none. A removed client drops its
+    // connections, so checking again later also handles loading the module after the start.
+    void connectVirmidi( std::vector<std::unique_ptr<Device>>& devices, std::vector<int>& connected )
+    {
+        const std::vector<int> clients = devices.front()->getPorts().findClients( virmidiPrefix );
+        for( size_t i = 0; i < devices.size(); i++ )
+        {
+            const int client = i < clients.size() ? clients[i] : -1;
+            if( client == connected[i] )
+                continue;
+            connected[i] = -1;
+            if( client < 0 )
+                continue;
+            if( devices[i]->getPorts().connect( client, 0 ) )
+            {
+                connected[i] = client;
+                log( devices[i]->getName() + " connected to " + virmidiPrefix + " client " + std::to_string( client ) );
+            }
+            else
+                log( "Cannot connect " + devices[i]->getName() + " to " + virmidiPrefix + " client " + std::to_string( client ) );
+        }
+    }
+
     void usage()
     {
-        std::fprintf( stderr, "Usage: dbm-nihost [--mk2] [--jam] [--log-midi]\n"
-                              "Without --mk2 / --jam both devices are supported.\n" );
+        std::fprintf( stderr, "Usage: dbm-nihost [--mk2] [--jam] [--virmidi] [--log-midi]\n"
+                              "Without --mk2 / --jam both devices are supported.\n"
+                              "--virmidi connects them to the devices of snd-virmidi (for Bitwig).\n" );
     }
 }
 
 
 int main( int argc, char** argv )
 {
-    bool mk2 = false, jam = false;
+    bool mk2 = false, jam = false, virmidi = false;
     for( int i = 1; i < argc; i++ )
     {
         if( std::strcmp( argv[i], "--mk2" ) == 0 )
             mk2 = true;
         else if( std::strcmp( argv[i], "--jam" ) == 0 )
             jam = true;
+        else if( std::strcmp( argv[i], "--virmidi" ) == 0 )
+            virmidi = true;
         else if( std::strcmp( argv[i], "--log-midi" ) == 0 )
             logMidi = true;
         else
@@ -151,10 +188,19 @@ int main( int argc, char** argv )
     for( auto& device : devices )
         device->start();
 
+    std::vector<int> virmidiClients( devices.size(), -1 );
+    auto             lastVirmidiCheck = std::chrono::steady_clock::time_point();
     while( running )
     {
         for( auto& device : devices )
             device->poll();
+
+        const auto now = std::chrono::steady_clock::now();
+        if( virmidi && now - lastVirmidiCheck >= std::chrono::seconds( 2 ) )
+        {
+            lastVirmidiCheck = now;
+            connectVirmidi( devices, virmidiClients );
+        }
     }
 
     for( auto& device : devices )

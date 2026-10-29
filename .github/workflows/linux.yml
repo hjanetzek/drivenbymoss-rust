@@ -1,0 +1,17 @@
+# CI on Linux. Takes effect once rust/ is its own repository (see doc/STATUS.md).
+name: Linux
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libasound2-dev
+      - name: Build and test
+        run: ci/linux.sh

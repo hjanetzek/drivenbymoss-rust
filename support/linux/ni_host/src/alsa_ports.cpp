@@ -112,4 +112,30 @@ namespace dbm::nihost
                 break;
         }
     }
+
+    bool AlsaPorts::connect( int client, int port )
+    {
+        if( this->seq == nullptr )
+            return false;
+        // -EBUSY: already connected, e.g. by hand with aconnect
+        const int to   = snd_seq_connect_to( this->seq, this->inputPort, client, port );
+        const int from = snd_seq_connect_from( this->seq, this->outputPort, client, port );
+        return ( to >= 0 || to == -EBUSY ) && ( from >= 0 || from == -EBUSY );
+    }
+
+    std::vector<int> AlsaPorts::findClients( const std::string& prefix ) const
+    {
+        std::vector<int> clients;
+        if( this->seq == nullptr )
+            return clients;
+        snd_seq_client_info_t* info;
+        snd_seq_client_info_alloca( &info );
+        snd_seq_client_info_set_client( info, -1 );
+        while( snd_seq_query_next_client( this->seq, info ) >= 0 )
+        {
+            if( std::string( snd_seq_client_info_get_name( info ) ).rfind( prefix, 0 ) == 0 )
+                clients.push_back( snd_seq_client_info_get_client( info ) );
+        }
+        return clients;
+    }
 }

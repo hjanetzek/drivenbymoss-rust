@@ -38,6 +38,14 @@ namespace dbm::nihost
         // Wait up to the timeout for messages from the DAW and hand them to the receiver.
         void receive( int timeoutMilliseconds, const Receiver& receiver );
 
+        // Connect both ports to a sequencer port: the device's MIDI goes there and the MIDI from
+        // there to the device. Used for the virtual raw MIDI devices of snd-virmidi, since some
+        // DAWs (Bitwig) only open raw MIDI devices.
+        bool connect( int client, int port );
+
+        // The IDs of the sequencer clients whose name starts with the prefix, in ascending order.
+        std::vector<int> findClients( const std::string& prefix ) const;
+
     private:
         _snd_seq*       seq{ nullptr };
         snd_midi_event* encoder{ nullptr };

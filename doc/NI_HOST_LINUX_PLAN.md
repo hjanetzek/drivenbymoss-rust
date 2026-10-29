@@ -3,8 +3,8 @@
 **Goal.** Use the NI **Maschine Mk2** (`17cc:1140`) and **Maschine JAM** (`17cc:1500`) with
 DrivenByMoss on Linux, in Reaper and later Zynthian, without NI's driver.
 
-> **Status (2026-10-29).** Steps 1–7 are done and checked on both devices with the test pattern
-> and the probe, but not yet with DrivenByMoss in Reaper. Findings:
+> **Status (2026-10-29).** Steps 1–8 are done. Both devices work with the Rust DrivenByMoss in
+> Reaper and with the Java DrivenByMoss in Bitwig; step 9 (in-process) is open. Findings:
 > - **Palette:** NI's MIDI palette and the JAM's HID palette are the same (hue × 4 + level), and
 >   the JAM shows DrivenByMoss's white (78). On the Mk2, 72–79 show white from dim to bright.
 > - **JAM mono LEDs** are nearly full from about 0x30, so they get a quadratic curve.
@@ -13,6 +13,13 @@ DrivenByMoss on Linux, in Reaper and later Zynthian, without NI's driver.
 >   single value on channel 1 is a palette index.
 > - **Mk2 display button 7** is an MCU button: note 28.
 > - **Shift:** the JAM's Shift is NI's sysex `4D 01/00`. The Mk2 has no Shift in the template.
+> - **Reaper** sees the ports through PipeWire's MIDI bridge as
+>   `Midi-Bridge:Maschine MK2: In (capture)` etc.; the Rust discovery pairs include these names.
+> - **Bitwig** only opens raw MIDI devices. `dbm-nihost --virmidi` connects the ports to the two
+>   devices of `snd-virmidi midi_devs=2`. Bitwig must not open the Mk2's own class-compliant
+>   MIDI port, which disturbs the HID connection.
+> - **Java DrivenByMoss** threw an exception for the Maschine on Linux; the check is removed on a
+>   local branch (`linux-maschine`).
 >
 > See `support/linux/ni_host/README.md`.
 
@@ -67,7 +74,7 @@ rust/support/linux/ni_host/
   tools/
     gen_template_map.py     reads the .ncm2/.ncmj XML, writes template_map.h
   tests/                    translation tests with recorded/synthetic reports; uhid end-to-end
-  udev/70-ni-maschine.rules
+  packaging/                udev rule, systemd user service, snd-virmidi setup
 ```
 
 ## 3. The translation
@@ -145,14 +152,15 @@ hosts and works for the Java version too. Add the in-process route when Zynthian
 
 ## 5. Changes outside `support/linux`
 
-- **Rust:** `create()` of both Maschine factories refuses Linux unless
-  `DBM_ALLOW_MASCHINE_ON_LINUX` is set (`mk/setup.rs`, `jam/setup.rs`, as in Java). Drop the
-  check. The MIDI discovery names already match NI's
-  port names, but check how the ALSA client name shows up in Reaper's port names and add it to
-  the discovery pairs if needed.
+- **Rust (done):** the Linux guard in `create()` of both Maschine factories is dropped. The
+  discovery pairs have NI's port names plus the names of PipeWire's MIDI bridge, which Reaper
+  shows.
+- **Java DrivenByMoss (done, local branch `linux-maschine`):** the Linux check in
+  `MaschineControllerSetup.init` and `MaschineJamControllerSetup.init` is removed, and the JAM
+  has Linux discovery pairs.
 - **Reaper backend:** nothing for stage 1. For stage 2, add the virtual device integration
   (§4.1) behind a CMake option.
-- **Docs:** `STATUS.md` (supported on Linux through `dbm-nihost`) and the udev rule.
+- **Docs (done):** `STATUS.md` and `support/linux/ni_host/README.md`.
 
 ## 6. Open questions to settle first
 
@@ -194,9 +202,11 @@ hosts and works for the Java version too. Add the in-process route when Zynthian
 - [x] **6. Mk2 input → MIDI.** Pads with velocity, encoders, buttons.
 - [x] **7. Mk2 output.** LEDs, pad and group colours, the MCU text on the displays with the
   bitmap font.
-- [ ] **8. Packaging.**
-  - The udev rule, a systemd user service for `dbm-nihost`.
-  - Build integration in the repository (CMake target, CI build on Linux).
+- [x] **8. Packaging.**
+  - `packaging/`: the udev rule, a systemd user service (`dbm-nihost --virmidi`), the
+    `snd-virmidi` setup for Bitwig. `cmake --install` installs them.
+  - `ci/linux.sh` builds and tests the daemon with the crate, the wrapper and the Reaper
+    extension; `.github/workflows/linux.yml` runs it once `rust/` is its own repository.
 - [ ] **9. In-process route (§4.1)** for the Reaper backend and Zynthian.
 
 ## 8. Testing

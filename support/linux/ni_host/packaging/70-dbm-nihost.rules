@@ -1,5 +1,5 @@
 # Access to the Native Instruments Maschine Mk2 (17cc:1140) and JAM (17cc:1500) over hidraw for
-# the logged-in user, needed by dbm-nihost. Install to /etc/udev/rules.d/, then
+# the logged-in user, needed by dbm-nihost. Install to /etc/udev/rules.d/ (or /usr/lib/udev/rules.d/), then
 #   sudo udevadm control --reload && sudo udevadm trigger
 KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1140", MODE="0660", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1500", MODE="0660", TAG+="uaccess"
