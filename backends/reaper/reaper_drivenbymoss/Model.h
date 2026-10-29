@@ -1,0 +1,89 @@
+// Copyright (c) 2018-2026 by Jürgen Moßgraber (www.mossgrabers.de)
+// Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+
+#ifndef _DBM_MODEL_H_
+#define _DBM_MODEL_H_
+
+#include <vector>
+#include <mutex>
+
+#include "FunctionExecutor.h"
+#include "Marker.h"
+#include "Track.h"
+#include "Parameter.h"
+
+
+/**
+ * Encapsulates the cached status of a Reaper project.
+ */
+class Model
+{
+public:
+	static const int DEVICE_BANK_SIZE{ 8 };
+	static const int MARKER_BANK_SIZE{ 8 };
+
+	double masterVolume{ 0 };
+	double masterPan{ 0 };
+	bool isMasterVolumeTouch{ false };
+	bool isMasterPanTouch{ false };
+
+	int trackCount{ 0 };
+	int markerCount{ 0 };
+	int sceneCount{ 0 };
+
+	int deviceSelected{ 0 };
+	int deviceBankOffset{ 0 };
+	int deviceParamCount{ 0 };
+	bool deviceExpanded{ false };
+	int deviceCount{ 0 };
+	int eqParamCount{ 0 };
+	int trackFxParamCount{ 0 };
+	int masterFxParamCount{ 0 };
+
+	int pinnedTrackIndex{ -1 };
+
+
+	explicit Model(FunctionExecutor& aFunctionExecutor) noexcept;
+	Model(const Model&) = delete;
+	Model& operator=(const Model&) = delete;
+	Model(Model&&) = delete;
+	Model& operator=(Model&&) = delete;
+	virtual ~Model() = default;
+
+
+	void AddFunction(std::function<void(void)> f);
+
+	std::unique_ptr<Track>& GetTrack(const int index);
+	std::unique_ptr<Marker>& GetMarker(const int index);
+	std::unique_ptr<Marker>& GetRegion(const int index);
+	std::unique_ptr<Parameter>& GetParameter(const int index);
+	std::unique_ptr<Parameter>& GetInstrumentParameter(const int index);
+	std::unique_ptr<Parameter>& GetEqParameter(const int index);
+	std::unique_ptr<Parameter>& GetTrackFXParameter(const int index);
+	std::unique_ptr<Parameter>& GetMasterFXParameter(const int index);
+
+	void SetDump();
+	bool ShouldDump();
+
+	int GetDeviceSelection() noexcept;
+	void SetDeviceSelection(int position) noexcept;
+
+private:
+	FunctionExecutor& functionExecutor;
+	std::vector<std::unique_ptr<Track>> tracks;
+	std::vector<std::unique_ptr<Marker>> markers;
+	std::vector<std::unique_ptr<Marker>> regions;
+	std::vector<std::unique_ptr<Parameter>> parameters;
+	std::vector<std::unique_ptr<Parameter>> instrumentParameters;
+	std::vector<std::unique_ptr<Parameter>> eqParameters;
+	std::vector<std::unique_ptr<Parameter>> trackFxParameters;
+	std::vector<std::unique_ptr<Parameter>> masterFxParameters;
+	std::mutex tracklock;
+	std::mutex markerlock;
+	std::mutex regionlock;
+	std::mutex parameterlock;
+	std::mutex dumplock;
+	bool dump{ false };
+};
+
+#endif /* _DBM_MODEL_H_ */

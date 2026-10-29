@@ -1,0 +1,13 @@
+# Line endings: LF everywhere
+* text=auto eol=lf
+
+# Windows-only files get CRLF in the working tree (LF in the repository)
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.vcxproj.filters text eol=crlf
+*.vcxproj.user text eol=crlf
+
+# Third-party code stays as it comes from upstream
+backends/reaper/libraries/** -text

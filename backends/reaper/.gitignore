@@ -1,0 +1,46 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+/reaper_drivenbymoss/x64/Debug/reaper_d.66BF532D.tlog/*.tlog
+/reaper_drivenbymoss/x64/Debug/*.log
+/reaper_drivenbymoss/x64/Debug
+/x64/Debug
+/.vs/reaper_drivenbymoss/v15
+/Visual Studio/.vs/reaper_drivenbymoss/v15
+/Visual Studio/x64/Release
+/Xcode/~
+Debug
+.DS_Store
+.settings
+.vs
+build
+Release

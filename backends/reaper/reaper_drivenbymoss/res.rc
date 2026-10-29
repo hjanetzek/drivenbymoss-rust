@@ -1,0 +1,162 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// Deutsch (Deutschland) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_DEU)
+LANGUAGE LANG_GERMAN, SUBLANG_GERMAN
+#pragma code_page(1252)
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+#if !defined(VER_VERSION)
+    #define VER_VERSION             1,0,0,0
+    #define VER_VERSION_STR         "1.0.0.0\0"
+    #define VER_YEAR                "1971\0"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VER_VERSION
+ PRODUCTVERSION VER_VERSION
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x0L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "000904b0"
+        BEGIN
+            VALUE "CompanyName", "MOSS"
+            VALUE "FileDescription", "DrivenByMoss"
+            VALUE "FileVersion", VER_VERSION_STR
+            VALUE "InternalName", "res.rc"
+            VALUE "LegalCopyright", "Copyright (c) " VER_YEAR
+            VALUE "OriginalFilename", "res.rc"
+            VALUE "ProductName", "DrivenByMoss"
+            VALUE "ProductVersion", VER_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x9, 1200
+    END
+END
+
+#endif    // Deutsch (Deutschland) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////////////////////////
+// Englisch (USA) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_SURFACEEDIT_DRIVENBYMOSS DIALOGEX 0, 0, 336, 113
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CENTER | WS_CHILD
+FONT 8, "MS Shell Dlg", 0, 0, 0x0
+BEGIN
+    RTEXT           "Java Virtual Machine:",IDC_JAVA_HOME_LBL,4,5,70,8
+    EDITTEXT        IDC_JAVA_HOME,79,4,253,12,ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "&Configure",IDC_BUTTON_CONFIGURE,79,30,253,14
+    CTEXT           "Confirm the dialog with OK. Then open it again for configuration options.",IDC_REOPEN_INFO,4,55,328,8
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_SURFACEEDIT_DRIVENBYMOSS, DIALOG
+    BEGIN
+        LEFTMARGIN, 4
+        RIGHTMARGIN, 332
+        TOPMARGIN, 4
+        BOTTOMMARGIN, 109
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_SURFACEEDIT_DRIVENBYMOSS AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+#endif    // Englisch (USA) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

@@ -1,0 +1,255 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{66BF532D-08EE-4B58-A93F-3AD630309774}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>reaper_drivenbymoss</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <ExternalIncludePath>..\libraries\WDL;..\libraries\GSL;$(VC_IncludePath);$(WindowsSDK_IncludePath);</ExternalIncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+    <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+    <ExternalIncludePath>..\libraries\WDL;..\libraries\GSL;$(VC_IncludePath);$(WindowsSDK_IncludePath);</ExternalIncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <EnableClangTidyCodeAnalysis>true</EnableClangTidyCodeAnalysis>
+    <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;reaper_drivenbymoss_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <TreatAngleIncludeAsExternal>true</TreatAngleIncludeAsExternal>
+      <DisableAnalyzeExternal>true</DisableAnalyzeExternal>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;reaper_drivenbymoss_EXPORTS;%(PreprocessorDefinitions);OSC_HOST_LITTLE_ENDIAN</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\libraries\GSL;C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\libraries\WDL;C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\reaper_drivenbymoss;%JAVA_HOME%\include;%JAVA_HOME%\include\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <TreatAngleIncludeAsExternal>true</TreatAngleIncludeAsExternal>
+      <DisableAnalyzeExternal>true</DisableAnalyzeExternal>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%JAVA_HOME%\lib\jvm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <GenerateMapFile>true</GenerateMapFile>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <MapExports>true</MapExports>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;reaper_drivenbymoss_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;reaper_drivenbymoss_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\libraries\GSL;C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\libraries\WDL;C:\Privat\Programming\Reaper\DrivenByMoss4Reaper-Backend\reaper_drivenbymoss;%JAVA_HOME%\include;%JAVA_HOME%\include\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%JAVA_HOME%\lib\jvm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <GenerateMapFile>true</GenerateMapFile>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>false</DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\reaper_drivenbymoss\ActionProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\ClipProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\DataCollector.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\DeviceProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\dllmain.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\DrivenByMossSurface.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\EqDeviceProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\FunctionExecutor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\GrooveProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\IniFileProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\JvmManager.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\Marker.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\MarkerProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\MastertrackProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\Model.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\NoteRepeatProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\OscParser.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\Parameter.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\ProjectProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\ReaDebug.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\ReaperUtils.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\SceneProcessor.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\Send.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\stdafx.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\StringUtils.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\Track.cpp" />
+    <ClCompile Include="..\reaper_drivenbymoss\TrackProcessor.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\reaper_drivenbymoss\ActionProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\afxres.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\atomicops.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\ClipProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\CodeAnalysis.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Collectors.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\DataCollector.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\DeviceProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\de_mossgrabers_reaper_MainApp.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\dllmain.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\DrivenByMossSurface.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\EqDeviceProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\FunctionExecutor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\GrooveProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\IniFileProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\JvmManager.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\LocalMidiEventDispatcher.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Marker.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\MarkerProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\MastertrackProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\MidiMessages.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\MidiProcessingStructures.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Model.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\NoteRepeatProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\OscParser.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\OscProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Parameter.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\ProjectProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\ReaDebug.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\ReaderWriterQueue.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\ReaperUtils.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\reaper_plugin.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\reaper_plugin_functions.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\resource.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\SceneProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Send.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\stdafx.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\StringUtils.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\targetver.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\Track.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\TrackProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\TransportProcessor.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\WrapperGSL.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\WrapperJNI.h" />
+    <ClInclude Include="..\reaper_drivenbymoss\WrapperReaperFunctions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\reaper_drivenbymoss\res.rc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+  <PropertyGroup Condition="'$(Language)'=='C++'">
+    <IncludePath>$(IncludePath)</IncludePath>
+    <CAExcludePath>..\libraries\WDL;..\libraries\GSL;$(CAExcludePath)</CAExcludePath>
+  </PropertyGroup>
+</Project>
