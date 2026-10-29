@@ -367,6 +367,89 @@ impl StepInfo {
     pub fn set_repeat_velocity_end(&mut self, repeat_velocity_end: f64) {
         self.repeat_velocity_end = repeat_velocity_end;
     }
+
+    /// Format all values for the backend protocol (host step grid, protocol v2): state (0 off,
+    /// 1 start, 2 continue), selected, muted, duration, velocity, velocity spread, release
+    /// velocity, pressure, timbre, pan, transpose, gain, chance enabled, chance, occurrence
+    /// enabled, occurrence (index of [`NoteOccurrenceType::ALL`]), recurrence enabled,
+    /// recurrence length, recurrence mask, repeat enabled, repeat count, repeat curve, repeat
+    /// velocity curve, repeat velocity end; separated by spaces, booleans as 0/1.
+    pub fn to_wire(&self) -> String {
+        let flag = |b: bool| if b { "1" } else { "0" };
+        let state = match self.state {
+            StepState::Off => 0,
+            StepState::Start => 1,
+            StepState::Continue => 2,
+        };
+        let occurrence = NoteOccurrenceType::ALL.iter().position(|o| *o == self.occurrence).unwrap_or(0);
+        format!(
+            "{state} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {occurrence} {} {} {} {} {} {} {} {}",
+            flag(self.is_selected),
+            flag(self.is_muted),
+            self.duration,
+            self.velocity,
+            self.velocity_spread,
+            self.release_velocity,
+            self.pressure,
+            self.timbre,
+            self.pan,
+            self.transpose,
+            self.gain,
+            flag(self.is_chance_enabled),
+            self.chance,
+            flag(self.is_occurrence_enabled),
+            flag(self.is_recurrence_enabled),
+            self.recurrence_length,
+            self.recurrence_mask,
+            flag(self.is_repeat_enabled),
+            self.repeat_count,
+            self.repeat_curve,
+            self.repeat_velocity_curve,
+            self.repeat_velocity_end
+        )
+    }
+
+    /// Parse the values formatted by [`Self::to_wire`]. A single "0" is an empty step (None).
+    pub fn from_wire(text: &str) -> Option<StepInfo> {
+        let values: Vec<&str> = text.split_whitespace().collect();
+        if values.len() < 24 {
+            return None;
+        }
+        let f = |i: usize| values[i].parse::<f64>().unwrap_or(0.0);
+        let n = |i: usize| f(i) as i32;
+        let b = |i: usize| f(i) > 0.0;
+        let state = match n(0) {
+            1 => StepState::Start,
+            2 => StepState::Continue,
+            _ => return None,
+        };
+        let mut info = StepInfo::new();
+        info.state = state;
+        info.is_selected = b(1);
+        info.is_muted = b(2);
+        info.duration = f(3);
+        info.velocity = f(4);
+        info.velocity_spread = f(5);
+        info.release_velocity = f(6);
+        info.pressure = f(7);
+        info.timbre = f(8);
+        info.pan = f(9);
+        info.transpose = f(10);
+        info.gain = f(11);
+        info.is_chance_enabled = b(12);
+        info.chance = f(13);
+        info.is_occurrence_enabled = b(14);
+        info.occurrence = NoteOccurrenceType::ALL.get(n(15).max(0) as usize).copied().unwrap_or_default();
+        info.is_recurrence_enabled = b(16);
+        info.recurrence_length = n(17);
+        info.recurrence_mask = n(18);
+        info.is_repeat_enabled = b(19);
+        info.repeat_count = n(20);
+        info.repeat_curve = f(21);
+        info.repeat_velocity_curve = f(22);
+        info.repeat_velocity_end = f(23);
+        Some(info)
+    }
 }
 
 #[cfg(test)]

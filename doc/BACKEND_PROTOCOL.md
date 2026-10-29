@@ -477,6 +477,40 @@ the cursor device in the core (`device preset <index>`); it has no `browser` pro
 | `browser` | `column/<c>/+`, `-`, `page/+`, `page/-`, `reset` | none | the selection of a filter column; `reset` selects the wildcard |
 | `browser` | `result/+`, `-`, `page/+`, `page/-` | none | the selected result |
 
+#### Protocol v2: the step grids of the note clips
+
+Reaper reports the notes of the cursor clip (`/clip/notes`) and the core builds the step grids.
+Bitwig has no note list, only step grids of a fixed size which must be created during init (as
+`CursorClipImpl` of the Java version): the core lists the sizes of its note clips in the model
+setup (`"noteClips":[[steps,rows],...]`, from the sequencer views created during the setup of the
+controller), the host creates one grid per size and reports its steps. A note clip with reported
+steps or clip values (`/clip/loopStart`, …) uses the host grid; then its step functions are the
+commands below. `<id>` is `<steps>x<rows>`; `step/<ch>/<x>/<y>` is a step of the window (`x`
+relative to the scroll position).
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `clip` | `grid/<id>/stepSize` | double | the length of a step in beats |
+| `clip` | `grid/<id>/scroll` | int | scroll the window to the step |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/toggle` | int | toggle the note with the MIDI velocity |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/set` | string | `<velocity> <duration>` |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/setFrom` | string | create the note with the values of a step (step format below) |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/update` | string | set all values of the note (step format) |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/clear` | none | remove the note |
+| `clip` | `grid/<id>/step/<ch>/<x>/<y>/moveY` | int | move the note to the row |
+| `clip` | `grid/<id>/clearAll`, `clearRow/<ch>/<y>`, `clearColumn/<ch>/<x>` | none | remove notes |
+| `clip` | `loopStart`, `loopLength` | double | the loop of the clip in beats (Reaper: the loop is the play range) |
+| `clip` | `shuffle`, `pinned` | int | 1 / 0 |
+| `clip` | `accent` | double | 0..1, 0.5 = none |
+| `clip` | `name`, `color` | string | the name, `RGB(r,g,b)` |
+| `quantize` | `""` | double | quantize the clip by the amount (0..1) |
+
+Step format (`StepInfo::to_wire`), separated by spaces, booleans 0/1: state (0 off, 1 start,
+2 continue), selected, muted, duration, velocity, velocity spread, release velocity, pressure,
+timbre, pan, transpose, gain, chance enabled, chance, occurrence enabled, occurrence (index of
+`NoteOccurrenceType::ALL`), recurrence enabled, recurrence length, recurrence mask, repeat
+enabled, repeat count, repeat curve, repeat velocity curve, repeat velocity end.
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -692,6 +726,11 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/clip/color` | colour | | yes | yes |
 | `/clip/notes` | note list (MIDI take only; recomputed on `MIDI_GetHash` change) | | yes | yes |
 | `/clip/all` | clip list (1.2) | all items of all visible tracks = slots | yes (session, on project change) | yes (`Model::set_clips`) |
+| `/clip/loopStart`, `/clip/loopLength` | double beats | the loop of the clip; switches the note clips to the host grid | Bitwig (v2) | yes |
+| `/clip/shuffle`, `/clip/pinned` | int bool | | Bitwig (v2) | yes |
+| `/clip/accent` | double 0..1 | | Bitwig (v2) | yes |
+| `/clip/grid/<id>/playingStep` | int | the playing step, -1 if not playing | Bitwig (v2) | yes |
+| `/clip/grid/<id>/step/<ch>/<x>/<y>` | step format (v2 step grids), `0` = empty | a step of the window | Bitwig (v2) | yes |
 | `/track/<n>/slot/count` | int | number of slots of the track | Bitwig (v2) | yes |
 | `/track/<n>/slot/<s>/exists`, `hasContent`, `selected` | int bool | | Bitwig (v2) | yes |
 | `/track/<n>/slot/<s>/name`, `color` | string, colour | | Bitwig (v2) | yes |

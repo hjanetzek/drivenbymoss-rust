@@ -282,9 +282,15 @@ impl App {
             apply_document_settings(&mut configuration, &instance.hardware_model(), &parsed);
         }
 
+        // The note clips which the views request while they are created (former
+        // model.getNoteClip in the constructors), so that the host can create them during init
+        crate::daw::clip::take_requested_note_clips();
         match instance.factory.create(self.host.clone(), self.sender.clone(), ports, configuration) {
             Ok(mut parts) => {
                 parts.setup.init(&mut parts.ctx);
+                for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
+                    parts.ctx.model.note_clip(cols, rows);
+                }
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(Instant::now() + Duration::from_millis(STARTUP_DELAY_MS));
                 instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, startup_due });
@@ -437,7 +443,7 @@ impl App {
     ///
     /// [`ModelSetup::to_json`]: crate::daw::model_setup::ModelSetup::to_json
     pub fn model_setup_json(&self) -> String {
-        self.instances.iter().find_map(|i| i.running.as_ref()).map(|r| r.ctx.model.setup().to_json()).unwrap_or_default()
+        self.instances.iter().find_map(|i| i.running.as_ref()).map(|r| r.ctx.model.setup_json()).unwrap_or_default()
     }
 
     /// Access the context of a running instance (for tests).

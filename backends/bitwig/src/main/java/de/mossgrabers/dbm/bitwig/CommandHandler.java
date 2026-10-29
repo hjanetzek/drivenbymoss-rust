@@ -9,10 +9,12 @@ import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.PinnableCursorClip;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.Track;
 
+import java.util.Arrays;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -71,6 +73,7 @@ public final class CommandHandler
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 1, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 1, null);
             case "browser" -> this.handleBrowser (command, 1);
+            case "clip" -> this.handleClip (command, 1, null);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -111,6 +114,13 @@ public final class CommandHandler
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
             case "browser" -> this.handleBrowser (command, value);
+            case "clip" -> this.handleClip (command, value, null);
+            case "quantize" ->
+            {
+                // As CursorClipImpl.quantize
+                if (value >= 0.000001 && value <= 1)
+                    this.model.cursorClip.clip.quantize (value);
+            }
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -161,6 +171,7 @@ public final class CommandHandler
             case "scene" -> this.handleScene (command, value);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 0, value);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
+            case "clip" -> this.handleClip (command, 0, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -317,6 +328,59 @@ public final class CommandHandler
             return true;
         }
         return false;
+    }
+
+
+    /**
+     * The cursor clip, as CursorClipImpl of the Java version: the clip properties on the first
+     * note clip (all show the same clip), "grid/&lt;steps&gt;x&lt;rows&gt;/…" on the step grid of a
+     * note clip.
+     */
+    private void handleClip (final String command, final double value, final String text)
+    {
+        final PinnableCursorClip clip = this.model.cursorClip.clip;
+        switch (command)
+        {
+            case "name" -> clip.setName (text == null ? "" : text);
+            case "color" -> setColor (text, clip.color ()::set);
+            case "start" -> clip.getPlayStart ().set (value);
+            case "end" -> clip.getPlayStop ().set (value);
+            case "loop" -> clip.isLoopEnabled ().set (value > 0);
+            case "loopStart" -> clip.getLoopStart ().set (value);
+            case "loopLength" -> clip.getLoopLength ().set (value);
+            case "shuffle" -> clip.getShuffle ().set (value > 0);
+            case "accent" -> clip.getAccent ().set (value);
+            case "duplicate" -> clip.duplicate ();
+            case "duplicateContent" -> clip.duplicateContent ();
+            case "pinned" ->
+            {
+                for (final BitwigNoteClip noteClip: this.model.noteClips)
+                    noteClip.clip.isPinned ().set (value > 0);
+            }
+            case "transpose" ->
+            {
+                // Workaround Bitwig crashing when it is not a MIDI clip (CursorClipImpl)
+                if (clip.getTrack ().canHoldNoteData ().get ())
+                    clip.transpose ((int) value);
+            }
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                if (parts.length >= 3 && "grid".equals (parts[0]))
+                {
+                    for (final BitwigNoteClip noteClip: this.model.noteClips)
+                    {
+                        if (noteClip.id.equals (parts[1]))
+                        {
+                            if (!noteClip.handle (Arrays.copyOfRange (parts, 2, parts.length), value, text))
+                                this.unhandled.accept ("clip " + command);
+                            return;
+                        }
+                    }
+                }
+                this.unhandled.accept ("clip " + command);
+            }
+        }
     }
 
 

@@ -31,6 +31,9 @@ pub struct ModelSetup {
     pub num_results: usize,
     pub num_markers: usize,
     pub device_ids: Vec<DeviceId>,
+    /// The sizes (steps, rows) of the note clips (cursor clips with a step grid) which the
+    /// controller uses; filled from the clips created during the setup of the controller.
+    pub note_clips: Vec<(usize, usize)>,
 }
 
 impl Default for ModelSetup {
@@ -57,6 +60,7 @@ impl Default for ModelSetup {
             num_results: 16,
             num_markers: 0,
             device_ids: Vec::new(),
+            note_clips: Vec::new(),
         }
     }
 }
@@ -102,6 +106,14 @@ impl ModelSetup {
                 DeviceId::Eq => "EQ",
                 DeviceId::NiKomplete => "NI_KOMPLETE",
             });
+        }
+        json.end_array();
+        json.key("noteClips").begin_array();
+        for (cols, rows) in &self.note_clips {
+            json.begin_array();
+            json.number(*cols as i64);
+            json.number(*rows as i64);
+            json.end_array();
         }
         json.end_array();
         json.end_object();

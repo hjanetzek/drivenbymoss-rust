@@ -160,6 +160,14 @@ impl Model {
         &self.setup
     }
 
+    /// The setup as JSON for the host (see [`ModelSetup::to_json`]), with the sizes of the note
+    /// clips which were created so far.
+    pub fn setup_json(&self) -> String {
+        let mut setup = self.setup.clone();
+        setup.note_clips = self.cursor_clips.iter().map(|(key, _)| *key).filter(|(cols, rows)| *cols > 0 && *rows > 0).collect();
+        setup.to_json()
+    }
+
     pub fn scales(&self) -> &Scales {
         &self.scales
     }
@@ -620,6 +628,13 @@ impl Model {
         }
         self.cursor_clips.push(((cols, rows), CursorClip::new(self.ctx.clone(), cols, rows)));
         &mut self.cursor_clips.last_mut().expect("just added").1
+    }
+
+    /// The note clip with the given grid ID ("<steps>x<rows>", see [`CursorClip::grid_id`]).
+    pub fn note_clip_by_grid_id_mut(&mut self, id: &str) -> Option<&mut CursorClip> {
+        let (cols, rows) = id.split_once('x')?;
+        let key = (cols.parse().ok()?, rows.parse().ok()?);
+        self.cursor_clips.iter_mut().find(|(k, _)| *k == key).map(|(_, c)| c)
     }
 
     /// Get the cursor clip with the given number of steps and rows if it was created.

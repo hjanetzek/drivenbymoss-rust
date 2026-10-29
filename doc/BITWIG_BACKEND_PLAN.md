@@ -218,7 +218,8 @@ Reaper backend keeps working:
    `primary layer/<i>/…`), whose commands now go to `primary` instead of `device`.
 7. **Browser** (done) with content types, filter columns and results (`/browser/…`, `browser …`);
    the controllers browse slots and drum pads again, the Maschine shows the filter columns.
-8. **Cursor clip step grid** with the Bitwig step fields; the grid size comes from the manifest.
+8. **Cursor clip step grid** (done) with the Bitwig step fields; the grid sizes come from the
+   model setup (`noteClips`), one launcher cursor clip per size as in the Java version.
 
 ## 5. Steps
 

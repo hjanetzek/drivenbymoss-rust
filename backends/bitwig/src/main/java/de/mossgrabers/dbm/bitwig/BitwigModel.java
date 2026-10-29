@@ -27,6 +27,7 @@ import com.bitwig.extension.controller.api.Track;
 import com.bitwig.extension.controller.api.TrackBank;
 import com.bitwig.extension.controller.api.Transport;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -88,6 +89,10 @@ public final class BitwigModel
     final SpecificDevice     firstInstrument;
     /** The popup browser, null if the controller does not need it. */
     final BitwigBrowser      browser;
+    /** The step grids of the note clips of the core (model setup "noteClips"). */
+    final List<BitwigNoteClip> noteClips = new ArrayList<> ();
+    /** The clip for the clip properties and commands: the first note clip or an extra one. */
+    final BitwigNoteClip     cursorClip;
     /** The note repeat of the default note input, null if the controller has none. */
     final Arpeggiator        arpeggiator;
 
@@ -145,6 +150,11 @@ public final class BitwigModel
             this.firstInstrument = null;
         final int numResults = getInt (modelSetup, "numResults", 16);
         this.browser = numResults > 0 ? new BitwigBrowser (host, Math.max (1, getInt (modelSetup, "numFilterColumnEntries", 16)), numResults) : null;
+        // The note clips, as ModelImpl.getNoteClip: one launcher cursor clip per size
+        final Matcher noteClips = Pattern.compile ("\\[(\\d+),(\\d+)\\]").matcher (getArray (modelSetup, "noteClips"));
+        while (noteClips.find ())
+            this.noteClips.add (new BitwigNoteClip (host, this.cursorTrack, Integer.parseInt (noteClips.group (1)), Integer.parseInt (noteClips.group (2))));
+        this.cursorClip = this.noteClips.isEmpty () ? new BitwigNoteClip (host, this.cursorTrack, 1, 1) : this.noteClips.get (0);
 
         this.pages = new CursorRemoteControlsPage [numParamPages];
         for (int i = 0; i < numParamPages; i++)
@@ -328,6 +338,9 @@ public final class BitwigModel
             this.firstInstrument.collect (reporter);
         if (this.browser != null)
             this.browser.collect (reporter);
+        this.cursorClip.collectClip (reporter);
+        for (final BitwigNoteClip noteClip: this.noteClips)
+            noteClip.collectGrid (reporter);
     }
 
 
@@ -669,6 +682,26 @@ public final class BitwigModel
     {
         final Matcher matcher = Pattern.compile ("\"" + Pattern.quote (key) + "\"\\s*:\\s*(true|false)").matcher (json);
         return matcher.find () ? Boolean.parseBoolean (matcher.group (1)) : defaultValue;
+    }
+
+
+    /** The content of a JSON array value (between the outer brackets), empty if not found. */
+    private static String getArray (final String json, final String key)
+    {
+        final int start = json.indexOf ("\"" + key + "\":[");
+        if (start < 0)
+            return "";
+        int depth = 0;
+        final int begin = start + key.length () + 3;
+        for (int i = begin; i < json.length (); i++)
+        {
+            final char c = json.charAt (i);
+            if (c == '[')
+                depth++;
+            else if (c == ']' && --depth == 0)
+                return json.substring (begin + 1, i);
+        }
+        return "";
     }
 
 

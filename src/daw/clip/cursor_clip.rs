@@ -31,16 +31,23 @@ const EDIT_UPDATE_DELAY: Duration = Duration::from_millis(100);
 /// The empty step which is returned for out of range positions.
 static EMPTY_STEP: StepInfo = StepInfo::new();
 
-/// Generates no-op methods for note attributes which are not supported by Reaper.
-macro_rules! unsupported {
-    ($($(#[$doc:meta])* $name:ident($arg:ident: $ty:ty);)*) => {
-        $(
-            $(#[$doc])*
-            ///
-            /// Not supported by Reaper, does nothing.
-            pub fn $name(&mut self, _position: &NotePosition, _: $ty) {}
-        )*
-    };
+thread_local! {
+    static REQUESTED_NOTE_CLIPS: std::cell::RefCell<Vec<(usize, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Request a note clip with the given number of steps and rows while a view is created (former
+/// `model.getNoteClip` in the constructors of the Java views). The clips are created after the
+/// setup of the controller and announced to the host in the model setup (`noteClips`), since
+/// Bitwig can only create them during init.
+pub fn request_note_clip(cols: usize, rows: usize) {
+    if cols > 0 && rows > 0 {
+        REQUESTED_NOTE_CLIPS.with(|clips| clips.borrow_mut().push((cols, rows)));
+    }
+}
+
+/// Take the requested note clips (see [`request_note_clip`]).
+pub fn take_requested_note_clips() -> Vec<(usize, usize)> {
+    REQUESTED_NOTE_CLIPS.with(|clips| std::mem::take(&mut *clips.borrow_mut()))
 }
 
 /// The cursor clip: a proxy to the MIDI clip which is currently selected in Reaper.
@@ -76,6 +83,16 @@ pub struct CursorClip {
     edit_steps: Vec<NotePosition>,
     /// Scheduled delayed updates of edited steps (former `host.scheduleTask`).
     pending_updates: Vec<(Instant, NotePosition)>,
+    /// The host has a step grid for this clip (Bitwig, protocol v2): the steps come from the
+    /// host and all step functions are commands to it (former Bitwig `CursorClipImpl`).
+    host_grid: bool,
+    host_playing_step: i32,
+    host_loop_start: f64,
+    host_loop_length: f64,
+    host_shuffle: bool,
+    /// The accent as reported by the host (0..1, 0.5 = no accent).
+    host_accent: f64,
+    host_pinned: bool,
 }
 
 impl CursorClip {
@@ -102,7 +119,101 @@ impl CursorClip {
             max_page: 1,
             edit_steps: Vec::new(),
             pending_updates: Vec::new(),
+            host_grid: false,
+            host_playing_step: -1,
+            host_loop_start: 0.0,
+            host_loop_length: 0.0,
+            host_shuffle: false,
+            host_accent: 0.5,
+            host_pinned: false,
         }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The step grid of the host (protocol v2)
+
+    /// The ID of the clip in the commands and addresses of the host grid: "<steps>x<rows>".
+    pub fn grid_id(&self) -> String {
+        format!("{}x{}", self.num_steps, self.num_rows)
+    }
+
+    /// True if the host has a step grid for this clip.
+    pub fn is_host_grid(&self) -> bool {
+        self.host_grid
+    }
+
+    /// Switch to the step grid of the host.
+    pub fn set_host_grid(&mut self) {
+        if !self.host_grid {
+            self.host_grid = true;
+            self.data.clear();
+            self.max_page = 1;
+        }
+    }
+
+    /// A step of the host grid has changed (None = empty). Changes of steps which are currently
+    /// edited are ignored, as in the Java version.
+    pub fn set_host_step(&mut self, channel: i32, step: i32, row: i32, info: Option<StepInfo>) {
+        self.set_host_grid();
+        if self.edit_steps.iter().any(|p| p.channel == channel && p.step == step && p.note == row) {
+            return;
+        }
+        let Some(index) = self.index(channel, step, row) else {
+            return;
+        };
+        match info {
+            Some(info) => {
+                self.data.insert(index, info);
+            }
+            None => {
+                self.data.remove(&index);
+            }
+        }
+    }
+
+    pub fn set_host_playing_step(&mut self, step: i32) {
+        self.set_host_grid();
+        self.host_playing_step = step;
+    }
+
+    pub fn set_loop_start_value(&mut self, start: f64) {
+        self.host_loop_start = start;
+    }
+
+    pub fn set_loop_length_value(&mut self, length: f64) {
+        self.host_loop_length = length;
+    }
+
+    pub fn set_shuffle_value(&mut self, shuffle: bool) {
+        self.host_shuffle = shuffle;
+    }
+
+    pub fn set_accent_value(&mut self, accent: f64) {
+        self.host_accent = accent;
+    }
+
+    pub fn set_pinned_value(&mut self, pinned: bool) {
+        self.host_pinned = pinned;
+    }
+
+    fn send_grid(&self, command: &str) {
+        self.ctx.send(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()));
+    }
+
+    fn send_grid_int(&self, command: &str, value: i32) {
+        self.ctx.send_int(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
+    }
+
+    fn send_grid_str(&self, command: &str, value: &str) {
+        self.ctx.send_str(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
+    }
+
+    fn send_grid_double(&self, command: &str, value: f64) {
+        self.ctx.send_double(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
+    }
+
+    fn step_path(position: &NotePosition) -> String {
+        format!("step/{}/{}/{}", position.channel, position.step, position.note)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -113,16 +224,23 @@ impl CursorClip {
         self.ctx.sender().enable_updates(Processor::Clip, enable);
     }
 
-    /// Is the clip pinned? Not supported, always false.
+    /// Is the clip pinned? Only with a host grid, otherwise always false.
     pub fn is_pinned(&self) -> bool {
-        false
+        self.host_grid && self.host_pinned
     }
 
-    /// Toggle the pinned state. Not supported, does nothing.
-    pub fn toggle_pinned(&mut self) {}
+    /// Toggle the pinned state. Only with a host grid.
+    pub fn toggle_pinned(&mut self) {
+        let pinned = !self.is_pinned();
+        self.set_pinned(pinned);
+    }
 
-    /// Set the pinned state. Not supported, does nothing.
-    pub fn set_pinned(&mut self, _is_pinned: bool) {}
+    /// Set the pinned state. Only with a host grid.
+    pub fn set_pinned(&mut self, is_pinned: bool) {
+        if self.host_grid {
+            self.ctx.send_bool(Processor::Clip, "pinned", is_pinned);
+        }
+    }
 
     // ------------------------------------------------------------------------------------------
     // Updates from the model (data received from Reaper)
@@ -283,39 +401,91 @@ impl CursorClip {
     /// Sets the start and the end of the clip relative to the current play start. Ensure that
     /// the start is before the end.
     pub fn set_play_range(&mut self, start: f64, end: f64) {
+        if self.host_grid {
+            // As the Java version for Bitwig: absolute values, start and end cannot be the same
+            if self.play_start() < start {
+                self.set_play_end(end);
+                self.set_play_start(start);
+            } else {
+                self.set_play_start(start);
+                self.set_play_end(end);
+            }
+            return;
+        }
         let play_start = self.play_start();
         self.set_play_start(play_start + start);
         self.set_play_end(play_start + end);
     }
 
-    /// Get the start of the loop (always 0, the loop is identical to the play range).
+    /// Get the start of the loop. Without a host grid always 0, the loop is identical to the
+    /// play range.
     pub fn loop_start(&self) -> f64 {
-        0.0
+        if self.host_grid {
+            self.host_loop_start
+        } else {
+            0.0
+        }
     }
 
-    /// Set the start of the loop (relative to the play start).
+    /// Set the start of the loop (without a host grid relative to the play start).
     pub fn set_loop_start(&mut self, start: f64) {
+        if self.host_grid {
+            self.host_loop_start = start;
+            self.ctx.send_double(Processor::Clip, "loopStart", start);
+            return;
+        }
         self.set_play_start(self.play_start() + start);
     }
 
-    /// Change the start of the loop (same as [`Self::change_play_start`]).
+    /// Change the start of the loop (without a host grid the same as
+    /// [`Self::change_play_start`]).
     pub fn change_loop_start(&mut self, control: i32, slow: bool) {
+        if self.host_grid {
+            let start = self.host_loop_start + self.time_change(control, slow);
+            self.set_loop_start(start);
+            return;
+        }
         self.change_play_start(control, slow);
     }
 
-    /// Get the length of the loop (= play end - play start).
+    /// Get the length of the loop (without a host grid = play end - play start).
     pub fn loop_length(&self) -> f64 {
-        self.play_end() - self.play_start()
+        if self.host_grid {
+            self.host_loop_length
+        } else {
+            self.play_end() - self.play_start()
+        }
     }
 
     /// Set the length of the loop.
     pub fn set_loop_length(&mut self, length: f64) {
+        if self.host_grid {
+            self.host_loop_length = length;
+            self.ctx.send_double(Processor::Clip, "loopLength", length);
+            return;
+        }
         self.set_play_end(self.play_start() + length);
     }
 
-    /// Change the length of the loop (same as [`Self::change_play_end`]).
+    /// Change the length of the loop (without a host grid the same as
+    /// [`Self::change_play_end`]).
     pub fn change_loop_length(&mut self, control: i32, slow: bool) {
+        if self.host_grid {
+            let length = self.host_loop_length + self.time_change(control, slow);
+            self.set_loop_length(length);
+            return;
+        }
         self.change_play_end(control, slow);
+    }
+
+    /// The change of a time value by a knob (a beat, with `slow` a quarter of it).
+    fn time_change(&self, control: i32, slow: bool) -> f64 {
+        let frac = if slow { INC_FRACTION_TIME_SLOW } else { INC_FRACTION_TIME };
+        if self.ctx.value_changer().is_increase(control) {
+            frac
+        } else {
+            -frac
+        }
     }
 
     /// Is the loop enabled?
@@ -328,30 +498,52 @@ impl CursorClip {
         self.ctx.send_bool(Processor::Clip, "loop", enable);
     }
 
-    /// Is shuffle enabled? Not supported, always false.
+    /// Is shuffle enabled? Only with a host grid, otherwise always false.
     pub fn is_shuffle_enabled(&self) -> bool {
-        false
+        self.host_grid && self.host_shuffle
     }
 
-    /// Set if shuffle is enabled. Not supported, does nothing.
-    pub fn set_shuffle_enabled(&mut self, _enable: bool) {}
+    /// Set if shuffle is enabled. Only with a host grid.
+    pub fn set_shuffle_enabled(&mut self, enable: bool) {
+        if self.host_grid {
+            self.ctx.send_bool(Processor::Clip, "shuffle", enable);
+        }
+    }
 
     /// Get the accent value as a formatted string, e.g. "100%".
     pub fn formatted_accent(&self) -> String {
+        if self.host_grid {
+            return format!("{}%", self.accent().round() as i64);
+        }
         // Java: Math.round (accent * 10000) / 100 (long division)
         format!("{}%", (self.accent() * 10000.0).round() as i64 / 100)
     }
 
-    /// Get the accent value. Not supported, always 1.
+    /// Get the accent value: with a host grid -100..100, otherwise not supported, always 1.
     pub fn accent(&self) -> f64 {
-        1.0
+        if self.host_grid {
+            self.host_accent * 200.0 - 100.0
+        } else {
+            1.0
+        }
     }
 
-    /// Reset the accent value to its default. Not supported, does nothing.
-    pub fn reset_accent(&mut self) {}
+    /// Reset the accent value to its default. Only with a host grid.
+    pub fn reset_accent(&mut self) {
+        if self.host_grid {
+            self.ctx.send_double(Processor::Clip, "accent", 0.5);
+        }
+    }
 
-    /// Change the accent value. Not supported, does nothing.
-    pub fn change_accent(&mut self, _control: i32, _slow: bool) {}
+    /// Change the accent value. Only with a host grid.
+    pub fn change_accent(&mut self, control: i32, slow: bool) {
+        if !self.host_grid {
+            return;
+        }
+        let offset = if slow { 1.0 } else { 10.0 };
+        let value = if self.ctx.value_changer().is_increase(control) { self.accent() + offset } else { self.accent() - offset };
+        self.ctx.send_double(Processor::Clip, "accent", ((value + 100.0) / 200.0).clamp(0.0, 1.0));
+    }
 
     /// Get the number of monitored steps (= 1 page).
     pub fn num_steps(&self) -> usize {
@@ -390,6 +582,9 @@ impl CursorClip {
     /// Get the index of the step which is currently played (relative to the clip start, not
     /// to the edit page) or -1 if the clip is not playing.
     pub fn current_step(&self) -> i32 {
+        if self.host_grid {
+            return self.host_playing_step;
+        }
         if self.play_position == -1.0 {
             return -1;
         }
@@ -404,6 +599,10 @@ impl CursorClip {
     /// Set the length of a step in beats (e.g. [`Resolution::value`]).
     pub fn set_step_length(&mut self, length: f64) {
         self.step_length = length;
+        if self.host_grid {
+            self.send_grid_double("stepSize", length);
+            return;
+        }
         self.update_note_data();
     }
 
@@ -432,6 +631,10 @@ impl CursorClip {
     /// Toggle a note at a step: if there is no note it is created with the current step length
     /// as duration and the given MIDI velocity, otherwise it is removed.
     pub fn toggle_step(&self, position: &NotePosition, velocity: i32) {
+        if self.host_grid {
+            self.send_grid_int(&format!("{}/toggle", Self::step_path(position)), velocity);
+            return;
+        }
         let pos = self.beat_position(position.step);
         self.ctx.send_str(
             Processor::Clip,
@@ -448,6 +651,10 @@ impl CursorClip {
 
     /// Set a note at a step with the given MIDI velocity and duration (in beats).
     pub fn set_step(&self, position: &NotePosition, velocity: i32, duration: f64) {
+        if self.host_grid {
+            self.send_grid_str(&format!("{}/set", Self::step_path(position)), &format!("{velocity} {duration}"));
+            return;
+        }
         let pos = self.beat_position(position.step);
         self.ctx.send_str(
             Processor::Clip,
@@ -465,6 +672,12 @@ impl CursorClip {
     /// Set a note at a step and copy the velocity and duration from the given step info (former
     /// `setStep (NotePosition, IStepInfo)`).
     pub fn set_step_from(&self, position: &NotePosition, step_info: &StepInfo) {
+        if self.host_grid {
+            // The host creates the note and sets the other attributes a bit later, as the Java
+            // version does
+            self.send_grid_str(&format!("{}/setFrom", Self::step_path(position)), &step_info.to_wire());
+            return;
+        }
         self.set_step(
             position,
             (step_info.velocity() * 127.0) as i32,
@@ -480,6 +693,14 @@ impl CursorClip {
         duration: f64,
         is_muted: bool,
     ) {
+        if self.host_grid {
+            let mut info = self.step(position).clone();
+            info.set_velocity(velocity as f64 / 127.0);
+            info.set_duration(duration);
+            info.set_muted(is_muted);
+            self.send_grid_str(&format!("{}/update", Self::step_path(position)), &info.to_wire());
+            return;
+        }
         let pos = self.beat_position(position.step);
         self.ctx.send_str(
             Processor::Clip,
@@ -497,6 +718,10 @@ impl CursorClip {
 
     /// Clear the note at a step.
     pub fn clear_step(&self, position: &NotePosition) {
+        if self.host_grid {
+            self.send_grid(&format!("{}/clear", Self::step_path(position)));
+            return;
+        }
         self.ctx.send_double(
             Processor::Clip,
             &format!("{PATH_NOTE}{}/clear/{}", position.note, position.channel),
@@ -506,6 +731,10 @@ impl CursorClip {
 
     /// Moves the note at the step to a different row.
     pub fn move_step_y(&self, position: &NotePosition, new_row: i32) {
+        if self.host_grid {
+            self.send_grid_int(&format!("{}/moveY", Self::step_path(position)), new_row);
+            return;
+        }
         self.ctx.send_double(
             Processor::Clip,
             &format!(
@@ -518,11 +747,19 @@ impl CursorClip {
 
     /// Clear all notes on all channels.
     pub fn clear_all(&self) {
+        if self.host_grid {
+            self.send_grid("clearAll");
+            return;
+        }
         self.ctx.send(Processor::Clip, "clear");
     }
 
     /// Clear a row (all notes with the given pitch) on the given channel.
     pub fn clear_row(&self, channel: i32, row: i32) {
+        if self.host_grid {
+            self.send_grid(&format!("clearRow/{channel}/{row}"));
+            return;
+        }
         self.ctx.send(
             Processor::Clip,
             &format!("{PATH_NOTE}{row}/clear/{channel}"),
@@ -531,6 +768,10 @@ impl CursorClip {
 
     /// Clear a column (all notes at a step of the edit page) on the given channel.
     pub fn clear_column(&self, channel: i32, column: i32) {
+        if self.host_grid {
+            self.send_grid(&format!("clearColumn/{channel}/{column}"));
+            return;
+        }
         self.ctx.send_double(
             Processor::Clip,
             &format!("{PATH_NOTE}0/clearPosition/{channel}"),
@@ -564,8 +805,8 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the duration of the note. A
     /// duration of 0 is ignored (it would delete the note).
     pub fn update_step_duration(&mut self, position: &NotePosition, duration: f64) {
-        // Duration of 0 fully deletes the note
-        if duration == 0.0 {
+        // Duration of 0 fully deletes the note (Reaper)
+        if duration == 0.0 && !self.host_grid {
             return;
         }
         let send_now = self.edit_steps.is_empty();
@@ -595,8 +836,8 @@ impl CursorClip {
     /// note. A resulting MIDI velocity of 0 is ignored (it would delete the note).
     pub fn update_step_velocity(&mut self, position: &NotePosition, velocity: f64) {
         let midi_velocity = (velocity * 127.0) as i32;
-        // Velocity of 0 fully deletes the note
-        if midi_velocity == 0 {
+        // Velocity of 0 fully deletes the note (Reaper)
+        if midi_velocity == 0 && !self.host_grid {
             return;
         }
         let send_now = self.edit_steps.is_empty();
@@ -619,95 +860,241 @@ impl CursorClip {
         self.update_step_velocity(position, velocity.clamp(0.0, 1.0));
     }
 
-    unsupported! {
-        /// If there is a note started at this position, it will update the velocity spread of
-        /// the note.
-        update_step_velocity_spread(velocity_spread: f64);
-        /// If there is a note started at this position, it will change the velocity spread of
-        /// the note.
-        change_step_velocity_spread(control: i32);
-        /// If there is a note started at this position, it will update the release velocity of
-        /// the note.
-        update_step_release_velocity(release_velocity: f64);
-        /// If there is a note started at this position, it will change the release velocity of
-        /// the note.
-        change_step_release_velocity(control: i32);
-        /// If there is a note started at this position, it will update the pressure of the note.
-        update_step_pressure(pressure: f64);
-        /// If there is a note started at this position, it will change the pressure of the note.
-        change_step_pressure(control: i32);
-        /// If there is a note started at this position, it will update the timbre of the note.
-        update_step_timbre(timbre: f64);
-        /// If there is a note started at this position, it will change the timbre of the note.
-        change_step_timbre(control: i32);
-        /// If there is a note started at this position, it will update the panning of the note.
-        update_step_pan(panning: f64);
-        /// If there is a note started at this position, it will change the panning of the note.
-        change_step_pan(control: i32);
-        /// If there is a note started at this position, it will update the transposition of
-        /// the note.
-        update_step_transpose(semitones: f64);
-        /// If there is a note started at this position, it will change the transposition of
-        /// the note.
-        change_step_transpose(control: i32);
-        /// If there is a note started at this position, it will update the gain of the note.
-        update_step_gain(gain: f64);
-        /// If there is a note started at this position, it will change the gain of the note.
-        change_step_gain(control: i32);
-        /// If there is a note started at this position, it will update the on/off state of the
-        /// chance of the note.
-        update_step_is_chance_enabled(is_enabled: bool);
-        /// If there is a note started at this position, it will update the chance of the note.
-        update_step_chance(chance: f64);
-        /// If there is a note started at this position, it will change the chance of the note.
-        change_step_chance(control: i32);
-        /// If there is a note started at this position, it will update the on/off state of the
-        /// occurrence of the note.
-        update_step_is_occurrence_enabled(is_enabled: bool);
-        /// If there is a note started at this position, it will change the occurrence of the
-        /// note to the next or previous.
-        set_step_prev_next_occurrence(increase: bool);
-        /// If there is a note started at this position, it will set the occurrence of the note.
-        set_step_occurrence(occurrence: NoteOccurrenceType);
-        /// If there is a note started at this position, it will update the on/off state of the
-        /// recurrence of the note.
-        update_step_is_recurrence_enabled(is_enabled: bool);
-        /// If there is a note started at this position, it will update the recurrence length of
-        /// the note.
-        update_step_recurrence_length(recurrence_length: i32);
-        /// If there is a note started at this position, it will update the recurrence mask of
-        /// the note.
-        update_step_recurrence_mask(mask: i32);
-        /// If there is a note started at this position, it will change the recurrence length of
-        /// the note.
-        change_step_recurrence_length(control: i32);
-        /// If there is a note started at this position, it will update the on/off state of
-        /// repeat of the note.
-        update_step_is_repeat_enabled(is_enabled: bool);
-        /// If there is a note started at this position, it will update the repeat count of the
-        /// note.
-        update_step_repeat_count(value: i32);
-        /// If there is a note started at this position, it will change the repeat count of the
-        /// note.
-        change_step_repeat_count(control: i32);
-        /// If there is a note started at this position, it will update the repeat curve of the
-        /// note.
-        update_step_repeat_curve(value: f64);
-        /// If there is a note started at this position, it will change the repeat curve of the
-        /// note.
-        change_step_repeat_curve(control: i32);
-        /// If there is a note started at this position, it will update the repeat velocity curve
-        /// of the note.
-        update_step_repeat_velocity_curve(value: f64);
-        /// If there is a note started at this position, it will change the repeat velocity curve
-        /// of the note.
-        change_step_repeat_velocity_curve(control: i32);
-        /// If there is a note started at this position, it will update the repeat velocity end
-        /// of the note.
-        update_step_repeat_velocity_end(value: f64);
-        /// If there is a note started at this position, it will change the repeat velocity end
-        /// of the note.
-        change_step_repeat_velocity_end(control: i32);
+    /// Change an attribute of the note started (or continued) at the position; only with a host
+    /// grid, Reaper does not support the other attributes. The change is sent unless notes are
+    /// edited (see [`Self::start_edit`]).
+    fn update_host_step(&mut self, position: &NotePosition, apply: impl FnOnce(&mut StepInfo)) {
+        if !self.host_grid {
+            return;
+        }
+        let send_now = self.edit_steps.is_empty();
+        let Some(info) = self.started_step_mut(position) else {
+            return;
+        };
+        apply(info);
+        if send_now {
+            self.send_clip_data(position);
+        }
+    }
+
+    /// The normalized change of a knob (former `toNormalizedValue (calcKnobChange (control))`).
+    fn knob_change(&self, control: i32) -> f64 {
+        let value_changer = self.ctx.value_changer();
+        value_changer.to_normalized_value(value_changer.calc_knob_change(control) as i32 as f64)
+    }
+
+    fn increment(&self, control: i32) -> i32 {
+        if self.ctx.value_changer().is_increase(control) {
+            1
+        } else {
+            -1
+        }
+    }
+
+    /// If there is a note started at this position, it will update the velocity spread of the
+    /// note.
+    pub fn update_step_velocity_spread(&mut self, position: &NotePosition, velocity_spread: f64) {
+        self.update_host_step(position, |i| i.set_velocity_spread(velocity_spread.clamp(0.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the velocity spread of the
+    /// note.
+    pub fn change_step_velocity_spread(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).velocity_spread() + self.knob_change(control);
+        self.update_step_velocity_spread(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the release velocity of the
+    /// note.
+    pub fn update_step_release_velocity(&mut self, position: &NotePosition, release_velocity: f64) {
+        self.update_host_step(position, |i| i.set_release_velocity(release_velocity.clamp(0.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the release velocity of the
+    /// note.
+    pub fn change_step_release_velocity(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).release_velocity() + self.knob_change(control);
+        self.update_step_release_velocity(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the pressure of the note.
+    pub fn update_step_pressure(&mut self, position: &NotePosition, pressure: f64) {
+        self.update_host_step(position, |i| i.set_pressure(pressure.clamp(0.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the pressure of the note.
+    pub fn change_step_pressure(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).pressure() + self.knob_change(control);
+        self.update_step_pressure(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the timbre of the note.
+    pub fn update_step_timbre(&mut self, position: &NotePosition, timbre: f64) {
+        self.update_host_step(position, |i| i.set_timbre(timbre.clamp(-1.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the timbre of the note.
+    pub fn change_step_timbre(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).timbre() + 2.0 * self.knob_change(control);
+        self.update_step_timbre(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the panning of the note.
+    pub fn update_step_pan(&mut self, position: &NotePosition, panning: f64) {
+        self.update_host_step(position, |i| i.set_pan(panning.clamp(-1.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the panning of the note.
+    pub fn change_step_pan(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).pan() + 2.0 * self.knob_change(control);
+        self.update_step_pan(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the transposition of the
+    /// note.
+    pub fn update_step_transpose(&mut self, position: &NotePosition, semitones: f64) {
+        let range = self.step_transpose_range();
+        self.update_host_step(position, |i| i.set_transpose(semitones.clamp(-range, range)));
+    }
+
+    /// If there is a note started at this position, it will change the transposition of the
+    /// note: in steps of 0.1 for small and of 1 for large knob changes.
+    pub fn change_step_transpose(&mut self, position: &NotePosition, control: i32) {
+        let value_changer = self.ctx.value_changer();
+        let change = value_changer.calc_knob_change(control) / value_changer.step_size() as f64;
+        let mut v = if change > -1.0 && change < 1.0 { 0.1 } else { 1.0 };
+        if !value_changer.is_increase(control) {
+            v = -v;
+        }
+        let value = self.step(position).transpose() + v;
+        self.update_step_transpose(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the gain of the note.
+    pub fn update_step_gain(&mut self, position: &NotePosition, gain: f64) {
+        self.update_host_step(position, |i| i.set_gain(gain.clamp(0.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the gain of the note.
+    pub fn change_step_gain(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).gain() + self.knob_change(control);
+        self.update_step_gain(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the on/off state of the
+    /// chance of the note.
+    pub fn update_step_is_chance_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
+        self.update_host_step(position, |i| i.set_is_chance_enabled(is_enabled));
+    }
+
+    /// If there is a note started at this position, it will update the chance of the note.
+    pub fn update_step_chance(&mut self, position: &NotePosition, chance: f64) {
+        self.update_host_step(position, |i| i.set_chance(chance.clamp(0.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the chance of the note.
+    pub fn change_step_chance(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).chance() + self.knob_change(control);
+        self.update_step_chance(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the on/off state of the
+    /// occurrence of the note.
+    pub fn update_step_is_occurrence_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
+        self.update_host_step(position, |i| i.set_is_occurrence_enabled(is_enabled));
+    }
+
+    /// If there is a note started at this position, it will change the occurrence of the note
+    /// to the next or previous.
+    pub fn set_step_prev_next_occurrence(&mut self, position: &NotePosition, increase: bool) {
+        let types = NoteOccurrenceType::ALL;
+        let index = types.iter().position(|t| *t == self.step(position).occurrence()).unwrap_or(0) as i32;
+        let new_index = (index + if increase { 1 } else { -1 }).clamp(0, types.len() as i32 - 1);
+        self.set_step_occurrence(position, types[new_index as usize]);
+    }
+
+    /// If there is a note started at this position, it will set the occurrence of the note.
+    pub fn set_step_occurrence(&mut self, position: &NotePosition, occurrence: NoteOccurrenceType) {
+        self.update_host_step(position, |i| i.set_occurrence(occurrence));
+    }
+
+    /// If there is a note started at this position, it will update the on/off state of the
+    /// recurrence of the note.
+    pub fn update_step_is_recurrence_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
+        self.update_host_step(position, |i| i.set_is_recurrence_enabled(is_enabled));
+    }
+
+    /// If there is a note started at this position, it will update the recurrence length of the
+    /// note (1..8).
+    pub fn update_step_recurrence_length(&mut self, position: &NotePosition, recurrence_length: i32) {
+        self.update_host_step(position, |i| i.set_recurrence_length(recurrence_length.clamp(1, 8)));
+    }
+
+    /// If there is a note started at this position, it will update the recurrence mask of the
+    /// note.
+    pub fn update_step_recurrence_mask(&mut self, position: &NotePosition, mask: i32) {
+        self.update_host_step(position, |i| i.set_recurrence_mask(mask));
+    }
+
+    /// If there is a note started at this position, it will change the recurrence length of the
+    /// note.
+    pub fn change_step_recurrence_length(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).recurrence_length() + self.increment(control);
+        self.update_step_recurrence_length(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the on/off state of repeat
+    /// of the note.
+    pub fn update_step_is_repeat_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
+        self.update_host_step(position, |i| i.set_is_repeat_enabled(is_enabled));
+    }
+
+    /// If there is a note started at this position, it will update the repeat count of the note.
+    pub fn update_step_repeat_count(&mut self, position: &NotePosition, value: i32) {
+        self.update_host_step(position, |i| i.set_repeat_count(value.clamp(-127, 127)));
+    }
+
+    /// If there is a note started at this position, it will change the repeat count of the note.
+    pub fn change_step_repeat_count(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).repeat_count() + self.increment(control);
+        self.update_step_repeat_count(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the repeat curve of the note.
+    pub fn update_step_repeat_curve(&mut self, position: &NotePosition, value: f64) {
+        self.update_host_step(position, |i| i.set_repeat_curve(value.clamp(-1.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the repeat curve of the note.
+    pub fn change_step_repeat_curve(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).repeat_curve() + self.knob_change(control);
+        self.update_step_repeat_curve(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the repeat velocity curve of
+    /// the note.
+    pub fn update_step_repeat_velocity_curve(&mut self, position: &NotePosition, value: f64) {
+        self.update_host_step(position, |i| i.set_repeat_velocity_curve(value.clamp(-1.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the repeat velocity curve of
+    /// the note.
+    pub fn change_step_repeat_velocity_curve(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).repeat_velocity_curve() + self.knob_change(control);
+        self.update_step_repeat_velocity_curve(position, value);
+    }
+
+    /// If there is a note started at this position, it will update the repeat velocity end of
+    /// the note.
+    pub fn update_step_repeat_velocity_end(&mut self, position: &NotePosition, value: f64) {
+        self.update_host_step(position, |i| i.set_repeat_velocity_end(value.clamp(-1.0, 1.0)));
+    }
+
+    /// If there is a note started at this position, it will change the repeat velocity end of
+    /// the note.
+    pub fn change_step_repeat_velocity_end(&mut self, position: &NotePosition, control: i32) {
+        let value = self.step(position).repeat_velocity_end() + self.knob_change(control);
+        self.update_step_repeat_velocity_end(position, value);
     }
 
     /// If there is a note started at this position, it will toggle the given bit (cycle) of the
@@ -869,6 +1256,11 @@ impl CursorClip {
     /// Scroll the clip view to the given page. The page length depends on the number of steps
     /// and the step length.
     pub fn scroll_to_page(&mut self, page: i32) {
+        if self.host_grid {
+            self.edit_page = page.max(0);
+            self.send_grid_int("scroll", self.edit_page * self.num_steps as i32);
+            return;
+        }
         self.edit_page = page.clamp(0, (self.max_page - 1).max(0));
         self.update_note_data();
     }
@@ -895,7 +1287,8 @@ impl CursorClip {
 
     /// Reports if the note grid steps can be scrolled forwards.
     pub fn can_scroll_steps_forwards(&self) -> bool {
-        self.edit_page < self.max_page - 1
+        // The host grid can always be scrolled (as the Java version for Bitwig)
+        self.host_grid || self.edit_page < self.max_page - 1
     }
 
     /// Get the number of pages of the clip (depends on the clip length, the number of steps and
@@ -953,9 +1346,15 @@ impl CursorClip {
             .push((now + EDIT_UPDATE_DELAY, edit_step));
     }
 
-    /// Send the locally changed step data to Reaper.
+    /// Send the locally changed step data to Reaper (or all values to the host grid).
     fn send_clip_data(&self, position: &NotePosition) {
         let info = self.step(position);
+        if self.host_grid {
+            if info.state() != StepState::Off {
+                self.send_grid_str(&format!("{}/update", Self::step_path(position)), &info.to_wire());
+            }
+            return;
+        }
         self.update_step(
             position,
             (info.velocity() * 127.0) as i32,
@@ -976,6 +1375,10 @@ impl CursorClip {
     }
 
     fn update_note_data(&mut self) {
+        // The steps of a host grid come from the host
+        if self.host_grid {
+            return;
+        }
         // While editing the local data is kept
         if self.edit_steps.is_empty() {
             self.data.clear();

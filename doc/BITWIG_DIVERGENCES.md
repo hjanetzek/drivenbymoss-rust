@@ -33,7 +33,8 @@ These do not change what a controller does, but explain the other differences.
 | Drum machine | Main drum device of `numDrumPadLayers` pads plus additional drum devices of other page sizes (e.g. 64) on the same drum machine, scrolled by Bitwig | One pad bank of all 128 pads of the cursor track's drum machine (same matcher), reported completely; the core's drum devices page over it. Pad sends and the devices of a pad are not reported |
 | First instrument | `SpecificDeviceImpl` on the instrument matcher: one remote-control page cursor, `numDeviceLayers` layers and `numDrumPadLayers` pads, scrolled by Bitwig; a cursor layer if `wantsCursorLayer` | Same matcher; the parameters as for the cursor device (`numParamPages` fixed page cursors, page names, no page selection), all 128 pads and 32 layers reported completely, the core pages over them with the pad page size. Layer sends, the devices of a layer and the cursor layer are not reported |
 | Browser | `PopupBrowser` with 7 filter columns (no smart collections) of `numFilterColumnEntries` items, `numResults` results; observers only while used | Same columns and pages, reported only while the browser is open. Slots outside of the track and scene window cannot be browsed |
-| Effect tracks, note clip grids | Created from the ModelSetup | Not created yet (protocol v2 item 8) |
+| Note clips | `getNoteClip (cols, rows)` creates a launcher cursor clip per size when a view asks for it | Same, but the sizes must be known before the extension creates its objects: the core collects the sizes of the sequencer views created during the setup of the controller (plus 8x128 for the Drum 64 views) and lists them in the model setup. A size first requested later has no grid in Bitwig. The clip properties come from the first grid; `pinned` is set on all grids |
+| Effect tracks | Created from the ModelSetup | Not created yet |
 | Device siblings | `createSiblingsDeviceBank (numDevicesInBank)` | Always 8 siblings (the Reaper protocol's fixed window) |
 | Device parameters | One remote-control page cursor; its selected page is the page shown on the controller and in Bitwig, page names from `pageNames` | Same page names and the same page selection in both directions (an extra page cursor follows Bitwig's selection). The parameter values come from `numParamPages` page cursors, each fixed to one page, as one flat list; pages beyond `numParamPages` are not reachable. When pages are switched quickly, the controller can briefly show the previous page while Bitwig catches up |
 | Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `modulatedValue`, `setIndication` and `touch` for the cursor device's parameters, `touch` for track and master volume and pan; not for sends, the track and project remote controls |
@@ -89,9 +90,8 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `automation`, `inifile` (pre-roll measures), `quantize`, `groove`, `clip` (the
-  cursor clip), `eq`, `cursor`, user-configured Reaper actions (`action` with a
-  string).
+- `metro_vol`, `automation`, `inifile` (pre-roll measures), `groove`, `eq`, `cursor`,
+  user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues
 

@@ -9,7 +9,7 @@
 //! controller setup (re-binding knobs, updating the note mapping, configuration values, note
 //! repeat settings of the surface) is returned as [`ParserEvent`]s which the app layer handles.
 
-use crate::daw::clip::Note;
+use crate::daw::clip::{Note, StepInfo};
 use crate::daw::color::ColorEx;
 use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId};
 use crate::daw::device::SpecificDevice;
@@ -1144,6 +1144,38 @@ impl Parser {
                 }
             }
             "notes" => model.set_cursor_clip_notes(Note::parse_notes(value)),
+            // The step grids of the host (protocol v2)
+            "loopStart" | "loopLength" | "shuffle" | "accent" | "pinned" => {
+                let v = d.unwrap_or(0.0);
+                model.for_each_cursor_clip(|clip| {
+                    clip.set_host_grid();
+                    match command {
+                        "loopStart" => clip.set_loop_start_value(v),
+                        "loopLength" => clip.set_loop_length_value(v),
+                        "shuffle" => clip.set_shuffle_value(v > 0.0),
+                        "accent" => clip.set_accent_value(v),
+                        _ => clip.set_pinned_value(v > 0.0),
+                    }
+                });
+            }
+            "grid" => {
+                let id = parts.poll().unwrap_or("");
+                let field = parts.poll().unwrap_or("");
+                let Some(clip) = model.note_clip_by_grid_id_mut(id) else {
+                    Self::error(model, &format!("Unknown Clip Grid: {id}"));
+                    return;
+                };
+                match field {
+                    "playingStep" => clip.set_host_playing_step(parse_int(value).unwrap_or(-1)),
+                    "step" => {
+                        let mut index = || parts.poll().and_then(parse_index).map(|i| i as i32);
+                        if let (Some(channel), Some(step), Some(row)) = (index(), index(), index()) {
+                            clip.set_host_step(channel, step, row, StepInfo::from_wire(value));
+                        }
+                    }
+                    _ => Self::error(model, &format!("Unhandled Clip Grid Parameter: {field}")),
+                }
+            }
             "all" => model.set_clips(value),
             _ => Self::error(model, &format!("Unhandled Clip Parameter: {command}")),
         }
@@ -1206,6 +1238,7 @@ mod tests {
     use super::*;
     use crate::backend::{BackendCall, RecordingBackend, Sender};
     use crate::daw::bank::BankItem;
+    use crate::daw::clip::{NotePosition, StepState};
     use crate::daw::events::ModelEvent;
     use crate::daw::model_setup::ModelSetup;
     use crate::framework::value_changer::ValueChanger;
@@ -1652,6 +1685,50 @@ mod tests {
             backend.take_calls(),
             vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
         );
+    }
+
+    #[test]
+    fn host_step_grid() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        model.note_clip(8, 128);
+        assert!(model.setup_json().contains("\"noteClips\":[[8,128]]"), "{}", model.setup_json());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/clip/exists 1",
+                "/clip/loopLength 4",
+                "/clip/accent 0.75",
+                "/clip/grid/8x128/playingStep 3",
+                "/clip/grid/8x128/step/0/2/36 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 1 0.5 0 0 0 1 0 0 0 0 0 0",
+                "/clip/grid/8x128/step/0/3/36 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 0 0 0 0 0 1 0 0 0 0 0 0",
+                "/clip/grid/8x128/step/0/3/36 0",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let clip = model.note_clip(8, 128);
+        assert!(clip.is_host_grid());
+        assert_eq!(clip.current_step(), 3);
+        assert_eq!(clip.loop_length(), 4.0);
+        assert_eq!(clip.formatted_accent(), "50%");
+        let position = NotePosition { channel: 0, step: 2, note: 36 };
+        let step = clip.step(&position);
+        assert_eq!((step.state(), step.velocity(), step.chance()), (StepState::Start, 0.8, 0.5));
+        assert!(step.is_chance_enabled());
+        assert_eq!(clip.step(&NotePosition { channel: 0, step: 3, note: 36 }).state(), StepState::Off);
+
+        backend.take_calls();
+        clip.toggle_step(&NotePosition { channel: 0, step: 4, note: 38 }, 100);
+        clip.update_step_chance(&position, 0.25);
+        clip.set_step_length(0.5);
+        clip.scroll_steps_page_forward();
+        clip.clear_row(0, 36);
+        let calls = backend.take_calls();
+        assert_eq!(calls[0], BackendCall::IntArg("clip".into(), "grid/8x128/step/0/4/38/toggle".into(), 100));
+        assert!(matches!(&calls[1], BackendCall::StringArg(p, c, v) if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(13) == Some("0.25")), "{calls:?}");
+        assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
+        assert_eq!(calls[3], BackendCall::IntArg("clip".into(), "grid/8x128/scroll".into(), 8));
+        assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
     }
 
     #[test]

@@ -39,6 +39,7 @@ impl SequencerBase {
     /// * `num_sequencer_rows` - The number of displayed rows of the sequencer
     /// * `use_daw_colors` - True to use the DAW color of items for coloring (full RGB devices)
     pub fn new(name: &str, clip_rows: usize, clip_cols: usize, num_sequencer_rows: i32, use_daw_colors: bool) -> Self {
+        crate::daw::clip::request_note_clip(clip_cols, clip_rows);
         SequencerBase {
             view: ViewBase::new(name),
             clip_rows,

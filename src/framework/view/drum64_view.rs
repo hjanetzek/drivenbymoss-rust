@@ -41,6 +41,8 @@ impl Default for Drum64ViewBase {
 
 impl Drum64ViewBase {
     pub fn new(columns: i32, rows: i32) -> Self {
+        // For deleting the notes of a pad (handle_delete_button)
+        crate::daw::clip::request_note_clip(8, 128);
         Drum64ViewBase {
             base: ViewBase::new(&format!("Drum {}", columns * rows)),
             offset_y: DRUM_START_KEY,

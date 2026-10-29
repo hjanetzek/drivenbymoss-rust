@@ -18,7 +18,7 @@ mod session_alternative;
 mod step_info;
 mod step_state;
 
-pub use cursor_clip::{CursorClip, NUM_CHANNELS};
+pub use cursor_clip::{request_note_clip, take_requested_note_clips, CursorClip, NUM_CHANNELS};
 pub use note::{parse_notes, Note};
 pub use note_occurrence::NoteOccurrenceType;
 pub use note_position::NotePosition;
