@@ -99,3 +99,16 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   into Bitwig. Probably the note input still passes the pads through while the Shift view is
   active (the key translation table should block them, as the Java version does); to be
   investigated. Found 2026-10-29.
+- **Launch Control XL, Layer Mix (3rd factory template):** in a first test only the knobs
+  changed a panning, of an unknown target; the layers were not followed. To be investigated with
+  the OSC monitor (which commands arrive, `/primary/hasDrumPads` and `hasLayers` of the tested
+  instrument). Background: the device level differs between the Java versions. For Bitwig,
+  `SpecificDeviceImpl` reports the real `hasDrumPads` / `hasLayers`, and the mode switches between
+  the pad bank and the layer bank of the first instrument. For Reaper, `SpecificDeviceImpl` always
+  reports pads (`hasDrumPads` true, "to support drum sequencers") and no layers (an empty
+  `LayerBankImpl`); its pads are virtual and their channel commands went to `track <pad>/…`
+  (BACKEND_PROTOCOL.md mismatch f). So with the Java version for Reaper the Layer Mix pan knobs
+  change the pan of the *tracks* at the pad positions. In Rust the commands now go to
+  `primary pad/<p>/…`, which Reaper ignores. The core assumes pads until the host reports
+  otherwise, so a host without `/primary/hasDrumPads` stays on the (virtual) pads. Found
+  2026-10-29.
