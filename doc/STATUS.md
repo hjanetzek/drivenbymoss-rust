@@ -111,6 +111,7 @@ All paths are under `rust/`.
 | `src/controller/launchcontrol/` | `controller/novation/launchcontrol/**` | Done |
 | `src/controller/maschine/{core,mk,jam}/` | `controller/ni/maschine/**` | Mk2 and Jam done |
 | `tests/` | — | Integration tests per controller |
+| `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08); still uses JNI, to be switched to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues
