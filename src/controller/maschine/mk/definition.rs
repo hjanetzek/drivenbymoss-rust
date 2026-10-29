@@ -85,6 +85,13 @@ impl MaschineDefinition {
             Maschine::Mk2 => {
                 if is_mac {
                     vec![pair("Maschine MK2 Virtual Input", "Maschine MK2 Virtual Output")]
+                } else if os == OperatingSystem::Linux {
+                    // The ports of dbm-nihost (support/linux/ni_host): ALSA and through PipeWire's
+                    // MIDI bridge, which removes the client name from the port name
+                    vec![
+                        pair("Maschine MK2 In", "Maschine MK2 Out"),
+                        pair("Midi-Bridge:Maschine MK2: In (capture)", "Midi-Bridge:Maschine MK2: Out (playback)"),
+                    ]
                 } else {
                     vec![pair("Maschine MK2 In", "Maschine MK2 Out")]
                 }

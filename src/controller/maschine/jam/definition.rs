@@ -30,8 +30,10 @@ pub fn midi_discovery_pairs(os: OperatingSystem) -> Vec<(Vec<String>, Vec<String
             _ => {
                 if os == OperatingSystem::Linux {
                     // The ports of dbm-nihost (support/linux/ni_host), named like the ones of
-                    // NI's driver on macOS
+                    // NI's driver on macOS: ALSA and through PipeWire's MIDI bridge, which removes
+                    // the client name from the port name
                     pairs.push(pair(format!("{name} Input"), format!("{name} Output")));
+                    pairs.push(pair(format!("Midi-Bridge:{name}: Input (capture)"), format!("Midi-Bridge:{name}: Output (playback)")));
                 }
                 // Former createDeviceDiscoveryPairs
                 pairs.push(pair(name.clone(), name.clone()));
