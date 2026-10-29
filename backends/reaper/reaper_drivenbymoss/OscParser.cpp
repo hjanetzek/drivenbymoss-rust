@@ -42,6 +42,7 @@ OscParser::OscParser(Model& model) :
 	mixerProcessor(model),
 	beatsProcessor(model),
 	drumProcessor(model, {}),
+	primaryDeviceProcessor(model),
 	theModel(model)
 {
 	try
@@ -77,6 +78,7 @@ OscParser::OscParser(Model& model) :
 		this->processors["mixer"] = &mixerProcessor;
 		this->processors["beats"] = &beatsProcessor;
 		this->processors["drum"] = &drumProcessor;
+		this->processors["primary"] = &primaryDeviceProcessor;
 	}
 	catch (...)
 	{

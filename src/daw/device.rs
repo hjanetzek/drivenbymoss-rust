@@ -247,6 +247,8 @@ impl BankItem for DrumPad {
 /// [`PagedBank<DrumPad>`]. Use [`DrumPadBank::select_pad`] to select a pad.
 pub struct DrumPadBank {
     bank: PagedBank<DrumPad>,
+    /// The processor of the device which contains the pads.
+    owner: Processor,
     /// True if the host reports the pads (protocol v2): their colors are not overridden with the
     /// track color and the mute/solo summaries come from the host.
     host_reported: bool,
@@ -255,7 +257,8 @@ pub struct DrumPadBank {
 }
 
 impl DrumPadBank {
-    pub fn new(ctx: DawContext, num_layers: usize, num_sends: usize) -> Self {
+    /// Create the pad bank of a device; `owner` is the processor of the device (drum, primary).
+    pub fn new(ctx: DawContext, num_layers: usize, num_sends: usize, owner: Processor) -> Self {
         let item_ctx = ctx.clone();
         let empty_ctx = ctx.clone();
         let mut bank = PagedBank::new(
@@ -263,7 +266,7 @@ impl DrumPadBank {
             num_layers,
             move |position| {
                 let index = if num_layers > 0 { position % num_layers } else { position };
-                let mut channel = Channel::new(item_ctx.clone(), ChannelKind::DrumPad, index as i32, position as i32, num_sends);
+                let mut channel = Channel::new(item_ctx.clone(), ChannelKind::DrumPad, index as i32, position as i32, num_sends).with_owner(owner);
                 channel.set_exists(true);
                 channel.set_internal_name(&format!("Drum {position}"));
                 DrumPad { channel }
@@ -273,7 +276,7 @@ impl DrumPadBank {
         if num_layers > 0 {
             bank.set_item_count(128);
         }
-        let mut pad_bank = DrumPadBank { bank, host_reported: false, has_muted_pads: false, has_soloed_pads: false };
+        let mut pad_bank = DrumPadBank { bank, owner, host_reported: false, has_muted_pads: false, has_soloed_pads: false };
         if num_layers > 0 {
             pad_bank.set_selected_drum_pad(36);
             pad_bank.scroll_to(36, true);
@@ -329,7 +332,7 @@ impl DrumPadBank {
             self.bank.unpaged_item_mut(i).set_selected(i == position);
         }
         if self.host_reported {
-            self.bank.ctx.send(crate::backend::Processor::Drum, &format!("pad/{position}/select"));
+            self.bank.ctx.send(self.owner, &format!("pad/{position}/select"));
         }
     }
 
@@ -374,12 +377,12 @@ impl DrumPadBank {
 
     /// Unmute all pads (not supported by Reaper).
     pub fn clear_mute(&mut self) {
-        self.bank.ctx.send(crate::backend::Processor::Drum, "clearMute");
+        self.bank.ctx.send(self.owner, "clearMute");
     }
 
     /// Unsolo all pads (not supported by Reaper).
     pub fn clear_solo(&mut self) {
-        self.bank.ctx.send(crate::backend::Processor::Drum, "clearSolo");
+        self.bank.ctx.send(self.owner, "clearSolo");
     }
 
     pub fn has_muted_pads(&self) -> bool {
@@ -400,7 +403,7 @@ impl DrumPadBank {
 
     /// Indicate the pads on the DAW user interface (not supported by Reaper).
     pub fn set_indication(&mut self, indicate: bool) {
-        self.bank.ctx.send_int(crate::backend::Processor::Drum, "indicate", if indicate { 1 } else { 0 });
+        self.bank.ctx.send_int(self.owner, "indicate", if indicate { 1 } else { 0 });
     }
 }
 
@@ -413,6 +416,69 @@ impl Deref for DrumPadBank {
 
 // ---------------------------------------------------------------------------------------------
 // Specific devices
+
+// ---------------------------------------------------------------------------------------------
+// Layers
+
+/// The layers of a device (former `ILayerBank` / `LayerBankImpl`), e.g. of Bitwig's Instrument
+/// Layer. Reaper has no layers; hosts report them (protocol v2). Derefs to
+/// [`PagedBank<Channel>`].
+pub struct LayerBank {
+    bank: PagedBank<Channel>,
+}
+
+impl LayerBank {
+    /// Create the layer bank of a device; `owner` is the processor of the device.
+    pub fn new(ctx: DawContext, num_layers: usize, num_sends: usize, owner: Processor) -> Self {
+        let item_ctx = ctx.clone();
+        let empty_ctx = ctx.clone();
+        let bank = PagedBank::new(
+            ctx,
+            num_layers,
+            move |position| {
+                let index = if num_layers > 0 { position % num_layers } else { position };
+                Channel::new(item_ctx.clone(), ChannelKind::Layer, index as i32, position as i32, num_sends).with_owner(owner)
+            },
+            move || Channel::empty(&empty_ctx, num_sends),
+        );
+        LayerBank { bank }
+    }
+
+    /// Get the layer at the index of the page for modification.
+    pub fn item_mut(&mut self, index: usize) -> &mut Channel {
+        self.bank.item_mut(index)
+    }
+
+    /// Get the layer at the absolute position for modification.
+    pub fn unpaged_item_mut(&mut self, position: usize) -> &mut Channel {
+        self.bank.unpaged_item_mut(position)
+    }
+
+    pub fn set_item_count(&mut self, count: usize) {
+        self.bank.set_item_count(count);
+    }
+
+    pub fn scroll_page_backwards(&mut self) {
+        self.bank.scroll_page_backwards();
+    }
+
+    pub fn scroll_page_forwards(&mut self) {
+        self.bank.scroll_page_forwards();
+    }
+}
+
+impl Deref for LayerBank {
+    type Target = PagedBank<Channel>;
+    fn deref(&self) -> &PagedBank<Channel> {
+        &self.bank
+    }
+}
+
+impl DerefMut for LayerBank {
+    fn deref_mut(&mut self) -> &mut PagedBank<Channel> {
+        &mut self.bank
+    }
+}
 
 /// Which device a [`SpecificDevice`] represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,6 +558,10 @@ pub struct SpecificDevice {
     is_expanded: bool,
     parameter_bank: Option<ParameterBank>,
     drum_pad_bank: DrumPadBank,
+    layer_bank: LayerBank,
+    /// Reported by the host (protocol v2); Reaper always has (virtual) drum pads.
+    has_drum_pads: bool,
+    has_layers: bool,
     device_bank: DeviceBank,
     device_count: usize,
     last_touched_parameter_index: i32,
@@ -504,15 +574,26 @@ impl SpecificDevice {
         let num_params = if num_params >= 0 { num_params as usize } else { 8 };
         let num_pads = if num_drum_pad_layers >= 0 { num_drum_pad_layers as usize } else { 16 };
         let num_devices = if num_devices_in_bank >= 0 { num_devices_in_bank as usize } else { 8 };
+        // The processor which gets the commands of the pads and layers of the device
+        let channel_owner = match kind {
+            DeviceKind::FirstInstrument => Processor::Primary,
+            DeviceKind::Cursor => Processor::Device,
+            DeviceKind::Eq => Processor::Eq,
+            DeviceKind::Drum => Processor::Drum,
+        };
         let (processor, bank_id) = match kind {
             DeviceKind::Cursor => (Processor::Device, ParameterBankId::CursorDevice),
-            DeviceKind::FirstInstrument => (Processor::Device, ParameterBankId::FirstInstrument),
+            // The parameters of the first instrument go to its own processor (protocol v2)
+            DeviceKind::FirstInstrument => (Processor::Primary, ParameterBankId::FirstInstrument),
             DeviceKind::Drum => (Processor::Device, ParameterBankId::DrumDevice),
             DeviceKind::Eq => (Processor::Eq, ParameterBankId::Eq),
         };
         SpecificDevice {
             parameter_bank: if num_params > 0 { Some(ParameterBank::new(ctx.clone(), bank_id, processor, num_params, true)) } else { None },
-            drum_pad_bank: DrumPadBank::new(ctx.clone(), num_pads, num_sends),
+            drum_pad_bank: DrumPadBank::new(ctx.clone(), num_pads, num_sends, channel_owner),
+            layer_bank: LayerBank::new(ctx.clone(), num_pads, num_sends, channel_owner),
+            has_drum_pads: true,
+            has_layers: false,
             device_bank: DeviceBank::new(ctx.clone(), if kind == DeviceKind::Cursor { num_devices } else { 0 }),
             ctx,
             kind,
@@ -628,12 +709,31 @@ impl SpecificDevice {
     }
 
     /// Reaper always has (virtual) drum pads.
+    /// True if the device has drum pads: always for Reaper (virtual pads), reported by other
+    /// hosts.
     pub fn has_drum_pads(&self) -> bool {
-        true
+        self.has_drum_pads
     }
 
+    /// True if the device has layers (reported by the host, Reaper has none).
     pub fn has_layers(&self) -> bool {
-        false
+        self.has_layers
+    }
+
+    pub(crate) fn set_has_drum_pads(&mut self, value: bool) {
+        self.has_drum_pads = value;
+    }
+
+    pub(crate) fn set_has_layers(&mut self, value: bool) {
+        self.has_layers = value;
+    }
+
+    pub fn layer_bank(&self) -> &LayerBank {
+        &self.layer_bank
+    }
+
+    pub fn layer_bank_mut(&mut self) -> &mut LayerBank {
+        &mut self.layer_bank
     }
 
     pub fn has_slots(&self) -> bool {

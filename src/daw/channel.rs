@@ -27,8 +27,10 @@ pub enum ChannelKind {
     Track,
     /// The master track (`master` processor, no prefix).
     Master,
-    /// A (virtual) drum pad.
+    /// A (virtual) drum pad (commands go to the processor of its device: `pad/<position>/...`).
     DrumPad,
+    /// A layer of a device (commands go to the processor of its device: `layer/<position>/...`).
+    Layer,
     /// A placeholder for a non-existing channel.
     Empty,
 }
@@ -101,6 +103,8 @@ pub struct Channel {
     volume: Parameter,
     pan: Parameter,
     send_bank: SendBank,
+    /// The processor of the device which contains a drum pad or layer.
+    owner: Processor,
 }
 
 impl Channel {
@@ -108,7 +112,8 @@ impl Channel {
     pub fn new(ctx: DawContext, kind: ChannelKind, index: i32, position: i32, num_sends: usize) -> Self {
         let (vol_kind, pan_kind) = match kind {
             ChannelKind::Master => (ParameterKind::MasterVolume, ParameterKind::MasterPan),
-            ChannelKind::DrumPad => (ParameterKind::DrumPadVolume, ParameterKind::DrumPadPan),
+            ChannelKind::DrumPad => (ParameterKind::DeviceChannelVolume(Processor::Drum, "pad"), ParameterKind::DeviceChannelPan(Processor::Drum, "pad")),
+            ChannelKind::Layer => (ParameterKind::DeviceChannelVolume(Processor::Primary, "layer"), ParameterKind::DeviceChannelPan(Processor::Primary, "layer")),
             _ => (ParameterKind::TrackVolume, ParameterKind::TrackPan),
         };
         // Volume and panorama use the position as index (it is the index at creation in Java)
@@ -140,7 +145,20 @@ impl Channel {
             color_override: None,
             volume,
             pan,
+            owner: match kind {
+                ChannelKind::Layer => Processor::Primary,
+                _ => Processor::Drum,
+            },
         }
+    }
+
+    /// Set the processor of the device which contains this drum pad or layer.
+    pub(crate) fn with_owner(mut self, owner: Processor) -> Self {
+        let prefix = if self.kind == ChannelKind::Layer { "layer" } else { "pad" };
+        self.owner = owner;
+        self.volume.set_kind(ParameterKind::DeviceChannelVolume(owner, prefix));
+        self.pan.set_kind(ParameterKind::DeviceChannelPan(owner, prefix));
+        self
     }
 
     /// Create a placeholder for a non-existing channel.
@@ -460,8 +478,8 @@ impl Channel {
     fn processor(&self) -> Processor {
         match self.kind {
             ChannelKind::Master => Processor::Master,
-            // Drum pads have their own commands (protocol v2); Reaper ignores them
-            ChannelKind::DrumPad => Processor::Drum,
+            // Drum pads and layers have their own commands (protocol v2); Reaper ignores them
+            ChannelKind::DrumPad | ChannelKind::Layer => self.owner,
             _ => Processor::Track,
         }
     }
@@ -471,6 +489,7 @@ impl Channel {
         match self.kind {
             ChannelKind::Master => command.to_string(),
             ChannelKind::DrumPad => format!("pad/{}/{}", self.position, command),
+            ChannelKind::Layer => format!("layer/{}/{}", self.position, command),
             _ => format!("{}/{}", self.position, command),
         }
     }

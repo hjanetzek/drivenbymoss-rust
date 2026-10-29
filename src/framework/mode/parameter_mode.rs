@@ -103,7 +103,14 @@ impl ModeBank {
             ModeBank::None => None,
             ModeBank::TrackBank => info!(ctx.model.current_track_bank()),
             ModeBank::ParameterBank(id) => info!(parameterprovider::parameter_bank(&ctx.model, id)?),
-            ModeBank::DrumPadBank(device) => info!(drum_pad_bank(ctx, device)?),
+            ModeBank::DrumPadBank(device) => {
+                let d = specific_device(ctx, device)?;
+                if uses_layers(d) {
+                    info!(d.layer_bank())
+                } else {
+                    info!(d.drum_pad_bank())
+                }
+            }
         }
     }
 
@@ -141,8 +148,12 @@ impl ModeBank {
             ModeBank::None | ModeBank::ParameterBank(_) => {}
             ModeBank::TrackBank => ctx.model.current_track_bank_mut().item_mut(index).select(),
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.select_pad(index);
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        BankItem::select(d.layer_bank_mut().item_mut(index));
+                    } else {
+                        d.drum_pad_bank_mut().select_pad(index);
+                    }
                 }
             }
         }
@@ -153,7 +164,7 @@ impl ModeBank {
         match self {
             ModeBank::None | ModeBank::ParameterBank(_) => false,
             ModeBank::TrackBank => ctx.model.current_track_bank().item(index).is_selected(),
-            ModeBank::DrumPadBank(device) => drum_pad_bank(ctx, device).is_some_and(|b| b.item(index).is_selected()),
+            ModeBank::DrumPadBank(device) => specific_device(ctx, device).is_some_and(|d| if uses_layers(d) { d.layer_bank().item(index).is_selected() } else { d.drum_pad_bank().item(index).is_selected() }),
         }
     }
 
@@ -167,7 +178,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().select_previous_item();
+                        return;
+                    }
+                    let bank = d.drum_pad_bank_mut();
                     let index = bank.selected_index().map_or(0, |i| i as i32 - 1);
                     if index < 0 {
                         bank.scroll_page_backwards();
@@ -189,7 +205,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().select_next_item();
+                        return;
+                    }
+                    let bank = d.drum_pad_bank_mut();
                     let index = bank.selected_index().map_or(0, |i| i + 1);
                     if index >= bank.page_size() {
                         bank.scroll_page_forwards();
@@ -211,8 +232,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.scroll_backwards();
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().scroll_backwards();
+                    } else {
+                        d.drum_pad_bank_mut().scroll_backwards();
+                    }
                 }
             }
         }
@@ -228,8 +253,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.scroll_forwards();
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().scroll_forwards();
+                    } else {
+                        d.drum_pad_bank_mut().scroll_forwards();
+                    }
                 }
             }
         }
@@ -245,8 +274,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.scroll_page_backwards();
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().scroll_page_backwards();
+                    } else {
+                        d.drum_pad_bank_mut().scroll_page_backwards();
+                    }
                 }
             }
         }
@@ -262,8 +295,12 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.scroll_page_forwards();
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().scroll_page_forwards();
+                    } else {
+                        d.drum_pad_bank_mut().scroll_page_forwards();
+                    }
                 }
             }
         }
@@ -279,30 +316,38 @@ impl ModeBank {
                 }
             }
             ModeBank::DrumPadBank(device) => {
-                if let Some(bank) = drum_pad_bank_mut(ctx, device) {
-                    bank.scroll_to(position, true);
+                if let Some(d) = specific_device_mut(ctx, device) {
+                    if uses_layers(d) {
+                        d.layer_bank_mut().scroll_to(position, true);
+                    } else {
+                        d.drum_pad_bank_mut().scroll_to(position, true);
+                    }
                 }
             }
         }
     }
 }
 
-fn drum_pad_bank(ctx: &Ctx, device: DrumDeviceRef) -> Option<&crate::daw::device::DrumPadBank> {
-    let device = match device {
-        DrumDeviceRef::FirstInstrument => ctx.model.specific_device(crate::daw::constants::DeviceId::FirstInstrument)?,
-        DrumDeviceRef::Drum => ctx.model.drum_device()?,
-        DrumDeviceRef::Cursor => ctx.model.cursor_device(),
-    };
-    Some(device.drum_pad_bank())
+fn specific_device(ctx: &Ctx, device: DrumDeviceRef) -> Option<&crate::daw::device::SpecificDevice> {
+    match device {
+        DrumDeviceRef::FirstInstrument => ctx.model.specific_device(crate::daw::constants::DeviceId::FirstInstrument),
+        DrumDeviceRef::Drum => ctx.model.drum_device(),
+        DrumDeviceRef::Cursor => Some(ctx.model.cursor_device()),
+    }
 }
 
-fn drum_pad_bank_mut(ctx: &mut Ctx, device: DrumDeviceRef) -> Option<&mut crate::daw::device::DrumPadBank> {
-    let device = match device {
-        DrumDeviceRef::FirstInstrument => ctx.model.specific_device_mut(crate::daw::constants::DeviceId::FirstInstrument)?,
-        DrumDeviceRef::Drum => ctx.model.drum_device_mut()?,
-        DrumDeviceRef::Cursor => ctx.model.cursor_device_mut(),
-    };
-    Some(device.drum_pad_bank_mut())
+fn specific_device_mut(ctx: &mut Ctx, device: DrumDeviceRef) -> Option<&mut crate::daw::device::SpecificDevice> {
+    match device {
+        DrumDeviceRef::FirstInstrument => ctx.model.specific_device_mut(crate::daw::constants::DeviceId::FirstInstrument),
+        DrumDeviceRef::Drum => ctx.model.drum_device_mut(),
+        DrumDeviceRef::Cursor => Some(ctx.model.cursor_device_mut()),
+    }
+}
+
+/// True if the bank of the device are its layers: it has layers but no drum pads (as
+/// `DefaultLayerMode.parametersAdjusted` of the Java version). Reaper always has drum pads.
+pub(crate) fn uses_layers(device: &crate::daw::device::SpecificDevice) -> bool {
+    !device.has_drum_pads() && device.has_layers()
 }
 
 // ------------------------------------------------------------------------------------------

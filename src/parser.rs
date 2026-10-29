@@ -229,32 +229,37 @@ impl Parser {
                 };
                 let bank = device.drum_pad_bank_mut();
                 bank.set_host_reported();
-                let pad = bank.unpaged_item_mut(position);
-                match (field.unwrap_or(""), sub) {
-                    (TAG_EXISTS, None) => pad.set_exists(flag.unwrap_or(false)),
-                    (TAG_NAME, None) => pad.set_internal_name(value),
-                    (TAG_COLOR, None) => pad.set_color_state(color.unwrap_or(ColorEx::GRAY.to_double_rgb())),
-                    (TAG_SELECT, None) => pad.set_selected(flag.unwrap_or(false)),
-                    (TAG_ACTIVE, None) => pad.set_internal_is_activated(flag.unwrap_or(false)),
-                    ("mute", None) => pad.set_mute_state(flag.unwrap_or(false)),
-                    ("solo", None) => pad.set_solo_state(flag.unwrap_or(false)),
-                    (TAG_VOLUME, None) => {
-                        if let Some(v) = parse_double(value) {
-                            pad.set_internal_volume(v);
-                        }
-                    }
-                    (TAG_VOLUME, Some("str")) => pad.set_volume_str(value),
-                    ("pan", None) => {
-                        if let Some(v) = parse_double(value) {
-                            pad.set_internal_pan(v);
-                        }
-                    }
-                    ("pan", Some("str")) => pad.set_pan_str(value),
-                    (other, _) => host.error(&format!("Unhandled Drum Pad parameter: {other}")),
-                }
+                Self::parse_device_channel(&host, bank.unpaged_item_mut(position), field.unwrap_or(""), sub, value, color);
             }
             other => host.error(&format!("Unhandled Drum parameter: {other}")),
         });
+    }
+
+    /// A field of a drum pad or layer of a device (protocol v2).
+    fn parse_device_channel(host: &crate::host::Host, channel: &mut crate::daw::channel::Channel, field: &str, sub: Option<&str>, value: &str, color: Option<[f64; 3]>) {
+        let flag = parse_double(value).is_some_and(|v| v > 0.0);
+        match (field, sub) {
+            (TAG_EXISTS, None) => channel.set_exists(flag),
+            (TAG_NAME, None) => channel.set_internal_name(value),
+            (TAG_COLOR, None) => channel.set_color_state(color.unwrap_or(ColorEx::GRAY.to_double_rgb())),
+            (TAG_SELECT, None) => channel.set_selected(flag),
+            (TAG_ACTIVE, None) => channel.set_internal_is_activated(flag),
+            ("mute", None) => channel.set_mute_state(flag),
+            ("solo", None) => channel.set_solo_state(flag),
+            (TAG_VOLUME, None) => {
+                if let Some(v) = parse_double(value) {
+                    channel.set_internal_volume(v);
+                }
+            }
+            (TAG_VOLUME, Some("str")) => channel.set_volume_str(value),
+            ("pan", None) => {
+                if let Some(v) = parse_double(value) {
+                    channel.set_internal_pan(v);
+                }
+            }
+            ("pan", Some("str")) => channel.set_pan_str(value),
+            (other, _) => host.error(&format!("Unhandled Device Channel parameter: {other}")),
+        }
     }
 
     fn parse_click(model: &mut Model, parts: &mut Parts, value: &str) {
@@ -761,6 +766,32 @@ impl Parser {
             "touchedParam" => {
                 if let Some(v) = parse_int(value) {
                     device.set_last_touched_parameter_index(v);
+                }
+            }
+            // Drum pads and layers of a device (protocol v2)
+            "hasDrumPads" => device.set_has_drum_pads(parse_double(value).is_some_and(|v| v > 0.0)),
+            "hasLayers" => device.set_has_layers(parse_double(value).is_some_and(|v| v > 0.0)),
+            "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(parse_double(value).is_some_and(|v| v > 0.0)),
+            "hasSoloedPads" => device.drum_pad_bank_mut().set_has_soloed_pads(parse_double(value).is_some_and(|v| v > 0.0)),
+            "pad" | "layer" => {
+                let (index, field, sub) = (parts.poll().unwrap_or(""), parts.poll().unwrap_or(""), parts.poll());
+                let color = if field == TAG_COLOR { parse_color_static(&host, value) } else { None };
+                if index == TAG_COUNT {
+                    if command == "layer" {
+                        if let Some(v) = parse_int(value) {
+                            device.layer_bank_mut().set_item_count(v.max(0) as usize);
+                        }
+                    }
+                } else if let Some(position) = parse_index(index) {
+                    if command == "pad" {
+                        let bank = device.drum_pad_bank_mut();
+                        bank.set_host_reported();
+                        Self::parse_device_channel(&host, bank.unpaged_item_mut(position), field, sub, value, color);
+                    } else {
+                        Self::parse_device_channel(&host, device.layer_bank_mut().unpaged_item_mut(position), field, sub, value, color);
+                    }
+                } else {
+                    host.error(&format!("Unhandled Device {command} parameter: {index}"));
                 }
             }
             // The named parameter pages (protocol v2): count, selected, <index>/name
@@ -1557,6 +1588,48 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
+        );
+    }
+
+    #[test]
+    fn first_instrument_layers() {
+        let mut setup = ModelSetup::default();
+        setup.device_ids.push(DeviceId::FirstInstrument);
+        let (mut model, mut parser, backend, log) = create(setup);
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/primary/exists 1",
+                "/primary/hasDrumPads 0",
+                "/primary/hasLayers 1",
+                "/primary/layer/count 2",
+                "/primary/layer/1/exists 1",
+                "/primary/layer/1/name Strings",
+                "/primary/layer/1/solo 1",
+                "/primary/param/count 8",
+                "/primary/param/0/name Cutoff",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let device = model.specific_device(DeviceId::FirstInstrument).unwrap();
+        assert!(crate::framework::mode::parameter_mode::uses_layers(device));
+        let layer = device.layer_bank().item(1);
+        assert!(layer.does_exist() && layer.is_solo());
+        assert_eq!(layer.name(), "Strings");
+
+        backend.take_calls();
+        let device = model.specific_device_mut(DeviceId::FirstInstrument).unwrap();
+        device.layer_bank_mut().item_mut(1).set_mute(true);
+        device.drum_pad_bank_mut().clear_mute();
+        device.parameter_bank_mut().unwrap().item_mut(0).set_normalized_value(0.5);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("primary".into(), "layer/1/mute".into(), 1),
+                BackendCall::NoArg("primary".into(), "clearMute".into()),
+                BackendCall::DoubleArg("primary".into(), "param/0/value".into(), 0.5),
+            ]
         );
     }
 

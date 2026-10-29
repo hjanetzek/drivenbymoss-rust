@@ -214,7 +214,8 @@ Reaper backend keeps working:
    are windows of `numTracks` and `numScenes` as in the Java version. Device siblings and
    parameter pages are not host paged yet.
 6. **Drum pads** (done) as channels with their own addresses and commands (`/drum/pad/<p>/…`,
-   `drum pad/<p>/…`); **device layers** (todo, `/layer/<i>/…`).
+   `drum pad/<p>/…`); **device layers** (done) of the first instrument (`/primary/layer/<i>/…`,
+   `primary layer/<i>/…`), whose commands now go to `primary` instead of `device`.
 7. **Browser** with content types, filter columns and results.
 8. **Cursor clip step grid** with the Bitwig step fields; the grid size comes from the manifest.
 

@@ -31,10 +31,11 @@ pub enum ParameterKind {
     MasterVolume,
     /// The panorama of the master track (`master` `pan`).
     MasterPan,
-    /// The volume of a drum pad (`drum` `pad/<pad>/volume`, protocol v2).
-    DrumPadVolume,
-    /// The panorama of a drum pad (`drum` `pad/<pad>/pan`, protocol v2).
-    DrumPadPan,
+    /// The volume of a channel of a device, a drum pad or layer (`<processor>`
+    /// `<prefix>/<position>/volume`, e.g. `drum` `pad/36/volume`, protocol v2).
+    DeviceChannelVolume(Processor, &'static str),
+    /// The panorama of a channel of a device (`<processor>` `<prefix>/<position>/pan`).
+    DeviceChannelPan(Processor, &'static str),
     /// A send of the track with the given position (`track` `<track>/send/<pos>/volume`).
     Send { channel_position: i32 },
     /// The crossfader on the master track (`master` `user/param/0/value`).
@@ -86,8 +87,8 @@ impl Parameter {
             modulated: None,
         };
         match kind {
-            ParameterKind::TrackVolume | ParameterKind::DrumPadVolume => p.name = "Volume".into(),
-            ParameterKind::TrackPan | ParameterKind::DrumPadPan => p.name = "Pan".into(),
+            ParameterKind::TrackVolume | ParameterKind::DeviceChannelVolume(..) => p.name = "Volume".into(),
+            ParameterKind::TrackPan | ParameterKind::DeviceChannelPan(..) => p.name = "Pan".into(),
             ParameterKind::MasterVolume => p.name = "Master Volume".into(),
             ParameterKind::MasterPan => p.name = "Master Pan".into(),
             ParameterKind::Groove(id) => {
@@ -308,10 +309,8 @@ impl Parameter {
                 let name = if self.kind == ParameterKind::TrackVolume { "volume" } else { "pan" };
                 self.ctx.send_double(Processor::Track, &format!("{}/{}", self.index, name), self.value);
             }
-            ParameterKind::DrumPadVolume | ParameterKind::DrumPadPan => {
-                let name = if self.kind == ParameterKind::DrumPadVolume { "volume" } else { "pan" };
-                self.ctx.send_double(Processor::Drum, &format!("pad/{}/{}", self.index, name), self.value);
-            }
+            ParameterKind::DeviceChannelVolume(processor, prefix) => self.ctx.send_double(processor, &format!("{prefix}/{}/volume", self.index), self.value),
+            ParameterKind::DeviceChannelPan(processor, prefix) => self.ctx.send_double(processor, &format!("{prefix}/{}/pan", self.index), self.value),
             ParameterKind::MasterVolume | ParameterKind::MasterPan => {
                 if self.ctx.is_automation_rec_active() {
                     self.ctx.delay_updates(Processor::Master);

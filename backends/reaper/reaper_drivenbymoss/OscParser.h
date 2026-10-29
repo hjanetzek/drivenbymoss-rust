@@ -26,6 +26,7 @@
 #include "GrooveProcessor.h"
 #include "IniFileProcessor.h"
 #include "CommandProcessors.h"
+#include "PrimaryDeviceProcessor.h"
 
 
 /**
@@ -86,6 +87,7 @@ private:
 	BeatsProcessor                   beatsProcessor;
 	// Reaper has no drum machines: the drum pad commands (protocol v2) are ignored
 	ActionCommandProcessor           drumProcessor;
+	PrimaryDeviceProcessor           primaryDeviceProcessor;
 
 	std::map<std::string, OscProcessor*> processors;
 	Model& theModel;

@@ -5,19 +5,18 @@
 //! Layer modes (former `framework.mode.layer`: `DefaultLayerMode`, `LayerMuteMode` and
 //! `LayerSoloMode`).
 //!
-//! Reaper has no device layers but (virtual) drum pads, which the Java version uses instead
-//! (`hasDrumPads` is always true). The bank of the modes is therefore always the drum pad bank of
-//! the first instrument.
+//! As the Java version, the modes work on the drum pads of the first instrument if it has drum
+//! pads, otherwise on its layers. Reaper has no device layers but (virtual) drum pads
+//! (`hasDrumPads` is always true); hosts with layers report them (protocol v2).
 
 use std::marker::PhantomData;
 
-use crate::daw::bank::BankItem;
 use crate::daw::channel::Channel;
 use crate::daw::constants::DeviceId;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::Mode;
 use crate::framework::ids::ButtonId;
-use crate::framework::mode::parameter_mode::{ModeBank, ParameterModeBase};
+use crate::framework::mode::parameter_mode::{uses_layers, ModeBank, ParameterModeBase};
 use crate::framework::parameterprovider::DrumDeviceRef;
 use crate::midi::ButtonEvent;
 
@@ -26,14 +25,27 @@ pub trait LayerModeBehavior: 'static {
     fn execute_method(layer: &mut Channel);
 }
 
-/// Get the layer (drum pad) at the index of the page of the first instrument.
+/// Get the layer (drum pad or layer) at the index of the page of the first instrument.
 pub fn layer(ctx: &Ctx, index: usize) -> Option<&Channel> {
-    ctx.model.specific_device(DeviceId::FirstInstrument).map(|d| &**d.drum_pad_bank().item(index))
+    let device = ctx.model.specific_device(DeviceId::FirstInstrument)?;
+    Some(if uses_layers(device) { device.layer_bank().item(index) } else { &**device.drum_pad_bank().item(index) })
 }
 
-/// Get the layer (drum pad) at the index of the page of the first instrument for modification.
+/// Get the layer (drum pad or layer) at the index of the page of the first instrument for
+/// modification.
 pub fn layer_mut(ctx: &mut Ctx, index: usize) -> Option<&mut Channel> {
-    ctx.model.specific_device_mut(DeviceId::FirstInstrument).map(|d| &mut **d.drum_pad_bank_mut().item_mut(index))
+    let device = ctx.model.specific_device_mut(DeviceId::FirstInstrument)?;
+    Some(if uses_layers(device) { device.layer_bank_mut().item_mut(index) } else { &mut **device.drum_pad_bank_mut().item_mut(index) })
+}
+
+/// The index of the selected layer (drum pad or layer) in the page of the first instrument.
+fn selected_layer_index(ctx: &Ctx) -> Option<usize> {
+    let device = ctx.model.specific_device(DeviceId::FirstInstrument)?;
+    if uses_layers(device) {
+        device.layer_bank().selected_index()
+    } else {
+        device.drum_pad_bank().selected_index()
+    }
 }
 
 /// The base of the layer modes (former `DefaultLayerMode`).
@@ -53,7 +65,7 @@ impl<B: LayerModeBehavior> DefaultLayerMode<B> {
         if index >= 0 {
             return Some(index as usize);
         }
-        ctx.model.specific_device(DeviceId::FirstInstrument)?.drum_pad_bank().selected_index()
+        selected_layer_index(ctx)
     }
 
     /// Handle the Delete and Duplicate combinations (former `isButtonCombination`).
@@ -104,8 +116,7 @@ impl<B: LayerModeBehavior> Mode for DefaultLayerMode<B> {
     }
 
     fn selected_item_name(&self, ctx: &Ctx) -> Option<String> {
-        let bank = ctx.model.specific_device(DeviceId::FirstInstrument)?.drum_pad_bank();
-        let layer = bank.selected_item()?;
+        let layer = layer(ctx, selected_layer_index(ctx)?)?;
         layer.does_exist().then(|| format!("{}: {}", layer.position() + 1, layer.name()))
     }
 

@@ -442,6 +442,22 @@ to `track <pad>/…` (mismatch f); Reaper has no drum machines and ignores the `
 | `drum` | `clearMute`, `clearSolo` | none | unmute / unsolo all pads |
 | `drum` | `indicate` | int | indicate the pads on the DAW's user interface |
 
+#### Protocol v2: the first instrument (`primary`)
+
+The commands of the first instrument of the cursor track (`DeviceId::FirstInstrument`) used to go
+to `device` (mismatch d). They now go to `primary`: its parameters, its drum pads (if it is a drum
+machine) and its layers (if it is a container, e.g. an Instrument Layer). Reaper's
+`PrimaryDeviceProcessor` is a `DeviceProcessor` on `TrackFX_GetInstrument` of the selected track;
+Reaper has no pads and layers and ignores those commands.
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `primary` | `param/<i>/value`, `touch`, `indicate` | double / int | as for `device` |
+| `primary` | `pad/<p>/…`, `clearMute`, `clearSolo`, `indicate` | | as for `drum` |
+| `primary` | `layer/<i>/select` | none | select the layer (`<i>` = 0-based over all layers) |
+| `primary` | `layer/<i>/mute`, `solo`, `active`, `volume`, `pan`, `color` | | as for the pads |
+| `primary` | `window`, `expand` | int | open the plugin window, expand the device |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -696,6 +712,12 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/drum/pad/<p>/exists`, `select`, `active`, `mute`, `solo` | int bool | a pad exists if it has a device | Bitwig (v2) | yes |
 | `/drum/pad/<p>/name`, `color` | string, colour | reported colours are not replaced with the track colour | Bitwig (v2) | yes |
 | `/drum/pad/<p>/volume`, `pan` (`/str`) | double 0..1, string | | Bitwig (v2) | yes |
+| `/drum/name`, `bypass`, `window`, `expand`, `hasDrumPads`, `hasLayers` | | generic device fields | Bitwig (v2) | yes |
+| `/primary/hasDrumPads`, `/primary/hasLayers` | int bool | the first instrument is a drum machine / has layers; without pads but with layers the layer modes show the layers (default: pads) | Bitwig (v2) | yes |
+| `/primary/pad/<p>/…`, `/primary/hasMutedPads`, `/primary/hasSoloedPads` | | as `/drum/…` | Bitwig (v2) | yes |
+| `/primary/layer/count` | int | number of layers | Bitwig (v2) | yes |
+| `/primary/layer/<i>/…` | | as `/drum/pad/<p>/…`; a layer exists if it has a device | Bitwig (v2) | yes |
+| `/primary/page/count`, `/primary/page/<p>/name` | | as `/device/page/…` (no page selection) | Bitwig (v2) | yes |
 | `/noterepeat/active` | int bool | MIDI arp plugin enabled on selected track input FX | yes | yes → `NoteRepeatActive` |
 | `/noterepeat/period` | double (plugin rate param) | parser emits `NoteRepeatPeriod(1/v)` | yes | yes |
 | `/noterepeat/notelength` | double | | yes | yes |
@@ -808,7 +830,7 @@ the "Host"/"Parser" columns in §3 show the same information per command and add
 | a | `track <t>/select` int 0 | `track_bank.rs` (`send_page_selection`) | Host ignores the value: "deselect" selects the old track; the following `select 1` then selects the new one. Net effect OK, extra work. |
 | b | `quantize ""` double amount | `cursor_clip.rs` | Host ignores amount, always runs the MIDI-editor quantize action. |
 | c | `automation ""` int 5 | `transport.rs` | Rust means LatchPreview; Reaper `SetGlobalAutomationOverride(5)` = bypass. Same in Java (?). |
-| d | `device param/<p>/value` from FirstInstrument / Drum device banks | `device.rs`, `parameter.rs` | Always applied to the cursor (selected) device, not the first instrument (?). |
+| d (fixed) | `device param/<p>/value` from FirstInstrument / Drum device banks | `device.rs`, `parameter.rs` | Always applied to the cursor (selected) device, not the first instrument (?). Fixed in protocol v2: the first instrument uses the `primary` processor. |
 | e | `eq selected` int | `device.rs` | Inherited DeviceProcessor: moves the normal cursor device, not EQ-specific (?). |
 | f (fixed) | Drum pad channel commands (`ChannelKind::DrumPad` -> `track <padPosition>/mute`, `/solo`, `/volume`, `/color`, ...) | `channel.rs` | Pads are virtual; commands hit the *track* with the pad's position. Same in Java (`DrumPadImpl` uses `Processor.TRACK`) (?). Fixed in protocol v2: the `drum` processor. |
 | g | Master send parameters | `channel.rs` (`SendBank::new(.., position)` with master position 0) | Would be sent as `track 0/send/<s>/volume` (track 0, not master); only if master sends exist (?). |

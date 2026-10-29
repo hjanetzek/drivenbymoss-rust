@@ -6,9 +6,8 @@ package de.mossgrabers.dbm.bitwig;
 import com.bitwig.extension.controller.api.Action;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
+import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.Device;
-import com.bitwig.extension.controller.api.DrumPad;
-import com.bitwig.extension.controller.api.DrumPadBank;
 import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.Track;
@@ -68,7 +67,8 @@ public final class CommandHandler
             case "project" -> this.handleProject (command);
             case "marker" -> this.handleMarker (command);
             case "scene" -> this.handleScene (command, null);
-            case "drum" -> this.handleDrum (command, 1, null);
+            case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 1, null);
+            case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 1, null);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -106,7 +106,8 @@ public final class CommandHandler
             case "device" -> this.handleDevice (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
             case "project" -> this.handleProject (command);
-            case "drum" -> this.handleDrum (command, value, null);
+            case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
+            case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -155,43 +156,57 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
-            case "drum" -> this.handleDrum (command, 0, value);
+            case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 0, value);
+            case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
 
 
     /**
-     * The drum machine of the cursor track: "pad/&lt;pad&gt;/&lt;command&gt;", "clearMute",
-     * "clearSolo", "indicate", as DrumPadBankImpl and ChannelImpl of the Java version.
+     * A device found by a matcher (drum machine, first instrument): "param/&lt;index&gt;/...",
+     * "pad/&lt;pad&gt;/&lt;command&gt;", "layer/&lt;layer&gt;/&lt;command&gt;", "clearMute",
+     * "clearSolo", "indicate", "window", "expand", as SpecificDeviceImpl, DrumPadBankImpl,
+     * LayerBankImpl and ChannelImpl of the Java version.
      */
-    private void handleDrum (final String command, final double value, final String text)
+    private void handleSpecific (final SpecificDevice device, final String processor, final String command, final double value, final String text)
     {
-        final DrumPadBank bank = this.model.drumPadBank;
-        if (bank == null)
+        if (device == null)
             return;
         switch (command)
         {
-            case "clearMute" -> bank.clearMutedPads ();
-            case "clearSolo" -> bank.clearSoloedPads ();
-            case "indicate" -> bank.setIndication (value > 0);
+            case "clearMute" -> device.drumPadBank.clearMutedPads ();
+            case "clearSolo" -> device.drumPadBank.clearSoloedPads ();
+            case "indicate" -> device.drumPadBank.setIndication (value > 0);
+            case "window" -> device.device.isWindowOpen ().set (value > 0);
+            case "expand" -> device.device.isExpanded ().set (value > 0);
             default ->
             {
                 final String [] parts = command.split ("/", 3);
-                final int index = parts.length == 3 && "pad".equals (parts[0]) ? parseIndex (parts[1]) : -1;
-                if (index < 0 || index >= BitwigModel.NUM_DRUM_PADS)
+                if (parts.length == 3 && "param".equals (parts[0]))
                 {
-                    this.unhandled.accept ("drum " + command);
+                    if (!this.handleParameter (device.pages, parts, value))
+                        this.unhandled.accept (processor + " " + command);
                     return;
                 }
-                final DrumPad pad = bank.getItemAt (index);
+                final int index = parts.length == 3 ? parseIndex (parts[1]) : -1;
+                final Channel channel;
+                if ("pad".equals (parts[0]) && index >= 0 && index < device.numPads)
+                    channel = device.drumPadBank.getItemAt (index);
+                else if ("layer".equals (parts[0]) && index >= 0 && index < device.numLayers)
+                    channel = device.layerBank.getItemAt (index);
+                else
+                {
+                    this.unhandled.accept (processor + " " + command);
+                    return;
+                }
                 if ("select".equals (parts[2]))
                 {
                     if (value > 0)
-                        selectChannel (pad);
+                        selectChannel (channel);
                 }
                 else
-                    this.handleChannel (pad, parts[2], value, text);
+                    this.handleChannel (channel, parts[2], value, text);
             }
         }
     }
@@ -643,18 +658,8 @@ public final class CommandHandler
         // param/<index>/value, touch, indicate
         if (parts.length == 3 && "param".equals (parts[0]))
         {
-            final int index = parseIndex (parts[1]);
-            final int page = index / BitwigModel.PARAMS_PER_PAGE;
-            if (index < 0 || page >= this.model.pages.length)
-                return;
-            final Parameter parameter = this.model.pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
-            switch (parts[2])
-            {
-                case "value" -> parameter.value ().set (value);
-                case "touch" -> parameter.touch (value > 0);
-                case "indicate" -> parameter.setIndication (value > 0);
-                default -> this.unhandled.accept ("device " + command);
-            }
+            if (!this.handleParameter (this.model.pages, parts, value))
+                this.unhandled.accept ("device " + command);
             return;
         }
         // <position+1>/bypass, remove, duplicate
@@ -674,6 +679,32 @@ public final class CommandHandler
             }
         }
         this.unhandled.accept ("device " + command);
+    }
+
+
+    /**
+     * "param/&lt;index&gt;/value|touch|indicate" on the flat parameter list of the page cursors.
+     *
+     * @return False if the command is unknown
+     */
+    private boolean handleParameter (final CursorRemoteControlsPage [] pages, final String [] parts, final double value)
+    {
+        final int index = parseIndex (parts[1]);
+        final int page = index / BitwigModel.PARAMS_PER_PAGE;
+        if (index < 0 || page >= pages.length)
+            return true;
+        final Parameter parameter = pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
+        switch (parts[2])
+        {
+            case "value" -> parameter.value ().set (value);
+            case "touch" -> parameter.touch (value > 0);
+            case "indicate" -> parameter.setIndication (value > 0);
+            default ->
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
 
