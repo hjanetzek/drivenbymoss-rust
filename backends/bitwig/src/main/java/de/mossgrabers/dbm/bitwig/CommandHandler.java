@@ -194,6 +194,18 @@ public final class CommandHandler
             case "indicate" -> device.drumPadBank.setIndication (value > 0);
             case "window" -> device.device.isWindowOpen ().set (value > 0);
             case "expand" -> device.device.isExpanded ().set (value > 0);
+            case "parameterPage" ->
+            {
+                // Show the page in Bitwig as well (ParameterPageBankImpl.scrollTo)
+                if (device.remoteControls == null)
+                    this.unhandled.accept (processor + " " + command);
+                else
+                {
+                    final int count = device.remoteControls.pageCount ().get ();
+                    if (count > 0)
+                        device.remoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
+                }
+            }
             default ->
             {
                 final String [] parts = command.split ("/", 3);

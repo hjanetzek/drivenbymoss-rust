@@ -457,6 +457,7 @@ Reaper has no pads and layers and ignores those commands.
 | `primary` | `layer/<i>/select` | none | select the layer (`<i>` = 0-based over all layers) |
 | `primary` | `layer/<i>/mute`, `solo`, `active`, `volume`, `pan`, `color` | | as for the pads |
 | `primary` | `window`, `expand` | int | open the plugin window, expand the device |
+| `primary` | `parameterPage` | int | the page selected in the core, shown in the host as well (as `device parameterPage`) |
 
 #### Protocol v2: the browser of the host
 
@@ -492,6 +493,7 @@ relative to the scroll position).
 |---|---|---|---|
 | `clip` | `grid/<id>/stepSize` | double | the length of a step in beats |
 | `clip` | `grid/<id>/scroll` | int | scroll the window to the step |
+| `clip` | `grid/<id>/page/+`, `page/-` | none | scroll the window one page forwards / backwards (the host's page scrolling) |
 | `clip` | `grid/<id>/step/<ch>/<x>/<y>/toggle` | int | toggle the note with the MIDI velocity |
 | `clip` | `grid/<id>/step/<ch>/<x>/<y>/set` | string | `<velocity> <duration>` |
 | `clip` | `grid/<id>/step/<ch>/<x>/<y>/setFrom` | string | create the note with the values of a step (step format below) |
@@ -784,7 +786,7 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/primary/pad/<p>/…`, `/primary/hasMutedPads`, `/primary/hasSoloedPads` | | as `/drum/…` | Bitwig (v2) | yes |
 | `/primary/layer/count` | int | number of layers | Bitwig (v2) | yes |
 | `/primary/layer/<i>/…` | | as `/drum/pad/<p>/…`; a layer exists if it has a device | Bitwig (v2) | yes |
-| `/primary/page/count`, `/primary/page/<p>/name` | | as `/device/page/…` (no page selection) | Bitwig (v2) | yes |
+| `/primary/page/count`, `/primary/page/<p>/name`, `/primary/page/selected` | | as `/device/page/…` | Bitwig (v2) | yes |
 | `/noterepeat/active` | int bool | MIDI arp plugin enabled on selected track input FX | yes | yes → `NoteRepeatActive` |
 | `/noterepeat/period` | double (plugin rate param) | parser emits `NoteRepeatPeriod(1/v)` | yes | yes |
 | `/noterepeat/notelength` | double | | yes | yes |

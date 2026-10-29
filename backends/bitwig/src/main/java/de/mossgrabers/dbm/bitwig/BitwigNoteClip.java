@@ -157,7 +157,7 @@ final class BitwigNoteClip
 
 
     /**
-     * A command of the grid: "stepSize", "scroll", "clearAll", "clearRow/&lt;ch&gt;/&lt;row&gt;",
+     * A command of the grid: "stepSize", "scroll", "page/+|-", "clearAll", "clearRow/&lt;ch&gt;/&lt;row&gt;",
      * "clearColumn/&lt;ch&gt;/&lt;step&gt;", "step/&lt;ch&gt;/&lt;x&gt;/&lt;y&gt;/toggle|set|setFrom|update|clear|moveY".
      *
      * @param parts The parts of the command after "grid/&lt;id&gt;/"
@@ -171,6 +171,16 @@ final class BitwigNoteClip
         {
             case "stepSize" -> this.clip.setStepSize (value);
             case "scroll" -> this.clip.scrollToStep ((int) value);
+            case "page" ->
+            {
+                // As CursorClipImpl.scrollStepsPageForward / Backwards
+                if (parts.length != 2)
+                    return false;
+                if ("+".equals (parts[1]))
+                    this.clip.scrollStepsPageForward ();
+                else
+                    this.clip.scrollStepsPageBackwards ();
+            }
             case "clearAll" -> this.clip.clearSteps ();
             case "clearRow" ->
             {

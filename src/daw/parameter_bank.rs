@@ -23,6 +23,7 @@ use super::parameter::{Parameter, ParameterKind};
 pub struct ParameterBank {
     bank: PagedBank<Parameter>,
     id: ParameterBankId,
+    processor: Processor,
     /// The page size of the page bank (number of page names per page).
     num_pages_in_page: usize,
     /// Remembers the selected parameter page per device name.
@@ -53,6 +54,7 @@ impl ParameterBank {
         ParameterBank {
             bank,
             id,
+            processor,
             num_pages_in_page: num_params,
             selected_device_pages: HashMap::new(),
             device_name: if has_device { Some(String::new()) } else { None },
@@ -92,15 +94,16 @@ impl ParameterBank {
         }
     }
 
-    /// Scroll to the given parameter position. The host is told the selected page (protocol v2,
-    /// Bitwig then shows the same remote control page).
+    /// Scroll to the given parameter position. The host is told the selected page of the cursor
+    /// device and the first instrument (protocol v2, Bitwig then shows the same remote control
+    /// page).
     pub fn scroll_to(&mut self, position: i64, adjust_page: bool) {
         if position >= 0 && (position as usize) < self.bank.item_count() {
             let ps = self.bank.page_size().max(1) as i64;
             self.set_bank_offset(if adjust_page { position / ps * ps } else { position });
-            if self.id == ParameterBankId::CursorDevice {
+            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) {
                 let page = self.bank.bank_offset as i64 / ps;
-                self.bank.ctx.send_int(Processor::Device, "parameterPage", page as i32);
+                self.bank.ctx.send_int(self.processor, "parameterPage", page as i32);
             }
         }
     }

@@ -1739,7 +1739,7 @@ mod tests {
         assert_eq!(calls[0], BackendCall::IntArg("clip".into(), "grid/8x128/step/0/4/38/toggle".into(), 100));
         assert!(matches!(&calls[1], BackendCall::StringArg(p, c, v) if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(13) == Some("0.25")), "{calls:?}");
         assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
-        assert_eq!(calls[3], BackendCall::IntArg("clip".into(), "grid/8x128/scroll".into(), 8));
+        assert_eq!(calls[3], BackendCall::NoArg("clip".into(), "grid/8x128/page/+".into()));
         assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
     }
 
@@ -1844,6 +1844,12 @@ mod tests {
                 BackendCall::DoubleArg("primary".into(), "param/0/value".into(), 0.5),
             ]
         );
+
+        // The selected page is shown in Bitwig as well
+        feed(&mut model, &mut parser, &["/primary/param/count 16", "/primary/page/count 2"]);
+        backend.take_calls();
+        model.specific_device_mut(DeviceId::FirstInstrument).unwrap().parameter_bank_mut().unwrap().select_page(1);
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("primary".into(), "parameterPage".into(), 1)]);
     }
 
     #[test]

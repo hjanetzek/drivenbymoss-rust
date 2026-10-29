@@ -291,3 +291,5 @@ Every controller needs:
   No panics. This found real bugs in earlier ports.
 - **Before handing back:** `cargo test`, `cargo clippy --all-targets` (0 warnings) and
   `cargo build --release`.
+- **Conformance with the Java version (planned):** scenarios from the manual, recorded with the
+  Java DrivenByMoss on Bitwig and replayed against the port, see CONFORMANCE_TESTING_PLAN.md.

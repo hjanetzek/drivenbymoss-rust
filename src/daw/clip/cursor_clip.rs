@@ -1272,11 +1272,25 @@ impl CursorClip {
 
     /// Scroll the steps one page backwards.
     pub fn scroll_steps_page_backwards(&mut self) {
+        if self.host_grid {
+            // As the Java version for Bitwig: the page scrolling of the host
+            if self.edit_page <= 0 {
+                return;
+            }
+            self.send_grid("page/-");
+            self.edit_page -= 1;
+            return;
+        }
         self.scroll_to_page(self.edit_page - 1);
     }
 
     /// Scroll the steps one page forwards.
     pub fn scroll_steps_page_forward(&mut self) {
+        if self.host_grid {
+            self.send_grid("page/+");
+            self.edit_page += 1;
+            return;
+        }
         self.scroll_to_page(self.edit_page + 1);
     }
 

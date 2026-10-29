@@ -24,8 +24,8 @@ final class SpecificDevice
     final Device                             device;
     /** One remote control page cursor per page, each fixed to its page; may be empty. */
     final CursorRemoteControlsPage []        pages;
-    /** For the page names. Null without parameters. */
-    private final CursorRemoteControlsPage   remoteControls;
+    /** For the page names and the page selected in Bitwig. Null without parameters. */
+    final CursorRemoteControlsPage           remoteControls;
     final DrumPadBank                        drumPadBank;
     final int                                numPads;
     /** The first device of each pad: a pad exists if it has a device (LayerImpl). */
@@ -92,6 +92,7 @@ final class SpecificDevice
         {
             this.remoteControls.pageCount ().markInterested ();
             this.remoteControls.pageNames ().markInterested ();
+            this.remoteControls.selectedPageIndex ().markInterested ();
         }
 
         this.drumPadBank.hasMutedPads ().markInterested ();
@@ -144,6 +145,7 @@ final class SpecificDevice
             for (int p = 0; p < namedPages; p++)
                 reporter.put (this.prefix + "/page/" + p + "/name", pageNames[p]);
             reporter.put (this.prefix + "/page/count", namedPages);
+            reporter.put (this.prefix + "/page/selected", this.remoteControls.selectedPageIndex ().get ());
         }
 
         reporter.put (this.prefix + "/hasMutedPads", exists && this.drumPadBank.hasMutedPads ().get ());
