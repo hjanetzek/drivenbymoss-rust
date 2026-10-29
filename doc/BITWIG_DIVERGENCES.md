@@ -95,7 +95,7 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
 
 ## 8. Known issues
 
-- **Maschine Mk2, Shift view plays notes** (fixed 2026-10-29, to be confirmed): Shift (STEP
+- **Maschine Mk2, Shift view plays notes** (fixed and confirmed 2026-10-29): Shift (STEP
   LEFT on the Mk2) shows the Shift view with the undo/redo pads; the pads also played their MIDI
   notes. Not specific to Bitwig: the port's views kept the key translation table of the previous
   view, since the default `update_note_mapping` did nothing and was not called on activation.
