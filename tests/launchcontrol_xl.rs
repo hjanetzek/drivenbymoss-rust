@@ -452,3 +452,101 @@ fn note_sequencer_template_edits_notes() {
     let calls = backend.take_calls();
     assert!(!clip_calls(&calls).is_empty(), "{calls:?}");
 }
+
+/// Note Sequencer: while Device is held, the Track Control row shows the parameter pages of the
+/// first instrument (yellow = selected) and selects them; Track Focus does not change (as
+/// XLBaseNoteEditMode.handleRow2 and XLSelectDeviceParamsPageMode of the Java version).
+#[test]
+fn note_sequencer_device_button_selects_instrument_pages() {
+    let (mut app, backend) = start("noteseq-pages", 12);
+    app.update_model("track/0/type INSTRUMENT\nclip/exists 1\nclip/start 0\nclip/end 4\nclip/loop 1\nclip/notes 0:0:0.25:0.5:0:60:100\n\
+primary/exists 1\nprimary/name Polysynth\nprimary/param/count 24\nprimary/page/count 3\nprimary/page/0/name A\nprimary/page/1/name B\nprimary/page/2/name C\n");
+    app.tick();
+    backend.take_calls();
+    let rows = |app: &mut App| {
+        let ctx = ctx(app);
+        let track_modes = xl::track_modes(ctx);
+        let row1: Vec<i32> = (0..8).map(|i| ctx.mode_button_color_in(drivenbymoss::framework::ctx::MAIN_MODE_MANAGER, ButtonId::get(ButtonId::Row11, i))).collect();
+        let row2: Vec<i32> = (0..8).map(|i| ctx.mode_button_color_in(track_modes, ButtonId::get(ButtonId::Row21, i))).collect();
+        (row1, row2)
+    };
+    let (focus, control) = rows(&mut app);
+
+    note(&mut app, 12, 0x69, 127);
+    app.tick();
+    let (held_focus, held_control) = rows(&mut app);
+    assert_eq!(held_focus, focus);
+    assert_eq!(held_control[..3], [62, 29, 29]);
+    assert!(track_mode_active(&mut app, Modes::InstrumentDeviceParams));
+
+    press_note(&mut app, 12, 0x4A);
+    app.tick();
+    assert_eq!(number_arg(&backend.take_calls(), "primary", "parameterPage"), Some(1.0));
+    assert_eq!(rows(&mut app).1[..3], [29, 62, 29]);
+
+    note(&mut app, 12, 0x69, 0);
+    app.tick();
+    assert_eq!(rows(&mut app), (focus, control));
+    assert!(track_mode_active(&mut app, Modes::NoteSequencer));
+}
+
+/// Note Sequencer, Track Select: with Device held it selects the previous/next device, with the
+/// Device toggled on (3rd knob row = device parameters) it pages the clip, as
+/// XLBaseNoteEditMode.selectNext/PreviousItemPage of the Java version.
+#[test]
+fn note_sequencer_track_select_with_device() {
+    let (mut app, backend) = start("probe-tracksel", 12);
+    app.update_model("track/0/type INSTRUMENT\nclip/exists 1\nclip/start 0\nclip/end 8\nclip/loop 1\nclip/loopStart 0\nclip/loopLength 8\n\
+primary/exists 1\nprimary/param/count 24\nprimary/page/count 3\ndevice/count 3\ndevice/position 1\n\
+device/sibling/1/name A\ndevice/sibling/1/position 0\ndevice/sibling/2/name B\ndevice/sibling/2/position 1\ndevice/sibling/2/selected 1\ndevice/sibling/3/name C\ndevice/sibling/3/position 2\n");
+    app.tick();
+    backend.take_calls();
+    let show = |calls: Vec<BackendCall>| calls.into_iter().filter(|c| !matches!(c, BackendCall::SendMidi(..))).collect::<Vec<_>>();
+    // Device held
+    note(&mut app, 12, 0x69, 127);
+    cc(&mut app, 12, 0x6B, 127);
+    cc(&mut app, 12, 0x6B, 0);
+    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("device".into(), "+".into())]);
+    cc(&mut app, 12, 0x6A, 127);
+    cc(&mut app, 12, 0x6A, 0);
+    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("device".into(), "-".into())]);
+    note(&mut app, 12, 0x69, 0);
+    app.tick();
+    backend.take_calls();
+    // Device toggled (press and release without use)
+    press_note(&mut app, 12, 0x69);
+    app.tick();
+    backend.take_calls();
+    cc(&mut app, 12, 0x6B, 127);
+    cc(&mut app, 12, 0x6B, 0);
+    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("clip".into(), "grid/8x127/page/+".into())]);
+}
+
+/// Note Sequencer with the step grid of Bitwig: the Send B knobs set the repeats (ratchets), the
+/// Pan knobs the panning of the note of the step (NoteParameter of the Java version).
+#[test]
+fn note_sequencer_knobs_edit_repeat_and_panning_with_host_grid() {
+    let (mut app, backend) = start("noteseq-host", 12);
+    app.update_model(
+        "track/0/type INSTRUMENT\nclip/exists 1\nclip/start 0\nclip/end 4\nclip/loop 1\nclip/loopStart 0\nclip/loopLength 4\n\
+clip/grid/8x127/step/0/1/60 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 0 0 0 0 0 1 0 0 0 0 0 0\n",
+    );
+    app.tick();
+    backend.take_calls();
+    let update = |calls: &[BackendCall]| {
+        calls.iter().find_map(|c| match c {
+            BackendCall::StringArg(p, cmd, v) if p == "clip" && cmd == "grid/8x127/step/0/1/60/update" => Some(v.split(' ').map(str::to_string).collect::<Vec<_>>()),
+            _ => None,
+        })
+    };
+
+    // Send B knob 2: repeat count, the range is limited to -15..15
+    cc(&mut app, 12, 0x1E, 127);
+    let values = update(&backend.take_calls()).expect("repeat update");
+    assert_eq!(values[20], "15");
+
+    // Pan knob 2: panning -1..1
+    cc(&mut app, 12, 0x32, 0);
+    let values = update(&backend.take_calls()).expect("pan update");
+    assert_eq!(values[9], "-1");
+}

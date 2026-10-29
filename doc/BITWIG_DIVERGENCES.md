@@ -115,3 +115,17 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   otherwise, so a host without `/primary/hasDrumPads` stays on the (virtual) pads. Found
   2026-10-29. Later test on Bitwig: the Track Focus buttons select the pads of the drum machine,
   so the pads of the first instrument arrive.
+- **Launch Control XL, Note Sequencer, Device + Track Select (also in the Java version):** with
+  the Device button toggled on (pressed and released without use: the 3rd knob row controls
+  device parameters), Track Select pages the clip, so the step LEDs change; only with Device
+  held it selects the previous/next device (`XLBaseNoteEditMode.selectNext/PreviousItemPage`).
+  The Java version behaves the same, so Rust keeps it; a candidate for the maintainer. Tested in
+  `note_sequencer_track_select_with_device`. Found 2026-10-30.
+- **Note attributes on Bitwig (fixed and confirmed for the Launch Control XL 2026-10-30):**
+  the note editors were ported with the attributes which Reaper supports (former
+  `IHost.supports (NoteAttribute)` of the Java version for Reaper: pitch, duration, mute,
+  velocity). On Bitwig all attributes are supported. The Launch Control XL Note and Drum
+  Sequencer now edit chance, repeat (ratchet), velocity spread and panning when the clip uses
+  the step grid of the host. Still limited to the Reaper attributes: the Maschine edit note mode
+  (`mk/mode/edit_note.rs`: velocity spread, release velocity, chance, occurrence, gain, pan,
+  transpose, timbre, pressure) and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`).
