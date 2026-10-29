@@ -239,8 +239,9 @@ impl SessionViewBase {
             if slot.does_exist() && slot.has_content() {
                 self.source_slot = Some((track_index, slot_index));
             } else if let Some((source_track, source_slot)) = self.source_slot {
-                // Pasting duplicates the source slot in Reaper
-                Slot::paste_from(ctx.model.current_track_bank_mut().item_mut(source_track).slot_bank_mut().item_mut(source_slot));
+                let source = ctx.model.current_track_bank().item(source_track).slot_bank().item(source_slot);
+                let (source_track_index, source_position) = (source.track_index(), source.position());
+                ctx.model.current_track_bank_mut().item_mut(track_index).slot_bank_mut().item_mut(slot_index).paste(source_track_index, source_position);
             }
             return true;
         }

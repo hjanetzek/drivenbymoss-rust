@@ -6,6 +6,10 @@
 //!
 //! In Reaper the "clips" of a track are its media items. The page of a slot bank follows the page
 //! of the scene bank; scroll the scene bank to change it (see `TrackBank::scene_bank_mut`).
+//!
+//! Hosts with a clip launcher (Bitwig) report the states of the slots (playing, recording,
+//! queued; protocol v2). Without them, the states are derived from the transport and the scene
+//! (region) ranges, as for Reaper.
 
 use std::ops::Deref;
 
@@ -32,6 +36,18 @@ pub struct Slot {
     /// The index (in the track bank page) of the track which contains this slot.
     track_index: i32,
     track_rec_arm: bool,
+    /// The states reported by the host, `None` if it does not report them (Reaper).
+    states: Option<SlotStates>,
+}
+
+/// The launcher states of a slot as reported by the host.
+#[derive(Clone, Copy, Default)]
+struct SlotStates {
+    playing: bool,
+    recording: bool,
+    play_queued: bool,
+    rec_queued: bool,
+    stop_queued: bool,
 }
 
 impl Slot {
@@ -48,6 +64,7 @@ impl Slot {
             color: DEFAULT_COLOR,
             track_index,
             track_rec_arm: false,
+            states: None,
         }
     }
 
@@ -84,12 +101,15 @@ impl Slot {
 
     /// Recording is not queued in Reaper.
     pub fn is_recording_queued(&self) -> bool {
-        false
+        self.states.is_some_and(|s| s.rec_queued)
     }
 
-    /// True if the transport records, the track is armed and the play position is in the range
-    /// of the scene of this slot.
+    /// The reported state, or: true if the transport records, the track is armed and the play
+    /// position is in the range of the scene of this slot.
     pub fn is_recording(&self) -> bool {
+        if let Some(states) = self.states {
+            return states.recording;
+        }
         if !self.exists {
             return false;
         }
@@ -100,13 +120,17 @@ impl Slot {
         self.is_in_scene_range(transport.position)
     }
 
+    /// Playback or recording is queued (as `SlotImpl.isPlayingQueued` of the Java version).
     pub fn is_playing_queued(&self) -> bool {
-        false
+        self.states.is_some_and(|s| s.play_queued || s.rec_queued)
     }
 
-    /// True if the transport plays and the play position is in the range of the scene of this
-    /// slot.
+    /// The reported state, or: true if the transport plays and the play position is in the range
+    /// of the scene of this slot.
     pub fn is_playing(&self) -> bool {
+        if let Some(states) = self.states {
+            return states.playing;
+        }
         if !(self.exists && self.has_content) {
             return false;
         }
@@ -122,7 +146,12 @@ impl Slot {
     }
 
     pub fn is_stop_queued(&self) -> bool {
-        false
+        self.states.is_some_and(|s| s.stop_queued)
+    }
+
+    /// The index of the track which contains this slot.
+    pub fn track_index(&self) -> i32 {
+        self.track_index
     }
 
     fn send_track_clip(&self, command: &str) {
@@ -131,16 +160,24 @@ impl Slot {
         }
     }
 
-    /// Set the color locally (Reaper does not support setting the item color via the slot).
+    /// Set the color (Reaper keeps it only locally).
     pub fn set_color(&mut self, color: ColorEx) {
         self.color = color;
+        if self.index >= 0 {
+            let [r, g, b] = color.to_int_rgb255();
+            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/color", self.track_index, self.position), &format!("RGB({r},{g},{b})"));
+        }
     }
 
-    /// Launch the clip (only on press).
-    pub fn launch(&mut self, is_pressed: bool, _is_alternative: bool) {
-        if is_pressed {
-            self.send_track_clip("launch");
-        }
+    /// Launch the clip on press and release, normally or alternatively (as `SlotImpl.launch` of
+    /// the Java version). Reaper only uses the press.
+    pub fn launch(&mut self, is_pressed: bool, is_alternative: bool) {
+        self.send_track_clip(match (is_pressed, is_alternative) {
+            (true, false) => "launch",
+            (true, true) => "launchAlt",
+            (false, false) => "launchRelease",
+            (false, true) => "launchReleaseAlt",
+        });
     }
 
     pub fn start_recording(&mut self) {
@@ -155,9 +192,11 @@ impl Slot {
         self.send_track_clip("duplicate");
     }
 
-    /// Paste the given slot into this slot (duplicates the source slot in Reaper).
-    pub fn paste_from(source: &mut Slot) {
-        source.duplicate();
+    /// Paste the given slot into this slot (Reaper duplicates the source slot).
+    pub fn paste(&mut self, source_track_index: i32, source_position: i32) {
+        if self.index >= 0 {
+            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/paste", self.track_index, self.position), &format!("{source_track_index}/{source_position}"));
+        }
     }
 
     pub fn insert_file(&mut self, path: &str) {
@@ -195,6 +234,30 @@ impl Slot {
 
     pub fn set_internal_name(&mut self, name: &str) {
         self.name = name.to_string();
+    }
+
+    pub fn set_color_state(&mut self, color: ColorEx) {
+        self.color = color;
+    }
+
+    pub fn set_playing_state(&mut self, value: bool) {
+        self.states.get_or_insert_with(SlotStates::default).playing = value;
+    }
+
+    pub fn set_recording_state(&mut self, value: bool) {
+        self.states.get_or_insert_with(SlotStates::default).recording = value;
+    }
+
+    pub fn set_play_queued_state(&mut self, value: bool) {
+        self.states.get_or_insert_with(SlotStates::default).play_queued = value;
+    }
+
+    pub fn set_rec_queued_state(&mut self, value: bool) {
+        self.states.get_or_insert_with(SlotStates::default).rec_queued = value;
+    }
+
+    pub fn set_stop_queued_state(&mut self, value: bool) {
+        self.states.get_or_insert_with(SlotStates::default).stop_queued = value;
     }
 
     pub(crate) fn set_track_info(&mut self, track_index: i32, rec_arm: bool) {

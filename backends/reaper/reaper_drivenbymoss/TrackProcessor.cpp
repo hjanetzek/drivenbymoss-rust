@@ -140,7 +140,8 @@ void TrackProcessor::Process(std::deque<std::string>& path) noexcept
 			return;
 		}
 
-		if (std::strcmp(subcmd, "launch") == 0)
+		// Reaper has no alternative launch
+		if (std::strcmp(subcmd, "launch") == 0 || std::strcmp(subcmd, "launchAlt") == 0)
 		{
 			const double position = GetMediaItemInfo_Value(item, "D_POSITION");
 			SetEditCurPos2(project, position, true, true);
@@ -454,11 +455,30 @@ void TrackProcessor::Process(std::deque<std::string>& path, const std::string& v
 		if (path.size() < 4)
 			return;
 		const int clipIndex = atoi(SafeGet(path, 2));
+		const char* subcmd = SafeGet(path, 3);
+
+		// Paste "<source track>/<source item>" into this slot: Reaper duplicates the source item
+		// (the target slot is usually empty, there is no item)
+		if (std::strcmp(subcmd, "paste") == 0)
+		{
+			const size_t slash = value.find('/');
+			if (slash == std::string::npos)
+				return;
+			MediaTrack* sourceTrack = GetTrack(project, GetTrackIndex(project, atoi(value.substr(0, slash).c_str())));
+			MediaItem* sourceItem = sourceTrack == nullptr ? nullptr : GetTrackMediaItem(sourceTrack, atoi(value.substr(slash + 1).c_str()));
+			if (sourceItem == nullptr)
+				return;
+			Main_OnCommandEx(UNSELECT_ALL_ITEMS, 0, project);
+			SetMediaItemSelected(sourceItem, true);
+			Main_OnCommandEx(DUPLICATE_ITEMS, 0, project);
+			UpdateTimeline();
+			Undo_OnStateChangeEx("Duplicate item", UNDO_STATE_ITEMS, -1);
+			return;
+		}
+
 		MediaItem* item = GetTrackMediaItem(track, clipIndex);
 		if (item == nullptr)
 			return;
-
-		const char* subcmd = SafeGet(path, 3);
 
 		if (std::strcmp(subcmd, "insertFile") == 0)
 		{

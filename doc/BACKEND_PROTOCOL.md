@@ -389,6 +389,25 @@ Reaper converts with the tempo map (`TimeMap2_QNToTime`). Bitwig sets `playStart
 jumps there while playing), `arrangerLoopStart` and `arrangerLoopDuration`, without snapping,
 as the Java version.
 
+#### Protocol v2: clip launcher slots and scenes
+
+Hosts with a clip launcher report the slot states (§3, `/track/<n>/slot/...`); the core then uses
+them instead of deriving the states from the transport and the regions. `<s>` is the absolute
+slot (scene) index.
+
+| Processor | Command | Type | Meaning | Reaper |
+|---|---|---|---|---|
+| `track` | `<t>/clip/<s>/launch`, `launchAlt` | none | launch on press (normal / alternative) | both launch the item |
+| `track` | `<t>/clip/<s>/launchRelease`, `launchReleaseAlt` | none | release of the launch button | ignored |
+| `track` | `<t>/clip/<s>/color` | string | `RGB(r,g,b)` | ignored (the core keeps it locally) |
+| `track` | `<t>/clip/<s>/paste` | string | paste the slot `"<track>/<slot>"` into this slot | duplicates the source item |
+| `track` | `<t>/createClip/<s>` | int | new clip of the given length in beats in slot `<s>` | creates the clip at the edit cursor (`<s>` ignored) |
+| `track` | `<t>/stop`, `<t>/stopAlt` | none | stop the clips of the track | ignored |
+| `track` | `<t>/returnToArrangement` | none | | ignored |
+| `scene` | `<n>/launch`, `launchAlt` | none | launch on press | both launch the region |
+| `scene` | `<n>/launchRelease`, `launchReleaseAlt` | none | release | ignored |
+| `scene` | `stop`, `stopAlt` | none | stop all clips | ignored |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -599,6 +618,11 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/clip/color` | colour | | yes | yes |
 | `/clip/notes` | note list (MIDI take only; recomputed on `MIDI_GetHash` change) | | yes | yes |
 | `/clip/all` | clip list (1.2) | all items of all visible tracks = slots | yes (session, on project change) | yes (`Model::set_clips`) |
+| `/track/<n>/slot/count` | int | number of slots of the track | Bitwig (v2) | yes |
+| `/track/<n>/slot/<s>/exists`, `hasContent`, `selected` | int bool | | Bitwig (v2) | yes |
+| `/track/<n>/slot/<s>/name`, `color` | string, colour | | Bitwig (v2) | yes |
+| `/track/<n>/slot/<s>/playing`, `recording`, `playQueued`, `recQueued`, `stopQueued` | int bool | the launcher states; reported states replace the derived ones | Bitwig (v2) | yes |
+| `/track/<n>/isStopped` | int bool | no clip of the track plays | Bitwig (v2) | yes |
 
 #### Scenes (= Reaper regions) and markers
 
@@ -611,6 +635,7 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/scene/<n>/position` | double seconds | region start | yes | yes |
 | `/scene/<n>/endPosition` | double seconds | region end | yes | yes |
 | `/scene/<n>/color` | colour | | yes | yes |
+| `/scene/<n>/select` | int bool | selected in the editor | Bitwig (v2) | yes |
 | `/marker/count` | int | non-region markers (slow) | yes | yes |
 | `/marker/<n>/exists` | int (1) | | yes | yes |
 | `/marker/<n>/number` | int = n | | yes | yes |

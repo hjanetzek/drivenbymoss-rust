@@ -92,11 +92,15 @@ impl Scene {
         self.ctx.send_str(Processor::Scene, &format!("{}/color", self.position), &format!("RGB({r},{g},{b})"));
     }
 
-    /// Launch the scene (only on press).
-    pub fn launch(&mut self, is_pressed: bool, _is_alternative: bool) {
-        if is_pressed {
-            self.send("launch");
-        }
+    /// Launch the scene on press and release, normally or alternatively (as `SceneImpl.launch` of
+    /// the Java version). Reaper only uses the press.
+    pub fn launch(&mut self, is_pressed: bool, is_alternative: bool) {
+        self.send(match (is_pressed, is_alternative) {
+            (true, false) => "launch",
+            (true, true) => "launchAlt",
+            (false, false) => "launchRelease",
+            (false, true) => "launchReleaseAlt",
+        });
     }
 
     pub fn remove(&mut self) {

@@ -544,6 +544,12 @@ impl Parser {
                 }
             }
             "send" => self.parse_send(&host, track, parts, value),
+            "slot" => Self::parse_slot(&host, track, parts, value),
+            "isStopped" => {
+                if let Some(v) = d {
+                    track.set_stopped_state(v > 0.0);
+                }
+            }
             "playingnotes" => {
                 if let TrackRef::Position(p) = track_ref {
                     let notes = Note::parse_notes(value);
@@ -551,6 +557,41 @@ impl Parser {
                 }
             }
             _ => host.error(&format!("Unhandled Track Parameter: {command}")),
+        }
+    }
+
+    /// The clip launcher slots of a track (protocol v2): "count" or "&lt;position&gt;/&lt;field&gt;" with
+    /// the absolute slot (scene) position. Reported states replace the derived ones.
+    fn parse_slot(host: &crate::host::Host, track: &mut Track, parts: &mut Parts, value: &str) {
+        let flag = || parse_double(value).map(|v| v > 0.0);
+        let slot_bank = track.slot_bank_mut();
+        let Some(part) = parts.poll() else {
+            return;
+        };
+        if part == TAG_COUNT {
+            if let Some(count) = parse_int(value) {
+                slot_bank.set_item_count(count.max(0) as usize);
+            }
+            return;
+        }
+        let Some(position) = parse_index(part) else {
+            host.error(&format!("Unhandled Slot parameter: {part}"));
+            return;
+        };
+        let slot = slot_bank.unpaged_item_mut(position);
+        slot.set_position(position as i32);
+        match parts.poll().unwrap_or("") {
+            TAG_EXISTS => slot.set_exists(flag().unwrap_or(false)),
+            "hasContent" => slot.set_has_content(flag().unwrap_or(false)),
+            TAG_NAME => slot.set_internal_name(value),
+            TAG_COLOR => slot.set_color_state(parse_color_static(host, value).map(ColorEx::from_array).unwrap_or(ColorEx::GRAY)),
+            "selected" => slot.set_selected(flag().unwrap_or(false)),
+            "playing" => slot.set_playing_state(flag().unwrap_or(false)),
+            "recording" => slot.set_recording_state(flag().unwrap_or(false)),
+            "playQueued" => slot.set_play_queued_state(flag().unwrap_or(false)),
+            "recQueued" => slot.set_rec_queued_state(flag().unwrap_or(false)),
+            "stopQueued" => slot.set_stop_queued_state(flag().unwrap_or(false)),
+            other => host.error(&format!("Unhandled Slot parameter: {other}")),
         }
     }
 
@@ -869,6 +910,7 @@ impl Parser {
                     }
                 }
                 TAG_NAME => scene.set_internal_name(value),
+                "select" => scene.set_selected(parse_double(value).is_some_and(|v| v > 0.0)),
                 TAG_COLOR => scene.set_color_state(color.map(ColorEx::from_array).unwrap_or(ColorEx::GRAY)),
                 TAG_POSITION => {
                     if let Some(v) = parse_double(value) {
@@ -1317,6 +1359,48 @@ mod tests {
             let events = model.take_events();
             assert!(events.iter().any(|e| matches!(e, ModelEvent::TrackNote { track_index: 0, .. })), "{events:?}");
         }
+    }
+
+    #[test]
+    fn reported_slot_states() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/count 1",
+                "/track/0/exists 1",
+                "/track/0/isStopped 0",
+                "/track/0/slot/count 2",
+                "/track/0/slot/1/exists 1",
+                "/track/0/slot/1/hasContent 1",
+                "/track/0/slot/1/playQueued 1",
+                "/track/0/slot/1/color 255 0 0",
+                "/scene/count 2",
+                "/scene/1/exists 1",
+                "/scene/1/select 1",
+            ],
+        );
+        let track = model.track_bank().item(0);
+        assert!(track.is_playing());
+        let slot = track.slot_bank().item(1);
+        assert!(slot.has_content() && slot.is_playing_queued() && !slot.is_playing());
+        assert_eq!(slot.color(), ColorEx::RED);
+        assert!(model.scene_bank().item(1).is_selected());
+
+        backend.take_calls();
+        let slot = model.track_bank_mut().item_mut(0).slot_bank_mut().item_mut(1);
+        slot.launch(true, true);
+        slot.launch(false, true);
+        model.track_bank_mut().item_mut(0).stop(false);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "0/clip/1/launchAlt".into()),
+                BackendCall::NoArg("track".into(), "0/clip/1/launchReleaseAlt".into()),
+                BackendCall::NoArg("track".into(), "0/stop".into()),
+            ]
+        );
     }
 
     #[test]

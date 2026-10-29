@@ -5,8 +5,10 @@ package de.mossgrabers.dbm.bitwig;
 
 import com.bitwig.extension.controller.api.Action;
 import com.bitwig.extension.controller.api.Channel;
+import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.Track;
 
 import java.util.function.Consumer;
@@ -63,6 +65,7 @@ public final class CommandHandler
             case "mixer" -> this.handleMixer (command);
             case "project" -> this.handleProject (command);
             case "marker" -> this.handleMarker (command);
+            case "scene" -> this.handleScene (command, null);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -98,6 +101,7 @@ public final class CommandHandler
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
+            case "project" -> this.handleProject (command);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -145,6 +149,7 @@ public final class CommandHandler
         {
             case "track" -> this.handleTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
+            case "scene" -> this.handleScene (command, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -237,6 +242,8 @@ public final class CommandHandler
     {
         switch (command)
         {
+            case "createScene" -> this.model.project.createScene ();
+            case "createSceneFromPlayingLauncherClips" -> this.model.project.createSceneFromPlayingLauncherClips ();
             case "previous" -> this.model.application.previousProject ();
             case "next" -> this.model.application.nextProject ();
             case "save" -> this.invokeAction ("Save");
@@ -343,6 +350,9 @@ public final class CommandHandler
             case "isGroupExpanded" -> track.isGroupExpanded ().set (value > 0);
             case "remove" -> track.deleteObject ();
             case "duplicate" -> track.duplicateObject ();
+            case "stop" -> track.stop ();
+            case "stopAlt" -> track.stopAlt ();
+            case "returnToArrangement" -> track.returnToArrangement ();
             case "name" ->
             {
                 if (text != null)
@@ -352,10 +362,123 @@ public final class CommandHandler
             {
                 if (subCommand.startsWith ("send/"))
                     this.handleSend (track, subCommand, value);
+                else if (subCommand.startsWith ("clip/"))
+                    this.handleSlot (track, subCommand, text);
+                else if (subCommand.startsWith ("createClip/"))
+                {
+                    // createNewLauncherClip needs the absolute slot (as TrackImpl.createClip)
+                    final int slot = parseIndex (subCommand.substring ("createClip/".length ()));
+                    if (slot >= 0)
+                        track.createNewLauncherClip (slot, (int) value);
+                }
                 else
                     this.handleChannel (track, subCommand, value, text);
             }
         }
+    }
+
+
+    /**
+     * Slot commands: "clip/&lt;slot&gt;/&lt;command&gt;" with the absolute slot (scene) index, as
+     * SlotImpl of the Java version.
+     */
+    private void handleSlot (final Track track, final String command, final String text)
+    {
+        final String [] parts = command.split ("/");
+        final int index = parts.length == 3 ? parseIndex (parts[1]) : -1;
+        if (index < 0 || index >= BitwigModel.NUM_SCENES)
+        {
+            this.unhandled.accept ("track " + command);
+            return;
+        }
+        final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (index);
+        switch (parts[2])
+        {
+            case "launch" -> slot.launch ();
+            case "launchAlt" -> slot.launchAlt ();
+            case "launchRelease" -> slot.launchRelease ();
+            case "launchReleaseAlt" -> slot.launchReleaseAlt ();
+            case "record" -> slot.record ();
+            case "select" -> slot.select ();
+            case "remove" -> slot.deleteObject ();
+            case "duplicate" -> slot.duplicateClip ();
+            case "insertFile" ->
+            {
+                if (text != null)
+                    slot.replaceInsertionPoint ().insertFile (text);
+            }
+            case "color" -> setColor (text, (red, green, blue) -> slot.color ().set (red, green, blue));
+            case "paste" ->
+            {
+                // The source as "<track>/<slot>"
+                final String [] source = text == null ? new String [0] : text.split ("/");
+                final int sourceTrack = source.length == 2 ? parseIndex (source[0]) : -1;
+                final int sourceSlot = source.length == 2 ? parseIndex (source[1]) : -1;
+                if (sourceTrack >= 0 && sourceTrack < BitwigModel.NUM_TRACKS && sourceSlot >= 0 && sourceSlot < BitwigModel.NUM_SCENES)
+                    slot.replaceInsertionPoint ().copySlotsOrScenes (this.model.trackBank.getItemAt (sourceTrack).clipLauncherSlotBank ().getItemAt (sourceSlot));
+            }
+            default -> this.unhandled.accept ("track clip " + parts[2]);
+        }
+    }
+
+
+    /**
+     * Scene commands: "&lt;index&gt;/&lt;command&gt;", or "stop"/"stopAlt" for all clips, as
+     * SceneImpl and SceneBankImpl of the Java version.
+     */
+    private void handleScene (final String command, final String text)
+    {
+        switch (command)
+        {
+            case "stop" -> this.model.sceneBank.stop ();
+            case "stopAlt" -> this.model.sceneBank.stopAlt ();
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                final int index = parts.length == 2 ? parseIndex (parts[0]) : -1;
+                if (index < 0 || index >= BitwigModel.NUM_SCENES)
+                {
+                    this.unhandled.accept ("scene " + command);
+                    return;
+                }
+                final Scene scene = this.model.sceneBank.getItemAt (index);
+                switch (parts[1])
+                {
+                    case "launch" -> scene.launch ();
+                    case "launchAlt" -> scene.launchAlt ();
+                    case "launchRelease" -> scene.launchRelease ();
+                    case "launchReleaseAlt" -> scene.launchReleaseAlt ();
+                    case "select" -> scene.selectInEditor ();
+                    case "remove" -> scene.deleteObject ();
+                    case "duplicate" -> scene.nextSceneInsertionPoint ().copySlotsOrScenes (scene);
+                    case "name" ->
+                    {
+                        if (text != null)
+                            scene.name ().set (text);
+                    }
+                    case "color" -> setColor (text, (red, green, blue) -> scene.color ().set (red, green, blue));
+                    default -> this.unhandled.accept ("scene " + parts[1]);
+                }
+            }
+        }
+    }
+
+
+    @FunctionalInterface
+    private interface ColorSetter
+    {
+        void set (float red, float green, float blue);
+    }
+
+
+    /**
+     * Parse "RGB(r,g,b)" and set the color.
+     */
+    private static void setColor (final String text, final ColorSetter setter)
+    {
+        final Matcher matcher = COLOR_PATTERN.matcher (text == null ? "" : text);
+        if (matcher.matches ())
+            setter.set (Integer.parseInt (matcher.group (1)) / 255f, Integer.parseInt (matcher.group (2)) / 255f, Integer.parseInt (matcher.group (3)) / 255f);
     }
 
 

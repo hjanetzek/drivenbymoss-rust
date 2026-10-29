@@ -7,6 +7,7 @@ import com.bitwig.extension.controller.api.Application;
 import com.bitwig.extension.controller.api.Arpeggiator;
 import com.bitwig.extension.controller.api.Arranger;
 import com.bitwig.extension.controller.api.Channel;
+import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.CursorDeviceFollowMode;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
@@ -16,6 +17,9 @@ import com.bitwig.extension.controller.api.DeviceBank;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.Project;
+import com.bitwig.extension.controller.api.Scene;
+import com.bitwig.extension.controller.api.SceneBank;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Send;
 import com.bitwig.extension.controller.api.Track;
@@ -37,6 +41,8 @@ public final class BitwigModel
 {
     /** The size of the flat track bank; the core pages over it. */
     public static final int  NUM_TRACKS          = 64;
+    /** The number of scenes (the slots of each track) of the flat track bank; the core pages over them. */
+    public static final int  NUM_SCENES          = 32;
     /** The size of the device sibling window, as in the Reaper backend. */
     public static final int  NUM_SIBLINGS        = 8;
     /** The parameters per remote control page. */
@@ -51,6 +57,8 @@ public final class BitwigModel
     final Arranger           arranger;
     final Mixer              mixer;
     final TrackBank          trackBank;
+    final SceneBank          sceneBank;
+    final Project            project;
     final CursorTrack        cursorTrack;
     final MasterTrack        masterTrack;
     final PinnableCursorDevice cursorDevice;
@@ -63,6 +71,7 @@ public final class BitwigModel
     private final boolean [] trackSelected       = new boolean [NUM_TRACKS];
     private final int []     trackVuLeft         = new int [NUM_TRACKS];
     private final int []     trackVuRight        = new int [NUM_TRACKS];
+    private final boolean [] sceneSelected       = new boolean [NUM_SCENES];
     private boolean          masterSelected;
     private int              masterVuLeft;
     private int              masterVuRight;
@@ -79,15 +88,16 @@ public final class BitwigModel
     {
         this.arpeggiator = arpeggiator;
         this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
-        final int numScenes = Math.max (0, getInt (modelSetup, "numScenes", 8));
         final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
 
         this.transport = host.createTransport ();
         this.application = host.createApplication ();
         this.arranger = host.createArranger ();
         this.mixer = host.createMixer ();
-        this.trackBank = host.createTrackBank (NUM_TRACKS, this.numSends, numScenes, true);
-        this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, numScenes, true);
+        this.trackBank = host.createTrackBank (NUM_TRACKS, this.numSends, NUM_SCENES, true);
+        this.sceneBank = this.trackBank.sceneBank ();
+        this.project = host.getProject ();
+        this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, NUM_SCENES, true);
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
@@ -136,6 +146,21 @@ public final class BitwigModel
             track.addIsSelectedInEditorObserver (selected -> this.trackSelected[index] = selected);
             track.addVuMeterObserver (VU_RANGE, 0, true, value -> this.trackVuLeft[index] = value);
             track.addVuMeterObserver (VU_RANGE, 1, true, value -> this.trackVuRight[index] = value);
+            track.isStopped ().markInterested ();
+            for (int s = 0; s < NUM_SCENES; s++)
+            {
+                final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (s);
+                slot.exists ().markInterested ();
+                slot.hasContent ().markInterested ();
+                slot.name ().markInterested ();
+                slot.color ().markInterested ();
+                slot.isSelected ().markInterested ();
+                slot.isPlaying ().markInterested ();
+                slot.isPlaybackQueued ().markInterested ();
+                slot.isRecording ().markInterested ();
+                slot.isRecordingQueued ().markInterested ();
+                slot.isStopQueued ().markInterested ();
+            }
             track.sendBank ().itemCount ().markInterested ();
             for (int s = 0; s < this.numSends; s++)
             {
@@ -146,6 +171,17 @@ public final class BitwigModel
                 send.displayedValue ().markInterested ();
                 send.isEnabled ().markInterested ();
             }
+        }
+
+        this.sceneBank.itemCount ().markInterested ();
+        for (int i = 0; i < NUM_SCENES; i++)
+        {
+            final Scene scene = this.sceneBank.getItemAt (i);
+            final int index = i;
+            scene.exists ().markInterested ();
+            scene.name ().markInterested ();
+            scene.color ().markInterested ();
+            scene.addIsSelectedInEditorObserver (selected -> this.sceneSelected[index] = selected);
         }
 
         this.markChannel (this.masterTrack);
@@ -217,6 +253,7 @@ public final class BitwigModel
     {
         this.collectTransport (reporter);
         this.collectTracks (reporter);
+        this.collectScenes (reporter);
         this.collectMaster (reporter);
         this.collectDevice (reporter);
         this.collectNoteRepeat (reporter);
@@ -308,8 +345,62 @@ public final class BitwigModel
                 reporter.put (sendPrefix + "active", send.isEnabled ().get ());
             }
             reporter.put (prefix + "send/count", sendCount);
+            this.collectSlots (reporter, prefix, track);
         }
         reporter.put ("/track/count", count);
+    }
+
+
+    /**
+     * The clip launcher slots of a track (protocol v2), as SlotImpl of the Java version.
+     */
+    private void collectSlots (final ModelReporter reporter, final String prefix, final Track track)
+    {
+        reporter.put (prefix + "isStopped", track.isStopped ().get ());
+        final int count = this.getSceneCount ();
+        reporter.put (prefix + "slot/count", count);
+        for (int s = 0; s < count; s++)
+        {
+            final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (s);
+            final String slotPrefix = prefix + "slot/" + s + "/";
+            reporter.put (slotPrefix + "exists", slot.exists ().get ());
+            reporter.put (slotPrefix + "hasContent", slot.hasContent ().get ());
+            reporter.put (slotPrefix + "name", slot.name ().get ());
+            // As the Java version: the slots of group tracks have the color of the track (API)
+            if (track.isGroup ().get ())
+                reporter.putColor (slotPrefix + "color", track.color ().red (), track.color ().green (), track.color ().blue ());
+            else
+                reporter.putColor (slotPrefix + "color", slot.color ().red (), slot.color ().green (), slot.color ().blue ());
+            reporter.put (slotPrefix + "selected", slot.isSelected ().get ());
+            reporter.put (slotPrefix + "playing", slot.isPlaying ().get ());
+            reporter.put (slotPrefix + "recording", slot.isRecording ().get ());
+            reporter.put (slotPrefix + "playQueued", slot.isPlaybackQueued ().get ());
+            reporter.put (slotPrefix + "recQueued", slot.isRecordingQueued ().get ());
+            reporter.put (slotPrefix + "stopQueued", slot.isStopQueued ().get ());
+        }
+    }
+
+
+    private void collectScenes (final ModelReporter reporter)
+    {
+        final int count = this.getSceneCount ();
+        for (int i = 0; i < count; i++)
+        {
+            final Scene scene = this.sceneBank.getItemAt (i);
+            final String prefix = "/scene/" + i + "/";
+            reporter.put (prefix + "exists", scene.exists ().get ());
+            reporter.put (prefix + "number", i);
+            reporter.put (prefix + "name", scene.name ().get ());
+            reporter.putColor (prefix + "color", scene.color ().red (), scene.color ().green (), scene.color ().blue ());
+            reporter.put (prefix + "select", this.sceneSelected[i]);
+        }
+        reporter.put ("/scene/count", count);
+    }
+
+
+    private int getSceneCount ()
+    {
+        return Math.min (this.sceneBank.itemCount ().get (), NUM_SCENES);
     }
 
 

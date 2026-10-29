@@ -26,6 +26,8 @@ use super::slot::SlotBank;
 pub struct Track {
     channel: Channel,
     is_group_expanded: bool,
+    /// True if no clip of the track plays (reported by hosts with a clip launcher).
+    is_stopped: bool,
     is_rec_arm: bool,
     monitor: bool,
     auto_monitor: bool,
@@ -49,6 +51,7 @@ impl Track {
         Track {
             channel,
             is_group_expanded: true,
+            is_stopped: true,
             is_rec_arm: false,
             monitor: false,
             auto_monitor: false,
@@ -236,15 +239,24 @@ impl Track {
     }
 
     /// Not supported.
+    /// True if a clip of the track plays (only reported by hosts with a clip launcher).
     pub fn is_playing(&self) -> bool {
-        false
+        !self.is_stopped
     }
 
-    /// Not supported.
-    pub fn stop(&mut self, _is_alternative: bool) {}
+    /// Stop the playing clip of the track (not supported by Reaper).
+    pub fn stop(&mut self, is_alternative: bool) {
+        self.channel.send_cmd(if is_alternative { "stopAlt" } else { "stop" });
+    }
 
-    /// Not supported.
-    pub fn return_to_arrangement(&mut self) {}
+    /// Switch the track back to the arranger (not supported by Reaper).
+    pub fn return_to_arrangement(&mut self) {
+        self.channel.send_cmd("returnToArrangement");
+    }
+
+    pub fn set_stopped_state(&mut self, is_stopped: bool) {
+        self.is_stopped = is_stopped;
+    }
 
     pub fn is_record_quantization_note_length(&self) -> bool {
         self.record_quantization_note_length
@@ -284,8 +296,10 @@ impl Track {
     }
 
     /// Create a new clip with the given length (the slot index is ignored in Reaper).
-    pub fn create_clip(&mut self, _slot_index: i32, length_in_beats: i32) {
-        self.channel.send_int("createClip", length_in_beats);
+    /// Create a new clip in the slot with the given absolute position (Reaper ignores the slot and
+    /// creates the clip at the edit cursor).
+    pub fn create_clip(&mut self, slot_position: i32, length_in_beats: i32) {
+        self.channel.send_int(&format!("createClip/{slot_position}"), length_in_beats);
     }
 
     /// Record a new clip.

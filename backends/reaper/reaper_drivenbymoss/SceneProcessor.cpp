@@ -41,7 +41,8 @@ void SceneProcessor::Process(std::deque<std::string>& path)
 	const int sceneID = regions.at(index);
 	const std::unique_ptr<Marker>& scene = this->model.GetRegion(sceneID);
 
-	const bool isLaunch = std::strcmp(cmd, "launch") == 0;
+	// Reaper has no alternative launch
+	const bool isLaunch = std::strcmp(cmd, "launch") == 0 || std::strcmp(cmd, "launchAlt") == 0;
 	if (std::strcmp(cmd, "select") == 0 || isLaunch)
 	{
 		SetEditCurPos2(project, scene->position, true, true);

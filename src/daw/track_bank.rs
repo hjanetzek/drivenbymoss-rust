@@ -490,8 +490,10 @@ impl TrackBank {
         false
     }
 
-    /// Not supported.
-    pub fn stop(&mut self, _is_alternative: bool) {}
+    /// Stop all clips (not supported by Reaper).
+    pub fn stop(&mut self, is_alternative: bool) {
+        self.ctx.send(Processor::Scene, if is_alternative { "stopAlt" } else { "stop" });
+    }
 
     /// Not supported.
     pub fn set_indication(&mut self, _enable: bool) {}

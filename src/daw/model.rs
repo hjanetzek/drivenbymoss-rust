@@ -633,8 +633,8 @@ impl Model {
     /// Create a new clip on the track and select it. If `overdub` is set, recording is started.
     pub fn create_note_clip(&mut self, track: TrackRef, slot_index: usize, length_in_beats: i32, overdub: bool) {
         let t = self.track_bank.track_mut(track);
-        let index = t.slot_bank().item(slot_index).index();
-        t.create_clip(index, length_in_beats);
+        let position = t.slot_bank().item(slot_index).position();
+        t.create_clip(position, length_in_beats);
         t.slot_bank_mut().item_mut(slot_index).select();
         if overdub {
             self.transport.start_recording();
@@ -799,7 +799,7 @@ impl Model {
                 slot.set_muted(is_muted);
                 slot.set_internal_name(&name);
                 if let Some(c) = color {
-                    slot.set_color(ColorEx::from_array(c));
+                    slot.set_color_state(ColorEx::from_array(c));
                 }
                 slot.set_exists(true);
                 slot.set_has_content(true);

@@ -202,8 +202,10 @@ Reaper backend keeps working:
    Reaper converts with its tempo map, Bitwig follows `TransportImpl` of the Java version
    (BITWIG_DIVERGENCES.md §3). Bitwig also sends its own position and loop texts
    (`/time/text`, `/beats/text`, `/beats/loop/*/text`), which the core shows as they are.
-3. **Slots and scenes:** explicit slot states and launch commands with release/alt; scenes without
-   positions. The core stops deriving slot states from the transport when the host reports them.
+3. **Slots and scenes** (done): slot states and launch commands with release/alt, track stop
+   and return to arrangement, slot color and paste, new clips in a given slot, scenes without
+   positions (BACKEND_PROTOCOL.md §2, §3). Reported slot states replace the derived ones, so no
+   capability is needed; Reaper keeps its behaviour.
 4. **Parameter pages:** page names, count, selected page, page select command; parameter
    `modulated` value, `touch`, `indicate`.
 5. **Host-side paging** (optional): `scroll`/`offset`/`canScroll` messages, so tracks and

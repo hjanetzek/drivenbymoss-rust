@@ -28,7 +28,8 @@ These do not change what a controller does, but explain the other differences.
 | --- | --- | --- |
 | Track bank | Bank of `numTracks` (ModelSetup), flat or hierarchical, follows the cursor track, scrolled by Bitwig | Flat bank of 64 tracks (`BitwigModel.NUM_TRACKS`) that never scrolls; the core pages over it. Tracks beyond 64 are not reachable. Hierarchical track lists (`hasFlatTrackList` false) are not supported |
 | Track depth | From the hierarchy | Not reported (0) |
-| Effect tracks, scene banks, slot banks, drum pad banks, device layers, browser, note clip grids | Created from the ModelSetup | Not created yet (protocol v2 items 3–8) |
+| Scenes and slots | Scene bank of `numScenes`, scrolled by Bitwig; slot banks per track | Flat scene bank of 32 (`BitwigModel.NUM_SCENES`) that never scrolls, each track with 32 slots; the core pages over them. Scenes beyond 32 are not reachable. Extra scene and slot banks (`getSceneBank`, `getSlotBank`) are not created |
+| Effect tracks, drum pad banks, device layers, browser, note clip grids | Created from the ModelSetup | Not created yet (protocol v2 items 4–8) |
 | Device siblings | `createSiblingsDeviceBank (numDevicesInBank)` | Always 8 siblings (the Reaper protocol's fixed window) |
 | Device parameters | Remote-control page bank: named pages, page selection by Bitwig | `numParamPages` page cursors, each fixed to one page, reported as one flat list of parameters; the core names the pages "Page n". Page names are not shown (protocol v2 item 4) |
 | Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `touch` only for track and master volume and pan |
@@ -50,14 +51,27 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Only the metronome during pre-roll; the pre-roll length is not handled yet |
 | Punch in / out | `isPunchInEnabled` / `isPunchOutEnabled` | Same, but the core keeps one punch state (Reaper's record modes): punch in and punch out exclude each other |
 
-## 4. Note repeat
+## 4. Clip launcher
+
+Slots and scenes follow `SlotImpl`, `SceneImpl` and `SceneBankImpl`: the slot states, launch on
+press and release (normal and alternative), record, select, remove, duplicate, insert file,
+paste (`copySlotsOrScenes`), slot color (group tracks show the track color), track stop,
+alternative stop and return to arrangement, new clips in a slot (`createNewLauncherClip` with the
+absolute slot), scene launch, select, remove, duplicate, name and color, stop all clips. Scenes
+are created with `createScene` and `createSceneFromPlayingLauncherClips`.
+
+| Topic | Java | Rust |
+| --- | --- | --- |
+| Clip muted | Not available in the API, always false | Same |
+
+## 5. Note repeat
 
 | Topic | Java | Rust |
 | --- | --- | --- |
 | Modes | All arpeggiator modes of Bitwig | The core's four modes (down, up, down-up, up-down) |
 | Octaves, shuffle, free running, note latch | Supported | Not exposed |
 
-## 5. Commands
+## 6. Commands
 
 | Command | Java | Rust |
 | --- | --- | --- |
@@ -66,9 +80,18 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | Track volume/pan "touch" | `touch` | Same |
 | Device parameter commands of the first instrument and drum devices | The specific device | Not yet: the extension has only the cursor device |
 
-## 6. Open: not handled yet
+## 7. Open: not handled yet
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `automation`, `inifile` (pre-roll measures), `quantize`, `groove`, `clip`, `scene`,
-  `eq`, `browser`, `cursor`, user-configured Reaper actions (`action` with a string).
+- `metro_vol`, `automation`, `inifile` (pre-roll measures), `quantize`, `groove`, `clip` (the
+  cursor clip), `eq`, `browser`, `cursor`, user-configured Reaper actions (`action` with a
+  string).
+
+## 8. Known issues
+
+- **Maschine Mk2, Shift view plays notes:** Shift (STEP LEFT on the Mk2) shows the Shift view
+  with the undo/redo pads. Undo and redo are executed, but the pads also play their MIDI notes
+  into Bitwig. Probably the note input still passes the pads through while the Shift view is
+  active (the key translation table should block them, as the Java version does); to be
+  investigated. Found 2026-10-29.
