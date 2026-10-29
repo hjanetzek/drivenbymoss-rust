@@ -1,6 +1,26 @@
 # Conformance testing against the Java DrivenByMoss: plan
 
-Status: draft, 2026-10-29. Nothing of this is implemented yet.
+Status: 2026-10-30, step 1 in progress: the runner (`backends/bitwig/tools/conformance_runner.py`),
+the probe (`ProbeExtension` in the Bitwig extension) and the first scenarios
+(`tests/conformance/launchcontrol_xl/note_sequencer.toml`) exist; not yet run against Bitwig.
+
+Setup for a run (Linux):
+
+1. A free virtual MIDI port for the controller under test: `snd-virmidi` with one device more
+   than `dbm-nihost` uses (`sudo modprobe -r snd_virmidi && sudo modprobe snd_virmidi
+   midi_devs=3`, then restart `dbm-nihost --virmidi`; it uses the first two).
+2. Bitwig started with `DBM_OSC_CONFORMANCE=1` and the Java DrivenByMoss of the branch
+   `conformance-osc`. In Bitwig: the Java "Open Sound Control" controller sending to
+   127.0.0.1:9000 (receiving on 8000; its MIDI port setting can be any unused device, it does
+   not use it), optionally the "Conformance Probe (Rust)" controller (Bitwig version), and the
+   controller under test (Java or Rust, only one active) with the free VirMIDI port as input and
+   output.
+3. The fixture of the scenario file (described at its top).
+4. `cd backends/bitwig/tools && ./conformance_runner.py record
+   ../../../tests/conformance/launchcontrol_xl/note_sequencer.toml --label java --port "VirMIDI 5-2"`,
+   the same with `--label rust` after switching the controller, then
+   `./conformance_runner.py compare <java trace> <rust trace>` (traces in `target/conformance`).
+   Nothing else may listen on UDP 9000 (e.g. `osc_monitor.py`).
 
 ## 1. Goal
 
@@ -35,16 +55,44 @@ Principles:
 | Notes played into Bitwig (note inputs) | the observer's note monitor | same | Catches "pads play notes in the Shift view" |
 | Backend protocol (commands, model lines) | - | `DBM_LOG_MIDI`, a protocol log | Diagnostics only, for finding the cause of a difference |
 
-**The neutral observer.** The Java OSC controller (`osc_monitor.py`) already shows tracks, the
-cursor device and its pages, slots and the transport. It does not show the first instrument,
-drum pads and layers outside of the cursor device, the browser columns or the steps of the
-cursor clip. Therefore a small **probe extension** is needed: a Bitwig controller extension
-without a controller that reports a broad snapshot of the project as text lines over UDP. It can
-reuse `BitwigModel` / `ModelReporter` of the Rust extension (same addresses as
-BACKEND_PROTOCOL.md §3), extended by what the core does not need (e.g. which remote control page
-Bitwig shows for each device). It only reads Bitwig values, so a bug of the Rust core cannot
-hide in it; a reporting bug would show up in both runs equally and is reviewed with the OSC
-monitor.
+**The neutral observer** is the Java OSC controller of DrivenByMoss (protocol:
+`DrivenByMoss-Documentation/Generic-Tools-Protocols/Open-Sound-Control-(OSC).md`), read by the
+runner on UDP 9000 as `osc_monitor.py` does. It is written by the original author and shares no
+code with the port: tracks, sends, slots and scenes, the transport, the cursor device with its
+parameter pages, layers and drum pads, the primary device (`/primary/...`, the same attributes),
+the EQ and the browser (filter columns, results, tab). It does not report the steps of the cursor
+clip (only `/clip/exists`, `color`, `pinned`, `name`) and the notes played into a track.
+
+For these gaps the extension of the Rust port contains a small **probe**
+(`ProbeExtension`, "Conformance Probe (Rust)", no MIDI ports): it reports the steps of a fixed
+grid of the cursor clip (64 steps of 1/16 from the clip start, all keys,
+`/clip/grid/64x128/step/<ch>/<x>/<y>` in the step format of BACKEND_PROTOCOL.md), the notes
+playing on the cursor track (`/probe/playingNotes`) and the Bitwig version (`/probe/version`) as
+text lines on UDP 9100; a datagram `dump` to UDP 9101 requests all values. It reuses
+`BitwigModel` of the extension, so it can share a reporting bug with the port; it is therefore
+only used where OSC has no value, and checked against the Bitwig GUI when it is extended.
+
+**The OSC implementation may be changed for the tests.** It is a development tool here, not a
+product: a local build of the Java DrivenByMoss
+(`~/bastel/github/DrivenByMoss`, `de.mossgrabers.controller.osc`, one class per area in
+`module/`, e.g. `ClipModule`) can report what the scenarios need, e.g. the steps of the cursor
+clip, the notes played into a track, the selected remote control page of the first instrument
+outside of the cursor device, or values with more precision. Then the observer stays independent
+of the Rust code and the probe can shrink or go away. Such changes are kept on a branch of the
+Java repository and listed here; they must only add values, never change what the controller
+under test does.
+
+Branch `conformance-osc` of `~/bastel/github/DrivenByMoss` (from `linux-maschine`):
+`ConformanceModule`, enabled with the environment variable `DBM_OSC_CONFORMANCE` (the clip grid
+must be created during init):
+
+- `/clip/step/{channel}/{step}/{note}`: the steps of a fixed grid of the cursor clip (64 steps of
+  1/16 from the clip start, all notes, 0-based) in the step format of the core, `0` when a step
+  became empty.
+- `/track/{1-8}/playingNotes`: the notes playing on the track, `note:velocity` separated by
+  spaces.
+
+With it, the probe of the Rust extension is only needed for the Bitwig version.
 
 ## 3. Scenarios
 
@@ -59,14 +107,14 @@ fixture = "fixtures/instrument_two_pages.bwproject"   # Polysynth with 2+ remote
 id = "lcxl.noteseq.device-page"
 bullet = "Device (yellow): Keep the device button pressed to select one of the 1st 8 parameter pages of the first instrument device."
 steps = [
-  { midi = "sysex F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
-  { midi = "note-on 0x9C 105 127", note = "hold Device" },
-  { midi = "note-on 0x9C 74 127", note = "Track Control 2" },
-  { midi = "note-off 0x8C 74 0" },
-  { midi = "note-off 0x8C 105 0" },
+  { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
+  { midi = "9C 69 7F", note = "hold Device" },
+  { midi = "9C 4A 7F", note = "Track Control 2" },
+  { midi = "8C 4A 00" },
+  { midi = "8C 69 00" },
 ]
-expect.bitwig = { "/primary/page/selected" = "1" }
-expect.leds = { "track-control-2" = "yellow" }
+expect.bitwig = { "/primary/page/2/selected" = "1" }   # OSC addresses are 1-based
+expect.leds = { "9C 4A" = "3E" }                         # last value per status and data 1
 divergences = []
 ```
 
@@ -89,7 +137,8 @@ scenario runner (Python, next to osc_monitor.py)
    │ MIDI in (virtual port in place of the device)       ▲ MIDI out (LEDs, displays)
    ▼                                                     │
 Bitwig: controller extension under test (Java DrivenByMoss  OR  DrivenByMoss (Rust))
-        probe extension ──UDP──> runner (Bitwig state, played notes)
+        Java OSC controller ──UDP 9000──> runner (Bitwig state)
+        probe extension ─────UDP 9100──> runner (clip steps, played notes)
 ```
 
 1. **Record the oracle:** run the scenarios against the Java controller extension. The runner
@@ -152,9 +201,9 @@ sections where differences were found by hand.
 
 ## 8. Steps
 
-1. **Probe extension** with the observer snapshot over UDP (reusing `BitwigModel`), and the
-   runner skeleton: virtual ports, scenario file, trace writing, report. One scenario (the LC XL
-   device page) end to end with both extensions.
+1. **Runner skeleton** (OSC observer, probe for the gaps, virtual MIDI port, device stub,
+   scenario file, trace writing, comparison report) and one scenario (the LC XL Note Sequencer)
+   end to end with both extensions.
 2. **Protocol recorder** in the Rust extension and the replay test harness.
 3. **Fixtures** for the four ported controllers; scenarios for the Launch Control XL (small,
    five templates), then the JAM, the Mk2/Mk3 and the Launchpad.

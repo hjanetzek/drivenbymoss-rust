@@ -1,0 +1,62 @@
+# Conformance scenarios: Novation Launch Control XL, Note Sequencer (5th factory template).
+# See doc/CONFORMANCE_TESTING_PLAN.md. Run with backends/bitwig/tools/conformance_runner.py.
+#
+# Fixture: the selected track is an instrument track with a synth which has at least two remote
+# control pages; an empty launcher clip of one bar is selected (the cursor clip). The Java OSC
+# controller sends to port 9000, the "Conformance Probe (Rust)" controller is added. The
+# controller under test (Java or Rust) uses the virtual MIDI port as input and output.
+
+controller = "Novation Launch Control XL"
+manual = "Novation/Novation-LaunchControlXL.md#note-sequencer---5th-factory-template"
+settle_ms = 400
+
+# The device confirms a template selection with the same message
+[[stub]]
+match = "F0 00 20 29 02 11 77 ?? F7"
+reply = "echo"
+
+[[scenario]]
+id = "lcxl.noteseq.device-page"
+bullet = "Device (yellow): Keep the device button pressed to select one of the 1st 8 parameter pages of the first instrument device."
+steps = [
+  { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
+  { midi = "9C 69 7F", note = "hold Device" },
+  { midi = "9C 4A 7F", note = "Track Control 2" },
+  { midi = "8C 4A 00" },
+  { midi = "8C 69 00", note = "release Device" },
+]
+expect.bitwig = { "/primary/page/2/selected" = "1" }
+
+[[scenario]]
+id = "lcxl.noteseq.create-note"
+bullet = "Track Focus buttons: If the step contains a note it is deleted. Otherwise a new note is created using the currently selected base note of the scale."
+steps = [
+  { midi = "9C 2A 7F", note = "Track Focus 2" },
+  { midi = "8C 2A 00" },
+]
+expect.bitwig = { "/clip/step/0/1/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "lcxl.noteseq.repeat"
+bullet = "Send B knobs: Sets the number of Repeats of the note. To make this usable with the knob the values are limited to 16 in both directions."
+steps = [
+  { midi = "BC 1E 7F", note = "Send B knob 2 to the maximum" },
+]
+expect.bitwig = { "/clip/step/0/1/*" = { field = 20, value = "15" } }
+
+[[scenario]]
+id = "lcxl.noteseq.panning"
+bullet = "Pan/Device knobs: Sets the panorama of the note."
+steps = [
+  { midi = "BC 32 00", note = "Pan knob 2 to the left" },
+]
+expect.bitwig = { "/clip/step/0/1/*" = { field = 9, value = "-1.0" } }
+
+[[scenario]]
+id = "lcxl.noteseq.delete-note"
+bullet = "Track Focus buttons: If the step contains a note it is deleted."
+steps = [
+  { midi = "9C 2A 7F", note = "Track Focus 2" },
+  { midi = "8C 2A 00" },
+]
+expect.bitwig = { "/clip/step/0/1/*" = "0" }
