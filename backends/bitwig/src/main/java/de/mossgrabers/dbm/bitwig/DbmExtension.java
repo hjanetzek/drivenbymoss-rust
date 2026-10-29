@@ -96,7 +96,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         {
             this.loadedState = FileState.of (this.devLibrary);
             this.lastState = this.loadedState;
-            host.println ("Dev mode: using " + this.devLibrary + ", reloading when it changes.");
+            this.println ("Dev mode: using " + this.devLibrary + ", reloading when it changes.");
             host.scheduleTask (this::checkDevLibrary, DEV_CHECK_INTERVAL);
         }
 
@@ -106,7 +106,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         }
         catch (final IOException ex)
         {
-            host.errorln ("Could not load the native library: " + ex.getMessage ());
+            this.errorln ("Could not load the native library: " + ex.getMessage ());
             return;
         }
         catch (final ReflectiveOperationException | RuntimeException | UnsatisfiedLinkError ex)
@@ -128,7 +128,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         final String appVersion = host.getHostProduct () + " " + host.getHostVersion ();
         if (!this.core.createController (this.definition.getCoreId (), configFolder.toString (), appVersion))
         {
-            host.errorln ("The core (" + this.core.getVersion () + ") does not support " + this.definition.getHardwareVendor () + " " + this.definition.getHardwareModel ());
+            this.errorln ("The core (" + this.core.getVersion () + ") does not support " + this.definition.getHardwareVendor () + " " + this.definition.getHardwareModel ());
             this.closeCore ();
             return;
         }
@@ -154,9 +154,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
         // The Bitwig objects the controller needs; they can only be created during init
         final String modelSetup = this.core.getModelSetup ();
-        this.model = new BitwigModel (host, modelSetup);
+        final NoteInput defaultNoteInput = this.noteInputs.get (Integer.valueOf (0));
+        this.model = new BitwigModel (host, modelSetup, defaultNoteInput == null ? null : defaultNoteInput.arpeggiator ());
         this.commands = new CommandHandler (this.model, this.reporter, command -> this.unhandled (command));
-        host.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
+        this.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
         this.isRunning = true;
         host.scheduleTask (this::tickLoop, TICK_INTERVAL);
     }
@@ -222,7 +223,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.lastState = state;
         if (isStable && !state.equals (this.loadedState))
         {
-            this.getHost ().println ("Dev mode: " + this.devLibrary + " changed, restarting.");
+            this.println ("Dev mode: " + this.devLibrary + " changed, restarting.");
             this.devLibrary = null;
             this.getHost ().restart ();
             return;
@@ -350,7 +351,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         if (!this.isInitializing)
         {
-            this.getHost ().errorln ("Note input " + noteInputIndex + " can only be created while the extension starts.");
+            this.errorln ("Note input " + noteInputIndex + " can only be created while the extension starts.");
             return;
         }
         final NoteInput noteInput = this.midiIn.createNoteInput (this.definition.getHardwareModel () + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1)), toBitwigMasks (filters));
@@ -394,7 +395,27 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         final StringWriter trace = new StringWriter ();
         throwable.printStackTrace (new PrintWriter (trace));
-        this.getHost ().errorln (message + ": " + trace);
+        this.errorln (message + ": " + trace);
+    }
+
+
+    /**
+     * Print a message to the script console and to stderr (Bitwig's log and terminal).
+     */
+    private void println (final String message)
+    {
+        this.getHost ().println (message);
+        System.err.println ("[DrivenByMoss-Bitwig] " + this.definition.getHardwareModel () + ": " + message);
+    }
+
+
+    /**
+     * Print an error to the script console and to stderr.
+     */
+    private void errorln (final String message)
+    {
+        this.getHost ().errorln (message);
+        System.err.println ("[DrivenByMoss-Bitwig] " + this.definition.getHardwareModel () + ": ERROR: " + message);
     }
 
 
@@ -405,7 +426,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         final String key = command.replaceAll ("\\d+", "<n>");
         if (this.unhandledCommands.add (key))
-            this.getHost ().println ("Not handled yet: " + key);
+            this.println ("Not handled yet: " + key);
     }
 
 

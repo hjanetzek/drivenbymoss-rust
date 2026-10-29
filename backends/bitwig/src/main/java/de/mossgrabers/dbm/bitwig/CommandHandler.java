@@ -95,7 +95,37 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, value, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
+            case "noterepeat" -> this.handleNoteRepeat (command, value);
             default -> this.unhandled.accept (processor + " " + command);
+        }
+    }
+
+
+    /**
+     * Note repeat commands, mapped to the arpeggiator of the default note input.
+     */
+    private void handleNoteRepeat (final String command, final double value)
+    {
+        if (this.model.arpeggiator == null)
+            return;
+        switch (command)
+        {
+            case "active" -> this.model.arpeggiator.isEnabled ().set (value > 0);
+            // The core sends the inverse of the period in beats
+            case "rate" ->
+            {
+                if (value > 0)
+                    this.model.arpeggiator.rate ().set (1.0 / value);
+            }
+            case "notelength" -> this.model.arpeggiator.gateLength ().set (value);
+            case "mode" ->
+            {
+                final int index = (int) value;
+                if (index >= 0 && index < BitwigModel.ARPEGGIATOR_MODES.size ())
+                    this.model.arpeggiator.mode ().set (BitwigModel.ARPEGGIATOR_MODES.get (index));
+            }
+            case "velocity" -> this.model.arpeggiator.usePressureToVelocity ().set (value > 0);
+            default -> this.unhandled.accept ("noterepeat " + command);
         }
     }
 

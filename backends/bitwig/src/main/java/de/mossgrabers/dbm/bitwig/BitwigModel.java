@@ -4,6 +4,7 @@
 package de.mossgrabers.dbm.bitwig;
 
 import com.bitwig.extension.controller.api.Application;
+import com.bitwig.extension.controller.api.Arpeggiator;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.CursorDeviceFollowMode;
@@ -19,6 +20,7 @@ import com.bitwig.extension.controller.api.Track;
 import com.bitwig.extension.controller.api.TrackBank;
 import com.bitwig.extension.controller.api.Transport;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,6 +39,8 @@ public final class BitwigModel
     public static final int  NUM_SIBLINGS        = 8;
     /** The parameters per remote control page. */
     public static final int  PARAMS_PER_PAGE     = 8;
+    /** The Bitwig arpeggiator modes in the order of the core's modes (Down, Up, Down-Up, Up-Down). */
+    static final List<String> ARPEGGIATOR_MODES = List.of ("down", "up", "down-up", "up-down");
     /** VU meter range. */
     private static final int VU_RANGE            = 128;
 
@@ -49,6 +53,8 @@ public final class BitwigModel
     final DeviceBank         siblings;
     final CursorRemoteControlsPage [] pages;
     final int                numSends;
+    /** The note repeat of the default note input, null if the controller has none. */
+    final Arpeggiator        arpeggiator;
 
     private final boolean [] trackSelected       = new boolean [NUM_TRACKS];
     private final int []     trackVu             = new int [NUM_TRACKS];
@@ -61,9 +67,11 @@ public final class BitwigModel
      *
      * @param host The host
      * @param modelSetup The model setup of the core as JSON (see dbm_get_model_setup)
+     * @param arpeggiator The arpeggiator of the default note input (note repeat), may be null
      */
-    public BitwigModel (final ControllerHost host, final String modelSetup)
+    public BitwigModel (final ControllerHost host, final String modelSetup, final Arpeggiator arpeggiator)
     {
+        this.arpeggiator = arpeggiator;
         this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
         final int numScenes = Math.max (0, getInt (modelSetup, "numScenes", 8));
         final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
@@ -142,6 +150,15 @@ public final class BitwigModel
             device.isEnabled ().markInterested ();
             device.position ().markInterested ();
         }
+        if (this.arpeggiator != null)
+        {
+            this.arpeggiator.isEnabled ().markInterested ();
+            this.arpeggiator.rate ().markInterested ();
+            this.arpeggiator.gateLength ().markInterested ();
+            this.arpeggiator.mode ().markInterested ();
+            this.arpeggiator.usePressureToVelocity ().markInterested ();
+        }
+
         for (final CursorRemoteControlsPage page: this.pages)
         {
             page.pageCount ().markInterested ();
@@ -184,6 +201,25 @@ public final class BitwigModel
         this.collectTracks (reporter);
         this.collectMaster (reporter);
         this.collectDevice (reporter);
+        this.collectNoteRepeat (reporter);
+    }
+
+
+    /**
+     * The note repeat as in the Reaper backend: "period" is the inverse of the period in beats
+     * (the parser inverts it again), "mode" the index of the core's arpeggiator modes.
+     */
+    private void collectNoteRepeat (final ModelReporter reporter)
+    {
+        if (this.arpeggiator == null)
+            return;
+        final double period = this.arpeggiator.rate ().get ();
+        reporter.put ("/noterepeat/active", this.arpeggiator.isEnabled ().get ());
+        if (period > 0)
+            reporter.put ("/noterepeat/period", 1.0 / period);
+        reporter.put ("/noterepeat/notelength", this.arpeggiator.gateLength ().get ());
+        reporter.put ("/noterepeat/mode", Math.max (0, ARPEGGIATOR_MODES.indexOf (this.arpeggiator.mode ().get ())));
+        reporter.put ("/noterepeat/velocity", this.arpeggiator.usePressureToVelocity ().get ());
     }
 
 
