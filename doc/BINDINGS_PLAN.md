@@ -66,18 +66,30 @@ in, so they are done first.
    - Make Reaper-only parts optional capabilities that a backend declares: action IDs, the INI
      file processor, and so on.
 
-## Language wrappers (todo, in this order)
+## Language wrappers
 
-1. **C++.**
-   - A header-only wrapper `include/drivenbymoss.hpp`: an RAII `dbm::App` class and an abstract
-     `dbm::Backend` class with virtual methods, mapped onto `DbmCallbacks`.
-   - Switch the Reaper extension (`backends/reaper`, currently `JvmManager` + JNI
-     `RegisterNatives`) to it.
-2. **Python (Zynthian).**
+The wrappers live in `bindings/<language>/`. The generated C header stays in `include/`,
+because every binding builds on it.
+
+1. **C++ (done).**
+   - `bindings/cpp/include/drivenbymoss.hpp` is a header-only C++14 wrapper:
+     - `dbm::App`: RAII and movable.
+     - `dbm::Backend`: an abstract class whose virtual methods default to no-ops, mapped onto
+       `DbmCallbacks`.
+     - Exceptions thrown by the backend are caught in the trampolines.
+   - Test: `bindings/cpp/tests/run_tests.sh` builds the static library, then compiles and runs
+     `wrapper_test.cpp`. `tests/ffi.rs` compile-checks the test.
+   - The Reaper extension (`backends/reaper`) uses the wrapper (done):
+     - The JVM, `JvmManager` and the JNI callbacks are removed; `ReaperBackend` in
+       `dllmain.cpp` implements `dbm::Backend`.
+     - The instance is created with `DBM_FLAG_HOST_TICK` and ticked from
+       `DrivenByMossSurface::Run`, so all callbacks run on Reaper's main thread.
+     - The CMake build compiles the crate with cargo and links it statically.
+2. **Python (Zynthian), todo.** `bindings/python/`.
    - A pure-Python package (`cffi` in ABI mode, or `ctypes`) that loads the prebuilt library.
    - Nothing is compiled on the device; the library is cross-built for aarch64.
    - The package uses `DBM_FLAG_HOST_TICK` and ticks from its event loop.
-3. **Java.**
+3. **Java, todo.** `bindings/java/`.
    - FFM (Java 22+) with `jextract` from the header, or a hand-written wrapper.
    - JNA as a fallback for older JDKs.
    - A single wrapper class, with no JNI C code.

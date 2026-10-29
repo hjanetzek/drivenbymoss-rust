@@ -274,3 +274,19 @@ fn header_compiles_as_c_and_cpp() {
         }
     }
 }
+
+/// Compiles the C++ wrapper test (`bindings/cpp/tests/wrapper_test.cpp`) as C++14 (skipped if
+/// there is no compiler). The test itself is run by `bindings/cpp/tests/run_tests.sh`.
+#[test]
+fn cpp_wrapper_compiles() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let output = std::process::Command::new("c++")
+        .args(["-x", "c++", "-std=c++14", "-Wall", "-Wextra", "-Werror", "-fsyntax-only"])
+        .args(["-I", &format!("{root}/include"), "-I", &format!("{root}/bindings/cpp/include")])
+        .arg(format!("{root}/bindings/cpp/tests/wrapper_test.cpp"))
+        .output();
+    match output {
+        Ok(output) => assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr)),
+        Err(_) => eprintln!("c++ not found, skipped"),
+    }
+}

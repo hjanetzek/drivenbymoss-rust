@@ -13,7 +13,7 @@ DrivenByMossSurface* surfaceInstance = nullptr;
  * Constructor.
  */
 DISABLE_WARNING_NO_REF_TO_UNIQUE_PTR
-DrivenByMossSurface::DrivenByMossSurface(std::unique_ptr<JvmManager>& aJvmManager, midi_Output* (*aGetMidiOutput)(int idx)) : jvmManager(aJvmManager), GetMidiOutput(aGetMidiOutput), model(functionExecutor)
+DrivenByMossSurface::DrivenByMossSurface(std::unique_ptr<dbm::App>& aDbmApp, midi_Output* (*aGetMidiOutput)(int idx)) : dbmApp(aDbmApp), GetMidiOutput(aGetMidiOutput), model(functionExecutor)
 {
 	ReaDebug::setModel(&model);
 }
@@ -24,12 +24,8 @@ DrivenByMossSurface::DrivenByMossSurface(std::unique_ptr<JvmManager>& aJvmManage
  */
 DrivenByMossSurface::~DrivenByMossSurface()
 {
-	// Do not destroy the JVM if this is not a real shutdown (= when triggered from closing the configuration dialog)
-	if (this->isShutdown)
-	{
-		if (jvmManager)
-			jvmManager.reset();
-	}
+	// Do not destroy the DrivenByMoss instance if this is not a real shutdown (= when triggered
+	// from closing the configuration dialog); on shutdown it is already destroyed
 
 	// Null global variables
 	ReaDebug::setModel(nullptr);
@@ -43,9 +39,8 @@ void DrivenByMossSurface::Shutdown()
 
 	try
 	{
-		// Send final cleanup
-		if (jvmManager)
-			jvmManager->ShutdownControllers();
+		// Shutdown the controllers (they send their final MIDI messages) and release the instance
+		dbmApp.reset();
 
 		this->SendMIDIEventsToOutputs();
 	}
@@ -80,7 +75,7 @@ const char* DrivenByMossSurface::GetConfigString() noexcept
  */
 void DrivenByMossSurface::Run()
 {
-	if (this->jvmManager == nullptr || !this->jvmManager->IsRunning() || this->isShutdown)
+	if (this->dbmApp == nullptr || this->isShutdown)
 		return;
 
 	// Infrastructure needs to startup here to ensure that the Reaper audio layer is up 
@@ -92,15 +87,17 @@ void DrivenByMossSurface::Run()
 		const std::lock_guard<std::mutex> lock(this->startInfrastructureMutex);
 		if (!this->isInfrastructureUp)
 		{
-			this->jvmManager->StartInfrastructure();
+			this->StartInfrastructure();
 			this->isInfrastructureUp = true;
 		}
 	}
 
 	try
 	{
-		this->SendMIDIEventsToJava();
-		surfaceInstance->SendMIDIEventsToOutputs();
+		this->SendMIDIEventsToApp();
+		// Executes scheduled tasks and updates the controllers (queues outgoing MIDI)
+		this->dbmApp->tick();
+		this->SendMIDIEventsToOutputs();
 		this->functionExecutor.ExecuteFunctions();
 	}
 	catch (const std::exception& ex)
@@ -121,7 +118,7 @@ void DrivenByMossSurface::Run()
 
 	std::string data = this->CollectData(this->model.ShouldDump());
 	if (data.length() > 0)
-		this->jvmManager.get()->UpdateModel(data);
+		this->dbmApp->updateModel(data);
 }
 
 
@@ -206,7 +203,24 @@ void DrivenByMossSurface::OnTrackSelection(MediaTrack* trackid) noexcept
 }
 
 
-void DrivenByMossSurface::SendMIDIEventsToJava()
+/**
+ * Send all available effects (for the device browser) and start the controllers.
+ */
+void DrivenByMossSurface::StartInfrastructure()
+{
+	const char* name{ nullptr };
+	const char* ident{ nullptr };
+	int count = 0;
+	while (EnumInstalledFX(count, &name, &ident))
+	{
+		this->dbmApp->addDevice(name == nullptr ? "" : name, ident == nullptr ? "" : ident);
+		count++;
+	}
+	this->dbmApp->startInfrastructure();
+}
+
+
+void DrivenByMossSurface::SendMIDIEventsToApp()
 {
 	if (this->isShutdown)
 		return;
@@ -219,18 +233,18 @@ void DrivenByMossSurface::SendMIDIEventsToJava()
 	while ((m3 = this->incomingMidiQueue3.pop()) != nullptr)
 	{
 		uint8_t raw[3] = { m3->status, m3->data1, m3->data2 };
-		jvmManager->OnMIDIEvent(m3->deviceId, raw, 3);
+		dbmApp->onMidiEvent(m3->deviceId, raw, 3);
 	}
 
 	// --- SysEx ≤ 1 024 ------------------------------------------
 	std::unique_ptr<MidiSyx1k> m1k;
 	while ((m1k = this->incomingMidiQueue1k.pop()) != nullptr)
-		jvmManager->OnMIDIEvent(m1k->deviceId, m1k->data, m1k->size);
+		dbmApp->onMidiEvent(m1k->deviceId, m1k->data, m1k->size);
 
 	// --- SysEx ≤ 65 536 -----------------------------------------
 	std::unique_ptr <MidiSyx64k> m64k;
 	while ((m64k = this->incomingMidiQueue64k.pop()) != nullptr)
-		jvmManager->OnMIDIEvent(m64k->deviceId, m64k->data, m64k->size);
+		dbmApp->onMidiEvent(m64k->deviceId, m64k->data, m64k->size);
 }
 
 

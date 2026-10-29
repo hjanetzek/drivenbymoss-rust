@@ -35,11 +35,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
-# Must be after project definition otherwise CMAKE_FIND_LIBRARY_PREFIXES / CMAKE_FIND_LIBRARY_SUFFIXES are not set!
-find_package(Java REQUIRED)
-find_package(JNI REQUIRED)
-include(UseJava)
-
 if(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     message(STATUS "COCOA_LIBRARY is ${COCOA_LIBRARY}")
@@ -71,6 +66,71 @@ elseif(CMAKE_VS_PLATFORM_NAME_UPPER STREQUAL "ARM64")
 else()
     message(FATAL_ERROR "Unsupported architecture: ${CMAKE_VS_PLATFORM_NAME}")
 endif()
+
+################################################################################
+# DrivenByMoss core (Rust library), linked statically into the extension
+################################################################################
+
+set(DBM_RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." CACHE PATH "The folder of the DrivenByMoss Rust crate (Cargo.toml)")
+get_filename_component(DBM_RUST_DIR "${DBM_RUST_DIR}" ABSOLUTE)
+
+find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin" "$ENV{USERPROFILE}/.cargo/bin")
+if(NOT CARGO_EXECUTABLE)
+    message(FATAL_ERROR "cargo not found, install Rust from https://rustup.rs")
+endif()
+
+set(DBM_CARGO_TARGET_DIR "${CMAKE_BINARY_DIR}/cargo")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(DBM_CARGO_PROFILE_ARG "")
+    set(DBM_CARGO_PROFILE "debug")
+else()
+    set(DBM_CARGO_PROFILE_ARG "--release")
+    set(DBM_CARGO_PROFILE "release")
+endif()
+
+if(WIN32)
+    set(DBM_RUST_LIBRARY_NAME "drivenbymoss.lib")
+    set(DBM_RUST_SYSTEM_LIBRARIES ws2_32 userenv ntdll bcrypt advapi32 kernel32)
+    if(CMAKE_VS_PLATFORM_NAME_UPPER STREQUAL "ARM64")
+        set(DBM_RUST_TARGET "aarch64-pc-windows-msvc")
+    else()
+        set(DBM_RUST_TARGET "x86_64-pc-windows-msvc")
+    endif()
+    set(DBM_RUST_LIBRARY "${DBM_CARGO_TARGET_DIR}/${DBM_RUST_TARGET}/${DBM_CARGO_PROFILE}/${DBM_RUST_LIBRARY_NAME}")
+    set(DBM_CARGO_COMMANDS COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${DBM_CARGO_TARGET_DIR}" "${CARGO_EXECUTABLE}" build --lib ${DBM_CARGO_PROFILE_ARG} --target ${DBM_RUST_TARGET})
+elseif(APPLE)
+    # Universal binary: build both architectures and combine them
+    set(DBM_RUST_LIBRARY_NAME "libdrivenbymoss.a")
+    set(DBM_RUST_SYSTEM_LIBRARIES "-framework CoreFoundation" "-framework Security" System c m)
+    set(DBM_RUST_LIBRARY "${DBM_CARGO_TARGET_DIR}/universal/${DBM_CARGO_PROFILE}/${DBM_RUST_LIBRARY_NAME}")
+    set(DBM_CARGO_COMMANDS
+        COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${DBM_CARGO_TARGET_DIR}" "${CARGO_EXECUTABLE}" build --lib ${DBM_CARGO_PROFILE_ARG} --target aarch64-apple-darwin
+        COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${DBM_CARGO_TARGET_DIR}" "${CARGO_EXECUTABLE}" build --lib ${DBM_CARGO_PROFILE_ARG} --target x86_64-apple-darwin
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${DBM_CARGO_TARGET_DIR}/universal/${DBM_CARGO_PROFILE}"
+        COMMAND lipo -create
+            "${DBM_CARGO_TARGET_DIR}/aarch64-apple-darwin/${DBM_CARGO_PROFILE}/${DBM_RUST_LIBRARY_NAME}"
+            "${DBM_CARGO_TARGET_DIR}/x86_64-apple-darwin/${DBM_CARGO_PROFILE}/${DBM_RUST_LIBRARY_NAME}"
+            -output "${DBM_RUST_LIBRARY}")
+else()
+    set(DBM_RUST_LIBRARY_NAME "libdrivenbymoss.a")
+    # From 'cargo rustc --crate-type staticlib -- --print native-static-libs'
+    set(DBM_RUST_SYSTEM_LIBRARIES gcc_s util rt pthread m dl c)
+    set(DBM_RUST_LIBRARY "${DBM_CARGO_TARGET_DIR}/${DBM_CARGO_PROFILE}/${DBM_RUST_LIBRARY_NAME}")
+    set(DBM_CARGO_COMMANDS COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${DBM_CARGO_TARGET_DIR}" "${CARGO_EXECUTABLE}" build --lib ${DBM_CARGO_PROFILE_ARG})
+endif()
+
+# Cargo decides itself if something needs to be rebuilt, therefore the target always runs
+add_custom_target(drivenbymoss_rust_build ALL
+    ${DBM_CARGO_COMMANDS}
+    WORKING_DIRECTORY "${DBM_RUST_DIR}"
+    BYPRODUCTS "${DBM_RUST_LIBRARY}"
+    COMMENT "Building the DrivenByMoss Rust library"
+    USES_TERMINAL
+)
+
+add_library(drivenbymoss_rust STATIC IMPORTED GLOBAL)
+set_target_properties(drivenbymoss_rust PROPERTIES IMPORTED_LOCATION "${DBM_RUST_LIBRARY}")
+add_dependencies(drivenbymoss_rust drivenbymoss_rust_build)
 
 ################################################################################
 # Global configuration types
@@ -138,7 +198,6 @@ set(Header_Files
     "../reaper_drivenbymoss/CodeAnalysis.h"
     "../reaper_drivenbymoss/Collectors.h"
     "../reaper_drivenbymoss/DataCollector.h"
-    "../reaper_drivenbymoss/de_mossgrabers_reaper_MainApp.h"
     "../reaper_drivenbymoss/DeviceProcessor.h"
     "../reaper_drivenbymoss/dllmain.h"
     "../reaper_drivenbymoss/DrivenByMossSurface.h"
@@ -146,8 +205,6 @@ set(Header_Files
     "../reaper_drivenbymoss/FunctionExecutor.h"
     "../reaper_drivenbymoss/GrooveProcessor.h"
     "../reaper_drivenbymoss/IniFileProcessor.h"
-    "../reaper_drivenbymoss/jniwrapper.h"
-    "../reaper_drivenbymoss/JvmManager.h"
     "../reaper_drivenbymoss/LocalMidiEventDispatcher.h"
     "../reaper_drivenbymoss/Marker.h"
     "../reaper_drivenbymoss/MarkerProcessor.h"
@@ -175,7 +232,6 @@ set(Header_Files
     "../reaper_drivenbymoss/TrackProcessor.h"
     "../reaper_drivenbymoss/TransportProcessor.h"
     "../reaper_drivenbymoss/WrapperGSL.h"
-    "../reaper_drivenbymoss/WrapperJNI.h"
     "../reaper_drivenbymoss/WrapperReaperFunctions.h"
 )
 source_group("Header Files" FILES ${Header_Files})
@@ -191,7 +247,6 @@ set(Source_Files
     "../reaper_drivenbymoss/FunctionExecutor.cpp"
     "../reaper_drivenbymoss/GrooveProcessor.cpp"
     "../reaper_drivenbymoss/IniFileProcessor.cpp"
-    "../reaper_drivenbymoss/JvmManager.cpp"
     "../reaper_drivenbymoss/Marker.cpp"
     "../reaper_drivenbymoss/MarkerProcessor.cpp"
     "../reaper_drivenbymoss/MastertrackProcessor.cpp"
@@ -277,9 +332,9 @@ endif()
 # Include directories
 ################################################################################
 
-include_directories(${JNI_INCLUDE_DIRS} ${_classDir} ${_stubDir})
-
 target_include_directories(${PROJECT_NAME} PUBLIC
+    "${DBM_RUST_DIR}/include;"
+    "${DBM_RUST_DIR}/bindings/cpp/include;"
     "${CMAKE_CURRENT_SOURCE_DIR}/../libraries/GSL;"
     "${CMAKE_CURRENT_SOURCE_DIR}/../libraries/WDL;"
     "${CMAKE_CURRENT_SOURCE_DIR}/../reaper_drivenbymoss;"
@@ -410,3 +465,5 @@ endif()
 if(APPLE)
     target_link_libraries(${PROJECT_NAME} ${COCOA_LIBRARY})
 endif()
+
+target_link_libraries(${PROJECT_NAME} drivenbymoss_rust ${DBM_RUST_SYSTEM_LIBRARIES})

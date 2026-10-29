@@ -9,7 +9,7 @@
 
 #include "FunctionExecutor.h"
 #include "OscParser.h"
-#include "JvmManager.h"
+#include "drivenbymoss.hpp"
 #include "DataCollector.h"
 #include "ReaderWriterQueue.h"
 #include "MidiMessages.h"
@@ -23,20 +23,20 @@ class DrivenByMossSurface : public IReaperControlSurface
 public:
 	bool isInfrastructureUp{ false };
 	bool isShutdown{ false };
-	std::unique_ptr<JvmManager>& jvmManager;
+	std::unique_ptr<dbm::App>& dbmApp;
 
-	// Queues to transfer incoming MIDI from the audio thread to Java
+	// Queues to transfer incoming MIDI from the audio thread to DrivenByMoss
 	ReaderWriterQueue<Midi3, 1024>      incomingMidiQueue3;
 	ReaderWriterQueue<MidiSyx1k, 128>  incomingMidiQueue1k;
 	ReaderWriterQueue<MidiSyx64k, 16> incomingMidiQueue64k;
 
-	// Queues to transfer MIDI from Java to an output port in the audio thread
+	// Queues to transfer MIDI from DrivenByMoss to an output port
 	ReaderWriterQueue<Midi3, 1024>      outgoingMidiQueue3;
 	ReaderWriterQueue<MidiSyx1k, 128>  outgoingMidiQueue1k;
 	ReaderWriterQueue<MidiSyx64k, 16> outgoingMidiQueue64k;
 
 
-	DrivenByMossSurface(std::unique_ptr<JvmManager>& aJvmManager, midi_Output* (*aGetMidiOutput)(int idx));
+	DrivenByMossSurface(std::unique_ptr<dbm::App>& aDbmApp, midi_Output* (*aGetMidiOutput)(int idx));
 	DrivenByMossSurface(const DrivenByMossSurface&) = delete;
 	DrivenByMossSurface& operator=(const DrivenByMossSurface&) = delete;
 	DrivenByMossSurface(DrivenByMossSurface&&) = delete;
@@ -146,7 +146,8 @@ private:
 		return this->dataCollector.CollectData(dump, this->oscParser.GetActionProcessor());
 	};
 
-	void SendMIDIEventsToJava();
+	void SendMIDIEventsToApp();
+	void StartInfrastructure();
 
 	void HandleShortMidi(uint32_t deviceId, uint8_t status, uint8_t data1, uint8_t data2);
 	void HandleSysex(uint32_t deviceId, const uint8_t* data, uint32_t size);

@@ -12,7 +12,6 @@
 
 #include "Model.h"
 #include "OscProcessor.h"
-#include "JvmManager.h"
 #include "ActionProcessor.h"
 #include "TransportProcessor.h"
 #include "MastertrackProcessor.h"

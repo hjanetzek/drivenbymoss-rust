@@ -10,8 +10,22 @@ pass, 1 is ignored, and `cargo clippy --all-targets` reports 0 warnings. The rel
 produces `libdrivenbymoss.so` (about 2.2 MB), which exports the 16 `dbm_*` functions of the
 handle-based C ABI.
 
-It has **not run inside Reaper yet**. The C++ Reaper extension (separate repository) still starts
-a JVM through JNI and has to switch to the C ABI in `include/drivenbymoss.h`.
+It has **not run inside Reaper yet**. The Reaper extension in `backends/reaper` has been switched
+from the JVM to the C ABI through the C++ wrapper (`bindings/cpp`). It builds and links on Linux,
+but has not been loaded in Reaper or tested with hardware. The CMake paths for Windows and macOS
+are written but untested. The Visual Studio, Xcode and Eclipse project files in
+`backends/reaper` still reference the removed JVM files; CMake is the supported build.
+
+Building the extension needs CMake, a C++ compiler and Rust:
+
+```
+cd backends/reaper
+cmake -S CMake -B build -D CMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+CMake runs cargo itself and links the core statically into `reaper_drivenbymoss.so` (`.dll` on
+Windows, `.dylib` on macOS).
 
 | Controller | Models registered | Rust path | Integration tests |
 | --- | --- | --- | --- |
@@ -110,15 +124,16 @@ All paths are under `rust/`.
 | `src/controller/launchpad/` | `controller/novation/launchpad/**` | Done |
 | `src/controller/launchcontrol/` | `controller/novation/launchcontrol/**` | Done |
 | `src/controller/maschine/{core,mk,jam}/` | `controller/ni/maschine/**` | Mk2 and Jam done |
+| `bindings/cpp/` | — | Header-only C++ wrapper (`dbm::App`, `dbm::Backend`) and its test |
 | `tests/` | — | Integration tests per controller |
-| `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08); still uses JNI, to be switched to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
+| `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues
 
-1. Change the C++ extension (separate repository) to load `libdrivenbymoss` and call the C ABI
-   instead of the JVM.
-2. Test with real hardware in Reaper and compare with the Java version.
+1. Load the extension in Reaper, test with real hardware and compare with the Java version.
+2. Verify the Windows and macOS CMake builds, and update or remove the Visual Studio, Xcode and
+   Eclipse project files.
 3. Register and test Maschine Mk3, Mikro Mk3 and Plus, and port the Studio monitor-encoder
    section.
 4. Port the remaining controllers, following [PORTING_GUIDE.md](PORTING_GUIDE.md).

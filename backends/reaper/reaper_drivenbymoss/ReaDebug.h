@@ -11,16 +11,6 @@
 #include "Model.h"
 
 constexpr bool ENABLE_EXTENSION{ true };
-constexpr bool ENABLE_JAVA{ true };
-constexpr bool ENABLE_JAVA_START{ true };
-
-// Enable or disable for debugging. If debugging is enabled Reaper is waiting for a Java debugger
-// to be connected on port 8989, only then the start continues!
-#ifdef _DEBUG
-constexpr bool DEBUG_JAVA{ true };
-#else
-constexpr bool DEBUG_JAVA{ false };
-#endif
 
 
 /**

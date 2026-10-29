@@ -14,7 +14,7 @@
 constexpr size_t MAX_EVENTS_PER_DEVICE = 1024;
 
 /**
- * Helper class to insert MIDI events into the Reaper device queues from Java.
+ * Helper class to insert MIDI events into the Reaper device queues from DrivenByMoss.
  */
 class LocalMidiEventDispatcher
 {

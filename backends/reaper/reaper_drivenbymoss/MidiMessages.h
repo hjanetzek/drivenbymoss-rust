@@ -22,7 +22,7 @@ static_assert(std::is_trivially_copyable<Midi3>::value, "");
 /* ──────────────────────────────────────────────────────────────── */
 /* 2.  SysEx up to 1 024 bytes                                      */
 /* ──────────────────────────────────────────────────────────────── */
-constexpr jsize kSyx1k_Max = 1'024;
+constexpr int32_t kSyx1k_Max = 1'024;
 
 struct MidiSyx1k {
     uint32_t deviceId;
@@ -34,7 +34,7 @@ static_assert(std::is_trivially_copyable<MidiSyx1k>::value, "");
 /* ──────────────────────────────────────────────────────────────── */
 /* 3.  Rare SysEx up to 65 536 bytes                                */
 /* ──────────────────────────────────────────────────────────────── */
-constexpr jsize kSyx64k_Max = 65'536;
+constexpr int32_t kSyx64k_Max = 65'536;
 
 struct MidiSyx64k {
     uint32_t deviceId;
