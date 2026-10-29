@@ -216,7 +216,8 @@ Reaper backend keeps working:
 6. **Drum pads** (done) as channels with their own addresses and commands (`/drum/pad/<p>/…`,
    `drum pad/<p>/…`); **device layers** (done) of the first instrument (`/primary/layer/<i>/…`,
    `primary layer/<i>/…`), whose commands now go to `primary` instead of `device`.
-7. **Browser** with content types, filter columns and results.
+7. **Browser** (done) with content types, filter columns and results (`/browser/…`, `browser …`);
+   the controllers browse slots and drum pads again, the Maschine shows the filter columns.
 8. **Cursor clip step grid** with the Bitwig step fields; the grid size comes from the manifest.
 
 ## 5. Steps

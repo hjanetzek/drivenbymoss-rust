@@ -257,6 +257,11 @@ pub struct DrumPadBank {
 }
 
 impl DrumPadBank {
+    /// The processor of the pads' device (drum, primary).
+    pub fn owner(&self) -> Processor {
+        self.owner
+    }
+
     /// Create the pad bank of a device; `owner` is the processor of the device (drum, primary).
     pub fn new(ctx: DawContext, num_layers: usize, num_sends: usize, owner: Processor) -> Self {
         let item_ctx = ctx.clone();

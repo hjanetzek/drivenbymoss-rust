@@ -49,7 +49,15 @@ impl ExecuteFunction for ClipView {
                 return;
             }
             if ctx.is_button_combination(ButtonId::Browse) {
-                // Browsing for a clip (former browser.replace (slot)) is not supported by Reaper
+                // Browse for a clip (only with a host browser, Reaper has none for slots)
+                let track = ctx.model.current_track_bank().item(track_index);
+                if track.does_exist() {
+                    let slot = track.slot_bank().item(slot_index);
+                    let (name, track, position) = (slot.name().to_string(), slot.track_index(), slot.position());
+                    if let Some(browser) = ctx.model.browser_mut() {
+                        browser.replace_slot(&name, track, position);
+                    }
+                }
                 return;
             }
             if ctx.is_button_combination(ButtonId::Delete) {

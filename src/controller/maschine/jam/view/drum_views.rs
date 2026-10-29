@@ -399,9 +399,18 @@ impl View for Drum64View {
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
         if let Some(played_pad) = self.drum.on_grid_note(ctx, note, velocity) {
-            // Former handleButtonCombinations override: browsing the presets of a drum pad is
-            // not supported by Reaper
+            // Former handleButtonCombinations override: browse for the device of the drum pad
+            // (only with a host browser, Reaper has none for drum pads)
             if ctx.is_button_combination(ButtonId::Browse) {
+                let device = ctx.model.drum_device_sized(64).or_else(|| ctx.model.drum_device());
+                if let Some(device) = device.filter(|d| d.has_drum_pads()) {
+                    let bank = device.drum_pad_bank();
+                    let pad = bank.item(played_pad as usize);
+                    let (owner, name, position) = (bank.owner(), pad.name().to_string(), pad.position());
+                    if let Some(browser) = ctx.model.browser_mut() {
+                        browser.replace_drum_pad(owner, &name, position);
+                    }
+                }
                 return;
             }
             self.drum.handle_button_combinations(ctx, played_pad, |drum, ctx, played_pad| {

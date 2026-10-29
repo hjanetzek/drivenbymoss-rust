@@ -458,6 +458,25 @@ Reaper has no pads and layers and ignores those commands.
 | `primary` | `layer/<i>/mute`, `solo`, `active`, `volume`, `pan`, `color` | | as for the pads |
 | `primary` | `window`, `expand` | int | open the plugin window, expand the device |
 
+#### Protocol v2: the browser of the host
+
+A host with its own browser (Bitwig) reports `/browser/exists`; from then on the core sends all
+browser functions to it. Reaper reports no `/browser/exists` and keeps browsing the presets of
+the cursor device in the core (`device preset <index>`); it has no `browser` processor.
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `browser` | `replace/device` | none | browse to replace the cursor device |
+| `browser` | `replace/slot/<t>/<s>` | none | browse for a clip for the slot (absolute track and slot) |
+| `browser` | `replace/<drum\|primary>/pad/<p>` | none | browse for the device of a drum pad |
+| `browser` | `add/track/<t>`, `add/master` | none | browse for a device at the start of the channel's device chain |
+| `browser` | `insertBefore`, `insertAfter` | none | browse for a device before / after the cursor device (without one: start / end of the cursor track's chain) |
+| `browser` | `stop` | int | close the browser, 1 = commit the selection, 0 = cancel |
+| `browser` | `preview` | int | preview (audition) on / off |
+| `browser` | `contentType/+`, `contentType/-` | none | next / previous content type (tab) |
+| `browser` | `column/<c>/+`, `-`, `page/+`, `page/-`, `reset` | none | the selection of a filter column; `reset` selects the wildcard |
+| `browser` | `result/+`, `-`, `page/+`, `page/-` | none | the selected result |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -707,6 +726,15 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | `/browser/presetsfile` | string path | `TrackFX_GetUserPresetFilename` | yes | yes (if browser exists) |
 | `/browser/selected/name` | string | current preset name | yes | **no-op** |
 | `/browser/selected/index` | int | `TrackFX_GetPresetIndex` | yes | yes |
+| `/browser/exists` | int bool | the host browser is open; enables the host browser | Bitwig (v2) | yes |
+| `/browser/contentType/count`, `/browser/contentType/<i>/name` | int, string | content types (tabs) | Bitwig (v2) | yes |
+| `/browser/contentType/selected` (`/name`) | int, string | selected content type; index 1 = presets | Bitwig (v2) | yes |
+| `/browser/preview` | int bool | | Bitwig (v2) | yes |
+| `/browser/column/count` | int | number of filter columns | Bitwig (v2) | yes |
+| `/browser/column/<c>/exists`, `name`, `wildcard`, `cursor/exists`, `cursor/name`, `cursorIndex` | | a filter column, its selected item and the index of it on the item page (-1 if not on it) | Bitwig (v2) | yes |
+| `/browser/column/<c>/item/<i>/exists`, `name`, `select`, `hits` | | the item page of a filter column | Bitwig (v2) | yes |
+| `/browser/result/<i>/exists`, `name`, `select` | | the result page | Bitwig (v2) | yes |
+| `/browser/result/cursor/name` | string | the selected result | Bitwig (v2) | yes |
 | `/drum/exists` | int bool | the cursor track has a drum machine | Bitwig (v2) | yes (all drum devices) |
 | `/drum/hasMutedPads`, `/drum/hasSoloedPads` | int bool | | Bitwig (v2) | yes |
 | `/drum/pad/<p>/exists`, `select`, `active`, `mute`, `solo` | int bool | a pad exists if it has a device | Bitwig (v2) | yes |

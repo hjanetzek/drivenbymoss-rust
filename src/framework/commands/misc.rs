@@ -14,6 +14,7 @@ use super::transport_ext::TapTempoCommand;
 use crate::config::values::*;
 use crate::daw::application::{PANEL_LAYOUT_ARRANGE, PANEL_LAYOUT_EDIT, PANEL_LAYOUT_MIX};
 use crate::daw::bank::BankItem;
+use crate::daw::browser::DeviceChainTarget;
 use crate::daw::constants::ChannelType;
 use crate::framework::command::TriggerCommand;
 use crate::framework::ctx::Ctx;
@@ -239,16 +240,16 @@ impl BrowserCommand {
         }
 
         // No cursor device, add to the selected channel, if any
-        let channel_name = match ctx.model.current_track_bank().selected_item() {
-            Some(track) => Some(track.name().to_string()),
-            None if ctx.model.master_track().is_selected() => Some(ctx.model.master_track().name().to_string()),
+        let channel = match ctx.model.current_track_bank().selected_item() {
+            Some(track) => Some((track.name().to_string(), DeviceChainTarget::Track(track.position()))),
+            None if ctx.model.master_track().is_selected() => Some((ctx.model.master_track().name().to_string(), DeviceChainTarget::Master)),
             None => None,
         };
-        let Some(channel_name) = channel_name else {
+        let Some((channel_name, target)) = channel else {
             return false;
         };
         if let Some(browser) = ctx.model.browser_mut() {
-            browser.add_device(&channel_name);
+            browser.add_device(&channel_name, target);
         }
         true
     }

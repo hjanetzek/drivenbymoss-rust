@@ -615,9 +615,14 @@ impl DrumBase {
             if !primary.has_drum_pads() {
                 return;
             }
-            self.scroll_position = primary.drum_pad_bank().scroll_position();
-            // Browsing the presets of a drum pad is not supported by Reaper (former
-            // browser.replace (drumPad))
+            let bank = primary.drum_pad_bank();
+            self.scroll_position = bank.scroll_position();
+            let pad = bank.item(played_pad as usize);
+            let (owner, name, position) = (bank.owner(), pad.name().to_string(), pad.position());
+            // Only with a host browser, Reaper has none for drum pads
+            if let Some(browser) = ctx.model.browser_mut() {
+                browser.replace_drum_pad(owner, &name, position);
+            }
             return;
         }
         if self.is_select_trigger(ctx) || ctx.config.is_auto_select_drum() {

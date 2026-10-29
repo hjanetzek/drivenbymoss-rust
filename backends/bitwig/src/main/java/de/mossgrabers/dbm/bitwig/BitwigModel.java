@@ -86,6 +86,8 @@ public final class BitwigModel
     final SpecificDevice     drumDevice;
     /** The first instrument of the cursor track, null if the controller does not need it. */
     final SpecificDevice     firstInstrument;
+    /** The popup browser, null if the controller does not need it. */
+    final BitwigBrowser      browser;
     /** The note repeat of the default note input, null if the controller has none. */
     final Arpeggiator        arpeggiator;
 
@@ -141,6 +143,8 @@ public final class BitwigModel
             this.firstInstrument = new SpecificDevice (this.createDevice (host.createInstrumentMatcher ()), "/primary", numParamPages, NUM_DRUM_PADS, NUM_LAYERS);
         else
             this.firstInstrument = null;
+        final int numResults = getInt (modelSetup, "numResults", 16);
+        this.browser = numResults > 0 ? new BitwigBrowser (host, Math.max (1, getInt (modelSetup, "numFilterColumnEntries", 16)), numResults) : null;
 
         this.pages = new CursorRemoteControlsPage [numParamPages];
         for (int i = 0; i < numParamPages; i++)
@@ -322,6 +326,8 @@ public final class BitwigModel
             this.drumDevice.collect (reporter);
         if (this.firstInstrument != null)
             this.firstInstrument.collect (reporter);
+        if (this.browser != null)
+            this.browser.collect (reporter);
     }
 
 

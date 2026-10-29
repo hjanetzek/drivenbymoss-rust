@@ -85,6 +85,11 @@ fn parse_double(value: &str) -> Option<f64> {
     value.trim().parse::<f64>().ok()
 }
 
+/// A boolean value: true if the number is positive.
+fn parse_flag(value: &str) -> bool {
+    parse_double(value).is_some_and(|v| v > 0.0)
+}
+
 fn parse_int(value: &str) -> Option<i32> {
     let v = value.trim();
     v.parse::<i32>().ok().or_else(|| v.parse::<f64>().ok().map(|d| d as i32))
@@ -947,7 +952,65 @@ impl Parser {
                 }
                 _ => host.error(&format!("Unhandled Browser Parameter Selected: {command}")),
             },
+            // The browser of the host (protocol v2)
+            TAG_EXISTS => browser.set_host_active(parse_flag(value)),
+            "preview" => browser.set_preview(parse_flag(value)),
+            "contentType" => match (parts.poll(), parts.poll()) {
+                (Some(TAG_COUNT), None) => browser.set_content_type_count(parse_int(value).unwrap_or(0).max(0) as usize),
+                (Some("selected"), None) => browser.set_selected_content_type(parse_int(value).unwrap_or(0).max(0) as usize),
+                (Some("selected"), Some(TAG_NAME)) => browser.set_selected_content_type_name(value),
+                (Some(index), Some(TAG_NAME)) => match parse_index(index) {
+                    Some(i) => browser.set_content_type_name(i, value),
+                    None => host.error(&format!("Unhandled Browser Content Type: {index}")),
+                },
+                (other, _) => host.error(&format!("Unhandled Browser Content Type: {}", other.unwrap_or(""))),
+            },
+            "column" => {
+                let index = parts.poll().unwrap_or("");
+                if index == TAG_COUNT {
+                    browser.set_filter_column_count(parse_int(value).unwrap_or(0).max(0) as usize);
+                    return;
+                }
+                let Some(column_index) = parse_index(index) else {
+                    host.error(&format!("Unhandled Browser Column: {index}"));
+                    return;
+                };
+                let column = browser.filter_column_mut(column_index);
+                match (parts.poll(), parts.poll(), parts.poll()) {
+                    (Some(TAG_EXISTS), None, None) => column.exists = parse_flag(value),
+                    (Some(TAG_NAME), None, None) => column.name = value.to_string(),
+                    (Some("wildcard"), None, None) => column.wildcard = value.to_string(),
+                    (Some("cursorIndex"), None, None) => column.cursor_index = parse_int(value).unwrap_or(-1),
+                    (Some("cursor"), Some(TAG_EXISTS), None) => column.cursor_exists = parse_flag(value),
+                    (Some("cursor"), Some(TAG_NAME), None) => column.cursor_name = value.to_string(),
+                    (Some("item"), Some(item), Some(field)) => {
+                        if let Some(item) = parse_index(item).and_then(|i| column.items.get_mut(i)) {
+                            Self::parse_browser_item(item, field, value);
+                        }
+                    }
+                    (field, _, _) => host.error(&format!("Unhandled Browser Column Parameter: {}", field.unwrap_or(""))),
+                }
+            }
+            "result" => match (parts.poll(), parts.poll()) {
+                (Some("cursor"), Some(TAG_NAME)) => browser.set_selected_result_name(value),
+                (Some(index), Some(field)) => {
+                    if let Some(item) = parse_index(index).and_then(|i| browser.result_item_mut(i)) {
+                        Self::parse_browser_item(item, field, value);
+                    }
+                }
+                (other, _) => host.error(&format!("Unhandled Browser Result: {}", other.unwrap_or(""))),
+            },
             _ => host.error(&format!("Unhandled Browser Parameter: {command}")),
+        }
+    }
+
+    fn parse_browser_item(item: &mut crate::daw::browser::BrowserColumnItem, field: &str, value: &str) {
+        match field {
+            TAG_EXISTS => item.exists = parse_flag(value),
+            TAG_NAME => item.name = value.to_string(),
+            TAG_SELECT => item.is_selected = parse_flag(value),
+            "hits" => item.hit_count = parse_int(value).unwrap_or(0),
+            _ => {}
         }
     }
 
@@ -1588,6 +1651,67 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
+        );
+    }
+
+    #[test]
+    fn host_browser() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/browser/exists 1",
+                "/browser/contentType/count 2",
+                "/browser/contentType/0/name Devices",
+                "/browser/contentType/1/name Presets",
+                "/browser/contentType/selected 1",
+                "/browser/contentType/selected/name Presets",
+                "/browser/column/count 7",
+                "/browser/column/2/exists 1",
+                "/browser/column/2/name Category",
+                "/browser/column/2/wildcard Any Category",
+                "/browser/column/2/cursor/exists 1",
+                "/browser/column/2/cursor/name Bass",
+                "/browser/column/2/cursorIndex 3",
+                "/browser/column/2/item/3/name Bass",
+                "/browser/column/2/item/3/hits 12",
+                "/browser/result/1/name Fat Bass",
+                "/browser/result/1/select 1",
+                "/browser/result/cursor/name Fat Bass",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let browser = model.browser().unwrap();
+        assert!(browser.is_active() && browser.is_preset_content_type());
+        assert!(browser.has_previous_content_type() && !browser.has_next_content_type());
+        assert_eq!(browser.filter_column_count(), 7);
+        let column = browser.filter_column(2).unwrap();
+        assert_eq!((column.name.as_str(), column.cursor_name.as_str(), column.cursor_index), ("Category", "Bass", 3));
+        assert_eq!(column.items[3].hit_count, 12);
+        assert_eq!(browser.selected_result_index(), 1);
+        assert_eq!(browser.selected_result(), Some("Fat Bass"));
+
+        backend.take_calls();
+        let browser = model.browser_mut().unwrap();
+        browser.select_next_filter_item(2);
+        browser.select_previous_result();
+        browser.next_content_type();
+        browser.replace_slot("", 3, 5);
+        browser.replace_drum_pad(crate::backend::Processor::Drum, "Kick", 36);
+        browser.add_device("Bass", crate::daw::browser::DeviceChainTarget::Track(2));
+        browser.stop_browsing(true);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("browser".into(), "column/2/+".into()),
+                BackendCall::NoArg("browser".into(), "result/-".into()),
+                BackendCall::NoArg("browser".into(), "contentType/+".into()),
+                BackendCall::NoArg("browser".into(), "replace/slot/3/5".into()),
+                BackendCall::NoArg("browser".into(), "replace/drum/pad/36".into()),
+                BackendCall::NoArg("browser".into(), "add/track/2".into()),
+                BackendCall::IntArg("browser".into(), "stop".into(), 1),
+            ]
         );
     }
 

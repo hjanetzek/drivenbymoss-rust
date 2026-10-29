@@ -9,6 +9,7 @@ import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.Track;
 
@@ -69,6 +70,7 @@ public final class CommandHandler
             case "scene" -> this.handleScene (command, null);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 1, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 1, null);
+            case "browser" -> this.handleBrowser (command, 1);
             case "refresh" -> this.reporter.requestDump ();
             case "play" -> this.model.transport.togglePlay ();
             case "stop" -> this.model.transport.stop ();
@@ -108,6 +110,7 @@ public final class CommandHandler
             case "project" -> this.handleProject (command);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
+            case "browser" -> this.handleBrowser (command, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -209,6 +212,111 @@ public final class CommandHandler
                     this.handleChannel (channel, parts[2], value, text);
             }
         }
+    }
+
+
+    /**
+     * The popup browser, as BrowserImpl of the Java version: "replace/device",
+     * "replace/slot/&lt;track&gt;/&lt;slot&gt;", "replace/&lt;drum|primary&gt;/pad/&lt;pad&gt;",
+     * "add/track/&lt;track&gt;", "add/master", "insertBefore", "insertAfter", "stop" (1 =
+     * commit), "preview", "contentType/+|-", "column/&lt;column&gt;/…", "result/…".
+     */
+    private void handleBrowser (final String command, final double value)
+    {
+        final BitwigBrowser browser = this.model.browser;
+        if (browser == null)
+            return;
+        final String [] parts = command.split ("/");
+        final boolean handled = switch (parts[0])
+        {
+            case "stop" ->
+            {
+                browser.stopBrowsing (value > 0);
+                yield true;
+            }
+            case "preview" ->
+            {
+                browser.setPreview (value > 0);
+                yield true;
+            }
+            case "contentType" ->
+            {
+                if (parts.length == 2)
+                    browser.changeContentType ("-".equals (parts[1]) ? -1 : 1);
+                yield parts.length == 2;
+            }
+            case "column" -> parts.length >= 3 && browser.handleColumn (parseIndex (parts[1]), command.substring (parts[0].length () + parts[1].length () + 2));
+            case "result" -> parts.length >= 2 && browser.handleResult (command.substring (parts[0].length () + 1));
+            case "insertBefore" ->
+            {
+                final PinnableCursorDevice device = this.model.cursorDevice;
+                browser.browse (device.exists ().get () ? device.beforeDeviceInsertionPoint () : this.model.cursorTrack.startOfDeviceChainInsertionPoint ());
+                yield true;
+            }
+            case "insertAfter" ->
+            {
+                final PinnableCursorDevice device = this.model.cursorDevice;
+                browser.browse (device.exists ().get () ? device.afterDeviceInsertionPoint () : this.model.cursorTrack.endOfDeviceChainInsertionPoint ());
+                yield true;
+            }
+            case "add" -> this.browseAdd (browser, parts);
+            case "replace" -> this.browseReplace (browser, parts);
+            default -> false;
+        };
+        if (!handled)
+            this.unhandled.accept ("browser " + command);
+    }
+
+
+    /** "add/track/&lt;track&gt;", "add/master": the start of the channel's device chain. */
+    private boolean browseAdd (final BitwigBrowser browser, final String [] parts)
+    {
+        if (parts.length == 2 && "master".equals (parts[1]))
+        {
+            browser.browse (this.model.masterTrack.startOfDeviceChainInsertionPoint ());
+            return true;
+        }
+        if (parts.length != 3 || !"track".equals (parts[1]))
+            return false;
+        final Track track = this.model.getTrack (parseIndex (parts[2]));
+        if (track != null)
+            browser.browse (track.startOfDeviceChainInsertionPoint ());
+        return true;
+    }
+
+
+    /** "replace/device", "replace/slot/&lt;track&gt;/&lt;slot&gt;", "replace/&lt;device&gt;/pad/&lt;pad&gt;". */
+    private boolean browseReplace (final BitwigBrowser browser, final String [] parts)
+    {
+        if (parts.length == 2 && "device".equals (parts[1]))
+        {
+            browser.browse (this.model.cursorDevice.replaceDeviceInsertionPoint ());
+            return true;
+        }
+        if (parts.length == 4 && "slot".equals (parts[1]))
+        {
+            // Only slots of the window can be addressed
+            final Track track = this.model.getWindowTrack (parseIndex (parts[2]));
+            final ClipLauncherSlot slot = track == null ? null : this.model.getSlot (track, parseIndex (parts[3]));
+            if (slot != null)
+                browser.browse (slot.replaceInsertionPoint ());
+            return true;
+        }
+        if (parts.length == 4 && "pad".equals (parts[2]))
+        {
+            final SpecificDevice device = switch (parts[1])
+            {
+                case "drum" -> this.model.drumDevice;
+                case "primary" -> this.model.firstInstrument;
+                default -> null;
+            };
+            final int pad = parseIndex (parts[3]);
+            if (device == null || pad < 0 || pad >= device.numPads)
+                return false;
+            browser.browse (device.drumPadBank.getItemAt (pad).insertionPoint ());
+            return true;
+        }
+        return false;
     }
 
 

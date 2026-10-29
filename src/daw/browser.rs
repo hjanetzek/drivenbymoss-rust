@@ -2,9 +2,12 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! A minimal browser (former `IBrowser` / `BrowserImpl`). Only browsing the presets of the
+//! The browser (former `IBrowser` / `BrowserImpl`). On Reaper only browsing the presets of the
 //! cursor device is supported; device browsing (which requires the plugin database and the
 //! filter columns of the Java version) and the browser window are not ported.
+//!
+//! A host with its own browser (Bitwig, protocol v2) reports `/browser/exists` and the content
+//! types, filter columns and results; then all browser functions are commands to the host.
 
 use crate::backend::Processor;
 
@@ -29,6 +32,38 @@ impl BrowserContentType {
 const INSERT_DEVICE_BEFORE: &str = "Insert device before: ";
 const INSERT_DEVICE_AFTER: &str = "Insert device after: ";
 
+/// An item of a filter column or of the results (former `IBrowserColumnItem`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BrowserColumnItem {
+    pub exists: bool,
+    pub name: String,
+    pub is_selected: bool,
+    pub hit_count: i32,
+}
+
+/// A filter column of a host browser (former `IBrowserColumn`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BrowserColumn {
+    pub index: usize,
+    pub exists: bool,
+    pub name: String,
+    /// The name of the item which does not filter (e.g. "Any Category").
+    pub wildcard: String,
+    pub cursor_exists: bool,
+    pub cursor_name: String,
+    /// The index of the cursor item on the page of `items`, -1 if it is not on the page.
+    pub cursor_index: i32,
+    pub items: Vec<BrowserColumnItem>,
+}
+
+/// The device chain to which a device is added (former `addDevice (IChannel)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceChainTarget {
+    /// The track at the absolute position.
+    Track(i32),
+    Master,
+}
+
 /// The browser.
 pub struct Browser {
     ctx: DawContext,
@@ -40,6 +75,16 @@ pub struct Browser {
     num_filter_column_entries: usize,
     insert_position: i32,
     info_text: String,
+    /// The host has its own browser (protocol v2): the fields below are reported by it.
+    host_reported: bool,
+    host_active: bool,
+    content_type_names: Vec<String>,
+    selected_content_type_index: usize,
+    selected_content_type_name: String,
+    preview: bool,
+    columns: Vec<BrowserColumn>,
+    results: Vec<BrowserColumnItem>,
+    selected_result_name: String,
 }
 
 impl Browser {
@@ -54,7 +99,25 @@ impl Browser {
             num_filter_column_entries,
             insert_position: -1,
             info_text: String::new(),
+            host_reported: false,
+            host_active: false,
+            content_type_names: Vec::new(),
+            selected_content_type_index: 0,
+            selected_content_type_name: String::new(),
+            preview: false,
+            columns: Vec::new(),
+            results: vec![BrowserColumnItem::default(); num_results],
+            selected_result_name: String::new(),
         }
+    }
+
+    /// True if the host has its own browser (protocol v2).
+    pub fn is_host_reported(&self) -> bool {
+        self.host_reported
+    }
+
+    fn send(&self, command: &str) {
+        self.ctx.send(Processor::Browser, command);
     }
 
     pub fn enable_observers(&self, enable: bool) {
@@ -62,7 +125,11 @@ impl Browser {
     }
 
     pub fn is_active(&self) -> bool {
-        self.is_active
+        if self.host_reported {
+            self.host_active
+        } else {
+            self.is_active
+        }
     }
 
     /// A text describing the current browsing action (e.g. "Replace: ReaEQ").
@@ -74,77 +141,196 @@ impl Browser {
         self.content_type
     }
 
+    /// The host browser: the content type with index 1 is the presets (as in the Java version).
     pub fn is_preset_content_type(&self) -> bool {
-        self.content_type == BrowserContentType::Preset
+        if self.host_reported {
+            self.selected_content_type_index == 1
+        } else {
+            self.content_type == BrowserContentType::Preset
+        }
     }
 
     pub fn selected_content_type_index(&self) -> usize {
-        self.content_type as usize
+        if self.host_reported {
+            self.selected_content_type_index
+        } else {
+            self.content_type as usize
+        }
     }
 
-    pub fn selected_content_type(&self) -> &'static str {
-        self.content_type.name()
+    pub fn selected_content_type(&self) -> &str {
+        if self.host_reported {
+            &self.selected_content_type_name
+        } else {
+            self.content_type.name()
+        }
     }
 
-    pub fn content_type_names(&self) -> Vec<&'static str> {
-        vec![self.selected_content_type()]
+    pub fn content_type_names(&self) -> Vec<&str> {
+        if self.host_reported {
+            self.content_type_names.iter().map(String::as_str).collect()
+        } else {
+            vec![self.selected_content_type()]
+        }
     }
 
-    /// No content type switching.
+    /// Without a host browser there is no content type switching.
     pub fn has_previous_content_type(&self) -> bool {
-        false
+        self.host_reported && self.selected_content_type_index > 0
     }
 
-    /// No content type switching.
+    /// Without a host browser there is no content type switching.
     pub fn has_next_content_type(&self) -> bool {
-        false
+        self.host_reported && self.selected_content_type_index + 1 < self.content_type_names.len()
     }
 
-    pub fn previous_content_type(&mut self) {}
+    pub fn previous_content_type(&mut self) {
+        if self.host_reported {
+            self.send("contentType/-");
+        }
+    }
 
-    pub fn next_content_type(&mut self) {}
+    pub fn next_content_type(&mut self) {
+        if self.host_reported {
+            self.send("contentType/+");
+        }
+    }
 
     pub fn is_preview_enabled(&self) -> bool {
-        false
+        self.preview
     }
 
-    pub fn toggle_preview_enabled(&mut self) {}
+    pub fn toggle_preview_enabled(&mut self) {
+        let enabled = !self.preview;
+        self.set_preview_enabled(enabled);
+    }
 
-    pub fn set_preview_enabled(&mut self, _enabled: bool) {}
+    pub fn set_preview_enabled(&mut self, enabled: bool) {
+        if self.host_reported {
+            self.ctx.send_bool(Processor::Browser, "preview", enabled);
+        }
+    }
 
     pub fn num_filter_column_entries(&self) -> usize {
         self.num_filter_column_entries
     }
 
-    /// No filter columns are supported.
-    pub fn select_previous_filter_item(&mut self, _column: usize) {}
+    /// The number of filter columns; 0 without a host browser.
+    pub fn filter_column_count(&self) -> usize {
+        self.columns.len()
+    }
 
-    /// No filter columns are supported.
-    pub fn select_next_filter_item(&mut self, _column: usize) {}
+    pub fn filter_column(&self, column: usize) -> Option<&BrowserColumn> {
+        self.columns.get(column)
+    }
+
+    pub fn filter_column_names(&self) -> Vec<&str> {
+        self.columns.iter().map(|c| c.name.as_str()).collect()
+    }
+
+    fn send_column(&self, column: usize, command: &str) {
+        if self.host_reported && column < self.columns.len() {
+            self.send(&format!("column/{column}/{command}"));
+        }
+    }
+
+    pub fn select_previous_filter_item(&mut self, column: usize) {
+        self.send_column(column, "-");
+    }
+
+    pub fn select_next_filter_item(&mut self, column: usize) {
+        self.send_column(column, "+");
+    }
+
+    pub fn previous_filter_item_page(&mut self, column: usize) {
+        self.send_column(column, "page/-");
+    }
+
+    pub fn next_filter_item_page(&mut self, column: usize) {
+        self.send_column(column, "page/+");
+    }
+
+    /// Select the wildcard item of the column (former `resetFilterColumn`).
+    pub fn reset_filter_column(&mut self, column: usize) {
+        self.send_column(column, "reset");
+    }
+
+    /// The index of the cursor item on the page of the column, -1 if not on the page.
+    pub fn selected_filter_item_index(&self, column: usize) -> i32 {
+        self.columns.get(column).map_or(-1, |c| c.cursor_index)
+    }
 
     /// Browse the presets of the cursor device (former `replace(cursorDevice)`).
     /// `device_name` and `device_position` are the ones of the cursor device.
     pub fn replace_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("Replace: {}", if device_name.is_empty() { "Empty" } else { device_name });
+        if self.host_reported {
+            self.send("replace/device");
+            return;
+        }
         self.browse(BrowserContentType::Preset, device_position);
     }
 
-    /// Browse for a device to add to a channel (device browsing is not supported).
-    pub fn add_device(&mut self, channel_name: &str) {
+    /// Browse for a clip to load into a slot (former `replace(slot)`); only with a host browser.
+    /// `track` and `slot` are absolute positions.
+    pub fn replace_slot(&mut self, slot_name: &str, track: i32, slot: i32) {
+        if self.host_reported {
+            self.info_text = format!("Replace: {}", if slot_name.is_empty() { "Empty" } else { slot_name });
+            self.send(&format!("replace/slot/{track}/{slot}"));
+        }
+    }
+
+    /// Browse for the device of a drum pad (former `replace(drumPad)`); only with a host
+    /// browser. `owner` is the processor of the pad's device (drum, primary), `pad` the pad's
+    /// position (the note).
+    pub fn replace_drum_pad(&mut self, owner: Processor, pad_name: &str, pad: i32) {
+        if self.host_reported {
+            self.info_text = format!("Replace: {}", if pad_name.is_empty() { "Empty" } else { pad_name });
+            self.send(&format!("replace/{}/pad/{pad}", owner.id()));
+        }
+    }
+
+    /// Browse for a device to add to the start of a channel's device chain.
+    pub fn add_device(&mut self, channel_name: &str, target: DeviceChainTarget) {
         self.info_text = format!("Add device to: {channel_name}");
+        if self.host_reported {
+            self.send(&match target {
+                DeviceChainTarget::Track(position) => format!("add/track/{position}"),
+                DeviceChainTarget::Master => "add/master".to_string(),
+            });
+            return;
+        }
         self.browse(BrowserContentType::Device, 0);
     }
 
     /// Browse for a device to insert before the cursor device.
     pub fn insert_before_cursor_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("{INSERT_DEVICE_BEFORE}{device_name}");
+        if self.host_reported {
+            self.send("insertBefore");
+            return;
+        }
         self.browse(BrowserContentType::Device, device_position);
     }
 
     /// Browse for a device to insert after the cursor device.
     pub fn insert_after_cursor_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("{INSERT_DEVICE_AFTER}{device_name}");
+        if self.host_reported {
+            self.send("insertAfter");
+            return;
+        }
         self.browse(BrowserContentType::Device, device_position + 1);
+    }
+
+    /// Switch between inserting before and after the cursor device (former
+    /// `toggleInsertionPoint`).
+    pub fn toggle_insertion_point(&mut self, device_name: &str, device_position: i32) {
+        if self.info_text.starts_with(INSERT_DEVICE_BEFORE) {
+            self.insert_after_cursor_device(device_name, device_position);
+        } else {
+            self.insert_before_cursor_device(device_name, device_position);
+        }
     }
 
     fn browse(&mut self, content_type: BrowserContentType, insert_position: i32) {
@@ -158,6 +344,11 @@ impl Browser {
 
     /// Stop browsing. If `commit_selection` is true the selected preset is loaded.
     pub fn stop_browsing(&mut self, commit_selection: bool) {
+        if self.host_reported {
+            // As the Java version: commit or cancel, even if not active
+            self.ctx.send_bool(Processor::Browser, "stop", commit_selection);
+            return;
+        }
         if !self.is_active {
             return;
         }
@@ -180,8 +371,12 @@ impl Browser {
         }
     }
 
-    /// The index of the selected result (-1 if there are no results).
+    /// The index of the selected result (-1 if there are no results). With a host browser the
+    /// index on the result page.
     pub fn selected_result_index(&self) -> i32 {
+        if self.host_reported {
+            return self.results.iter().position(|r| r.is_selected).map_or(-1, |i| i as i32);
+        }
         if self.result_count() == 0 {
             -1
         } else {
@@ -191,6 +386,9 @@ impl Browser {
 
     /// The name of the selected result.
     pub fn selected_result(&self) -> Option<&str> {
+        if self.host_reported {
+            return Some(&self.selected_result_name);
+        }
         if !self.is_preset_content_type() {
             return None;
         }
@@ -199,6 +397,9 @@ impl Browser {
 
     /// The names of the results of the current result page.
     pub fn result_page(&self) -> Vec<String> {
+        if self.host_reported {
+            return self.results.iter().map(|r| r.name.clone()).collect();
+        }
         if !self.is_preset_content_type() || self.num_results == 0 {
             return Vec::new();
         }
@@ -215,19 +416,45 @@ impl Browser {
         self.selected_index = index.clamp(0, (length - 1).max(0));
     }
 
+    /// The items of the result page (former `getResultColumnItems`); empty without a host
+    /// browser.
+    pub fn result_items(&self) -> &[BrowserColumnItem] {
+        if self.host_reported {
+            &self.results
+        } else {
+            &[]
+        }
+    }
+
     pub fn select_previous_result(&mut self) {
+        if self.host_reported {
+            self.send("result/-");
+            return;
+        }
         self.set_selected_result(self.selected_index - 1);
     }
 
     pub fn select_next_result(&mut self) {
+        if self.host_reported {
+            self.send("result/+");
+            return;
+        }
         self.set_selected_result(self.selected_index + 1);
     }
 
     pub fn previous_result_page(&mut self) {
+        if self.host_reported {
+            self.send("result/page/-");
+            return;
+        }
         self.set_selected_result(self.selected_index - self.num_results as i32);
     }
 
     pub fn next_result_page(&mut self) {
+        if self.host_reported {
+            self.send("result/page/+");
+            return;
+        }
         self.set_selected_result(self.selected_index + self.num_results as i32);
     }
 
@@ -237,6 +464,61 @@ impl Browser {
     }
 
     // Internal setters
+
+    /// The host browser is open or closed (protocol v2).
+    pub fn set_host_active(&mut self, active: bool) {
+        self.host_reported = true;
+        self.host_active = active;
+    }
+
+    pub fn set_content_type_count(&mut self, count: usize) {
+        self.content_type_names.resize(count, String::new());
+    }
+
+    pub fn set_content_type_name(&mut self, index: usize, name: &str) {
+        if index >= self.content_type_names.len() {
+            self.content_type_names.resize(index + 1, String::new());
+        }
+        self.content_type_names[index] = name.to_string();
+    }
+
+    pub fn set_selected_content_type(&mut self, index: usize) {
+        self.selected_content_type_index = index;
+    }
+
+    pub fn set_selected_content_type_name(&mut self, name: &str) {
+        self.selected_content_type_name = name.to_string();
+    }
+
+    pub fn set_preview(&mut self, preview: bool) {
+        self.preview = preview;
+    }
+
+    pub fn set_filter_column_count(&mut self, count: usize) {
+        let entries = self.num_filter_column_entries;
+        self.columns.resize_with(count, Default::default);
+        for (index, column) in self.columns.iter_mut().enumerate() {
+            column.index = index;
+            column.items.resize_with(entries, Default::default);
+        }
+    }
+
+    /// The filter column, created if the count has not been reported yet.
+    pub fn filter_column_mut(&mut self, column: usize) -> &mut BrowserColumn {
+        if column >= self.columns.len() {
+            self.set_filter_column_count(column + 1);
+        }
+        &mut self.columns[column]
+    }
+
+    /// An item of the result page; None if outside of the page.
+    pub fn result_item_mut(&mut self, index: usize) -> Option<&mut BrowserColumnItem> {
+        self.results.get_mut(index)
+    }
+
+    pub fn set_selected_result_name(&mut self, name: &str) {
+        self.selected_result_name = name.to_string();
+    }
 
     pub fn set_preset_selected(&mut self, index: i32) {
         self.selected_index = index;

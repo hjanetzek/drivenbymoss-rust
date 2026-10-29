@@ -253,8 +253,13 @@ impl SessionViewBase {
             return true;
         }
 
-        // Browse for clips (replacing slots is not supported by the Reaper browser)
+        // Browse for clips (only with a host browser, Reaper has none for slots)
         if hooks.is_button_combination(ctx, ButtonId::Browse) {
+            let slot = ctx.model.current_track_bank().item(track_index).slot_bank().item(slot_index);
+            let (name, track, position) = (slot.name().to_string(), slot.track_index(), slot.position());
+            if let Some(browser) = ctx.model.browser_mut() {
+                browser.replace_slot(&name, track, position);
+            }
             return true;
         }
 
