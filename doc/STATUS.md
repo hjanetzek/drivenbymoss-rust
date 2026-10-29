@@ -31,6 +31,11 @@ cmake --build build
 CMake runs cargo itself and links the core statically into `reaper_drivenbymoss.so` (`.dll` on
 Windows, `.dylib` on macOS).
 
+The protocol between the core and a host (commands, model updates, call sequence) is written down
+in [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md), with a list of mismatches between the Rust core
+and the Reaper backend. [BITWIG_BACKEND_PLAN.md](BITWIG_BACKEND_PLAN.md) drafts a Bitwig Studio 6.1
+backend (a Java extension over FFM) with a dev mode that reloads the rebuilt native library.
+
 `ci/linux.sh` builds and tests everything that builds on Linux: the crate, the C++ wrapper,
 `dbm-nihost` and the Reaper extension. `.github/workflows/linux.yml` runs it once `rust/` is its
 own repository.

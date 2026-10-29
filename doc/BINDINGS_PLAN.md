@@ -60,11 +60,11 @@ in, so they are done first.
    - Panics never cross the boundary. The release profile must not set `panic = "abort"`.
    - Every callback may be NULL, which means it is ignored. `open_*` then reports failure and
      `get_midi_*` an empty list. Bindings only have to implement what their host needs.
-5. **Backend protocol specification (todo).**
-   - The processor/command names and the model update lines are defined only by the C++
-     processors in `backends/reaper`. Write them down as the real host interface.
-   - Make Reaper-only parts optional capabilities that a backend declares: action IDs, the INI
-     file processor, and so on.
+5. **Backend protocol specification (done).**
+   - [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) documents the commands (processor/command names),
+     the model update lines, the call sequence, and what a host has to implement.
+   - Todo: make Reaper-only parts optional capabilities that a backend declares (action IDs, the
+     INI file processor, and so on), and fix the mismatches listed there.
 
 ## Language wrappers
 
