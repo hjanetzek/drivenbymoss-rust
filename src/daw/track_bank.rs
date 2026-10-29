@@ -53,6 +53,9 @@ pub struct TrackBank {
     page_size: usize,
     raw_item_count: usize,
     bank_offset: usize,
+    /// True if the host pages the tracks (it reported `/track/offset`, protocol v2): it only
+    /// reports the tracks of its window and is told each change of the bank offset.
+    host_paged: bool,
     num_sends: usize,
     num_scenes: usize,
     num_params: usize,
@@ -90,6 +93,7 @@ impl TrackBank {
             page_size: num_tracks,
             raw_item_count: 0,
             bank_offset: 0,
+            host_paged: false,
             num_sends,
             num_scenes,
             num_params,
@@ -330,8 +334,26 @@ impl TrackBank {
     /// Set the position of the first track of the page (clamped).
     pub fn set_bank_offset(&mut self, bank_offset: i64) {
         let max = (self.item_count() as i64 - 1).max(0);
+        let old_offset = self.bank_offset;
         self.bank_offset = bank_offset.clamp(0, max) as usize;
+        if self.host_paged && self.bank_offset != old_offset {
+            self.ctx.send_int(Processor::Bank, "track", self.bank_offset as i32);
+        }
         self.ctx.post_event(ModelEvent::TrackBankPageChanged);
+    }
+
+    /// The host reported the offset of its track window: from now on the host pages the tracks.
+    /// Tells the host the current offset.
+    pub fn enable_host_paging(&mut self) {
+        if !self.host_paged {
+            self.host_paged = true;
+            self.ctx.send_int(Processor::Bank, "track", self.bank_offset as i32);
+        }
+    }
+
+    /// Enable host paging of the scenes (and with them the slots).
+    pub fn enable_host_scene_paging(&mut self) {
+        self.scene_bank.enable_host_paging();
     }
 
     pub fn select_next_item(&mut self) {

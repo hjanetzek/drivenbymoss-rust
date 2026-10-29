@@ -416,6 +416,18 @@ slot (scene) index.
 | `device` | `param/<i>/touch` | int | a touch sensitive control touches the parameter (1) or releases it (0) | ignored |
 | `device` | `param/<i>/indicate` | int | indicate the parameter on the DAW's user interface | ignored |
 
+#### Protocol v2: host-side paging
+
+A host which only reports a window of the tracks or scenes sends the window offset
+(`/track/offset`, `/scene/offset`, §3). From then on the core tells it every change of its bank
+offset; the core stays in charge of the paging, the host scrolls its window to follow. Reaper sends
+everything and never reports an offset.
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `bank` | `track` | int | the offset of the core's track bank (the first visible track) |
+| `bank` | `scene` | int | the offset of the core's scene bank (the first visible scene and slot) |
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -524,6 +536,7 @@ Columns: **Host** = sent by Reaper DataCollector; **Parser** = handled in parser
 | Address | Value | Meaning | Host | Parser |
 |---|---|---|---|---|
 | `/track/count` | int | number of visible tracks (sent after tracks) | yes | yes (+RebindKnobs) |
+| `/track/offset` | int | offset of the host's track window; the host pages the tracks (v2) | Bitwig (v2) | yes |
 | `/track/<n>/exists` | int (always 1) | | yes | yes |
 | `/track/<n>/number` | int | = n | yes | yes (`set_position`) |
 | `/track/<n>/depth` | int | `GetTrackDepth` (folder depth) | yes | yes |
@@ -641,6 +654,7 @@ Parameter sub-addresses (all banks; `<i>` = absolute 0-based parameter index; ho
 | Address | Value | Meaning | Host | Parser |
 |---|---|---|---|---|
 | `/scene/count` | int | number of regions | yes (session) | yes (all scene banks) |
+| `/scene/offset` | int | offset of the host's scene window; the host pages the scenes and slots (v2) | Bitwig (v2) | yes |
 | `/scene/<n>/exists` | int (1) | | yes | yes |
 | `/scene/<n>/number` | int = n | | yes | yes |
 | `/scene/<n>/name` | string | empty → default name `Scene <n+1>` | yes | yes |

@@ -175,6 +175,11 @@ pub struct SceneBank {
 }
 
 impl SceneBank {
+    /// The host reported the offset of its scene window (see `PagedBank::enable_host_paging`).
+    pub(crate) fn enable_host_paging(&mut self) {
+        self.bank.enable_host_paging();
+    }
+
     pub fn new(ctx: DawContext, num_scenes: usize) -> Self {
         let item_ctx = ctx.clone();
         let empty_ctx = ctx.clone();
@@ -187,6 +192,7 @@ impl SceneBank {
             },
             move || Scene::empty(&empty_ctx),
         );
+        bank.set_host_bank("scene");
         bank.set_page_event(ModelEvent::SceneBankPageChanged);
         SceneBank { bank }
     }

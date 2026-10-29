@@ -93,6 +93,7 @@ public final class CommandHandler
         {
             case "transport" -> this.handleTransport (command, value);
             case "application" -> this.handleApplication (command, value);
+            case "bank" -> this.handleBank (command, (int) value);
             case "repeat" -> this.model.transport.isArrangerLoopEnabled ().toggle ();
             case "tempo" -> this.model.transport.tempo ().value ().setRaw (value);
             case "time" -> this.handleTime (command, value);
@@ -151,6 +152,20 @@ public final class CommandHandler
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
             default -> this.unhandled.accept (processor + " " + command);
+        }
+    }
+
+
+    /**
+     * Scroll the track or scene window to the core's bank offset (host paging).
+     */
+    private void handleBank (final String command, final int offset)
+    {
+        switch (command)
+        {
+            case "track" -> this.model.trackBank.scrollPosition ().set (Math.max (0, offset));
+            case "scene" -> this.model.sceneBank.scrollPosition ().set (Math.max (0, offset));
+            default -> this.unhandled.accept ("bank " + command);
         }
     }
 
@@ -320,18 +335,19 @@ public final class CommandHandler
 
 
     /**
-     * Track commands: "&lt;index&gt;/&lt;command&gt;", the index of the flat track list.
+     * Track commands: "&lt;position&gt;/&lt;command&gt;" with the absolute track position. Tracks
+     * outside of the window come from the large bank, without sends and slots.
      */
     private void handleTrack (final String command, final double value, final String text)
     {
         final int slash = command.indexOf ('/');
         final int index = slash > 0 ? parseIndex (command.substring (0, slash)) : -1;
-        if (index < 0 || index >= BitwigModel.NUM_TRACKS)
+        final Track track = this.model.getTrack (index);
+        if (track == null)
         {
             this.unhandled.accept ("track " + command);
             return;
         }
-        final Track track = this.model.trackBank.getItemAt (index);
         final String subCommand = command.substring (slash + 1);
         switch (subCommand)
         {
@@ -360,10 +376,17 @@ public final class CommandHandler
             }
             default ->
             {
-                if (subCommand.startsWith ("send/"))
-                    this.handleSend (track, subCommand, value);
-                else if (subCommand.startsWith ("clip/"))
-                    this.handleSlot (track, subCommand, text);
+                if (subCommand.startsWith ("send/") || subCommand.startsWith ("clip/"))
+                {
+                    // Sends and slots only exist for the tracks of the window
+                    final Track windowTrack = this.model.getWindowTrack (index);
+                    if (windowTrack == null)
+                        this.unhandled.accept ("track outside of the window " + command);
+                    else if (subCommand.startsWith ("send/"))
+                        this.handleSend (windowTrack, subCommand, value);
+                    else
+                        this.handleSlot (windowTrack, subCommand, text);
+                }
                 else if (subCommand.startsWith ("createClip/"))
                 {
                     // createNewLauncherClip needs the absolute slot (as TrackImpl.createClip)
@@ -385,13 +408,12 @@ public final class CommandHandler
     private void handleSlot (final Track track, final String command, final String text)
     {
         final String [] parts = command.split ("/");
-        final int index = parts.length == 3 ? parseIndex (parts[1]) : -1;
-        if (index < 0 || index >= BitwigModel.NUM_SCENES)
+        final ClipLauncherSlot slot = parts.length == 3 ? this.model.getSlot (track, parseIndex (parts[1])) : null;
+        if (slot == null)
         {
             this.unhandled.accept ("track " + command);
             return;
         }
-        final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (index);
         switch (parts[2])
         {
             case "launch" -> slot.launch ();
@@ -414,8 +436,10 @@ public final class CommandHandler
                 final String [] source = text == null ? new String [0] : text.split ("/");
                 final int sourceTrack = source.length == 2 ? parseIndex (source[0]) : -1;
                 final int sourceSlot = source.length == 2 ? parseIndex (source[1]) : -1;
-                if (sourceTrack >= 0 && sourceTrack < BitwigModel.NUM_TRACKS && sourceSlot >= 0 && sourceSlot < BitwigModel.NUM_SCENES)
-                    slot.replaceInsertionPoint ().copySlotsOrScenes (this.model.trackBank.getItemAt (sourceTrack).clipLauncherSlotBank ().getItemAt (sourceSlot));
+                final Track sourceWindowTrack = this.model.getWindowTrack (sourceTrack);
+                final ClipLauncherSlot sourceSlotObject = sourceWindowTrack == null ? null : this.model.getSlot (sourceWindowTrack, sourceSlot);
+                if (sourceSlotObject != null)
+                    slot.replaceInsertionPoint ().copySlotsOrScenes (sourceSlotObject);
             }
             default -> this.unhandled.accept ("track clip " + parts[2]);
         }
@@ -435,13 +459,12 @@ public final class CommandHandler
             default ->
             {
                 final String [] parts = command.split ("/");
-                final int index = parts.length == 2 ? parseIndex (parts[0]) : -1;
-                if (index < 0 || index >= BitwigModel.NUM_SCENES)
+                final Scene scene = parts.length == 2 ? this.model.getScene (parseIndex (parts[0])) : null;
+                if (scene == null)
                 {
                     this.unhandled.accept ("scene " + command);
                     return;
                 }
-                final Scene scene = this.model.sceneBank.getItemAt (index);
                 switch (parts[1])
                 {
                     case "launch" -> scene.launch ();

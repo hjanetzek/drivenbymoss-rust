@@ -385,6 +385,8 @@ impl Parser {
         let part = parts.poll().unwrap_or("");
         match part {
             "fx" => self.parse_track_fx_parameter(model, value, parts),
+            // The host pages the tracks (protocol v2); the core keeps its own offset
+            "offset" => model.track_bank_mut().enable_host_paging(),
             TAG_COUNT => {
                 if let Some(count) = parse_int(value) {
                     let tb = model.track_bank_mut();
@@ -910,7 +912,18 @@ impl Parser {
     }
 
     fn parse_scene(model: &mut Model, parts: &Parts, value: &str) {
-        let color = model.parse_color(value);
+        // The host pages the scenes (protocol v2); the core keeps its own offset
+        if parts.peek() == Some("offset") {
+            model.track_bank_mut().enable_host_scene_paging();
+            return;
+        }
+        // Only parse the color for the color command, other values are no colors
+        let is_color = {
+            let mut p = parts.remaining();
+            p.poll();
+            p.poll() == Some(TAG_COLOR)
+        };
+        let color = if is_color { model.parse_color(value) } else { None };
         let host = model.host().clone();
         model.for_each_scene_bank(|scene_bank| {
             let mut parts_copy = parts.remaining();
@@ -1392,7 +1405,7 @@ mod tests {
 
     #[test]
     fn reported_slot_states() {
-        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
         feed(
             &mut model,
             &mut parser,
@@ -1416,6 +1429,8 @@ mod tests {
         assert!(slot.has_content() && slot.is_playing_queued() && !slot.is_playing());
         assert_eq!(slot.color(), ColorEx::RED);
         assert!(model.scene_bank().item(1).is_selected());
+        // Scene values which are no colors are not parsed as colors
+        assert!(!log.lines.borrow().iter().any(|l| l.contains("Color")), "{:?}", log.lines.borrow());
 
         backend.take_calls();
         let slot = model.track_bank_mut().item_mut(0).slot_bank_mut().item_mut(1);
@@ -1429,6 +1444,29 @@ mod tests {
                 BackendCall::NoArg("track".into(), "0/clip/1/launchReleaseAlt".into()),
                 BackendCall::NoArg("track".into(), "0/stop".into()),
             ]
+        );
+    }
+
+    #[test]
+    fn host_paging() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 20", "/scene/count 20"]);
+        backend.take_calls();
+        let bank_calls = |calls: Vec<BackendCall>| calls.into_iter().filter(|c| matches!(c, BackendCall::IntArg(p, _, _) if p == "bank")).collect::<Vec<_>>();
+        // Without a reported offset (Reaper) the core pages alone
+        model.track_bank_mut().select_next_page();
+        assert!(bank_calls(backend.take_calls()).is_empty());
+        // The host reports its window offsets: it gets the current offsets and each change
+        feed(&mut model, &mut parser, &["/track/offset 0", "/scene/offset 0"]);
+        assert_eq!(
+            bank_calls(backend.take_calls()),
+            vec![BackendCall::IntArg("bank".into(), "track".into(), 8), BackendCall::IntArg("bank".into(), "scene".into(), 0)]
+        );
+        model.track_bank_mut().select_previous_page();
+        model.track_bank_mut().scene_bank_mut().scroll_page_forwards();
+        assert_eq!(
+            bank_calls(backend.take_calls()),
+            vec![BackendCall::IntArg("bank".into(), "track".into(), 0), BackendCall::IntArg("bank".into(), "scene".into(), 8)]
         );
     }
 

@@ -11,6 +11,7 @@
 //! placeholder item which reports `does_exist() == false` and whose commands do nothing.
 
 use super::context::DawContext;
+use crate::backend::Processor;
 use super::events::ModelEvent;
 
 /// Common functions of all items which are managed by a bank (former `IItem`).
@@ -41,6 +42,11 @@ pub struct PagedBank<T> {
     pub(crate) item_count: usize,
     pub(crate) bank_offset: usize,
     page_event: Option<ModelEvent>,
+    /// The name of the bank for the host's `bank` command, if the host can page it.
+    host_bank: Option<&'static str>,
+    /// True if the host pages the bank (it reported the bank offset, protocol v2): the host only
+    /// reports the items of its window and is told each change of the bank offset.
+    host_paged: bool,
 }
 
 impl<T: BankItem> PagedBank<T> {
@@ -62,6 +68,33 @@ impl<T: BankItem> PagedBank<T> {
             item_count: 0,
             bank_offset: 0,
             page_event: None,
+            host_bank: None,
+            host_paged: false,
+        }
+    }
+
+    /// Set the name with which the host can page this bank (`bank <name> <offset>`).
+    pub(crate) fn set_host_bank(&mut self, name: &'static str) {
+        self.host_bank = Some(name);
+    }
+
+    /// The host reported the offset of its window: from now on the host pages the bank. Tells
+    /// the host the current offset.
+    pub(crate) fn enable_host_paging(&mut self) {
+        if self.host_paged || self.host_bank.is_none() {
+            return;
+        }
+        self.host_paged = true;
+        self.send_bank_offset();
+    }
+
+    pub fn is_host_paged(&self) -> bool {
+        self.host_paged
+    }
+
+    fn send_bank_offset(&self) {
+        if let (true, Some(name)) = (self.host_paged, self.host_bank) {
+            self.ctx.send_int(Processor::Bank, name, self.bank_offset as i32);
         }
     }
 
@@ -240,7 +273,11 @@ impl<T: BankItem> PagedBank<T> {
     /// Set the position of the first item of the page (clamped).
     pub fn set_bank_offset(&mut self, bank_offset: i64) {
         let max = (self.item_count as i64 - 1).max(0);
+        let old_offset = self.bank_offset;
         self.bank_offset = bank_offset.clamp(0, max) as usize;
+        if self.bank_offset != old_offset {
+            self.send_bank_offset();
+        }
         if let Some(event) = &self.page_event {
             self.ctx.post_event(event.clone());
         }

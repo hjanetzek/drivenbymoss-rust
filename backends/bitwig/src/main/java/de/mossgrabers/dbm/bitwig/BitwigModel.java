@@ -34,15 +34,14 @@ import java.util.regex.Pattern;
 
 /**
  * The Bitwig objects the core needs, created during init from the core's model setup, and the
- * collection of their state as model update lines (stage 1 of doc/BITWIG_BACKEND_PLAN.md: the
- * existing protocol, flat lists from bounded banks).
+ * collection of their state as model update lines. The track and scene banks are windows of the
+ * size the controller needs, scrolled by Bitwig on the core's command (host paging, protocol v2);
+ * their items are reported with their absolute positions.
  */
 public final class BitwigModel
 {
-    /** The size of the flat track bank; the core pages over it. */
-    public static final int  NUM_TRACKS          = 64;
-    /** The number of scenes (the slots of each track) of the flat track bank; the core pages over them. */
-    public static final int  NUM_SCENES          = 32;
+    /** The size of the bank for commands to tracks outside of the window (as CursorTrackImpl of the Java version). */
+    public static final int  NUM_LARGE_TRACKS    = 400;
     /** The size of the device sibling window, as in the Reaper backend. */
     public static final int  NUM_SIBLINGS        = 8;
     /** The parameters per remote control page. */
@@ -56,8 +55,16 @@ public final class BitwigModel
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
+    /** The window of tracks, with sends and slots. */
     final TrackBank          trackBank;
+    /** All tracks, without sends and slots, for commands to tracks outside of the window. */
+    final TrackBank          largeTrackBank;
+    /** The window of scenes; the slot banks of the window tracks follow it. */
     final SceneBank          sceneBank;
+    /** The size of the track window. */
+    final int                numTracks;
+    /** The size of the scene window. */
+    final int                numScenes;
     final Project            project;
     final CursorTrack        cursorTrack;
     final MasterTrack        masterTrack;
@@ -70,10 +77,11 @@ public final class BitwigModel
     /** The note repeat of the default note input, null if the controller has none. */
     final Arpeggiator        arpeggiator;
 
-    private final boolean [] trackSelected       = new boolean [NUM_TRACKS];
-    private final int []     trackVuLeft         = new int [NUM_TRACKS];
-    private final int []     trackVuRight        = new int [NUM_TRACKS];
-    private final boolean [] sceneSelected       = new boolean [NUM_SCENES];
+    private final int []     trackVuLeft;
+    private final int []     trackVuRight;
+    private final boolean [] sceneSelected;
+    /** The position of the selected track which was reported last, -1 if none. */
+    private int              lastSelectedTrack   = -1;
     private boolean          masterSelected;
     private int              masterVuLeft;
     private int              masterVuRight;
@@ -90,16 +98,22 @@ public final class BitwigModel
     {
         this.arpeggiator = arpeggiator;
         this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
+        this.numTracks = Math.max (1, getInt (modelSetup, "numTracks", 8));
+        this.numScenes = Math.max (1, getInt (modelSetup, "numScenes", 8));
+        this.trackVuLeft = new int [this.numTracks];
+        this.trackVuRight = new int [this.numTracks];
+        this.sceneSelected = new boolean [this.numScenes];
         final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
 
         this.transport = host.createTransport ();
         this.application = host.createApplication ();
         this.arranger = host.createArranger ();
         this.mixer = host.createMixer ();
-        this.trackBank = host.createTrackBank (NUM_TRACKS, this.numSends, NUM_SCENES, true);
+        this.trackBank = host.createTrackBank (this.numTracks, this.numSends, this.numScenes, true);
+        this.largeTrackBank = host.createTrackBank (NUM_LARGE_TRACKS, 0, 0, true);
         this.sceneBank = this.trackBank.sceneBank ();
         this.project = host.getProject ();
-        this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, NUM_SCENES, true);
+        this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, this.numScenes, true);
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
@@ -136,7 +150,9 @@ public final class BitwigModel
         this.application.canRedo ().markInterested ();
 
         this.trackBank.itemCount ().markInterested ();
-        for (int i = 0; i < NUM_TRACKS; i++)
+        this.trackBank.scrollPosition ().markInterested ();
+        this.cursorTrack.position ().markInterested ();
+        for (int i = 0; i < this.numTracks; i++)
         {
             final Track track = this.trackBank.getItemAt (i);
             final int index = i;
@@ -146,11 +162,10 @@ public final class BitwigModel
             track.isGroupExpanded ().markInterested ();
             track.arm ().markInterested ();
             track.monitorMode ().markInterested ();
-            track.addIsSelectedInEditorObserver (selected -> this.trackSelected[index] = selected);
             track.addVuMeterObserver (VU_RANGE, 0, true, value -> this.trackVuLeft[index] = value);
             track.addVuMeterObserver (VU_RANGE, 1, true, value -> this.trackVuRight[index] = value);
             track.isStopped ().markInterested ();
-            for (int s = 0; s < NUM_SCENES; s++)
+            for (int s = 0; s < this.numScenes; s++)
             {
                 final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (s);
                 slot.exists ().markInterested ();
@@ -177,7 +192,8 @@ public final class BitwigModel
         }
 
         this.sceneBank.itemCount ().markInterested ();
-        for (int i = 0; i < NUM_SCENES; i++)
+        this.sceneBank.scrollPosition ().markInterested ();
+        for (int i = 0; i < this.numScenes; i++)
         {
             final Scene scene = this.sceneBank.getItemAt (i);
             final int index = i;
@@ -323,18 +339,38 @@ public final class BitwigModel
     }
 
 
+    /**
+     * The tracks of the window with their absolute positions, the window offset and the number of
+     * all tracks. The selection comes from the cursor track, so that tracks outside of the window
+     * are deselected as well.
+     */
     private void collectTracks (final ModelReporter reporter)
     {
-        final int count = Math.min (this.trackBank.itemCount ().get (), NUM_TRACKS);
-        for (int i = 0; i < count; i++)
+        final int offset = this.trackBank.scrollPosition ().get ();
+        final int total = this.trackBank.itemCount ().get ();
+        final int selected = this.cursorTrack.position ().get ();
+        reporter.put ("/track/offset", offset);
+        if (selected != this.lastSelectedTrack)
         {
+            if (this.lastSelectedTrack >= 0)
+                reporter.put ("/track/" + this.lastSelectedTrack + "/select", false);
+            this.lastSelectedTrack = selected;
+        }
+
+        final int sceneOffset = this.sceneBank.scrollPosition ().get ();
+        final int sceneTotal = this.sceneBank.itemCount ().get ();
+        for (int i = 0; i < this.numTracks; i++)
+        {
+            final int position = offset + i;
+            if (position >= total)
+                break;
             final Track track = this.trackBank.getItemAt (i);
-            final String prefix = "/track/" + i + "/";
+            final String prefix = "/track/" + position + "/";
             reporter.put (prefix + "exists", 1);
-            reporter.put (prefix + "number", i);
+            reporter.put (prefix + "number", position);
             reporter.put (prefix + "type", trackType (track));
             reporter.put (prefix + "isGroupExpanded", track.isGroupExpanded ().get ());
-            reporter.put (prefix + "select", this.trackSelected[i]);
+            reporter.put (prefix + "select", position == selected);
             reporter.put (prefix + "recarm", track.arm ().get ());
             final String monitorMode = track.monitorMode ().get ();
             reporter.put (prefix + "monitor", "ON".equals (monitorMode));
@@ -353,24 +389,28 @@ public final class BitwigModel
                 reporter.put (sendPrefix + "active", send.isEnabled ().get ());
             }
             reporter.put (prefix + "send/count", sendCount);
-            this.collectSlots (reporter, prefix, track);
+            this.collectSlots (reporter, prefix, track, sceneOffset, sceneTotal);
         }
-        reporter.put ("/track/count", count);
+        reporter.put ("/track/count", total);
+        if (selected >= 0 && selected < total)
+            reporter.put ("/track/" + selected + "/select", true);
     }
 
 
     /**
      * The clip launcher slots of a track (protocol v2), as SlotImpl of the Java version.
      */
-    private void collectSlots (final ModelReporter reporter, final String prefix, final Track track)
+    private void collectSlots (final ModelReporter reporter, final String prefix, final Track track, final int sceneOffset, final int sceneTotal)
     {
         reporter.put (prefix + "isStopped", track.isStopped ().get ());
-        final int count = this.getSceneCount ();
-        reporter.put (prefix + "slot/count", count);
-        for (int s = 0; s < count; s++)
+        reporter.put (prefix + "slot/count", sceneTotal);
+        for (int s = 0; s < this.numScenes; s++)
         {
+            final int position = sceneOffset + s;
+            if (position >= sceneTotal)
+                break;
             final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (s);
-            final String slotPrefix = prefix + "slot/" + s + "/";
+            final String slotPrefix = prefix + "slot/" + position + "/";
             reporter.put (slotPrefix + "exists", slot.exists ().get ());
             reporter.put (slotPrefix + "hasContent", slot.hasContent ().get ());
             reporter.put (slotPrefix + "name", slot.name ().get ());
@@ -391,24 +431,79 @@ public final class BitwigModel
 
     private void collectScenes (final ModelReporter reporter)
     {
-        final int count = this.getSceneCount ();
-        for (int i = 0; i < count; i++)
+        final int offset = this.sceneBank.scrollPosition ().get ();
+        final int total = this.sceneBank.itemCount ().get ();
+        reporter.put ("/scene/offset", offset);
+        for (int i = 0; i < this.numScenes; i++)
         {
+            final int position = offset + i;
+            if (position >= total)
+                break;
             final Scene scene = this.sceneBank.getItemAt (i);
-            final String prefix = "/scene/" + i + "/";
+            final String prefix = "/scene/" + position + "/";
             reporter.put (prefix + "exists", scene.exists ().get ());
-            reporter.put (prefix + "number", i);
+            reporter.put (prefix + "number", position);
             reporter.put (prefix + "name", scene.name ().get ());
             reporter.putColor (prefix + "color", scene.color ().red (), scene.color ().green (), scene.color ().blue ());
             reporter.put (prefix + "select", this.sceneSelected[i]);
         }
-        reporter.put ("/scene/count", count);
+        reporter.put ("/scene/count", total);
     }
 
 
-    private int getSceneCount ()
+    /**
+     * Get the track at the absolute position: from the window if it is visible (with sends and
+     * slots), otherwise from the large bank.
+     *
+     * @param position The position
+     * @return The track or null
+     */
+    Track getTrack (final int position)
     {
-        return Math.min (this.sceneBank.itemCount ().get (), NUM_SCENES);
+        final Track track = this.getWindowTrack (position);
+        if (track != null)
+            return track;
+        return position >= 0 && position < NUM_LARGE_TRACKS ? this.largeTrackBank.getItemAt (position) : null;
+    }
+
+
+    /**
+     * Get the track at the absolute position if it is in the window.
+     *
+     * @param position The position
+     * @return The track or null
+     */
+    Track getWindowTrack (final int position)
+    {
+        final int index = position - this.trackBank.scrollPosition ().get ();
+        return index >= 0 && index < this.numTracks ? this.trackBank.getItemAt (index) : null;
+    }
+
+
+    /**
+     * Get the slot of a window track at the absolute scene position if it is in the window.
+     *
+     * @param track A track of the window
+     * @param position The scene position
+     * @return The slot or null
+     */
+    ClipLauncherSlot getSlot (final Track track, final int position)
+    {
+        final int index = position - this.sceneBank.scrollPosition ().get ();
+        return index >= 0 && index < this.numScenes ? track.clipLauncherSlotBank ().getItemAt (index) : null;
+    }
+
+
+    /**
+     * Get the scene at the absolute position if it is in the window.
+     *
+     * @param position The position
+     * @return The scene or null
+     */
+    Scene getScene (final int position)
+    {
+        final int index = position - this.sceneBank.scrollPosition ().get ();
+        return index >= 0 && index < this.numScenes ? this.sceneBank.getItemAt (index) : null;
     }
 
 
