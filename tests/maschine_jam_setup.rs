@@ -12,7 +12,6 @@ use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordingBackend};
 use drivenbymoss::config::maschine_jam::MaschineJamConfiguration;
 use drivenbymoss::controller::maschine::core::encoder_mode_manager::EncoderMode;
-use drivenbymoss::controller::maschine::jam::setup::ALLOW_ON_LINUX;
 use drivenbymoss::controller::maschine::jam::surface as jam;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
@@ -27,7 +26,6 @@ const SHIFT_UP: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00
 /// startup.
 fn start() -> (App, Rc<RecordingBackend>) {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    std::env::set_var(ALLOW_ON_LINUX, "1");
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("dbm-test-jam-{}-{count}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

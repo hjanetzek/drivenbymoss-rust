@@ -28,6 +28,11 @@ pub fn midi_discovery_pairs(os: OperatingSystem) -> Vec<(Vec<String>, Vec<String
         match os {
             OperatingSystem::Mac => pairs.push(pair(format!("{name} Input"), format!("{name} Output"))),
             _ => {
+                if os == OperatingSystem::Linux {
+                    // The ports of dbm-nihost (support/linux/ni_host), named like the ones of
+                    // NI's driver on macOS
+                    pairs.push(pair(format!("{name} Input"), format!("{name} Output")));
+                }
                 // Former createDeviceDiscoveryPairs
                 pairs.push(pair(name.clone(), name.clone()));
                 for j in 1..20 {

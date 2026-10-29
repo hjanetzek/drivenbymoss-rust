@@ -60,15 +60,8 @@ pub const SEQUENCER_VIEWS: [Views; 6] = [Views::Sequencer, Views::PolySequencer,
 /// The views selected by the Pad Mode button.
 pub const PLAY_VIEWS: [Views; 4] = [Views::Play, Views::Chords, Views::Piano, Views::Drum64];
 
-/// The environment variable which allows to start the controller on Linux (for tests).
-pub const ALLOW_ON_LINUX: &str = "DBM_ALLOW_MASCHINE_ON_LINUX";
-
 /// Create a Maschine JAM instance.
 pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Configuration) -> Result<InstanceParts, String> {
-    if cfg!(target_os = "linux") && std::env::var_os(ALLOW_ON_LINUX).is_none() {
-        return Err("Maschine Jam is not supported on Linux since there is no Native Instruments DAW Integration Host.".to_string());
-    }
-
     let value_changer = ValueChanger::twos_complement(128, 1);
     let colors = create_color_manager();
 

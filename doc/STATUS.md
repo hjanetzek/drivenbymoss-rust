@@ -44,8 +44,9 @@ Commits:
 - `a3bb3b89`: Launch Control XL and Maschine Mk2/Jam, with the parameter providers, the
   parameter, device, track and layer modes, the text display and more generic commands
 
-**Maschine on Linux:** Maschine refuses to start on Linux, as in Java. Set
-`DBM_ALLOW_MASCHINE_ON_LINUX` to override (the tests do this).
+**Maschine on Linux:** NI's driver doesn't exist on Linux. `support/linux/ni_host` (`dbm-nihost`)
+emulates it for the Mk2 and the JAM: hidraw on one side, ALSA ports with NI's names on the other.
+The Linux guard of the Maschine factories is removed.
 
 **Scope and size:**
 

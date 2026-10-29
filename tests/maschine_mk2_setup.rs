@@ -13,7 +13,6 @@ use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordingBackend};
 use drivenbymoss::config::maschine::MaschineConfiguration;
 use drivenbymoss::controller::maschine::core::ribbon_mode::RibbonMode;
-use drivenbymoss::controller::maschine::mk::setup::ALLOW_ON_LINUX;
 use drivenbymoss::controller::maschine::mk::surface as mk;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
@@ -31,7 +30,6 @@ const DISPLAY_LINE_2: [u8; 7] = [0xF0, 0x00, 0x00, 0x66, 0x14, 0x12, 0x38];
 /// startup.
 fn start() -> (App, Rc<RecordingBackend>) {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    std::env::set_var(ALLOW_ON_LINUX, "1");
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("dbm-test-mk2-{}-{count}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

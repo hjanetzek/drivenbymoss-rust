@@ -3,6 +3,19 @@
 **Goal.** Use the NI **Maschine Mk2** (`17cc:1140`) and **Maschine JAM** (`17cc:1500`) with
 DrivenByMoss on Linux, in Reaper and later Zynthian, without NI's driver.
 
+> **Status (2026-10-29).** Steps 1–7 are done and checked on both devices with the test pattern
+> and the probe, but not yet with DrivenByMoss in Reaper. Findings:
+> - **Palette:** NI's MIDI palette and the JAM's HID palette are the same (hue × 4 + level), and
+>   the JAM shows DrivenByMoss's white (78). On the Mk2, 72–79 show white from dim to bright.
+> - **JAM mono LEDs** are nearly full from about 0x30, so they get a quadratic curve.
+> - **Pads in the Mk2 template:** colours are on the pad notes with hue/saturation/brightness on
+>   channels 1–3, but the active page uses an indexed mode (`color-mode="3"`), so DrivenByMoss's
+>   single value on channel 1 is a palette index.
+> - **Mk2 display button 7** is an MCU button: note 28.
+> - **Shift:** the JAM's Shift is NI's sysex `4D 01/00`. The Mk2 has no Shift in the template.
+>
+> See `support/linux/ni_host/README.md`.
+
 **Approach: emulate NI's driver.**
 - On Windows and macOS, NI's driver turns the device's USB HID into MIDI ports. It uses the
   numbering of the DrivenByMoss Controller Editor templates: `resources/Maschine Mk2/DrivenByMoss.ncm2`
@@ -162,24 +175,24 @@ hosts and works for the Java version too. Add the in-process route when Zynthian
 
 ## 7. Steps
 
-- [ ] **1. Skeleton.**
+- [x] **1. Skeleton.**
   - `support/linux/ni_host` with CMake.
   - Copy the KICK protocol classes (relicensed, namespace).
   - Port `hidraw_device` to std; a `nihost-probe` tool that logs decoded events.
   - Test with `jam_sim.py` and the real JAM.
-- [ ] **2. Template tables.**
+- [x] **2. Template tables.**
   - `gen_template_map.py` and the generated `template_map.h`.
   - Test against the constants of the Rust surfaces.
-- [ ] **3. JAM input → MIDI.** Translator, with unit tests on synthetic reports.
-- [ ] **4. Daemon with ALSA ports.**
+- [x] **3. JAM input → MIDI.** Translator, with unit tests on synthetic reports.
+- [x] **4. Daemon with ALSA ports.**
   - Test with `aseqdump`, then with the Rust DrivenByMoss in Reaper: buttons, matrix, strips,
     encoder.
-- [ ] **5. JAM output.**
+- [x] **5. JAM output.**
   - The palette (§6.1), the matrix, group and scene colours, button LEDs.
   - `STRIP_SETUP` and the strip LEDs.
   - Compare with the Java version in Bitwig.
-- [ ] **6. Mk2 input → MIDI.** Pads with velocity, encoders, buttons.
-- [ ] **7. Mk2 output.** LEDs, pad and group colours, the MCU text on the displays with the
+- [x] **6. Mk2 input → MIDI.** Pads with velocity, encoders, buttons.
+- [x] **7. Mk2 output.** LEDs, pad and group colours, the MCU text on the displays with the
   bitmap font.
 - [ ] **8. Packaging.**
   - The udev rule, a systemd user service for `dbm-nihost`.
