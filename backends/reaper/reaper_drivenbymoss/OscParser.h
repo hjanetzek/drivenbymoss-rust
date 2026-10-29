@@ -83,6 +83,7 @@ private:
 	ApplicationProcessor             applicationProcessor;
 	ArrangerProcessor                arrangerProcessor;
 	MixerProcessor                   mixerProcessor;
+	BeatsProcessor                   beatsProcessor;
 
 	std::map<std::string, OscProcessor*> processors;
 	Model& theModel;

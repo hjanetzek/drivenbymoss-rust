@@ -87,6 +87,10 @@ private:
 	int globalTimesig{ -1 };
 	int globalDenomOut{ -1 };
 	double playPosition{};
+	// The play position and the loop in quarter notes (protocol v2)
+	double beatsPosition{ -1 };
+	double beatsLoopStart{ -1 };
+	double beatsLoopLength{ -1 };
 	std::string strPlayPosition{};
 	std::string strBeatPosition{};
 	int play{};

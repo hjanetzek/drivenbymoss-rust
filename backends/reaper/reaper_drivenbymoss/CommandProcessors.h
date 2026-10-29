@@ -152,4 +152,66 @@ public:
 	}) {};
 };
 
+/**
+ * The "beats" commands: the play position and the loop in quarter notes, converted with the
+ * tempo map of the project.
+ */
+class BeatsProcessor : public OscProcessor
+{
+public:
+	explicit BeatsProcessor(Model& aModel) : OscProcessor(aModel) {};
+
+	void Process(std::deque<std::string>& path) noexcept override {};
+	void Process(std::deque<std::string>& path, const std::string& value) noexcept override {};
+	void Process(std::deque<std::string>& path, const std::vector<std::string>& values) noexcept override {};
+
+	void Process(std::deque<std::string>& path, int value) noexcept override
+	{
+		this->Process(path, static_cast<double>(value));
+	};
+
+	void Process(std::deque<std::string>& path, double value) noexcept override
+	{
+		if (path.empty())
+			return;
+		ReaProject* const project = ReaperUtils::GetProject();
+		const std::string command = path.front();
+		const std::string subCommand = path.size() > 1 ? path[1] : "";
+
+		if (command == "position")
+		{
+			const double time = TimeMap2_QNToTime(project, value);
+			if (subCommand == "nosnap")
+				SetEditCurPos2(project, time, true, true);
+			else
+			{
+				const double end = GetProjectLength(project);
+				SetEditCurPos2(project, SnapToGrid(project, time < end ? time : end), true, true);
+			}
+			return;
+		}
+
+		if (command == "loop")
+		{
+			double startOut;
+			double endOut;
+			GetSet_LoopTimeRange(false, true, &startOut, &endOut, false);
+			const double startQN = TimeMap2_timeToQN(project, startOut);
+			if (subCommand == "start")
+			{
+				// Move the loop, keep its length in quarter notes
+				const double lengthQN = TimeMap2_timeToQN(project, endOut) - startQN;
+				double start = TimeMap2_QNToTime(project, value);
+				double end = TimeMap2_QNToTime(project, value + lengthQN);
+				GetSet_LoopTimeRange(true, true, &start, &end, false);
+			}
+			else if (subCommand == "length")
+			{
+				double end = TimeMap2_QNToTime(project, startQN + value);
+				GetSet_LoopTimeRange(true, true, &startOut, &end, false);
+			}
+		}
+	};
+};
+
 #endif /* _DBM_COMMANDPROCESSORS_H_ */

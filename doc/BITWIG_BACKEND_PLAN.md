@@ -20,6 +20,9 @@ mapped action IDs). Tested in Bitwig 5.3 on JDK 25 with the Maschine Mk2, Maschi
 Control XL; the dev reload works in Bitwig. For development on Bitwig 5.3 the extension builds against API 21 (§3, "Bitwig 5.3
 with a newer JDK").
 
+Where the Bitwig backend behaves differently from the Java DrivenByMoss for Bitwig is listed in
+[BITWIG_DIVERGENCES.md](BITWIG_DIVERGENCES.md).
+
 ## 1. Architecture
 
 ```
@@ -194,7 +197,11 @@ Reaper backend keeps working:
    The Reaper backend maps them back to its action IDs. No capability is needed: a backend
    ignores the commands of features it does not have. The automation write mode is still in
    Reaper's numbering.
-2. **Time in beats** (`/beat/position`, loop start and length in beats), seconds stay for Reaper.
+2. **Time in beats** (done): `/beats/position`, `/beats/loop/start`, `/beats/loop/length` (the
+   real length) and the `beats` commands; the core moves the position and the loop in beats.
+   Reaper converts with its tempo map, Bitwig follows `TransportImpl` of the Java version
+   (BITWIG_DIVERGENCES.md §3). Bitwig also sends its own position and loop texts
+   (`/time/text`, `/beats/text`, `/beats/loop/*/text`), which the core shows as they are.
 3. **Slots and scenes:** explicit slot states and launch commands with release/alt; scenes without
    positions. The core stops deriving slot states from the transport when the host reports them.
 4. **Parameter pages:** page names, count, selected page, page select command; parameter

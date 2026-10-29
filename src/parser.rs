@@ -268,6 +268,7 @@ impl Parser {
                 }
             }
             "time" => Self::parse_time(model, parts, value),
+            "beats" => Self::parse_beats(model, parts, value),
             "beat" => model.transport_mut().set_beats(value),
             "numerator" => {
                 if let Some(v) = d {
@@ -307,6 +308,33 @@ impl Parser {
         true
     }
 
+    /// The play position and the loop in quarter notes (protocol v2); "text" values are formatted
+    /// by the host and used as is.
+    fn parse_beats(model: &mut Model, parts: &mut Parts, value: &str) {
+        let transport = model.transport_mut();
+        match (parts.poll(), parts.poll(), parts.poll()) {
+            (Some("position"), None, None) => {
+                if let Some(v) = parse_double(value) {
+                    transport.set_position_beats_value(v);
+                }
+            }
+            (Some("text"), None, None) => transport.set_beats_verbatim(value),
+            (Some("loop"), Some("start"), None) => {
+                if let Some(v) = parse_double(value) {
+                    transport.set_loop_start_beats_value(v);
+                }
+            }
+            (Some("loop"), Some("length"), None) => {
+                if let Some(v) = parse_double(value) {
+                    transport.set_loop_length_beats_value(v);
+                }
+            }
+            (Some("loop"), Some("start"), Some("text")) => transport.set_loop_start_beat_text_verbatim(value),
+            (Some("loop"), Some("length"), Some("text")) => transport.set_loop_length_beat_text_verbatim(value),
+            _ => Self::error(model, &format!("Unhandled beats parameter: {value}")),
+        }
+    }
+
     fn parse_time(model: &mut Model, parts: &mut Parts, value: &str) {
         let Some(cmd) = parts.poll() else {
             if let Some(v) = parse_double(value) {
@@ -316,6 +344,8 @@ impl Parser {
         };
         match cmd {
             "str" => model.transport_mut().set_position_text(value),
+            // Formatted by the host, used as is (Bitwig)
+            "text" => model.transport_mut().set_position_text_verbatim(value),
             "hzoom" => {
                 if let Some(v) = parse_double(value) {
                     model.transport_mut().set_h_zoom(v);
@@ -1231,6 +1261,9 @@ mod tests {
                 "/clip/color 0 255 0",
                 "/time/str 1:23.456",
                 "/time/loop/start 2",
+                "/beats/position 7.5",
+                "/beats/loop/length 16",
+                "/beats/text 2.04.03:00",
                 "/time/loop/length/str 0:04.000",
                 "/time/loop/length/beat 2.1.00",
                 "/numerator 3",
@@ -1252,6 +1285,9 @@ mod tests {
         let t = model.transport();
         assert_eq!(t.position_text(), "1.23:456");
         assert_eq!(t.loop_start(), 2.0);
+        assert_eq!(t.position_beats(), 7.5);
+        assert_eq!(t.loop_length_beats(), 16.0);
+        assert_eq!(t.beat_text(), "2.04.03:00");
         // The time text must not overwrite the beat text and vice versa
         assert_ne!(t.loop_length_str(), "");
         assert_ne!(t.loop_length_beat_text(), "");

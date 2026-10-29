@@ -184,6 +184,7 @@ void DataCollector::CollectTransportData(std::ostringstream& ss, ReaProject* pro
 	format_timestr_pos(cursorPos, timeStrPointer, TIME_LENGTH, 2);
 	ReplaceCommaWithDot(timeStr);
 	this->strBeatPosition = Collectors::CollectStringValue(ss, "/beat", this->strBeatPosition, timeStrPointer, dump);
+	this->beatsPosition = Collectors::CollectDoubleValue(ss, "/beats/position", this->beatsPosition, TimeMap2_timeToQN(project, cursorPos), dump);
 
 	// Loop start and length
 	double startOut;
@@ -205,6 +206,11 @@ void DataCollector::CollectTransportData(std::ostringstream& ss, ReaProject* pro
 	format_timestr_len(length, timeStrPointer, TIME_LENGTH, startOut, 2);
 	ReplaceCommaWithDot(timeStr);
 	this->strLoopLengthBeat = Collectors::CollectStringValue(ss, "/time/loop/length/beat", this->strLoopLengthBeat, timeStr, dump);
+
+	// The loop in quarter notes, converted with the tempo map
+	const double loopStartQN = TimeMap2_timeToQN(project, startOut);
+	this->beatsLoopStart = Collectors::CollectDoubleValue(ss, "/beats/loop/start", this->beatsLoopStart, loopStartQN, dump);
+	this->beatsLoopLength = Collectors::CollectDoubleValue(ss, "/beats/loop/length", this->beatsLoopLength, TimeMap2_timeToQN(project, endOut) - loopStartQN, dump);
 
 	// Additional info
 	this->followPlayback = Collectors::CollectIntValue(ss, "/followPlayback", this->followPlayback, GetToggleCommandState(40036), dump);

@@ -376,6 +376,19 @@ Bitwig backend to the Bitwig API. A backend ignores the commands of features it 
 
 `action` with a string (user-configured Reaper actions, `Application::invoke_action`) stays.
 
+#### Protocol v2: time in beats
+
+| Processor | Command | Type | Meaning |
+|---|---|---|---|
+| `beats` | `position` | double | play position in quarter notes, snapped to the grid (Reaper) |
+| `beats` | `position/nosnap` | double | play position in quarter notes |
+| `beats` | `loop/start` | double | loop start in quarter notes, the loop keeps its length |
+| `beats` | `loop/length` | double | loop length in quarter notes |
+
+Reaper converts with the tempo map (`TimeMap2_QNToTime`). Bitwig sets `playStartPosition` (and
+jumps there while playing), `arrangerLoopStart` and `arrangerLoopDuration`, without snapping,
+as the Java version.
+
 #### Names without a command processor
 
 `browser`, `session`, `playingnotes` are only valid for `enable_updates`/`delay_updates`. Rust
@@ -460,7 +473,11 @@ Columns: **Host** = sent by Reaper DataCollector; **Parser** = handled in parser
 | `/time` | double seconds | cursor/play position | yes | yes |
 | `/time/str` | string | `format_timestr` (+project offset) | yes | yes (`reformat_time`) |
 | `/beat` | string `measures.beats.ticks` | `format_timestr_pos(...,2)` | yes | yes (`reformat_beats`) |
-| `/time/hzoom` | double px/s | `GetHZoomLevel()` | yes | yes |
+| `/time/hzoom` | double px/s | `GetHZoomLevel()` (Bitwig: 1 / content per pixel) | yes | yes |
+| `/beats/position` | double quarters | play position (Bitwig: play start position) | yes (v2) | yes |
+| `/beats/loop/start` | double quarters | loop start | yes (v2) | yes |
+| `/beats/loop/length` | double quarters | loop length (not the end) | yes (v2) | yes |
+| `/time/text`, `/beats/text`, `/beats/loop/start/text`, `/beats/loop/length/text` | string | position and loop texts formatted by the host, used as is | Bitwig only (v2) | yes |
 | `/time/loop/start` | double seconds | | yes | yes |
 | `/time/loop/start/str` | string | | yes | yes → `set_loop_start_text` |
 | `/time/loop/start/beat` | string | | yes | yes (any 4th part) → `set_loop_start_beat_text` |

@@ -3,6 +3,7 @@
 
 package de.mossgrabers.dbm.bitwig;
 
+import com.bitwig.extension.controller.api.Action;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.Parameter;
@@ -92,6 +93,7 @@ public final class CommandHandler
             case "repeat" -> this.model.transport.isArrangerLoopEnabled ().toggle ();
             case "tempo" -> this.model.transport.tempo ().value ().setRaw (value);
             case "time" -> this.handleTime (command, value);
+            case "beats" -> this.handleBeats (command, value);
             case "track" -> this.handleTrack (command, value, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
@@ -158,6 +160,7 @@ public final class CommandHandler
             case "punchIn" -> this.model.transport.isPunchInEnabled ().set (value > 0);
             case "punchOut" -> this.model.transport.isPunchOutEnabled ().set (value > 0);
             case "tapTempo" -> this.model.transport.tapTempo ();
+            case "end" -> this.invokeAction ("jump_to_end_of_arrangement");
             default -> this.unhandled.accept ("transport " + command);
         }
     }
@@ -190,6 +193,8 @@ public final class CommandHandler
             case "zoomOut" -> this.model.application.zoomOut ();
             case "incTrackHeight" -> this.model.arranger.zoomInLaneHeightsAll ();
             case "decTrackHeight" -> this.model.arranger.zoomOutLaneHeightsAll ();
+            case "sliceToSampler" -> this.invokeAction ("slice_to_multi_sampler_track");
+            case "sliceToDrumMachine" -> this.invokeAction ("slice_to_drum_track");
             case "enter" -> this.model.application.enter ();
             case "escape" -> this.model.application.escape ();
             default -> this.unhandled.accept ("application " + command);
@@ -234,6 +239,8 @@ public final class CommandHandler
         {
             case "previous" -> this.model.application.previousProject ();
             case "next" -> this.model.application.nextProject ();
+            case "save" -> this.invokeAction ("Save");
+            case "load" -> this.invokeAction ("Open");
             default -> this.unhandled.accept ("project " + command);
         }
     }
@@ -271,9 +278,37 @@ public final class CommandHandler
         final double beats = seconds * tempo / 60.0;
         switch (command)
         {
-            case "", "nosnap" -> this.model.transport.getPosition ().set (beats);
+            case "", "nosnap" -> this.setPosition (beats);
             default -> this.unhandled.accept ("time " + command);
         }
+    }
+
+
+    /**
+     * The play position and the loop in quarter notes, as TransportImpl of the Java version:
+     * there is no snapping, the loop start keeps the duration.
+     */
+    private void handleBeats (final String command, final double beats)
+    {
+        switch (command)
+        {
+            case "position", "position/nosnap" -> this.setPosition (beats);
+            case "loop/start" -> this.model.transport.arrangerLoopStart ().set (beats);
+            case "loop/length" -> this.model.transport.arrangerLoopDuration ().set (beats);
+            default -> this.unhandled.accept ("beats " + command);
+        }
+    }
+
+
+    /**
+     * Set the play start position, jump to it if playing (TransportImpl.setPosition of the Java
+     * version).
+     */
+    private void setPosition (final double beats)
+    {
+        this.model.transport.playStartPosition ().set (beats);
+        if (this.model.transport.isPlaying ().get ())
+            this.model.transport.jumpToPlayStartPosition ();
     }
 
 
@@ -445,6 +480,19 @@ public final class CommandHandler
                 return device;
         }
         return null;
+    }
+
+
+    /**
+     * Invoke a Bitwig action by its ID, as the Java version does for features without an API.
+     */
+    private void invokeAction (final String id)
+    {
+        final Action action = this.model.application.getAction (id);
+        if (action == null)
+            this.unhandled.accept ("action " + id);
+        else
+            action.invoke ();
     }
 
 

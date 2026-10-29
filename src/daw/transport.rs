@@ -184,6 +184,10 @@ pub struct Transport {
     loop_length: f64,
     loop_start_beats_str: String,
     loop_length_beats_str: String,
+    /// The play position, loop start and loop length in quarter notes (`/beats/*`).
+    position_beats: f64,
+    loop_start_beats: f64,
+    loop_length_beats: f64,
     loop_start_str: String,
     loop_length_str: String,
     is_metronome_on: bool,
@@ -214,6 +218,9 @@ impl Transport {
             loop_length: 0.0,
             loop_start_beats_str: String::new(),
             loop_length_beats_str: String::new(),
+            position_beats: 0.0,
+            loop_start_beats: 0.0,
+            loop_length_beats: 0.0,
             loop_start_str: String::new(),
             loop_length_str: String::new(),
             is_metronome_on: false,
@@ -469,22 +476,27 @@ impl Transport {
         self.ctx.send(Processor::Transport, "end");
     }
 
+    /// The play position in quarter notes.
+    pub fn position_beats(&self) -> f64 {
+        self.position_beats
+    }
+
+    /// Set the play position in quarter notes; snapped to the grid if `snap` is set.
+    pub fn set_position_beats(&mut self, beats: f64, snap: bool) {
+        if self.ctx.is_automation_rec_active() {
+            self.ctx.delay_updates(Processor::Transport);
+        }
+        self.position_beats = beats;
+        self.ctx.send_double(Processor::Beats, if snap { "position" } else { "position/nosnap" }, beats);
+    }
+
     /// Move the play position depending on the zoom level.
     pub fn change_position(&mut self, increase: bool, slow: bool) {
         let resolution = self.zoom_resolution();
         let fraction = if slow { resolution } else { resolution * self.quarters_per_measure() as f64 * 4.0 };
-        let pos = (self.seconds_to_beats(self.position) / fraction).round() * fraction;
+        let pos = (self.position_beats / fraction).round() * fraction;
         let beats = if increase { pos + fraction } else { (pos - fraction).max(0.0) };
-        let seconds = self.beats_to_seconds(beats);
-        self.set_position_with_snap(seconds, !slow);
-    }
-
-    fn beats_to_seconds(&self, beats: f64) -> f64 {
-        beats * 60.0 / self.tempo()
-    }
-
-    fn seconds_to_beats(&self, seconds: f64) -> f64 {
-        seconds * self.tempo() / 60.0
+        self.set_position_beats(beats, !slow);
     }
 
     fn zoom_resolution(&self) -> f64 {
@@ -496,8 +508,19 @@ impl Transport {
         800000.0
     }
 
+    /// The loop start in seconds.
     pub fn loop_start(&self) -> f64 {
         self.loop_start
+    }
+
+    /// The loop start in quarter notes.
+    pub fn loop_start_beats(&self) -> f64 {
+        self.loop_start_beats
+    }
+
+    /// The loop length in quarter notes.
+    pub fn loop_length_beats(&self) -> f64 {
+        self.loop_length_beats
     }
 
     pub fn loop_end(&self) -> f64 {
@@ -532,19 +555,27 @@ impl Transport {
         self.ctx.send_double(Processor::Time, "loop/start", self.loop_start);
     }
 
+    /// Set the loop start in quarter notes, the length stays the same.
+    pub fn set_loop_start_beats(&mut self, beats: f64) {
+        if self.ctx.is_automation_rec_active() {
+            self.ctx.delay_updates(Processor::Transport);
+        }
+        self.loop_start_beats = beats;
+        self.ctx.send_double(Processor::Beats, "loop/start", beats);
+    }
+
     pub fn change_loop_start(&mut self, increase: bool, slow: bool) {
-        let frac = self.beats_to_seconds(if slow { transport_constants::INC_FRACTION_TIME_SLOW } else { transport_constants::INC_FRACTION_TIME });
-        let v = if increase { self.loop_start + frac } else { (self.loop_start - frac).max(0.0) };
-        self.set_loop_start(v);
+        let frac = if slow { transport_constants::INC_FRACTION_TIME_SLOW } else { transport_constants::INC_FRACTION_TIME };
+        let v = if increase { self.loop_start_beats + frac } else { (self.loop_start_beats - frac).max(0.0) };
+        self.set_loop_start_beats(v);
     }
 
     pub fn select_loop_start(&mut self) {
-        self.set_position(self.loop_start);
+        self.set_position_beats(self.loop_start_beats, true);
     }
 
-    /// Moves to the loop length (as in Java).
     pub fn select_loop_end(&mut self) {
-        self.set_position(self.loop_length);
+        self.set_position_beats(self.loop_start_beats + self.loop_length_beats, true);
     }
 
     pub fn set_loop_length(&mut self, time: f64) {
@@ -555,10 +586,19 @@ impl Transport {
         self.ctx.send_double(Processor::Time, "loop/length", self.loop_length);
     }
 
+    /// Set the loop length in quarter notes.
+    pub fn set_loop_length_beats(&mut self, beats: f64) {
+        if self.ctx.is_automation_rec_active() {
+            self.ctx.delay_updates(Processor::Transport);
+        }
+        self.loop_length_beats = beats;
+        self.ctx.send_double(Processor::Beats, "loop/length", beats);
+    }
+
     pub fn change_loop_length(&mut self, increase: bool, slow: bool) {
-        let frac = self.beats_to_seconds(if slow { transport_constants::INC_FRACTION_TIME_SLOW } else { transport_constants::INC_FRACTION_TIME });
-        let v = if increase { self.loop_length + frac } else { (self.loop_length - frac).max(0.0) };
-        self.set_loop_length(v);
+        let frac = if slow { transport_constants::INC_FRACTION_TIME_SLOW } else { transport_constants::INC_FRACTION_TIME };
+        let v = if increase { self.loop_length_beats + frac } else { (self.loop_length_beats - frac).max(0.0) };
+        self.set_loop_length_beats(v);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -746,6 +786,34 @@ impl Transport {
         self.beats_str = reformat_beats(beats, 1);
     }
 
+    pub fn set_position_text_verbatim(&mut self, text: &str) {
+        self.position_str = text.to_string();
+    }
+
+    pub fn set_beats_verbatim(&mut self, text: &str) {
+        self.beats_str = text.to_string();
+    }
+
+    pub fn set_loop_start_beat_text_verbatim(&mut self, text: &str) {
+        self.loop_start_beats_str = text.to_string();
+    }
+
+    pub fn set_loop_length_beat_text_verbatim(&mut self, text: &str) {
+        self.loop_length_beats_str = text.to_string();
+    }
+
+    pub fn set_position_beats_value(&mut self, beats: f64) {
+        self.position_beats = beats;
+    }
+
+    pub fn set_loop_start_beats_value(&mut self, beats: f64) {
+        self.loop_start_beats = beats;
+    }
+
+    pub fn set_loop_length_beats_value(&mut self, beats: f64) {
+        self.loop_length_beats = beats;
+    }
+
     pub fn set_position_value(&mut self, time: f64) {
         self.position = time;
         self.ctx.update_transport_snapshot(|s| s.position = time);
@@ -831,6 +899,31 @@ mod tests {
         assert_eq!(reformat_time("1:23.456"), "1.23:456");
         assert_eq!(format_tempo(120.0), "120.00");
         assert_eq!(format_tempo(0.5), ".50");
+    }
+
+    #[test]
+    fn moves_in_beats() {
+        let (ctx, backend) = test_ctx();
+        let mut t = Transport::new(ctx);
+        t.set_position_beats_value(5.1);
+        t.set_loop_start_beats_value(8.0);
+        t.set_loop_length_beats_value(4.0);
+        // Without a zoom level the resolution is one quarter, a measure has 4 quarters
+        t.change_position(true, true);
+        t.change_position(false, false);
+        t.change_loop_start(true, false);
+        t.change_loop_length(false, true);
+        t.select_loop_end();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("beats".into(), "position/nosnap".into(), 6.0),
+                BackendCall::DoubleArg("beats".into(), "position".into(), 0.0),
+                BackendCall::DoubleArg("beats".into(), "loop/start".into(), 12.0),
+                BackendCall::DoubleArg("beats".into(), "loop/length".into(), 3.0),
+                BackendCall::DoubleArg("beats".into(), "position".into(), 15.0),
+            ]
+        );
     }
 
     #[test]

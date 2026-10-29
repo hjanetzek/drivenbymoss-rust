@@ -111,6 +111,10 @@ public final class BitwigModel
         this.transport.metronomeVolume ().displayedValue ().markInterested ();
         this.transport.tempo ().value ().markInterested ();
         this.transport.getPosition ().markInterested ();
+        this.transport.playStartPosition ().markInterested ();
+        this.transport.arrangerLoopStart ().markInterested ();
+        this.transport.arrangerLoopDuration ().markInterested ();
+        this.arranger.getHorizontalScrollbarModel ().getContentPerPixel ().markInterested ();
         this.transport.timeSignature ().numerator ().markInterested ();
         this.transport.timeSignature ().denominator ().markInterested ();
         this.application.canUndo ().markInterested ();
@@ -238,6 +242,7 @@ public final class BitwigModel
         final double tempo = this.transport.tempo ().value ().getRaw ();
         final double beats = this.transport.getPosition ().get ();
         final double seconds = tempo > 0 ? beats * 60.0 / tempo : 0;
+        final double contentPerPixel = this.arranger.getHorizontalScrollbarModel ().getContentPerPixel ().get ();
 
         reporter.put ("/play", this.transport.isPlaying ().get ());
         reporter.put ("/record", this.transport.isArrangerRecordEnabled ().get ());
@@ -246,8 +251,18 @@ public final class BitwigModel
         reporter.put ("/numerator", this.transport.timeSignature ().numerator ().get ());
         reporter.put ("/denominator", this.transport.timeSignature ().denominator ().get ());
         reporter.put ("/time", seconds);
-        reporter.put ("/time/str", formatTime (seconds));
-        reporter.put ("/beat", this.transport.getPosition ().getFormatted ());
+
+        // As the Java version: the position (for moving it) is the play start position, the
+        // texts show the play position; the zoom is the inverse of the content per pixel
+        reporter.put ("/beats/position", this.transport.playStartPosition ().get ());
+        reporter.put ("/beats/loop/start", this.transport.arrangerLoopStart ().get ());
+        reporter.put ("/beats/loop/length", this.transport.arrangerLoopDuration ().get ());
+        reporter.put ("/time/text", tempo > 0 ? TimeFormat.formatTimeLong (tempo, beats) : "");
+        reporter.put ("/beats/text", this.transport.getPosition ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
+        reporter.put ("/beats/loop/start/text", this.transport.arrangerLoopStart ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
+        reporter.put ("/beats/loop/length/text", this.transport.arrangerLoopDuration ().getFormatted (TimeFormat.BEAT_LENGTH_FORMATTER));
+        if (contentPerPixel > 0)
+            reporter.put ("/time/hzoom", 1.0 / contentPerPixel);
         reporter.put ("/click", this.transport.isMetronomeEnabled ().get ());
         // As Reaper's pre-roll bit field: 2 = the metronome is audible during the pre-roll
         reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
@@ -370,14 +385,6 @@ public final class BitwigModel
     }
 
 
-    /**
-     * Format seconds like Reaper's time display (minutes:seconds.milliseconds).
-     */
-    private static String formatTime (final double seconds)
-    {
-        final long millis = Math.round (Math.max (0, seconds) * 1000);
-        return String.format (Locale.ROOT, "%d:%02d.%03d", Long.valueOf (millis / 60000), Long.valueOf (millis / 1000 % 60), Long.valueOf (millis % 1000));
-    }
 
 
     private static int getInt (final String json, final String key, final int defaultValue)

@@ -40,6 +40,7 @@ OscParser::OscParser(Model& model) :
 	applicationProcessor(model),
 	arrangerProcessor(model),
 	mixerProcessor(model),
+	beatsProcessor(model),
 	theModel(model)
 {
 	try
@@ -73,6 +74,7 @@ OscParser::OscParser(Model& model) :
 		this->processors["application"] = &applicationProcessor;
 		this->processors["arranger"] = &arrangerProcessor;
 		this->processors["mixer"] = &mixerProcessor;
+		this->processors["beats"] = &beatsProcessor;
 	}
 	catch (...)
 	{
