@@ -98,5 +98,5 @@ void Parameter::ClearData(std::ostringstream& ss, const bool& dump)
 	this->name = Collectors::CollectStringValue(ss, this->addressName, this->name, "", dump);
 	this->value = Collectors::CollectDoubleValue(ss, this->addressValue, this->value, 0.0, dump);
 	this->valueStr = Collectors::CollectStringValue(ss, this->addressValueStr, this->valueStr, "", dump);
-	this->addressNumberOfSteps = Collectors::CollectIntValue(ss, this->addressNumberOfSteps, this->numberOfSteps, -1, dump);
+	this->numberOfSteps = Collectors::CollectIntValue(ss, this->addressNumberOfSteps, this->numberOfSteps, -1, dump);
 }

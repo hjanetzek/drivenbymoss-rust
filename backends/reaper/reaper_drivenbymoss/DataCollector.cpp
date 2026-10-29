@@ -136,7 +136,6 @@ void DataCollector::CollectTransportData(std::ostringstream& ss, ReaProject* pro
 
 	// Metronome settings
 	this->metronome = Collectors::CollectIntValue(ss, "/click", this->metronome, GetToggleCommandState(40364), dump);
-	this->prerollClick = Collectors::CollectIntValue(ss, "/click/preroll", this->prerollClick, GetToggleCommandState(41819), dump);
 
 	constexpr int STR_LENGTH = 20;
 	std::string strBuffer(STR_LENGTH, 0);
@@ -152,6 +151,7 @@ void DataCollector::CollectTransportData(std::ostringstream& ss, ReaProject* pro
 	this->metronomeVolume = Collectors::CollectDoubleValue(ss, "/click/volume", this->metronomeVolume, DB2SLIDER(volDB) / 1000.0, dump);
 	this->metronomeVolumeStr = Collectors::CollectStringValue(ss, "/click/volumeStr", this->metronomeVolumeStr, Collectors::FormatDB(volDB).c_str(), dump);
 
+	// A bit field: 1 = pre-roll before playback, 2 = pre-roll before recording (toggled with action 41819)
 	bool result = get_config_var_string("preroll", strBufferPointer, STR_LENGTH);
 	if (result)
 		ReplaceCommaWithDot(strBuffer);
@@ -713,9 +713,9 @@ void DataCollector::CollectMarkerData(std::ostringstream& ss, ReaProject* projec
  */
 void DataCollector::CollectSessionData(std::ostringstream& ss, ReaProject* project, const bool& dump)
 {
-	// Only collect clip data if document has changed
+	// Only collect clip data if document has changed or all data is requested
 	const int state = GetProjectStateChangeCount(project);
-	if (this->projectState == state)
+	if (!dump && this->projectState == state)
 		return;
 	this->projectState = state;
 

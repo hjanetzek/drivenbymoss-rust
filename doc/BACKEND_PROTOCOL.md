@@ -388,7 +388,7 @@ Rust never sends commands to them.
 | Core requests dump | Core calls backend `process_no_arg("refresh", "")` (`Sender::refresh`) → Reaper `RefreshProcessor` → `Model::SetDump()` → next update is a dump. Core sends it in `App::start_controllers` (i.e. `dbm_start_infrastructure`, `dbm_restart_controllers`) and `App::add_controller` |
 | Slow values | Only every 16th update (`SLOW_UPDATE`, ~1 s) or on dump: `/project/name`, `/project/engine`, `/device/name`, `/device/bypass`, `/device/sibling/*`, `/master/color`, all `/marker/*` |
 | Device block | Dumped also when the cursor track changed (`dump \|\| hasTrackChanged`) |
-| Session block | `/clip/all`, `/scene/*` only when `GetProjectStateChangeCount` changed — **also in dump mode** (see mismatch S5) |
+| Session block | `/clip/all`, `/scene/*` only when `GetProjectStateChangeCount` changed, or on a dump |
 | Playing notes | `/track/<n>/playingnotes` only for selected tracks while `/play` = 1 and processor `playingnotes` enabled |
 | Update gating (core→host) | `enable_updates(processor, bool)` disables a collector group; `delay_updates(processor)` suppresses it for 300 ms (`DataCollector::DELAY`). Group names checked by `IsActive`: `project`, `transport`, `track`, `device`, `master`, `browser`, `marker`, `clip`, `session`, `noterepeat`, `groove`, `playingnotes` |
 
@@ -432,12 +432,12 @@ Columns: **Host** = sent by Reaper DataCollector; **Parser** = handled in parser
 | `/time/loop/start/str` | string | | yes | yes → `set_loop_start_text` |
 | `/time/loop/start/beat` | string | | yes | yes (any 4th part) → `set_loop_start_beat_text` |
 | `/time/loop/length` | double seconds | host sends loop **end** (`endOut`) — see S2 | yes | yes → `set_loop_length_value` |
-| `/time/loop/length/str` | string | | yes | yes, but → `set_loop_length_beat_text` (S3) |
+| `/time/loop/length/str` | string | | yes | yes → `set_loop_length_text` |
 | `/time/loop/length/beat` | string | | yes | yes → `set_loop_length_beat_text` |
 | `/followPlayback` | int bool | toggle 40036 | yes | yes |
 | `/automode` | int | `GetGlobalAutomationOverride()`: −1 none, 0 TRIM_READ, 1 READ, 2 TOUCH, 3 WRITE, 4 LATCH, 5 LATCH_PREVIEW, 6 bypass | yes | 0..5 mapped; −1/6 ignored (state kept) |
 | `/click` | int bool | metronome (toggle 40364) | yes | yes |
-| `/click/preroll` | int | sent **twice** (S1): toggle 41819 (0/1) and config var `preroll` (bitfield string) | yes ×2 | yes: `(v & 2) > 0` |
+| `/click/preroll` | int | config var `preroll`, a bit field: 1 = pre-roll before playback, 2 = before recording (action 41819 toggles 2) | yes | yes: `(v & 2) > 0` |
 | `/click/prerollMeasures` | number (string from config `prerollmeas`) | | yes | yes (int; outside 0..4 → 2) |
 | `/click/volume` | double 0..1 | metronome volume | yes | yes |
 | `/click/volumeStr` | string dB | | yes | yes |
@@ -660,7 +660,7 @@ duplicate, marker previous/next, project save/load) by real commands.
 
 ## 6. Known mismatches and issues
 
-Found while writing this document; none is fixed yet. The "Rust" column of the tables in §2 and
+Found while writing this document. S1, S3, S4 and S5 are fixed (2026-10-29); the rest is open. The "Rust" column of the tables in §2 and
 the "Host"/"Parser" columns in §3 show the same information per command and address.
 
 ### Commands
@@ -725,8 +725,8 @@ Conditional drops (not counted): `/primary/*`, `/eq/*` if not enabled in `ModelS
 
 | # | Issue |
 |---|---|
-| S1 | `/click/preroll` is emitted twice per update with different meanings: `GetToggleCommandState(41819)` (0/1) and config var `preroll` (bitfield). Parser uses `(v & 2) > 0`, so the toggle line always yields false and the two lines can contradict each other. |
+| S1 (fixed) | `/click/preroll` is emitted twice per update with different meanings: `GetToggleCommandState(41819)` (0/1) and config var `preroll` (bitfield). Parser uses `(v & 2) > 0`, so the toggle line always yields false and the two lines can contradict each other. Fix: the toggle line is removed; the bit field carries the same state. |
 | S2 | `/time/loop/length` carries `endOut` (loop **end** time), not `endOut - startOut`; parser stores it as length (`set_loop_length_value`). (?) intentional |
-| S3 | `/time/loop/length/str` is stored by the parser as beat text (`set_loop_length_beat_text`, any sub-part) and then overwritten by `/time/loop/length/beat`; `Transport::set_loop_length_text` is never called. |
-| S4 | `Parameter::ClearData` assigns the int result of `CollectIntValue` to `this->addressNumberOfSteps` (a `std::string`): the steps address is replaced by one char (value −1 → `'\xFF'`), producing invalid lines (`"\xFF -1"`, logged as unhandled) for that track/master FX parameter afterwards. |
-| S5 | `CollectSessionData` returns early when `GetProjectStateChangeCount` is unchanged, even with `dump=true`. A `refresh` (e.g. after `dbm_restart_controllers` / `add_controller`) therefore does not resend `/clip/all` or `/scene/*`; newly started instances lack slots and scenes until the project changes. |
+| S3 (fixed) | `/time/loop/length/str` is stored by the parser as beat text (`set_loop_length_beat_text`, any sub-part) and then overwritten by `/time/loop/length/beat`; `Transport::set_loop_length_text` is never called. Fix: `str` sets the time text, as for the loop start. The Java parser has the same bug. |
+| S4 (fixed) | `Parameter::ClearData` assigns the int result of `CollectIntValue` to `this->addressNumberOfSteps` (a `std::string`): the steps address is replaced by one char (value −1 → `'\xFF'`), producing invalid lines (`"\xFF -1"`, logged as unhandled) for that track/master FX parameter afterwards. Fix: the result goes to `numberOfSteps`. |
+| S5 (fixed) | `CollectSessionData` returns early when `GetProjectStateChangeCount` is unchanged, even with `dump=true`. A `refresh` (e.g. after `dbm_restart_controllers` / `add_controller`) therefore does not resend `/clip/all` or `/scene/*`; newly started instances lack slots and scenes until the project changes. Fix: the early return is skipped on a dump. |

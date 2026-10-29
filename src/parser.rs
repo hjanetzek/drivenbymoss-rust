@@ -339,15 +339,15 @@ impl Parser {
                         Some("str") => model.transport_mut().set_loop_start_text(value),
                         Some(_) => model.transport_mut().set_loop_start_beat_text(value),
                     },
-                    "length" => {
-                        if parts.is_empty() {
+                    "length" => match parts.poll() {
+                        None => {
                             if let Some(v) = parse_double(value) {
                                 model.transport_mut().set_loop_length_value(v);
                             }
-                        } else {
-                            model.transport_mut().set_loop_length_beat_text(value);
                         }
-                    }
+                        Some("str") => model.transport_mut().set_loop_length_text(value),
+                        Some(_) => model.transport_mut().set_loop_length_beat_text(value),
+                    },
                     _ => Self::error(model, &format!("Unhandled Loop parameter: {loop_cmd}")),
                 }
             }
@@ -1235,7 +1235,8 @@ mod tests {
                 "/clip/color 0 255 0",
                 "/time/str 1:23.456",
                 "/time/loop/start 2",
-                "/time/loop/length/beats 2.1.00",
+                "/time/loop/length/str 0:04.000",
+                "/time/loop/length/beat 2.1.00",
                 "/numerator 3",
                 "/denominator 4",
                 "/automode 3",
@@ -1255,6 +1256,10 @@ mod tests {
         let t = model.transport();
         assert_eq!(t.position_text(), "1.23:456");
         assert_eq!(t.loop_start(), 2.0);
+        // The time text must not overwrite the beat text and vice versa
+        assert_ne!(t.loop_length_str(), "");
+        assert_ne!(t.loop_length_beat_text(), "");
+        assert_ne!(t.loop_length_str(), t.loop_length_beat_text());
         assert_eq!(t.quarters_per_measure(), 3);
         assert!(t.is_writing_arranger_automation());
         assert!(t.is_metronome_on());

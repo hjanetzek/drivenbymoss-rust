@@ -105,7 +105,6 @@ private:
 
 	// Click / metronome values
 	int metronome{};
-	int prerollClick{};
 	double metronomeVolume{};
 	std::string metronomeVolumeStr;
 
