@@ -10,11 +10,14 @@ pass, 1 is ignored, and `cargo clippy --all-targets` reports 0 warnings. The rel
 produces `libdrivenbymoss.so` (about 2.2 MB), which exports the 16 `dbm_*` functions of the
 handle-based C ABI.
 
-It has **not run inside Reaper yet**. The Reaper extension in `backends/reaper` has been switched
-from the JVM to the C ABI through the C++ wrapper (`bindings/cpp`). It builds and links on Linux,
-but has not been loaded in Reaper or tested with hardware. The CMake paths for Windows and macOS
-are written but untested. The Visual Studio, Xcode and Eclipse project files in
-`backends/reaper` still reference the removed JVM files; CMake is the supported build.
+**First successful test in Reaper (2026-10-29):** the Reaper extension in `backends/reaper`,
+switched from the JVM to the C ABI through the C++ wrapper (`bindings/cpp`), was built on Linux,
+loaded in Reaper and tested with a Novation Launch Control XL, including template switching. The
+Launchpad and Maschine support have not been tested with hardware yet.
+
+The CMake paths for Windows and macOS are written but untested. The Visual Studio, Xcode and
+Eclipse project files in `backends/reaper` still reference the removed JVM files; CMake is the
+supported build.
 
 Building the extension needs CMake, a C++ compiler and Rust:
 
@@ -131,7 +134,8 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
-1. Load the extension in Reaper, test with real hardware and compare with the Java version.
+1. Test the Launchpad and Maschine (Mk2, Jam) with hardware in Reaper, and test the Launch
+   Control XL in more depth. Compare the behaviour with the Java version.
 2. Verify the Windows and macOS CMake builds, and update or remove the Visual Studio, Xcode and
    Eclipse project files.
 3. Register and test Maschine Mk3, Mikro Mk3 and Plus, and port the Studio monitor-encoder
@@ -141,6 +145,9 @@ All paths are under `rust/`.
 
 Open issues:
 
+- [ ] Launch Control XL: the lights do not turn off when Reaper quits. Check whether the Java
+  version does it, and whether the shutdown path (`dbm_destroy` → controller `exit` → queued
+  MIDI → `SendMIDIEventsToOutputs`) still reaches the device at that point.
 - [ ] There is no UI. Configuration comes from the `.config` files, and `dbm_display_window` only
   prints the log. Decide whether a UI is needed.
 - [ ] Decide how to support USB/HID (Push 2/3 display, Kontrol Mk1) and graphics displays
