@@ -63,7 +63,11 @@ public final class NativeLibraryLoader
         final Path devLibrary = getDevLibrary ();
         final byte [] content;
         if (devLibrary != null)
+        {
+            if (!Files.isRegularFile (devLibrary))
+                throw new IOException (DEV_LIBRARY_VARIABLE + " must be the path of the native library (e.g. rust/target/debug/" + LIBRARY_NAME + "), but '" + devLibrary + "' is not a file.");
             content = Files.readAllBytes (devLibrary);
+        }
         else
         {
             final String resource = "/native/" + getPlatform () + "/" + LIBRARY_NAME;

@@ -104,7 +104,12 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         {
             this.core = new NativeCore (NativeLibraryLoader.provide (), this);
         }
-        catch (final IOException | ReflectiveOperationException | RuntimeException | UnsatisfiedLinkError ex)
+        catch (final IOException ex)
+        {
+            host.errorln ("Could not load the native library: " + ex.getMessage ());
+            return;
+        }
+        catch (final ReflectiveOperationException | RuntimeException | UnsatisfiedLinkError ex)
         {
             this.error ("Could not load the native library", ex);
             return;

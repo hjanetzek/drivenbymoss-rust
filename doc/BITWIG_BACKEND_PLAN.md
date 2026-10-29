@@ -17,7 +17,7 @@ Status (2026-10-29): steps 1–3 are implemented. The C ABI for single-controlle
 extension in `backends/bitwig/` (FFM binding, generated definitions, dev mode) and the stage 1
 model and commands (transport, tracks, sends, master, cursor device with remote-control pages,
 mapped action IDs). Tested in Bitwig 5.3 on JDK 25 with the Maschine Mk2, Maschine JAM and Launch
-Control XL. For development on Bitwig 5.3 the extension builds against API 21 (§3, "Bitwig 5.3
+Control XL; the dev reload works in Bitwig. For development on Bitwig 5.3 the extension builds against API 21 (§3, "Bitwig 5.3
 with a newer JDK").
 
 ## 1. Architecture
