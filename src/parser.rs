@@ -226,6 +226,12 @@ impl Parser {
         let color = if field == Some(TAG_COLOR) { parse_color_static(&host, value) } else { None };
         model.for_each_drum_device(|device| match command {
             TAG_EXISTS => device.set_exists(flag.unwrap_or(false)),
+            TAG_NAME => device.set_name(value),
+            "bypass" => device.set_enabled(!flag.unwrap_or(false)),
+            "window" => device.set_window_open(flag.unwrap_or(false)),
+            "expand" => device.set_expanded(flag.unwrap_or(false)),
+            "hasDrumPads" => device.set_has_drum_pads(flag.unwrap_or(false)),
+            "hasLayers" => device.set_has_layers(flag.unwrap_or(false)),
             "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(flag.unwrap_or(false)),
             "hasSoloedPads" => device.drum_pad_bank_mut().set_has_soloed_pads(flag.unwrap_or(false)),
             "pad" => {
@@ -1652,6 +1658,12 @@ mod tests {
             &mut parser,
             &[
                 "/drum/exists 1",
+                "/drum/name Drum Machine",
+                "/drum/bypass 0",
+                "/drum/window 0",
+                "/drum/expand 1",
+                "/drum/hasDrumPads 1",
+                "/drum/hasLayers 0",
                 "/drum/hasSoloedPads 1",
                 "/drum/pad/36/exists 1",
                 "/drum/pad/36/name Kick",
