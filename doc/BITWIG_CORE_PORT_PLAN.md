@@ -274,6 +274,9 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   core's pin, `track <p>/pin`, and the track bank navigation). For Reaper: `track pinned <0|1>`,
   `pinned/toggle`, report `/track/pinned <position>`, `track selectPrevious|selectNext` and
   `/track/hasPrevious|hasNext`; the core's own pin could then go.
+- **P2 groove:** separate parameters which exist only when the host reports `/groove/<name>`;
+  Reaper keeps `groove active|amount` (−1..1). To unify, the Reaper backend could report
+  `/groove/enabled|shuffleAmount` normalized with texts and take `groove <name>` (`/inc`, `/reset`).
 
 ## Replays to record again
 

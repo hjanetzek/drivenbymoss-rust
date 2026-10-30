@@ -15,6 +15,7 @@ import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.DeviceBank;
 import com.bitwig.extension.controller.api.DeviceMatcher;
+import com.bitwig.extension.controller.api.Groove;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
@@ -64,6 +65,11 @@ public final class BitwigModel
 
     final ControllerHost     host;
     final Transport          transport;
+    /** The groove and its parameters in the order of GrooveImpl (GROOVE_PARAMETERS). */
+    final Groove             groove;
+    final Parameter []       grooveParameters;
+    /** The names of the groove parameters for the core. */
+    static final String []   GROOVE_PARAMETERS = { "enabled", "shuffleAmount", "shuffleRate", "accentAmount", "accentRate", "accentPhase" };
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
@@ -135,6 +141,9 @@ public final class BitwigModel
         final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
 
         this.transport = host.createTransport ();
+        // As GrooveImpl of the Java version
+        this.groove = host.createGroove ();
+        this.grooveParameters = new Parameter [] { this.groove.getEnabled (), this.groove.getShuffleAmount (), this.groove.getShuffleRate (), this.groove.getAccentAmount (), this.groove.getAccentRate (), this.groove.getAccentPhase () };
         this.application = host.createApplication ();
         this.arranger = host.createArranger ();
         this.mixer = host.createMixer ();
@@ -229,6 +238,8 @@ public final class BitwigModel
         this.application.panelLayout ().markInterested ();
         this.project.hasSoloedTracks ().markInterested ();
         this.project.hasMutedTracks ().markInterested ();
+        for (final Parameter parameter: this.grooveParameters)
+            markParameter (parameter);
         markParameter (this.project.cueVolume ());
         markParameter (this.project.cueMix ());
         this.arranger.areCueMarkersVisible ().markInterested ();
@@ -520,6 +531,14 @@ public final class BitwigModel
         reporter.put ("/mixer/ioSection", this.mixer.isIoSectionVisible ().get ());
         reporter.put ("/mixer/meterSection", this.mixer.isMeterSectionVisible ().get ());
         reporter.put ("/mixer/sendSection", this.mixer.isSendSectionVisible ().get ());
+        for (int i = 0; i < GROOVE_PARAMETERS.length; i++)
+        {
+            final Parameter parameter = this.grooveParameters[i];
+            final String prefix = "/groove/" + GROOVE_PARAMETERS[i];
+            reporter.put (prefix + "/name", parameter.name ().get ());
+            reporter.put (prefix, parameter.value ().get ());
+            putDisplayedValue (reporter, prefix + "/str", parameter.displayedValue (), true);
+        }
     }
 
 

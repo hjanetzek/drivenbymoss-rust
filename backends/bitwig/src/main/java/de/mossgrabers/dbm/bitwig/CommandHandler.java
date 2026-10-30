@@ -152,6 +152,7 @@ public final class CommandHandler
             case "browser" -> this.handleBrowser (command, value);
             case "clip" -> this.handleClip (command, value, null);
             case "automation" -> this.setAutomationWriteMode ((int) value);
+            case "groove" -> this.handleGroove (command, value);
             case "quantize" ->
             {
                 // As CursorClipImpl.quantize
@@ -160,6 +161,31 @@ public final class CommandHandler
             }
             default -> this.unhandled.accept (processor + " " + command);
         }
+    }
+
+
+    /**
+     * The groove parameters, as GrooveImpl of the Java version: "&lt;name&gt;" (with "/inc",
+     * "/reset"), "&lt;name&gt;/touch", "&lt;name&gt;/indicate".
+     */
+    private void handleGroove (final String command, final double value)
+    {
+        final String [] parts = command.split ("/");
+        final int index = Arrays.asList (BitwigModel.GROOVE_PARAMETERS).indexOf (parts[0]);
+        if (index < 0 || parts.length > 2)
+        {
+            this.unhandled.accept ("groove " + command);
+            return;
+        }
+        final Parameter parameter = this.model.grooveParameters[index];
+        if (parts.length == 1)
+            this.setValue (parameter, value);
+        else if ("touch".equals (parts[1]))
+            parameter.touch (value > 0);
+        else if ("indicate".equals (parts[1]))
+            parameter.setIndication (value > 0);
+        else
+            this.unhandled.accept ("groove " + command);
     }
 
 

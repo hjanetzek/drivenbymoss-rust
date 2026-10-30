@@ -1317,6 +1317,11 @@ impl Parser {
 
     fn parse_groove(model: &mut Model, parts: &mut Parts, value: &str) {
         let command = parts.poll().unwrap_or("");
+        // Bitwig: the six parameters of GrooveImpl
+        if let Some(param) = model.groove_mut().host_parameter_mut(command) {
+            Self::parse_host_parameter(param, parts, value);
+            return;
+        }
         let Some(v) = parse_double(value) else {
             return;
         };
@@ -1356,6 +1361,7 @@ mod tests {
     use crate::daw::bank::BankItem;
     use crate::daw::clip::{NotePosition, StepState};
     use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
+    use crate::daw::constants::GrooveParameterId;
     use crate::daw::events::ModelEvent;
     use crate::daw::model_setup::ModelSetup;
     use crate::framework::value_changer::ValueChanger;
@@ -1935,6 +1941,58 @@ mod tests {
                 BackendCall::IntArg("track".into(), "indicate".into(), 1),
             ]
         );
+    }
+
+    /// GrooveImpl of the Java version for Bitwig: six parameters with the host's values and
+    /// texts, relative changes, reset, touch, indication.
+    #[test]
+    fn host_groove() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        assert!(!model.groove().parameter(GrooveParameterId::AccentRate).does_exist());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/groove/enabled/name Groove",
+                "/groove/enabled 1",
+                "/groove/enabled/str On",
+                "/groove/shuffleAmount 0.25",
+                "/groove/shuffleAmount/str 25.0 %",
+                "/groove/shuffleRate 0.5",
+                "/groove/accentAmount 0",
+                "/groove/accentRate 0.5",
+                "/groove/accentPhase 0.75",
+                "/groove/accentPhase/str/6 75%",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let groove = model.groove();
+        assert_eq!(groove.parameter(GrooveParameterId::Enabled).name(), "Groove");
+        assert_eq!(groove.parameter(GrooveParameterId::Enabled).displayed_value(), "On");
+        assert_eq!(groove.parameter(GrooveParameterId::ShuffleAmount).value(), 32);
+        assert_eq!(groove.parameter(GrooveParameterId::ShuffleAmount).displayed_value(), "25.0 %");
+        assert!(groove.parameter(GrooveParameterId::AccentRate).does_exist());
+        assert_eq!(groove.parameter(GrooveParameterId::AccentPhase).displayed_value_limited(6), "75%");
+        backend.take_calls();
+        let groove = model.groove_mut();
+        groove.parameter_mut(GrooveParameterId::ShuffleAmount).inc(2.0);
+        groove.parameter_mut(GrooveParameterId::AccentRate).set_value(127);
+        groove.parameter_mut(GrooveParameterId::ShuffleRate).reset_value();
+        groove.parameter_mut(GrooveParameterId::Enabled).touch_value(true);
+        groove.set_indication(true);
+        let calls = backend.take_calls();
+        assert_eq!(
+            calls[..5],
+            [
+                BackendCall::DoubleArg("groove".into(), "shuffleAmount/inc".into(), 2.0 / 128.0),
+                BackendCall::DoubleArg("groove".into(), "accentRate".into(), 1.0),
+                BackendCall::NoArg("groove".into(), "shuffleRate/reset".into()),
+                BackendCall::IntArg("groove".into(), "enabled/touch".into(), 1),
+                BackendCall::IntArg("groove".into(), "enabled/indicate".into(), 1),
+            ]
+        );
+        assert_eq!(calls.len(), 10);
     }
 
     #[test]

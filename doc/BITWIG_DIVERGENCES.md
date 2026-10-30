@@ -245,6 +245,13 @@ followed the selection). Previous and next track move the cursor track (`track s
 `cursorTrack.selectPrevious ()` etc.) and their availability is `/track/hasPrevious|hasNext`
 (before: via the track bank). The playing notes are those of the cursor track.
 
+**Groove (core port P2, 2026-10-30).** As `GrooveImpl`: six `ParameterImpl`s on `host.createGroove ()`
+(`enabled`, `shuffleAmount`, `shuffleRate`, `accentAmount`, `accentRate`, `accentPhase`), reported as
+`/groove/<name>`, `/groove/<name>/name`, `/groove/<name>/str` (+ `/6`, `/8`), changed with `groove <name>`
+(`/inc`, `/reset`, `/touch`, `/indicate`, `setIndication` on all six). Before, only the enabled state and
+the shuffle amount existed with Reaper's range −1..1 and texts computed by the core, and the extension
+handled none of them (the groove did not work on Bitwig). Reaper keeps `groove active|amount`.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 
@@ -267,7 +274,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `inifile` (pre-roll measures), `groove`, `cursor`,
+- `inifile` (pre-roll measures), `cursor`,
   user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues
