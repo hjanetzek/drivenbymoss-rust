@@ -206,7 +206,7 @@ id = "mk2.encoder.tempo"
 bullet = "TEMPO/TUNE - Enables tempo mode. The encoder changes the tempo of the song."
 before = [{ osc = "/tempo/raw 120" }]
 steps = [
-  { midi = "B0 30 7F | B0 30 00", note = "TEMPO" },
+  { midi = "B0 30 7F | B0 30 00", wait_ms = 600, note = "TEMPO (wait for the end of the notification)" },
   { midi = "B0 07 01", note = "encoder +1" },
 ]
 expect.bitwig = { "/tempo/raw" = "121" }
