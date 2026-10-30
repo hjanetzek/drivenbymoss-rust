@@ -171,6 +171,19 @@ remove and duplicate of the specific devices were sent as `<index+1>/…` with i
 window index, which the extension matched against the position in the chain (wrong from position
 8 on). Only with host paging; Reaper keeps its commands.
 
+**Step attributes (core port P1 8, 2026-10-30).** As `CursorClipImpl.updateStep*`: outside of
+an edit, changing one attribute of a step writes only that attribute,
+`clip grid/<id>/step/<channel>/<x>/<y>/<attribute> <value>` with the attributes `muted`,
+`duration`, `velocity`, `velocitySpread`, `releaseVelocity`, `pressure`, `timbre`, `pan`,
+`transpose`, `gain`, `chanceEnabled`, `chance`, `occurrenceEnabled`, `occurrence` (index),
+`recurrenceEnabled`, `recurrenceLength`, `recurrenceMask` (the other recurrence value is Bitwig's,
+as `setRecurrence (length, noteStep.recurrenceMask ())`), `repeatEnabled`, `repeatCount`,
+`repeatCurve`, `repeatVelocityCurve`, `repeatVelocityEnd`; flags as 0/1. In an edit
+(`startEdit` / `stopEdit`, every 100 ms) all attributes are written with `…/update` as before
+(`sendClipData`). Before, every change wrote all 21 attributes, including values not received yet.
+The gain is still reported as `gain () / 2` and written with `setGain (value)` as in the Java
+version (`StepInfoImpl.updateData`, `sendClipData`); whether both use the same range is open.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

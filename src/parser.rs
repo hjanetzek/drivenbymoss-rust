@@ -1972,10 +1972,36 @@ mod tests {
         clip.clear_row(0, 36);
         let calls = backend.take_calls();
         assert_eq!(calls[0], BackendCall::IntArg("clip".into(), "grid/8x128/step/0/4/38/toggle".into(), 100));
-        assert!(matches!(&calls[1], BackendCall::StringArg(p, c, v) if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(13) == Some("0.25")), "{calls:?}");
+        // CursorClipImpl.updateStepChance: only the changed attribute outside of an edit
+        assert_eq!(calls[1], BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/chance".into(), 0.25));
         assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
         assert_eq!(calls[3], BackendCall::NoArg("clip".into(), "grid/8x128/page/+".into()));
         assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
+
+        let clip = model.note_clip(8, 128);
+        clip.update_step_velocity(&position, 0.5);
+        clip.update_step_mute_state(&position, true);
+        clip.update_step_duration(&position, 0.75);
+        clip.update_step_is_repeat_enabled(&position, true);
+        clip.update_step_recurrence_length(&position, 3);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/velocity".into(), 0.5),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/muted".into(), 1.0),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/duration".into(), 0.75),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/repeatEnabled".into(), 1.0),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/recurrenceLength".into(), 3.0),
+            ]
+        );
+        // In an edit (startEdit/stopEdit) all attributes are written
+        clip.start_edit(&[position]);
+        backend.take_calls();
+        clip.update_step_gain(&position, 0.25);
+        assert!(backend.take_calls().is_empty());
+        clip.stop_edit();
+        let calls = backend.take_calls();
+        assert!(matches!(&calls[..], [BackendCall::StringArg(p, c, v)] if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(11) == Some("0.25")), "{calls:?}");
     }
 
     /// CursorClipImpl.changePlayStart/End, changeLoopStart/Length: relative on Bitwig.

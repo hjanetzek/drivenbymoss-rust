@@ -158,7 +158,7 @@ final class BitwigNoteClip
 
     /**
      * A command of the grid: "stepSize", "scroll", "page/+|-", "clearAll", "clearRow/&lt;ch&gt;/&lt;row&gt;",
-     * "clearColumn/&lt;ch&gt;/&lt;step&gt;", "step/&lt;ch&gt;/&lt;x&gt;/&lt;y&gt;/toggle|set|setFrom|update|clear|moveY".
+     * "clearColumn/&lt;ch&gt;/&lt;step&gt;", "step/&lt;ch&gt;/&lt;x&gt;/&lt;y&gt;/toggle|set|setFrom|update|clear|moveY|&lt;attribute&gt;".
      *
      * @param parts The parts of the command after "grid/&lt;id&gt;/"
      * @param value The numeric value
@@ -249,6 +249,50 @@ final class BitwigNoteClip
                     return false;
                 update (this.clip.getStep (channel, x, y), values);
             }
+            default ->
+            {
+                return updateAttribute (this.clip.getStep (channel, x, y), command, value);
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * Set one attribute of a step, as CursorClipImpl.updateStep* of the Java version outside of an
+     * edit (getNoteStep (notePosition).setVelocity (v)).
+     *
+     * @return False if the attribute is unknown
+     */
+    private static boolean updateAttribute (final NoteStep step, final String attribute, final double value)
+    {
+        if (step == null)
+            return true;
+        final boolean on = value > 0;
+        switch (attribute)
+        {
+            case "muted" -> step.setIsMuted (on);
+            case "duration" -> step.setDuration (value);
+            case "velocity" -> step.setVelocity (value);
+            case "velocitySpread" -> step.setVelocitySpread (value);
+            case "releaseVelocity" -> step.setReleaseVelocity (value);
+            case "pressure" -> step.setPressure (value);
+            case "timbre" -> step.setTimbre (value);
+            case "pan" -> step.setPan (value);
+            case "transpose" -> step.setTranspose (value);
+            case "gain" -> step.setGain (value);
+            case "chanceEnabled" -> step.setIsChanceEnabled (on);
+            case "chance" -> step.setChance (value);
+            case "occurrenceEnabled" -> step.setIsOccurrenceEnabled (on);
+            case "occurrence" -> step.setOccurrence (OCCURRENCES[Math.clamp ((int) value, 0, OCCURRENCES.length - 1)]);
+            case "recurrenceEnabled" -> step.setIsRecurrenceEnabled (on);
+            case "recurrenceLength" -> step.setRecurrence ((int) value, step.recurrenceMask ());
+            case "recurrenceMask" -> step.setRecurrence (step.recurrenceLength (), (int) value);
+            case "repeatEnabled" -> step.setIsRepeatEnabled (on);
+            case "repeatCount" -> step.setRepeatCount ((int) value);
+            case "repeatCurve" -> step.setRepeatCurve (value);
+            case "repeatVelocityCurve" -> step.setRepeatVelocityCurve (value);
+            case "repeatVelocityEnd" -> step.setRepeatVelocityEnd (value);
             default ->
             {
                 return false;
