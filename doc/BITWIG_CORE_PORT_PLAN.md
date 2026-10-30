@@ -245,13 +245,20 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
 - **P1 8, step attributes:** only with the host step grid (Bitwig); Reaper's clip keeps its note
   commands. Nothing to change.
 
+- **P1 9, step attribute knobs:** replaced (the Java version for Reaper casts the knob change to
+  an integer; no Reaper test encodes it). The Reaper clip only edits velocity, duration and mute;
+  the velocity knob now changes in finer steps there too. Nothing to change in the backend.
+
 ## Replays to record again
 
 Replays which fail only because a behaviour was corrected on purpose (do not edit them; record
 them again from a worktree run, see Verification):
 
 - `tests/conformance/launchcontrol_xl/replay/novation_launch_control_xl-drum_sequencer-rust.rec`,
-  `…-note_sequencer-rust.rec`, `tests/conformance/maschine_jam/replay/native_instruments_maschine_jam-drum_sequencer-rust.rec`
+  `…-note_sequencer-rust.rec`,
+  `tests/conformance/maschine_jam/replay/native_instruments_maschine_jam-drum_sequencer-rust.rec`,
+  `…-note_sequencer-rust.rec`,
+  `tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-pad_modes-rust.rec`
   (P1 8): a step attribute change sends `step/…/<attribute> <value>` (e.g. `chance 0.503937`,
   `repeatCount 15`, `pan -1`, `velocity 0.629921`, `muted 1`) instead of `step/…/update` with
   all attributes; the values are the same.

@@ -184,6 +184,11 @@ as `setRecurrence (length, noteStep.recurrenceMask ())`), `repeatEnabled`, `repe
 The gain is still reported as `gain () / 2` and written with `setGain (value)` as in the Java
 version (`StepInfoImpl.updateData`, `sendClipData`); whether both use the same range is open.
 
+**Step attribute knobs (core port P1 9, 2026-10-30).** The knob changes of the step attributes
+keep their fraction (`toNormalizedValue (calcKnobChange (control))` of `CursorClipImpl` for Bitwig);
+the core cut them to integers as the Java version for Reaper does (`(int) calcKnobChange`), so at
+the default sensitivity (1.09 per step) the changes were smaller. Also on Reaper.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

@@ -2002,6 +2002,21 @@ mod tests {
         clip.stop_edit();
         let calls = backend.take_calls();
         assert!(matches!(&calls[..], [BackendCall::StringArg(p, c, v)] if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(11) == Some("0.25")), "{calls:?}");
+
+        // CursorClipImpl.changeStepVelocity etc.: the knob change keeps its fraction (1.09 for
+        // one step at the default sensitivity, the cast cut it to 1)
+        let clip = model.note_clip(8, 128);
+        clip.change_step_velocity(&position, 1);
+        clip.change_step_chance(&position, 1);
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 127.0;
+        assert!(change > 1.0 / 127.0);
+        let calls = backend.take_calls();
+        let value = |i: usize| match &calls[i] {
+            BackendCall::DoubleArg(_, _, v) => *v,
+            other => panic!("{other:?}"),
+        };
+        assert!((value(0) - (0.5 + change)).abs() < 1e-9, "{calls:?}");
+        assert!((value(1) - (0.25 + change)).abs() < 1e-9, "{calls:?}");
     }
 
     /// CursorClipImpl.changePlayStart/End, changeLoopStart/Length: relative on Bitwig.

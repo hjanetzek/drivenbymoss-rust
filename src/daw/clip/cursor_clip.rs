@@ -893,10 +893,9 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will change the velocity of the note.
     pub fn change_step_velocity(&mut self, position: &NotePosition, control: i32) {
-        let value_changer = self.ctx.value_changer();
-        let change = value_changer
-            .to_normalized_value(value_changer.calc_knob_change(control) as i32 as f64);
-        let velocity = self.step(position).velocity() + change;
+        // CursorClipImpl.changeStepVelocity of the Java version for Bitwig: the knob change is
+        // not cut to an integer (the version for Reaper casts it)
+        let velocity = self.step(position).velocity() + self.knob_change(control);
         self.update_step_velocity(position, velocity.clamp(0.0, 1.0));
     }
 
@@ -921,10 +920,11 @@ impl CursorClip {
         }
     }
 
-    /// The normalized change of a knob (former `toNormalizedValue (calcKnobChange (control))`).
+    /// The normalized change of a knob (`toNormalizedValue (calcKnobChange (control))` of
+    /// CursorClipImpl for Bitwig, keeping the fraction).
     fn knob_change(&self, control: i32) -> f64 {
         let value_changer = self.ctx.value_changer();
-        value_changer.to_normalized_value(value_changer.calc_knob_change(control) as i32 as f64)
+        value_changer.to_normalized_value(value_changer.calc_knob_change(control))
     }
 
     fn increment(&self, control: i32) -> i32 {
