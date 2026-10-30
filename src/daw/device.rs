@@ -243,6 +243,10 @@ impl BankItem for DrumPad {
     }
 }
 
+/// The first pad of the page of a drum pad bank which is reported by the host (Bitwig starts its
+/// drum pad banks at C1).
+pub const DRUM_PAD_BANK_START: usize = 36;
+
 /// The 128 drum pads of a drum device (former `IDrumPadBank` / `DrumPadBankImpl`). Derefs to
 /// [`PagedBank<DrumPad>`]. Use [`DrumPadBank::select_pad`] to select a pad.
 pub struct DrumPadBank {
@@ -254,6 +258,9 @@ pub struct DrumPadBank {
     host_reported: bool,
     has_muted_pads: bool,
     has_soloed_pads: bool,
+    /// The position of the last scroll (before the host reported the pads it was aligned to a
+    /// page, as on Reaper).
+    scroll_position: Option<usize>,
 }
 
 impl DrumPadBank {
@@ -263,6 +270,7 @@ impl DrumPadBank {
     }
 
     /// Create the pad bank of a device; `owner` is the processor of the device (drum, primary).
+    /// The page starts at pad 0, with pads reported by the host at [`DRUM_PAD_BANK_START`].
     pub fn new(ctx: DawContext, num_layers: usize, num_sends: usize, owner: Processor) -> Self {
         let item_ctx = ctx.clone();
         let empty_ctx = ctx.clone();
@@ -281,7 +289,7 @@ impl DrumPadBank {
         if num_layers > 0 {
             bank.set_item_count(128);
         }
-        let mut pad_bank = DrumPadBank { bank, owner, host_reported: false, has_muted_pads: false, has_soloed_pads: false };
+        let mut pad_bank = DrumPadBank { bank, owner, host_reported: false, has_muted_pads: false, has_soloed_pads: false, scroll_position: None };
         if num_layers > 0 {
             pad_bank.set_selected_drum_pad(36);
             pad_bank.scroll_to(36, true);
@@ -297,6 +305,7 @@ impl DrumPadBank {
     /// Scroll to the given pad position. As the Java versions: Bitwig (pads reported by the
     /// host) scrolls exactly to the position, Reaper to the page which contains it.
     pub fn scroll_to(&mut self, position: usize, _adjust_page: bool) {
+        self.scroll_position = Some(position);
         if self.host_reported {
             self.bank.set_bank_offset(position as i64);
         } else {
@@ -352,6 +361,10 @@ impl DrumPadBank {
         if !self.host_reported {
             self.host_reported = true;
             self.set_pad_color(None);
+            // Scroll exactly to the last requested position, or to C1 where Bitwig's drum pad
+            // banks start (e.g. the Layer Mix of the Launch Control XL does not scroll the bank)
+            let position = self.scroll_position.unwrap_or(DRUM_PAD_BANK_START);
+            self.bank.set_bank_offset(position as i64);
         }
     }
 

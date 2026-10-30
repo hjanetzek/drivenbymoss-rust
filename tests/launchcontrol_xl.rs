@@ -550,3 +550,29 @@ clip/grid/8x127/step/0/1/60 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 0 0 0 0 0 1 0 0 0 0 0
     let values = update(&backend.take_calls()).expect("pan update");
     assert_eq!(values[9], "-1");
 }
+
+/// Layer Mix: Track Focus selects a layer of the first instrument, or with a Drum Machine a pad
+/// of the page which starts at C1, as Bitwig's drum pad banks (XLLayerMixMode.executeRow0).
+#[test]
+fn layer_mix_selects_layers_and_drum_pads() {
+    let (mut app, backend) = start("layer-select", 10);
+    app.update_model("primary/exists 1\nprimary/name Instrument Layer\nprimary/hasDrumPads 0\nprimary/hasLayers 1\nprimary/layer/count 2\n\
+primary/layer/0/exists 1\nprimary/layer/0/name A\nprimary/layer/1/exists 1\nprimary/layer/1/name B\n");
+    app.tick();
+    backend.take_calls();
+    press_note(&mut app, 10, 0x2A);
+    app.tick();
+    assert!(has_call(&backend.take_calls(), "primary", "layer/1/select"));
+
+    // A Drum Machine: Track Focus 3 is the 3rd pad from C1
+    let mut lines = String::from("primary/name Drum Machine\nprimary/hasDrumPads 1\nprimary/hasLayers 0\n");
+    for pad in 36..44 {
+        lines.push_str(&format!("primary/pad/{pad}/exists 1\nprimary/pad/{pad}/name Pad {pad}\n"));
+    }
+    app.update_model(&lines);
+    app.tick();
+    backend.take_calls();
+    press_note(&mut app, 10, 0x2B);
+    app.tick();
+    assert!(has_call(&backend.take_calls(), "primary", "pad/38/select"));
+}

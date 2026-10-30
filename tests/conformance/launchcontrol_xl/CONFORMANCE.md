@@ -32,15 +32,13 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 
 | Area | Java | Rust | Status |
 | --- | --- | --- | --- |
-| Layer Mix: Track Focus selects a layer / a drum pad | selects it | nothing | Rust bug, in work |
-| Layer Mix: Mute mode, Track Control 1 twice | unmuted again | muted | Rust bug |
-| Drum Sequencer: Mute mode, Track Control 2 | pad muted | no change | Rust bug |
 | Track Mix: Track Select back to the first page | a track of the page is selected (cursor device and clip of it) | no device, no clip | probably a Rust bug (paging without selection) |
 | Equalizer: knob LEDs | type, Q, frequency colors | off | Rust bug |
 | Mixer Track Control LEDs after holding Record Arm (transport) | record arm mode (red low) | mute mode (amber low) | probably a Rust bug (mode restored after the temporary transport mode) |
 | Template change: LEDs of the previous template | turned off | left on | Rust difference |
 | Track Mix: pan knob | no change | pan | probably state: the Device toggle of the Java controller (3rd knob row = device parameters) was on; restart both controllers before a run |
 | Equalizer: Send A at the center | off | off | the scenario expects Bell (manual); check the Java code |
+| Drum Sequencer (Java run): Track Control row | arms tracks for recording | steps | the Java bug of the Note Sequencer (below) also hits the Drum Sequencer (`drumPadEditMode` registered twice); the Java controller has to be restarted before a run, otherwise its Drum Sequencer scenarios fail |
 
 ## Known differences (not bugs of the port)
 
@@ -48,8 +46,14 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 | --- | --- | --- | --- |
 | Note Sequencer: Track Control row after a template change | track mutes | step mutes | Java bug: the note edit mode is registered in the main and the fader mode manager (BITWIG_DIVERGENCES.md §8); Rust follows the manual |
 | Note and drum step knobs (chance etc.): value of an absolute knob | CC / 128 (Bitwig's normalized value of the hardware control, passed to the note parameter) | CC / 127 (as the Java version for Reaper) | at most 0.8 %; Bitwig hardware binding of the Java version |
+| Layer Mix with an Instrument Layer of 2 layers: Track Select "previous" LED | on | off | there is no previous page; Java takes it from Bitwig's layer bank (`canScrollPageBackwards`), Rust from its paging over all layers |
 
 ## Fixed by the comparison
 
+- Layer Mix: Track Focus did not select layers (the layer channel had no `select`, now
+  `primary layer/<i>/select`), and with a Drum Machine it addressed the pads from pad 0 instead
+  of C1 (a drum pad bank reported by the host starts at C1 like Bitwig's, and keeps a scroll
+  position requested before the pads arrived exactly instead of aligned to the page). This also
+  fixed the layer mute (toggled twice) and the pad mute of the Drum Sequencer (2026-10-30).
 - The master track appeared twice in the Mixer (8th track lit): the extension and the core both
   added it (2026-10-30).

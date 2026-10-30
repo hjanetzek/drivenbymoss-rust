@@ -1679,13 +1679,13 @@ mod tests {
             ],
         );
         assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
-        // The drum pad bank shows the page of pad 36 (16 pads from 32)
+        // With reported pads the bank shows exactly the requested drum offset (36), as Bitwig
         let bank = model.drum_device().unwrap().drum_pad_bank();
-        let kick = bank.item(4);
+        let kick = bank.item(0);
         assert!(kick.does_exist() && kick.is_mute());
         assert_eq!(kick.name(), "Kick");
         assert_eq!(kick.color(), ColorEx::RED);
-        assert!(!bank.item(5).does_exist());
+        assert!(!bank.item(1).does_exist());
         assert!(bank.has_soloed_pads() && !bank.has_muted_pads());
         // With reported pads the bank scrolls exactly to the drum offset, as in Bitwig
         model.drum_device_mut().unwrap().drum_pad_bank_mut().scroll_to(36, false);

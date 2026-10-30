@@ -608,6 +608,14 @@ impl BankItem for Channel {
         self.exists
     }
 
+    /// Select a layer of a device (former `LayerImpl.select`); the host reports the selection
+    /// back. Tracks, the master and drum pads have their own selection.
+    fn select(&mut self) {
+        if self.kind == ChannelKind::Layer {
+            self.send_cmd("select");
+        }
+    }
+
     fn is_selected(&self) -> bool {
         Channel::is_selected(self)
     }
