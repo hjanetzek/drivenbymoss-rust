@@ -8,6 +8,10 @@ Last full run: 2026-10-30, all five templates, each recording on a fresh fixture
 with restarted controllers (`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all
 scenarios the same, except the known differences below.
 
+Replays (`replay/`, run by `cargo test --test conformance_replay`): the Rust recordings of this
+run for all five files, with the final LED state of the Java version; the replay checks the core's
+output after every input and the LEDs at the end against Java's (except the known differences).
+
 ## Coverage
 
 | File | Template | Scenarios |

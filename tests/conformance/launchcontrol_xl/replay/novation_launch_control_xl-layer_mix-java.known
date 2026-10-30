@@ -1,0 +1,2 @@
+leds BA 6A	Instrument Layer with 2 layers: Java's Track Select previous LED is on (Bitwig's layer bank), Rust's off (no previous page)
+leds [89B]0 *	User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller

@@ -1,0 +1,3 @@
+leds [89B]0 *	User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller
+bitwig osc:/eq/type/*/value	Takeover mode catch: Java's type knob sets the EQ+ type parameter (16 values) and is caught, Rust sets one of the 7 types as a command
+leds 99 0[D-F]	Takeover mode catch: the EQ type of band 1-3 (see above)

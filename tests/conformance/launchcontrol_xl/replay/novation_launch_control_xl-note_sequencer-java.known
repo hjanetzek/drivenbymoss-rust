@@ -1,1 +1,2 @@
+leds [89B]0 *	User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller
 leds 9C [45][9ABC]	Java bug: Note Sequencer Track Control row shows track mutes after a template change
