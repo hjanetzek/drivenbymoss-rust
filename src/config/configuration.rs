@@ -79,6 +79,9 @@ pub struct Configuration {
     descriptors: Vec<SettingDescriptor>,
     descriptor_index: HashMap<SettingId, usize>,
     changed: Vec<SettingId>,
+    /// The settings whose value changed since the host last asked for them, for hosts which show
+    /// the settings in their own UI (Bitwig), see [`Self::take_host_changes`].
+    host_changes: Vec<SettingId>,
     dont_notify_all: HashSet<SettingId>,
     dirty: bool,
     /// Values of controller specific settings (IDs >= NEXT_SETTING_ID), stored as text.
@@ -157,6 +160,7 @@ impl Configuration {
             descriptors: Vec::new(),
             descriptor_index: HashMap::new(),
             changed: Vec::new(),
+            host_changes: Vec::new(),
             dont_notify_all: HashSet::new(),
             dirty: false,
             custom_values: HashMap::new(),
@@ -342,6 +346,9 @@ impl Configuration {
         }
         self.write_field(id, normalized);
         self.mark_changed(id);
+        if !self.host_changes.contains(&id) {
+            self.host_changes.push(id);
+        }
         if self.descriptor(id).is_some_and(|d| d.scope == Scope::Global) {
             self.dirty = true;
         }
@@ -418,6 +425,24 @@ impl Configuration {
     /// their first change. Replaces the setting observers.
     pub fn take_changed_settings(&mut self) -> Vec<SettingId> {
         std::mem::take(&mut self.changed)
+    }
+
+    /// Get (and clear) the IDs of all settings whose value changed since the last call, in the
+    /// order of their first change, for a host which shows the settings in its own UI (Bitwig: the
+    /// controller preferences and the document state, `SettingsUIImpl` of the Java version).
+    pub fn take_host_changes(&mut self) -> Vec<SettingId> {
+        std::mem::take(&mut self.host_changes)
+    }
+
+    /// Set the value of a setting from the UI of the host: as [`Self::set_value`], but the change is
+    /// not reported back to the host. Returns true if the value changed.
+    pub fn set_value_from_host(&mut self, id: SettingId, value: &str) -> bool {
+        let reported = self.host_changes.contains(&id);
+        let changed = self.set_value(id, value);
+        if changed && !reported {
+            self.host_changes.retain(|&changed_id| changed_id != id);
+        }
+        changed
     }
 
     /// Check (without clearing) if a setting was changed since the last

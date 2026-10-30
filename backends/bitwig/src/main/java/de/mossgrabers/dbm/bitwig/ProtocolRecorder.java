@@ -30,7 +30,8 @@ import java.util.stream.Stream;
  * <p>
  * Format: one event per line, "&lt;ms&gt;\t&lt;kind&gt;\t&lt;field&gt;...", fields with "\\", "\n" and
  * "\t" escaped. Kinds: init (core ID, application version), config (file name, content),
- * documentSettings, start, model (lines), tick, in, out (hex bytes), noArg, string, int, double
+ * documentSettings (older recordings), setting (ID, value from Bitwig), start, model (lines),
+ * tick, in, out (hex bytes), noArg, string, int, double
  * (processor, command, value), strings (processor, command, values...), delay, enable
  * (processor, 0/1), filters, keys, velocities (note input, values...), mark (begin/end, name).
  */

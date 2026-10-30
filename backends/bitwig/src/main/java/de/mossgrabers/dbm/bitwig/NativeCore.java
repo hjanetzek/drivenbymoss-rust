@@ -89,8 +89,10 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  updateModel;
     private final MethodHandle  onMidiEvent;
     private final MethodHandle  getModelSetup;
-    private final MethodHandle  getFormattedDocumentSettings;
-    private final MethodHandle  setFormattedDocumentSettings;
+    private final MethodHandle  getSettings;
+    private final MethodHandle  setSetting;
+    private final MethodHandle  takeSettingChanges;
+    private final MethodHandle  takeNotifications;
     private final MethodHandle  freeString;
     private final MemorySegment callbackTable;
     private final String        version;
@@ -116,8 +118,10 @@ public final class NativeCore implements AutoCloseable
         this.updateModel = downcall (lookup, "dbm_update_model", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS));
         this.onMidiEvent = downcall (lookup, "dbm_on_midi_event", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, ADDRESS, JAVA_INT));
         this.getModelSetup = downcall (lookup, "dbm_get_model_setup", FunctionDescriptor.of (ADDRESS, ADDRESS));
-        this.getFormattedDocumentSettings = downcall (lookup, "dbm_get_formatted_document_settings", FunctionDescriptor.of (ADDRESS, ADDRESS));
-        this.setFormattedDocumentSettings = downcall (lookup, "dbm_set_formatted_document_settings", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS));
+        this.getSettings = downcall (lookup, "dbm_get_settings", FunctionDescriptor.of (ADDRESS, ADDRESS));
+        this.setSetting = downcall (lookup, "dbm_set_setting", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, ADDRESS));
+        this.takeSettingChanges = downcall (lookup, "dbm_take_setting_changes", FunctionDescriptor.of (ADDRESS, ADDRESS));
+        this.takeNotifications = downcall (lookup, "dbm_take_notifications", FunctionDescriptor.of (ADDRESS, ADDRESS));
         this.freeString = downcall (lookup, "dbm_free_string", FunctionDescriptor.ofVoid (ADDRESS));
 
         final MethodHandle versionHandle = downcall (lookup, "dbm_version", FunctionDescriptor.of (ADDRESS));
@@ -252,29 +256,54 @@ public final class NativeCore implements AutoCloseable
 
 
     /**
-     * Get the document settings of the controller.
+     * Get all settings of the controller, one line per setting with tab separated fields: ID,
+     * scope (global, document), kind (enum, integer, boolean, text), category, label, default,
+     * value, then the options of an enumeration or the minimum and maximum of an integer.
      *
-     * @return The formatted settings
+     * @return The settings, empty until the controller was started
      */
-    public String getFormattedDocumentSettings ()
+    public String getSettings ()
     {
-        return this.isValid () ? this.takeString ((MemorySegment) invoke (this.getFormattedDocumentSettings, this.app)) : "";
+        return this.isValid () ? this.takeString ((MemorySegment) invoke (this.getSettings, this.app)) : "";
     }
 
 
     /**
-     * Apply document settings, e.g. kept across a reload.
+     * Set a setting from Bitwig's settings UI.
      *
-     * @param settings The formatted settings
+     * @param id The ID of the setting
+     * @param value The value as text
      */
-    public void setFormattedDocumentSettings (final String settings)
+    public void setSetting (final int id, final String value)
     {
-        if (!this.isValid () || settings.isEmpty ())
+        if (!this.isValid ())
             return;
         try (final Arena call = Arena.ofConfined ())
         {
-            invoke (this.setFormattedDocumentSettings, this.app, call.allocateFrom (settings));
+            invoke (this.setSetting, this.app, Integer.valueOf (id), call.allocateFrom (value));
         }
+    }
+
+
+    /**
+     * Get the settings which the controller changed since the last call.
+     *
+     * @return One "ID&lt;tab&gt;value" per line
+     */
+    public String takeSettingChanges ()
+    {
+        return this.isValid () ? this.takeString ((MemorySegment) invoke (this.takeSettingChanges, this.app)) : "";
+    }
+
+
+    /**
+     * Get the notifications since the last call.
+     *
+     * @return One notification per line
+     */
+    public String takeNotifications ()
+    {
+        return this.isValid () ? this.takeString ((MemorySegment) invoke (this.takeNotifications, this.app)) : "";
     }
 
 

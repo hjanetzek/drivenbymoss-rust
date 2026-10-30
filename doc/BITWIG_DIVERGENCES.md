@@ -18,7 +18,8 @@ These do not change what a controller does, but explain the other differences.
 | --- | --- | --- | --- |
 | DAW model | `ModelImpl` with observers on the Bitwig objects | The extension reads all values once per tick (30 ms) and sends the changes as text lines to the core (`ModelReporter`, BACKEND_PROTOCOL.md §3) | The core is shared with Reaper and speaks the backend protocol |
 | Timer | `flushWorkaround`: `scheduleTask` every 100 ms plus `requestFlush` | `scheduleTask` every 30 ms ticks the core | As the Reaper version |
-| Settings | `SettingsUIImpl` on `getPreferences ()` / `getDocumentState ()` | The core's `.config` files in `~/.config/DrivenByMoss-Bitwig` | Not yet ported (plan step 5) |
+| Settings | `SettingsUIImpl` on `getPreferences ()` / `getDocumentState ()` | Same settings and places (`HostSettings`, from the core's list); Bitwig keeps the values, the core's `.config` file in `~/.config/DrivenByMoss-Bitwig` is only a fallback. Not supported: enabling/disabling a setting (Java: only the MPE pitch bend range, which no ported controller activates); signal, color, number and action settings (no ported controller uses them) | The core owns the settings |
+| Notifications | `showPopupNotification` | Same, queued by the core and shown after each tick (up to 30 ms later) | The core runs in the tick |
 | Extension IDs | One definition per controller with the controller's UUID | Generated definitions with own UUIDs and "(Rust)" names | Both can be installed side by side |
 | Hardware surface | `HwSurfaceFactoryImpl` builds a `HardwareSurface` (simulator, Bitwig mappings) | Raw MIDI only, the core does all mapping | Not planned yet |
 

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use crate::backend::{Backend, Sender};
 use crate::config::properties::Properties;
 use crate::config::reaper::{apply_document_settings, document_tag, format_document_settings, parse_document_settings, ControllerConfigFile};
-use crate::config::Scope;
+use crate::config::{Scope, SettingId, SettingKind};
 use crate::controller::{all_factories, find_factory, ControllerFactory, ControllerSetup, MidiPorts, OperatingSystem};
 use crate::framework::ctx::Ctx;
 use crate::host::{Host, MemoryLog, StderrLog, LogSink};
@@ -439,6 +439,74 @@ impl App {
                 None => instance.pending_document_settings = Some(parsed.clone()),
             }
         }
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // Settings and notifications for hosts with their own UI (Bitwig: controller preferences,
+    // document state and popup notifications). They address the first running controller, such a
+    // host runs one controller per instance (see `new_single`).
+
+    fn first_running(&mut self) -> Option<&mut Running> {
+        self.instances.iter_mut().find_map(|i| i.running.as_mut())
+    }
+
+    /// All settings of the controller in the order of their activation, one line per setting with
+    /// tab separated fields: ID, scope (`global`, `document`), kind (`enum`, `integer`,
+    /// `boolean`, `text`), category, label, default value, current value, then the options of an
+    /// enumeration or the minimum and maximum of an integer.
+    pub fn settings(&mut self) -> String {
+        self.enter();
+        let Some(running) = self.first_running() else {
+            return String::new();
+        };
+        let config = &running.ctx.config;
+        let mut lines = Vec::new();
+        for descriptor in config.descriptors() {
+            let scope = match descriptor.scope {
+                Scope::Global => "global",
+                Scope::Document => "document",
+            };
+            let (kind, extra) = match &descriptor.kind {
+                SettingKind::Enum { options } => ("enum", options.clone()),
+                SettingKind::Integer { min, max } => ("integer", vec![min.to_string(), max.to_string()]),
+                SettingKind::Boolean => ("boolean", Vec::new()),
+                SettingKind::Text => ("text", Vec::new()),
+            };
+            let value = config.value(descriptor.id).unwrap_or_default();
+            let mut fields = vec![descriptor.id.0.to_string(), scope.to_string(), kind.to_string(), descriptor.category.clone(), descriptor.label.clone(), descriptor.default_value.clone(), value];
+            fields.extend(extra);
+            lines.push(fields.iter().map(|f| f.replace(['\t', '\n'], " ")).collect::<Vec<_>>().join("\t"));
+        }
+        lines.join("\n")
+    }
+
+    /// Set a setting from the UI of the host (the change is not reported back by
+    /// [`Self::take_setting_changes`]).
+    pub fn set_setting(&mut self, id: i32, value: &str) {
+        self.enter();
+        let Ok(id) = u16::try_from(id) else {
+            return;
+        };
+        if let Some(running) = self.first_running() {
+            running.ctx.config.set_value_from_host(SettingId(id), value);
+        }
+    }
+
+    /// The settings which the controller changed since the last call, one `ID<tab>value` per
+    /// line, to update the UI of the host.
+    pub fn take_setting_changes(&mut self) -> String {
+        self.enter();
+        let Some(running) = self.first_running() else {
+            return String::new();
+        };
+        let config = &mut running.ctx.config;
+        let changes = config.take_host_changes();
+        changes.iter().filter_map(|&id| config.value(id).map(|value| format!("{}\t{value}", id.0))).collect::<Vec<_>>().join("\n")
+    }
+
+    /// The notifications since the last call, one per line (popup notifications of the host).
+    pub fn take_notifications(&mut self) -> String {
+        self.host.take_notifications().iter().map(|n| n.replace('\n', " ")).collect::<Vec<_>>().join("\n")
     }
 
     /// There is no UI in the Rust version: print the status and the recent log instead.

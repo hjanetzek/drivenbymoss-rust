@@ -69,10 +69,15 @@ extension instance is one controller with fixed ports, which the user assigns in
 - **Settings.**
   - Stage 1: the existing per-controller `.config` files, in a DrivenByMoss folder under the
     Bitwig user directory.
-  - Stage 2: the core exports its settings schema (JSON: id, label, category, type, range or
-    options, default); the extension creates the matching `host.getPreferences()` and
-    `host.getDocumentState()` widgets and forwards changes (`dbm_set_setting`). Document settings
-    replace `dbm_get/set_formatted_document_settings`.
+  - Stage 2 (done): the core lists its settings (`dbm_get_settings`: one tab separated line per
+    setting with id, scope, kind, category, label, default, value, options or range); the
+    extension (`HostSettings`) creates the matching `host.getPreferences()` and
+    `host.getDocumentState()` settings, sends Bitwig's values to the core (`dbm_set_setting`) and
+    sets the changes of the core in Bitwig (`dbm_take_setting_changes`). Bitwig keeps the values;
+    the document settings replace `dbm_get/set_formatted_document_settings`. The `.config` file
+    is still written but Bitwig's values win on start.
+- **Notifications:** the core queues them (`Host::show_notification`), the extension shows them
+  with `showPopupNotification` after each tick (`dbm_take_notifications`).
 
 ## 3. Native library loading and dev mode
 
@@ -108,9 +113,8 @@ and allows them (Java 22–25 default). Check what Bitwig 6.1 shows (?).
   - Alternative without `restart()`: swap only the core and keep the Bitwig objects (destroy,
     unload, load, create, start, refresh). Faster, but every Java-side cache has to be reset
     correctly. Only worth it if `restart()` turns out too slow.
-- **Kept across reloads:** document settings are saved before `exit()` and restored after
-  `init()` (stage 1: `dbm_get/set_formatted_document_settings` in a static holder; stage 2: Bitwig
-  document state). The core's own state (active mode, view, scroll positions) starts fresh.
+- **Kept across reloads:** document settings are kept by Bitwig's document state (stage 1 kept
+  them in a static holder with `dbm_get/set_formatted_document_settings`). The core's own state (active mode, view, scroll positions) starts fresh.
 - **Leak:** a library that cannot be unloaded stays mapped, one copy per reload (a debug build is
   tens of MB). Fine for a dev session; the cache directory is cleaned on the next start of Bitwig.
 - **Java changes:** Bitwig watches the `Extensions` folder and reloads a changed `.bwextension`
@@ -238,7 +242,8 @@ Reaper backend keeps working:
    ID table. Milestone: Launch Control XL and Launchpad (mixer, device, note modes) usable.
 4. **Packaging:** the native libraries for Linux x86_64/aarch64, Windows and macOS (universal) in
    the `.bwextension`; `ci/linux.sh` builds the extension.
-5. **Settings in Bitwig** (preferences and document state from the core's settings schema).
+5. **Settings in Bitwig** (preferences and document state from the core's settings list) and
+   popup notifications. Done.
 6. **Protocol v2** items in order of use: action-ID commands, beats, slots and scenes, parameter
    pages, drum pads, layers, browser, cursor clip. Then the Maschine (session and drum features)
    and the remaining controllers.

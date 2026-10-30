@@ -208,6 +208,38 @@ void dbm_set_default_document_settings(struct DbmApp *app);
 // `app` must be a valid handle (or null).
 char *dbm_get_formatted_document_settings(struct DbmApp *app);
 
+// All settings of the controller in the order of their activation, for hosts which show them in
+// their own UI (Bitwig). One line per setting with tab separated fields: ID, scope (`global`,
+// `document`), kind (`enum`, `integer`, `boolean`, `text`), category, label, default value,
+// current value, then the options of an enumeration or the minimum and maximum of an integer.
+// Empty until [`dbm_start_infrastructure`] started the controller. Release the result with
+// [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_get_settings(struct DbmApp *app);
+
+// Set a setting from the UI of the host.
+//
+// # Safety
+// `app` must be a valid handle (or null); `value` must be a valid NUL terminated string (or
+// null).
+void dbm_set_setting(struct DbmApp *app, int id, const char *value);
+
+// The settings which the controller changed since the last call, one `ID<tab>value` per line.
+// Release the result with [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_take_setting_changes(struct DbmApp *app);
+
+// The notifications since the last call, one per line. Release the result with
+// [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_take_notifications(struct DbmApp *app);
+
 // Release a string returned by the library.
 //
 // # Safety

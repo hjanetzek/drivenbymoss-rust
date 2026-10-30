@@ -20,7 +20,6 @@ import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
 
 
 /**
@@ -38,9 +37,6 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     /** Log all MIDI from and to the controller to stderr if the environment variable is set. */
     private static final boolean             LOG_MIDI           = System.getenv ("DBM_LOG_MIDI") != null && !System.getenv ("DBM_LOG_MIDI").isBlank ();
 
-    /** Document settings kept across restarts (dev reloads), per extension ID. */
-    private static final Map<String, String> KEPT_SETTINGS      = new ConcurrentHashMap<> ();
-
     private final DbmExtensionDefinition     definition;
     private final Map<Integer, NoteInput>    noteInputs         = new HashMap<> ();
     private final Set<String>                unhandledCommands  = new TreeSet<> ();
@@ -48,6 +44,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     private NativeCore                       core;
     private BitwigModel                      model;
     private CommandHandler                   commands;
+    private HostSettings                     settings;
     private MidiIn                           midiIn;
     private MidiOut                          midiOut;
     private boolean                          isInitializing;
@@ -157,13 +154,6 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         if (LOG_MIDI)
             this.println ("Logging MIDI to stderr (DBM_LOG_MIDI).");
 
-        final String settings = KEPT_SETTINGS.remove (this.definition.getId ().toString ());
-        if (settings != null)
-        {
-            this.record ("documentSettings", settings);
-            this.core.setFormattedDocumentSettings (settings);
-        }
-
         // Note inputs can only be created during init, the core creates them on start
         this.isInitializing = true;
         this.record ("start");
@@ -175,6 +165,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         final NoteInput defaultNoteInput = this.noteInputs.get (Integer.valueOf (0));
         this.model = new BitwigModel (host, modelSetup, defaultNoteInput == null ? null : defaultNoteInput.arpeggiator ());
         this.commands = new CommandHandler (this.model, this.reporter, command -> this.unhandled (command));
+        // The settings in Bitwig's UI; Bitwig keeps their values (the document settings in the
+        // project), they replace the values the core loaded
+        this.settings = new HostSettings (host, this.core.getSettings (), (id, value) -> {
+            this.record ("setting", id.toString (), value);
+            this.core.setSetting (id.intValue (), value);
+        });
+        this.core.takeSettingChanges ();
         this.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
         this.isRunning = true;
         host.scheduleTask (this::tickLoop, TICK_INTERVAL);
@@ -194,8 +191,6 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void exit ()
     {
         this.isRunning = false;
-        if (this.core != null)
-            KEPT_SETTINGS.put (this.definition.getId ().toString (), this.core.getFormattedDocumentSettings ());
         this.closeCore ();
         if (this.recorder != null)
             this.recorder.close ();
@@ -259,6 +254,12 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.core.updateModel (lines);
         this.record ("tick");
         this.core.tick ();
+        this.settings.apply (this.core.takeSettingChanges ());
+        for (final String notification: this.core.takeNotifications ().split ("\n"))
+        {
+            if (!notification.isEmpty ())
+                this.getHost ().showPopupNotification (notification);
+        }
         this.getHost ().scheduleTask (this::tickLoop, TICK_INTERVAL);
     }
 

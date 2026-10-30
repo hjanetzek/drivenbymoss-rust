@@ -203,7 +203,7 @@ same ports.
 
 **Same starting state.** Both extensions keep state between scenarios and runs: modes they
 remember (e.g. the track button mode per main mode of the Launch Control XL), the scale and other
-settings (Java: Bitwig's preferences, Rust: `~/.config/DrivenByMoss-Bitwig`). Before each recording
+settings (both in Bitwig's preferences and the project's document state). Before each recording
 the controller is restarted (`--restart`, or deactivated and activated in Bitwig) and the
 settings of both are the same; the `setup` steps of a scenario file then bring them into the state the scenarios start
 from (e.g. a template change for a full LED redraw). The first pair run (2026-10-30, Launch

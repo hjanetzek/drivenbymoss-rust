@@ -181,7 +181,7 @@ fn replay(path: &Path) -> Vec<String> {
             expected.push(normalize_event(event));
             continue;
         }
-        if !matches!(event.kind.as_str(), "documentSettings" | "start" | "model" | "tick" | "in" | "mark") {
+        if !matches!(event.kind.as_str(), "documentSettings" | "setting" | "start" | "model" | "tick" | "in" | "mark") {
             continue;
         }
         // The outputs of the previous input are complete
@@ -197,6 +197,7 @@ fn replay(path: &Path) -> Vec<String> {
         last_input = format!("{} at {} ms", event.kind, event.time);
         match event.kind.as_str() {
             "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),
+            "setting" => app.set_setting(event.fields[0].parse().unwrap_or(-1), event.fields.get(1).map_or("", String::as_str)),
             "start" => app.start_infrastructure(),
             "model" => app.update_model(&event.fields[0]),
             "tick" => app.tick(),

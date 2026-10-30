@@ -521,6 +521,54 @@ pub unsafe extern "C" fn dbm_get_formatted_document_settings(app: *mut DbmApp) -
     c_string(&settings).into_raw()
 }
 
+/// All settings of the controller in the order of their activation, for hosts which show them in
+/// their own UI (Bitwig). One line per setting with tab separated fields: ID, scope (`global`,
+/// `document`), kind (`enum`, `integer`, `boolean`, `text`), category, label, default value,
+/// current value, then the options of an enumeration or the minimum and maximum of an integer.
+/// Empty until [`dbm_start_infrastructure`] started the controller. Release the result with
+/// [`dbm_free_string`].
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_get_settings(app: *mut DbmApp) -> *mut c_char {
+    let settings = unsafe { with_handle(app, String::new(), |app| app.settings()) };
+    c_string(&settings).into_raw()
+}
+
+/// Set a setting from the UI of the host.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `value` must be a valid NUL terminated string (or
+/// null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_set_setting(app: *mut DbmApp, id: c_int, value: *const c_char) {
+    let value = unsafe { from_c(value) };
+    unsafe { with_handle(app, (), |app| app.set_setting(id, &value)) };
+}
+
+/// The settings which the controller changed since the last call, one `ID<tab>value` per line.
+/// Release the result with [`dbm_free_string`].
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_take_setting_changes(app: *mut DbmApp) -> *mut c_char {
+    let changes = unsafe { with_handle(app, String::new(), |app| app.take_setting_changes()) };
+    c_string(&changes).into_raw()
+}
+
+/// The notifications since the last call, one per line. Release the result with
+/// [`dbm_free_string`].
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_take_notifications(app: *mut DbmApp) -> *mut c_char {
+    let notifications = unsafe { with_handle(app, String::new(), |app| app.take_notifications()) };
+    c_string(&notifications).into_raw()
+}
+
 /// Release a string returned by the library.
 ///
 /// # Safety
