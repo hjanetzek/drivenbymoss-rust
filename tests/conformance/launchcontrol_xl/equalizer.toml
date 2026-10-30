@@ -1,0 +1,35 @@
+# Conformance scenarios: Novation Launch Control XL, Equalizer (2nd factory template, MIDI
+# channel 10: notes 99/89, CC B9). Fixture: tests/conformance/FIXTURE.md (track EQ with EQ+).
+
+controller = "Novation Launch Control XL"
+manual = "Novation/Novation-LaunchControlXL.md#equalizer-mode---2nd-factory-template"
+settle_ms = 400
+
+require = { "/track/4/name" = "EQ" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/4/select 1", note = "track EQ" },
+  { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+  { midi = "F0 00 20 29 02 11 77 09 F7", note = "factory template 2" },
+]
+
+[[stub]]
+match = "F0 00 20 29 02 11 77 ?? F7"
+reply = "echo"
+
+[[scenario]]
+id = "lcxl.eq.type"
+bullet = "Send A knobs: Sets the equalizer type. Center is Bell (green)."
+steps = [
+  { midi = "B9 0D 40", note = "Send A knob 1 to the center" },
+]
+expect.bitwig = { "/eq/type/1" = "bell" }
+
+[[scenario]]
+id = "lcxl.eq.q-frequency-gain"
+bullet = "Send B knobs: Q; Pan/Device knobs: frequency; Faders: gain of band 1-8."
+steps = [
+  { midi = "B9 1D 50", note = "Send B knob 1" },
+  { midi = "B9 31 30", note = "Pan knob 1" },
+  { midi = "B9 4D 60", note = "Fader 1" },
+]

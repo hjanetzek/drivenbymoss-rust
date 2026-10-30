@@ -1,35 +1,45 @@
 # Conformance testing against the Java DrivenByMoss: plan
 
-Status: 2026-10-30, steps 1 and 2 done (step 2: the recorder and the replay test, §5; the first
-replay is `tests/conformance/launchcontrol_xl/replay/`). Step 1: the runner (`backends/bitwig/tools/conformance_runner.py`), the
-OSC conformance module (branch `conformance-osc` of the Java repository), the probe
-(`ProbeExtension`) and the first scenarios (`tests/conformance/launchcontrol_xl/note_sequencer.toml`).
-The first pair run found the master track twice (fixed) and a Java bug (Note Sequencer Track
-Control row after a template change, a known difference); after that Java and Rust were the same
-in all five scenarios.
+Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
+
+- Step 1: the runner (`backends/bitwig/tools/conformance_runner.py`), the OSC conformance module
+  (branch `conformance-osc` of the Java repository), the probe (`ProbeExtension`, now only for
+  the Bitwig version) and the first scenarios. The first pair runs found the master track twice
+  (fixed) and a Java bug (Note Sequencer Track Control row after a template change, a known
+  difference); after that Java and Rust were the same in all scenarios of the Note Sequencer.
+- Step 2: the time of the core from the host (`Host::now`), the recorder in the extension and
+  the replay test (§5); the first replay is `tests/conformance/launchcontrol_xl/replay/`.
+- Step 3: the fixture project (`tests/conformance/FIXTURE.md`) and scenarios for all five
+  templates of the Launch Control XL (`tests/conformance/launchcontrol_xl/*.toml`, 27
+  scenarios). Next: build the fixture project in Bitwig, run `pair` on all files, triage the
+  differences, record the replays; then the JAM, the Mk2/Mk3 and the Launchpad.
 
 Setup for a run (Linux):
 
-1. A free virtual MIDI port for the controller under test: `snd-virmidi` with one device more
-   than `dbm-nihost` uses (`sudo modprobe -r snd_virmidi && sudo modprobe snd_virmidi
-   midi_devs=3`, then restart `dbm-nihost --virmidi`; it uses the first two).
+1. Free virtual MIDI ports for the controllers under test: `snd-virmidi` with more devices than
+   `dbm-nihost` uses (it uses the first two). With `midi_devs=4`
+   (`sudo modprobe -r snd_virmidi && sudo modprobe snd_virmidi midi_devs=4`, then restart
+   `dbm-nihost --virmidi`) VirMIDI 5-2 and 5-3 are free for the Java and the Rust controller.
+   Bitwig does not reopen a port which was busy when a controller was activated: activate the
+   controller again after the port is free.
 2. Bitwig started with `DBM_OSC_CONFORMANCE=1` and the Java DrivenByMoss of the branch
    `conformance-osc`. In Bitwig: the Java "Open Sound Control" controller sending to
    127.0.0.1:9000 (receiving on 8000; its MIDI port setting can be any unused device, it does
    not use it), optionally the "Conformance Probe (Rust)" controller (Bitwig version), and the
-   controller under test (Java or Rust, only one active) with the free VirMIDI port as input and
-   output.
-3. The fixture of the scenario file (described at its top).
-4. `cd backends/bitwig/tools && ./conformance_runner.py record
-   ../../../tests/conformance/launchcontrol_xl/note_sequencer.toml --label java --port "VirMIDI 5-2"`,
-   the same with `--label rust` after switching the controller, then
-   `./conformance_runner.py compare <java trace> <rust trace>` (traces in `target/conformance`).
-   With both controllers active, each on its own port: `./conformance_runner.py pair
-   <scenarios> --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-1"` records both and compares.
-   A scenario file can have `setup` steps (run once before the scenarios, e.g. a template change
-   and the first scale), a `require` check of the fixture, and `[[known_difference]]` entries
-   (`match` = pattern of `<bitwig|leds> <key>`, `reason`) which are reported but do not fail.
-   Nothing else may listen on UDP 9000 (e.g. `osc_monitor.py`).
+   controllers under test, the Java and the Rust one, each with its own VirMIDI port as input
+   and output. Restart both before a run, so that they start from the same state (§4).
+3. The fixture project (`tests/conformance/FIXTURE.md`) is open.
+4. `cd backends/bitwig/tools && ./conformance_runner.py pair
+   ../../../tests/conformance/launchcontrol_xl/*.toml --java-port "VirMIDI 5-2" --rust-port
+   "VirMIDI 5-3"` records the Java and the Rust controller for each scenario file and compares
+   them (traces, LED states and recordings in `target/conformance`). Single runs:
+   `record <scenarios> --label java|rust --port <port>`, then `compare <java trace> <rust trace>`.
+   A scenario file can have `setup` steps (once before the scenarios, e.g. a template change, the
+   first scale and `osc` commands which select the fixture track), `before` steps per scenario
+   (not compared, e.g. resetting a mute via `osc`), a `require` check of the fixture (after the
+   setup), and `[[known_difference]]` entries (`match` = pattern of `<bitwig|leds> <key>`,
+   `reason`) which are reported but do not fail. Nothing else may listen on UDP 9000 (e.g.
+   `osc_monitor.py`).
 
 ## 1. Goal
 
@@ -211,8 +221,15 @@ differing command, which is the point where the scenario has to be recorded agai
   `<controller>-java.known`, the known differences).
 
 To record a replay: restart the Rust controller (the recording starts with it, from a fresh
-state), run `pair`, then copy `target/conformance/recordings/<controller>-rust.rec` and
-`target/conformance/<controller>-java.leds|known` to `tests/conformance/<controller>/replay/`.
+state), run `pair`, then copy `target/conformance/recordings/<run>-rust.rec` and
+`target/conformance/<run>-java.leds|known` to `tests/conformance/<controller>/replay/`; `<run>`
+is the controller and the scenario file, e.g. `novation_launch_control_xl-note_sequencer`.
+
+**Fixture (step 3):** one Bitwig project for all controllers, described in
+`tests/conformance/FIXTURE.md`. Scenario files select their track and clip and reset the states
+they change with `osc` steps (sent to the OSC controller, port 8000) in `setup` (once) and
+`before` (per scenario, not compared); `require` is checked after `setup`. `pair` takes several
+scenario files.
 
 ## 6. Comparison rules
 
@@ -242,22 +259,27 @@ sections where differences were found by hand.
 
 1. **Runner skeleton** (OSC observer, probe for the gaps, virtual MIDI port, device stub,
    scenario file, trace writing, comparison report) and one scenario (the LC XL Note Sequencer)
-   end to end with both extensions.
-2. **Protocol recorder** in the Rust extension and the replay test harness.
+   end to end with both extensions. Done.
+2. **Protocol recorder** in the Rust extension and the replay test harness. Done.
 3. **Fixtures** for the four ported controllers; scenarios for the Launch Control XL (small,
-   five templates), then the JAM, the Mk2/Mk3 and the Launchpad.
+   five templates), then the JAM, the Mk2/Mk3 and the Launchpad. In progress: the fixture and
+   the Launch Control XL scenarios are written, not yet run. The Maschine controllers need the
+   MIDI which `dbm-nihost` sends for the hardware (the runner takes its place on a VirMIDI port)
+   and a stub for their startup messages.
 4. Add the scenario step to PORTING_GUIDE.md §3 and §6 for all further ports.
 
 ## 9. Open questions
 
-1. **Resetting Bitwig between scenarios:** reopening the fixture project from the probe
-   (`Application` has no "open file"; maybe an action ID, or undo back to a marker), or one
-   Bitwig session per scenario file. To be tried.
-2. **Switching between the Java and the Rust extension** without the GUI: two Bitwig profiles
-   or settings files, or both extensions installed with only one assigned to the virtual ports.
+1. **Resetting Bitwig between scenarios:** partly solved: the scenario files reset what they
+   change via OSC (`setup`, `before`) and leave the clips empty. Content which OSC cannot reset
+   (e.g. a device which was added) still needs the fixture project to be reopened; maybe an
+   action ID or undo back to a marker.
+2. **Switching between the Java and the Rust extension:** solved: both are active at the same
+   time, each on its own virtual port; the runner drives one at a time (`pair`).
 3. **Bitwig versions:** traces recorded with Bitwig 5.3 (the current test setup) and 6.1 (the
    baseline) may differ; the trace records the version.
-4. **Timing-dependent features** (long press, double click, blinking, note repeat) need a
-   deterministic tick in the replay, and tolerances in the Bitwig run.
+4. **Timing-dependent features** (long press, double click, blinking, note repeat): the replay
+   runs on the recorded times (`App::set_time`); the Bitwig runs still need tolerances or
+   `wait_ms` in the scenarios.
 5. **Coverage of the observer:** the probe must not grow into a second copy of the model. It
    reports what the scenarios ask for, added scenario by scenario.

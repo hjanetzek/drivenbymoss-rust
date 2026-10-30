@@ -1,0 +1,135 @@
+# Conformance scenarios: Novation Launch Control XL, Track Mix (1st factory template, MIDI
+# channel 9: notes 98/88, CC B8). Fixture: tests/conformance/FIXTURE.md.
+
+controller = "Novation Launch Control XL"
+manual = "Novation/Novation-LaunchControlXL.md#track-mix-mode---1st-factory-template"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ", "/primary/page/2/exists" = "1" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "F0 00 20 29 02 11 77 09 F7", note = "factory template 2" },
+  { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+]
+
+[[stub]]
+match = "F0 00 20 29 02 11 77 ?? F7"
+reply = "echo"
+
+[[scenario]]
+id = "lcxl.mix.track-focus"
+bullet = "Track Focus buttons: Selects one of the 8 tracks on the currently selected track page."
+before = [{ osc = "/track/1/select 1" }]
+steps = [
+  { midi = "98 2B 7F", note = "Track Focus 3" },
+  { midi = "88 2B 00" },
+]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.mute"
+bullet = "Mute (amber): If active the Mute state of the 8 tracks on the currently selected track page is toggled."
+before = [{ osc = "/track/2/mute 0" }]
+steps = [
+  { midi = "98 6A 7F", note = "Mute" },
+  { midi = "88 6A 00" },
+  { midi = "98 4A 7F", note = "Track Control 2" },
+  { midi = "88 4A 00" },
+]
+expect.bitwig = { "/track/2/mute" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.solo"
+bullet = "Solo (green): If active the Solo state of the 8 tracks on the currently selected track page is toggled."
+before = [{ osc = "/track/2/mute 0 | /track/3/solo 0" }]
+steps = [
+  { midi = "98 6B 7F", note = "Solo" },
+  { midi = "88 6B 00" },
+  { midi = "98 4B 7F", note = "Track Control 3" },
+  { midi = "88 4B 00" },
+]
+expect.bitwig = { "/track/3/solo" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.recarm"
+bullet = "Record Arm (red): If active the Record Arm state of the 8 tracks on the currently selected track page is toggled."
+before = [{ osc = "/track/3/solo 0 | /track/4/recarm 0" }]
+steps = [
+  { midi = "98 6C 7F", note = "Record Arm" },
+  { midi = "88 6C 00" },
+  { midi = "98 4C 7F", note = "Track Control 4" },
+  { midi = "88 4C 00" },
+]
+expect.bitwig = { "/track/4/recarm" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.knobs"
+bullet = "Send A / Send B / Pan knobs, Faders: control send 1, send 2, panorama and volume of the 8 tracks."
+before = [{ osc = "/track/4/recarm 0" }]
+steps = [
+  { midi = "B8 0D 40", note = "Send A knob 1" },
+  { midi = "B8 1E 20", note = "Send B knob 2" },
+  { midi = "B8 33 00", note = "Pan knob 3 to the left" },
+  { midi = "B8 50 7F", note = "Fader 4 to the maximum" },
+]
+expect.bitwig = { "/track/3/pan" = "0" }
+
+[[scenario]]
+id = "lcxl.mix.device-page"
+bullet = "Device (yellow): Keep the device button pressed to select one of the 1st 8 parameter pages of the currently selected device."
+before = [{ osc = "/track/1/select 1 | /device/page/1/selected" }]
+steps = [
+  { midi = "98 69 7F", note = "hold Device" },
+  { midi = "98 4A 7F", note = "Track Control 2" },
+  { midi = "88 4A 00" },
+  { midi = "88 69 00", note = "release Device" },
+]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.track-page"
+bullet = "Track Select: Select the previous/next page of tracks to control."
+steps = [
+  { midi = "B8 6B 7F", note = "Track Select next" },
+  { midi = "B8 6B 00" },
+  { midi = "B8 6A 7F", note = "Track Select previous" },
+  { midi = "B8 6A 00" },
+]
+expect.bitwig = { "/track/1/name" = "Synth" }
+
+[[scenario]]
+id = "lcxl.mix.transport-click"
+bullet = "Record Arm held, Track Control 6 Click (green): Toggle the metronome."
+before = [{ osc = "/click 0" }]
+steps = [
+  { midi = "98 6C 7F", note = "hold Record Arm" },
+  { midi = "98 5A 7F", note = "Track Control 6" },
+  { midi = "88 5A 00" },
+  { midi = "88 6C 00", note = "release Record Arm" },
+]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "lcxl.mix.transport-tempo"
+bullet = "Record Arm held, Track Focus 4 Tempo+ (green): Increase the song tempo by 1."
+before = [{ osc = "/click 0 | /tempo/raw 120" }]
+steps = [
+  { midi = "98 6C 7F", note = "hold Record Arm" },
+  { midi = "98 2C 7F", note = "Track Focus 4" },
+  { midi = "88 2C 00" },
+  { midi = "88 6C 00", note = "release Record Arm" },
+]
+expect.bitwig = { "/tempo/raw" = "121" }
+
+[[scenario]]
+id = "lcxl.mix.transport-defeat"
+bullet = "Record Arm held, Track Control 8 Solo/Mute defeat (amber): Turn off all mute and solo states."
+before = [{ osc = "/tempo/raw 120 | /track/1/mute 1 | /track/2/solo 1" }]
+steps = [
+  { midi = "98 6C 7F", note = "hold Record Arm" },
+  { midi = "98 5C 7F", note = "Track Control 8" },
+  { midi = "88 5C 00" },
+  { midi = "88 6C 00", note = "release Record Arm" },
+]
+expect.bitwig = { "/track/1/mute" = "0", "/track/2/solo" = "0" }

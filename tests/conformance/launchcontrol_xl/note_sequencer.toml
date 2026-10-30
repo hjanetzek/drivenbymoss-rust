@@ -1,21 +1,20 @@
 # Conformance scenarios: Novation Launch Control XL, Note Sequencer (5th factory template).
 # See doc/CONFORMANCE_TESTING_PLAN.md. Run with backends/bitwig/tools/conformance_runner.py.
 #
-# Fixture: the selected track is an instrument track with a synth which has at least two remote
-# control pages; an empty launcher clip of one bar is selected (the cursor clip, no notes). The Java OSC
-# controller sends to port 9000, the "Conformance Probe (Rust)" controller is added. The
-# controller under test (Java or Rust) uses the virtual MIDI port as input and output.
+# Fixture: tests/conformance/FIXTURE.md (track Synth with a Polysynth of at least two remote
+# control pages and an empty launcher clip, which is selected).
 
 controller = "Novation Launch Control XL"
 manual = "Novation/Novation-LaunchControlXL.md#note-sequencer---5th-factory-template"
 settle_ms = 400
 
 # The fixture (checked before the scenarios run)
-require = { "/primary/exists" = "1", "/primary/page/2/exists" = "1", "/clip/exists" = "1", "/clip/step/*" = "0" }
+require = { "/track/1/name" = "Synth", "/primary/exists" = "1", "/primary/page/2/exists" = "1", "/clip/exists" = "1", "/clip/step/*" = "0" }
 
 # Before the scenarios: a template change makes the controller redraw all LEDs, so that both
 # versions start from the same LED state
 setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1 | /track/1/clip/1/select", note = "track Synth, its clip" },
   { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
   { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
   # Send Select previous = previous scale: go to the first scale (Major), the scale is a setting

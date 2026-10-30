@@ -1,0 +1,77 @@
+# Conformance scenarios: Novation Launch Control XL, Drum Sequencer (4th factory template, MIDI
+# channel 12: notes 9B/8B, CC BB). Fixture: tests/conformance/FIXTURE.md (track Drums with a Drum
+# Machine and an empty clip).
+
+controller = "Novation Launch Control XL"
+manual = "Novation/Novation-LaunchControlXL.md#drum-sequencer---4th-factory-template"
+settle_ms = 400
+
+require = { "/track/2/name" = "Drums", "/clip/exists" = "1", "/clip/step/*" = "0" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/2/select 1 | /track/2/clip/1/select", note = "track Drums, its clip" },
+  { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+  { midi = "F0 00 20 29 02 11 77 0B F7", note = "factory template 4" },
+]
+
+[[stub]]
+match = "F0 00 20 29 02 11 77 ?? F7"
+reply = "echo"
+
+[[scenario]]
+id = "lcxl.drum.select-pad"
+bullet = "Track Focus buttons: Select one of the 8 drum pads (sounds) on the currently selected drum machine pads page."
+steps = [
+  { midi = "9B 29 7F", note = "Track Focus 1" },
+  { midi = "8B 29 00" },
+]
+
+[[scenario]]
+id = "lcxl.drum.step-on"
+bullet = "Mute/Solo/Rec Arm buttons are off: Press to toggle the step on/off."
+steps = [
+  { midi = "9B 49 7F", note = "Track Control 1" },
+  { midi = "8B 49 00" },
+]
+expect.bitwig = { "/clip/step/*/0/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "lcxl.drum.knobs"
+bullet = "Send A: chance; Send B: repeats; Pan: panorama; Faders: velocity of the step."
+steps = [
+  { midi = "BB 0D 40", note = "Send A knob 1" },
+  { midi = "BB 1D 7F", note = "Send B knob 1" },
+  { midi = "BB 31 00", note = "Pan knob 1" },
+  { midi = "BB 4D 50", note = "Fader 1" },
+]
+
+[[scenario]]
+id = "lcxl.drum.step-off"
+bullet = "Mute/Solo/Rec Arm buttons are off: Press to toggle the step on/off."
+steps = [
+  { midi = "9B 49 7F", note = "Track Control 1" },
+  { midi = "8B 49 00" },
+]
+expect.bitwig = { "/clip/step/*/0/*" = "0" }
+
+[[scenario]]
+id = "lcxl.drum.pad-mute"
+bullet = "Mute (amber): If active, the Mute state of the 8 drum pads of the currently selected drum machine pads page is toggled."
+steps = [
+  { midi = "9B 6A 7F", note = "Mute" },
+  { midi = "8B 6A 00" },
+  { midi = "9B 4A 7F", note = "Track Control 2" },
+  { midi = "8B 4A 00" },
+  { midi = "9B 4A 7F", note = "Track Control 2 again" },
+  { midi = "8B 4A 00" },
+]
+
+[[scenario]]
+id = "lcxl.drum.pad-page"
+bullet = "Send Select: Moves the page of the drum pads (sounds) up/down."
+steps = [
+  { midi = "BB 69 7F", note = "Send Select next" },
+  { midi = "BB 69 00" },
+  { midi = "BB 68 7F", note = "Send Select previous" },
+  { midi = "BB 68 00" },
+]

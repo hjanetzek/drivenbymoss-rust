@@ -17,7 +17,7 @@
 #   conformance_runner.py ports
 #   conformance_runner.py record SCENARIOS.toml --label java|rust --port "VirMIDI 5-2" [--out DIR]
 #   conformance_runner.py compare ORACLE.json PORT.json
-#   conformance_runner.py pair SCENARIOS.toml --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-1"
+#   conformance_runner.py pair SCENARIOS.toml... --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-3"
 #
 # "record" writes DIR/<controller>-<label>.json and checks the expectations of the scenarios;
 # "compare" compares the run of the port with the run of the oracle.
@@ -136,6 +136,30 @@ class MidiPort:
         self.midi_out.close_port()
 
 
+def send_osc(text):
+    """Send an OSC command to the Java OSC controller (receive port 8000), e.g. "/track/1/select 1"
+    (to bring Bitwig into the state of a scenario, independent of the controller under test)."""
+    parts = text.split()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.sendto(build_message(parts[0], parts[1:]), ("127.0.0.1", 8000))
+
+
+def run_step(port, step, settle):
+    """A step: "osc" commands (separated by "|"), then "midi" messages (separated by "|"), all
+    "repeat" times with "interval_ms" between the messages, then wait "wait_ms" plus the settle
+    time."""
+    for _ in range(step.get("repeat", 1)):
+        for command in step.get("osc", "").split("|"):
+            if command.strip():
+                send_osc(command.strip())
+                time.sleep(0.05)
+        for message in step.get("midi", "").split("|"):
+            if message.strip():
+                port.send(parse_hex(message))
+                time.sleep(step.get("interval_ms", 0) / 1000.0)
+    time.sleep(step.get("wait_ms", 0) / 1000.0 + settle)
+
+
 def find_port(ports, name):
     for index, port in enumerate(ports):
         if name in port:
@@ -171,6 +195,12 @@ def led_state(messages, leds):
 # Recording
 
 
+def run_name(config, scenarios):
+    """The name of the files of a run: controller and scenario file, e.g.
+    novation_launch_control_xl-note_sequencer."""
+    return config["controller"].lower().replace(" ", "_") + "-" + Path(scenarios).stem
+
+
 def diff(before, after):
     return {k: v for k, v in after.items() if before.get(k) != v}
 
@@ -184,30 +214,26 @@ def record(args, listener=None):
         listener.start()
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
-    name = config["controller"].lower().replace(" ", "_") + f"-{args.label}"
+    name = run_name(config, args.scenarios) + f"-{args.label}"
     # The Rust extension records the protocol of the run for the replay test (§5 of the plan)
     marker = (lambda kind: port.send([0xF0, 0x7D, 0x44, 0x42, 0x4D, kind] + list(name.encode("ascii")) + [0xF7])) if args.label == "rust" else (lambda kind: None)
     try:
         marker(1)
         time.sleep(1.0)
         led_state(port.take(), leds)
+        # Bring the controller into a known state, e.g. a full redraw of the LEDs
+        for step in config.get("setup", []):
+            run_step(port, step, settle)
+        led_state(port.take(), leds)
         # The fixture must be loaded, otherwise the scenarios fail for the wrong reason
+        listener.request_dump()
+        time.sleep(settle)
         missing = check_expectations({"expect": {"bitwig": config.get("require", {})}}, {"bitwig": listener.snapshot(), "leds": {}})
         if missing:
-            print("The fixture is not ready:")
+            print("The fixture is not ready (tests/conformance/FIXTURE.md):")
             for problem in missing:
                 print(f"       {problem}")
             return 2
-        # Bring the controller into a known state, e.g. a full redraw of the LEDs
-        for step in config.get("setup", []):
-            # "repeat" sends the messages of "midi" (separated by "|") several times
-            for _ in range(step.get("repeat", 1)):
-                for message in step.get("midi", "").split("|"):
-                    if message.strip():
-                        port.send(parse_hex(message))
-                        time.sleep(step.get("interval_ms", 0) / 1000.0)
-            time.sleep(step.get("wait_ms", 0) / 1000.0 + settle)
-        led_state(port.take(), leds)
         trace = {"controller": config["controller"], "manual": config.get("manual", ""), "label": args.label, "scenarios": [], "known_differences": config.get("known_difference", [])}
         failures = 0
         for scenario in config["scenario"]:
@@ -217,10 +243,12 @@ def record(args, listener=None):
             state = listener.snapshot()
             trace["version"] = state.get("probe:/probe/version", "?")
             entry = {"id": scenario["id"], "bullet": scenario.get("bullet", ""), "initial": {"bitwig": state, "leds": dict(leds)}, "steps": []}
+            for step in scenario.get("before", []):
+                run_step(port, step, settle)
+            led_state(port.take(), leds)
+            state = listener.snapshot()
             for step in scenario.get("steps", []):
-                if "midi" in step:
-                    port.send(parse_hex(step["midi"]))
-                time.sleep(step.get("wait_ms", 0) / 1000.0 + settle)
+                run_step(port, step, settle)
                 led_state(port.take(), leds)
                 new_state = listener.snapshot()
                 entry["steps"].append({"input": step, "bitwig": diff(state, new_state), "leds": dict(leds)})
@@ -339,19 +367,22 @@ def pair(args):
     compare."""
     import types
 
-    paths = []
-    # One listener for both runs: the UDP ports are not free again right after closing them
+    # One listener for all runs: the UDP ports are not free again right after closing them
     listener = StateListener()
     listener.start()
-    for label, port in (("java", args.java_port), ("rust", args.rust_port)):
-        print(f"--- {label} on {port}")
-        result = record(types.SimpleNamespace(scenarios=args.scenarios, label=label, port=port, out=args.out), listener)
-        if result == 2:
-            return result
-        config = tomllib.loads(Path(args.scenarios).read_text())
-        paths.append(Path(args.out) / (config["controller"].lower().replace(" ", "_") + f"-{label}.json"))
-    print("--- compare")
-    return compare(types.SimpleNamespace(oracle=paths[0], port=paths[1], ignore=args.ignore))
+    failures = 0
+    for scenarios in args.scenarios:
+        paths = []
+        config = tomllib.loads(Path(scenarios).read_text())
+        for label, port in (("java", args.java_port), ("rust", args.rust_port)):
+            print(f"--- {Path(scenarios).stem}: {label} on {port}")
+            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out), listener)
+            if result == 2:
+                return result
+            paths.append(Path(args.out) / (run_name(config, scenarios) + f"-{label}.json"))
+        print(f"--- {Path(scenarios).stem}: compare")
+        failures += compare(types.SimpleNamespace(oracle=paths[0], port=paths[1], ignore=args.ignore))
+    return 1 if failures else 0
 
 
 def list_ports(_args):
@@ -373,7 +404,7 @@ def main():
     rec.add_argument("--out", default="target/conformance")
     rec.set_defaults(func=record)
     both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
-    both.add_argument("scenarios")
+    both.add_argument("scenarios", nargs="+")
     both.add_argument("--java-port", required=True)
     both.add_argument("--rust-port", required=True)
     both.add_argument("--out", default="target/conformance")

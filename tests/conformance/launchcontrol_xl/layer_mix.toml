@@ -1,0 +1,62 @@
+# Conformance scenarios: Novation Launch Control XL, Layer Mix (3rd factory template, MIDI
+# channel 11: notes 9A/8A, CC BA). Fixture: tests/conformance/FIXTURE.md (track Layers with an
+# Instrument Layer of 2 layers, track Drums with a Drum Machine).
+
+controller = "Novation Launch Control XL"
+manual = "Novation/Novation-LaunchControlXL.md#layer-mix-mode---3rd-factory-template"
+settle_ms = 400
+
+require = { "/track/3/name" = "Layers", "/track/2/name" = "Drums" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/3/select 1", note = "track Layers" },
+  { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+  { midi = "F0 00 20 29 02 11 77 0A F7", note = "factory template 3" },
+]
+
+[[stub]]
+match = "F0 00 20 29 02 11 77 ?? F7"
+reply = "echo"
+
+[[scenario]]
+id = "lcxl.layer.select"
+bullet = "Track Focus buttons: select one of the layers (as the tracks of the Track Mix)."
+before = [{ osc = "/track/3/select 1" }]
+steps = [
+  { midi = "9A 2A 7F", note = "Track Focus 2" },
+  { midi = "8A 2A 00" },
+]
+expect.bitwig = { "/primary/layer/2/selected" = "1" }
+
+[[scenario]]
+id = "lcxl.layer.mute"
+bullet = "Mute (amber): toggles the mute state of the layers."
+before = [{ osc = "/track/3/select 1" }]
+steps = [
+  { midi = "9A 6A 7F", note = "Mute" },
+  { midi = "8A 6A 00" },
+  { midi = "9A 49 7F", note = "Track Control 1" },
+  { midi = "8A 49 00" },
+  { midi = "9A 49 7F", note = "Track Control 1 again" },
+  { midi = "8A 49 00" },
+]
+expect.bitwig = { "/primary/layer/1/mute" = "0" }
+
+[[scenario]]
+id = "lcxl.layer.volume-pan"
+bullet = "Faders and Pan knobs: volume and panorama of the layers."
+before = [{ osc = "/track/3/select 1" }]
+steps = [
+  { midi = "BA 4D 50", note = "Fader 1" },
+  { midi = "BA 32 30", note = "Pan knob 2" },
+]
+
+[[scenario]]
+id = "lcxl.layer.drum-pads"
+bullet = "Uses the first found instrument of the currently selected channel: with a Drum Machine the drum pads."
+before = [{ osc = "/track/2/select 1" }]
+steps = [
+  { midi = "9A 2B 7F", note = "Track Focus 3" },
+  { midi = "8A 2B 00" },
+  { midi = "BA 4F 40", note = "Fader 3" },
+]

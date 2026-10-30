@@ -291,5 +291,7 @@ Every controller needs:
   No panics. This found real bugs in earlier ports.
 - **Before handing back:** `cargo test`, `cargo clippy --all-targets` (0 warnings) and
   `cargo build --release`.
-- **Conformance with the Java version (planned):** scenarios from the manual, recorded with the
-  Java DrivenByMoss on Bitwig and replayed against the port, see CONFORMANCE_TESTING_PLAN.md.
+- **Conformance with the Java version (in progress, see CONFORMANCE_TESTING_PLAN.md):** scenarios
+  from the manual (`tests/conformance/<controller>/*.toml`), run with the Java DrivenByMoss and
+  the port on Bitwig and compared (`conformance_runner.py pair`), recorded runs replayed in
+  `cargo test` (`tests/conformance_replay.rs`).
