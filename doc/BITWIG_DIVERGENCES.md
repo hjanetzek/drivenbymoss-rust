@@ -97,6 +97,15 @@ switch is on. The extension reports `/automode/arranger`, `/automode/launcher` a
 (Read: off). Without the switches (Reaper) the core keeps Reaper's modes. Found by the conformance
 runner 2026-10-30 (Maschine JAM AUTO, Shift + AUTO).
 
+**Played notes.** The core sends notes "as if played on the device" (`process_midi_arg`, e.g. the
+further notes of a chord in the chord views) to the default note input, as
+`MidiInputImpl.sendRawMidiEvent`; the extension did not handle them before (only the root note of
+a chord played). The extension reports the notes which play on the selected track
+(`cursorTrack.playingNotes`) as `/track/<position>/playingnotes`, like Reaper, so that the views
+light the pads of the played notes; the Java version observes the notes of all tracks of the bank
+(`TrackImpl.addNoteObserver`), the views use those of the selected track. Found by the conformance
+runner 2026-10-30 (Maschine JAM Chords mode).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

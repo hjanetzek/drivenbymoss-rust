@@ -1,0 +1,121 @@
+# Conformance scenarios: Native Instruments Maschine JAM, play modes (MIDI mode, channel 1: buttons
+# are CCs, pads notes 36-99 from the lower left). The pads play through the note input of the
+# controller (key translation table of the mode); the notes which the track plays are
+# /track/1/playingNotes ("note:velocity", the conformance module). A scenario holds its pads, the
+# next one releases them. The played notes are compared between the versions, only some are
+# expected. Fixture: tests/conformance/FIXTURE.md (track Synth).
+
+controller = "Native Instruments Maschine JAM"
+manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#play-modes"
+settle_ms = 400
+# System exclusive LEDs per message type (header up to the command byte): the strip
+# configuration carries the colors of all 8 strips
+sysex_key_bytes = 11
+
+require = { "/track/1/name" = "Synth", "/track/1/playingNotes" = "" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "track Synth" },
+  { osc = "/track/1/recarm 1 | /track/1/monitor 1", note = "armed and monitored: the track plays its live input" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
+  { midi = "B0 20 7F", note = "PAD MODE down" },
+  { midi = "B0 50 7F | B0 50 00", note = "Scene 1: Note mode" },
+  { midi = "B0 20 00", note = "PAD MODE up" },
+]
+
+[[known_difference]]
+match = "leds B0 4[01]"
+reason = "The VU meter of the master (strip left and right): audio levels of the played notes"
+
+[[scenario]]
+id = "jam.note.play"
+bullet = "Note Mode: Keep PAD MODE pressed and press Scene 1 to activate."
+steps = [
+  { midi = "90 24 7F", note = "lower left pad (held)" },
+  { midi = "90 2D 7F", note = "2nd row, 2nd pad (held)" },
+]
+
+[[scenario]]
+id = "jam.note.transpose"
+bullet = "Arrow keys up/down change the note range (transposition)."
+before = [{ midi = "90 24 00 | 90 2D 00", note = "release the pads" }]
+steps = [
+  { midi = "B0 29 7F | B0 29 00", note = "arrow up" },
+  { midi = "90 24 7F", note = "lower left pad (held)" },
+]
+
+[[scenario]]
+id = "jam.note.layout"
+bullet = "Arrow keys left/right change the layout in play view."
+before = [{ midi = "90 24 00", note = "release the pad" }, { midi = "B0 2A 7F | B0 2A 00", note = "arrow down: back" }]
+steps = [
+  { midi = "B0 2C 7F | B0 2C 00", note = "arrow right: next layout" },
+  { midi = "90 2D 7F", note = "2nd row, 2nd pad (held)" },
+]
+
+[[scenario]]
+id = "jam.note.scale"
+bullet = "PERFORM (+ encoder) - Change the scale."
+before = [{ midi = "90 2D 00", note = "release the pad" }, { midi = "B0 2B 7F | B0 2B 00", note = "arrow left: back to the first layout" }]
+steps = [
+  { midi = "B0 37 7F", note = "PERFORM down" },
+  { midi = "B0 39 01", note = "encoder +1: next scale" },
+  { midi = "B0 37 00", note = "PERFORM up" },
+  { midi = "90 26 7F", note = "lower row, 3rd pad (held)" },
+]
+
+[[scenario]]
+id = "jam.chords.play"
+bullet = "Chords Mode: This mode allows to play a chord by pressing a single pad. The rows from bottom to top contain: Triads, Dyads, ..."
+before = [
+  { midi = "90 26 00", note = "release the pad" },
+  { midi = "B0 37 7F", note = "PERFORM down" },
+  { midi = "B0 39 7F", note = "encoder -1: back to the first scale" },
+  { midi = "B0 37 00", note = "PERFORM up" },
+]
+steps = [
+  { midi = "B0 20 7F", note = "PAD MODE down" },
+  { midi = "B0 51 7F | B0 51 00", note = "Scene 2: Chords mode" },
+  { midi = "B0 20 00", note = "PAD MODE up" },
+  { midi = "90 24 7F", note = "lower left pad: triad (held)" },
+]
+
+[[scenario]]
+id = "jam.chords.dyad"
+bullet = "Chords Mode: The rows from bottom to top contain the following chords: Triads, Dyads (Power chords), ..."
+before = [{ midi = "90 24 00", note = "release the pad" }]
+steps = [
+  { midi = "90 2C 7F", note = "2nd row, 1st pad: dyad (held)" },
+]
+
+[[scenario]]
+id = "jam.piano.play"
+bullet = "Piano Mode: Arranges the pads like a classic piano keyboard. The white lit pads are the white keys."
+before = [{ midi = "90 2C 00", note = "release the pad" }]
+steps = [
+  { midi = "B0 20 7F", note = "PAD MODE down" },
+  { midi = "B0 52 7F | B0 52 00", note = "Scene 3: Piano mode" },
+  { midi = "B0 20 00", note = "PAD MODE up" },
+  { midi = "90 24 7F", note = "lower left pad (held)" },
+  { midi = "90 2D 7F", note = "2nd row, 2nd pad (held)" },
+]
+
+[[scenario]]
+id = "jam.drum64.play"
+bullet = "Drum 64 play mode: This mode gives you 64 pads for playing a drum device."
+before = [{ midi = "90 24 00 | 90 2D 00", note = "release the pads" }]
+steps = [
+  { midi = "B0 20 7F", note = "PAD MODE down" },
+  { midi = "B0 53 7F | B0 53 00", note = "Scene 4: Drum 64 mode" },
+  { midi = "B0 20 00", note = "PAD MODE up" },
+  { midi = "90 24 7F", note = "lower left pad (held)" },
+]
+expect.bitwig = { "/track/1/playingNotes" = "36:127" }
+
+[[scenario]]
+id = "jam.release"
+bullet = "Releasing the pads stops the notes."
+steps = [
+  { midi = "90 24 00", note = "release the pad" },
+]
+expect.bitwig = { "/track/1/playingNotes" = "" }

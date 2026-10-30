@@ -18,6 +18,7 @@ import com.bitwig.extension.controller.api.DeviceMatcher;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
+import com.bitwig.extension.controller.api.PlayingNote;
 import com.bitwig.extension.controller.api.Project;
 import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.SceneBank;
@@ -188,6 +189,7 @@ public final class BitwigModel
     private void markInterested ()
     {
         this.transport.isPlaying ().markInterested ();
+        this.cursorTrack.playingNotes ().markInterested ();
         this.transport.isArrangerRecordEnabled ().markInterested ();
         this.transport.isArrangerLoopEnabled ().markInterested ();
         this.transport.isMetronomeEnabled ().markInterested ();
@@ -455,6 +457,8 @@ public final class BitwigModel
             if (this.lastSelectedTrack >= 0)
                 reporter.put ("/track/" + this.lastSelectedTrack + "/select", false);
             this.lastSelectedTrack = selected;
+            // The core keeps one note cache: report the notes of the newly selected track
+            reporter.forget ("/track/" + selected + "/playingnotes");
         }
 
         final int sceneOffset = this.sceneBank.scrollPosition ().get ();
@@ -493,7 +497,20 @@ public final class BitwigModel
         }
         reporter.put ("/track/count", total);
         if (selected >= 0 && selected < total)
+        {
             reporter.put ("/track/" + selected + "/select", true);
+            // The notes which play on the selected track (live and from clips), e.g. to light
+            // the pads of the played notes, as the note observer of TrackImpl; in the note format
+            // of the core
+            final StringBuilder notes = new StringBuilder ();
+            for (final PlayingNote note: this.cursorTrack.playingNotes ().get ())
+            {
+                if (!notes.isEmpty ())
+                    notes.append (';');
+                notes.append ("0:0:0:0:0:").append (note.pitch ()).append (':').append (note.velocity ());
+            }
+            reporter.put ("/track/" + selected + "/playingnotes", notes.toString ());
+        }
     }
 
 

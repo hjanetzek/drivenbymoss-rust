@@ -9,8 +9,8 @@ from the lower left, Shift is the system exclusive message `F0 00 21 09 15 00 4D
 F7`; the setup sends the "return from the host" message (`… 46 01 F7`), on which both versions
 redraw everything.
 
-Last full run: 2026-10-30, all four files, on fresh fixture projects with restarted controllers
-(`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 32 scenarios the same, except
+Last full run: 2026-10-30, all five files, on fresh fixture projects with restarted controllers
+(`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 41 scenarios the same, except
 the known differences below.
 
 Replays (`replay/`, run by `cargo test --test conformance_replay`): the Rust recordings with the
@@ -24,11 +24,11 @@ final LED state of the Java version.
 | `session.toml` | Session Mode | select clip, launch, stop (Mute + pad), flip, scroll |
 | `note_sequencer.toml` | Sequencers, Note Sequencer | create notes, Mute + pad, transposition, page, delete |
 | `drum_sequencer.toml` | Sequencers, Drum Mode | select drum pad, steps on and off, Mute + pad, Clear + drum pad |
+| `play_modes.toml` | Play Modes | Note mode (play, transposition, layout, scale), Chords (triad, dyad), Piano, Drum 64; the played notes (`/track/1/playingNotes`) |
 
-Not covered yet: the play modes (note, chords, piano, drum 64), the Poly, Raindrop and Drum 4/8
-sequencers, the loop of the Note Sequencer (two top row pads), the browser, the encoder modes,
-the smart strips with values (Macro, Aux, Control), Duplicate and Clear, the Shift mode, the
-scene buttons.
+Not covered yet: the Poly, Raindrop and Drum 4/8 sequencers, the loop of the Note Sequencer (two
+top row pads), the browser, the encoder modes, the smart strips with values (Macro, Aux,
+Control), Duplicate and Clear, the Shift mode, the scene buttons.
 
 ## Open differences
 
@@ -47,6 +47,11 @@ None.
 | TEMPO + encoder: step | 0.01 BPM | the same | the manual says "Use the encoder in combination with SHIFT for slower changes", but without Shift the step is the slow one; `TempoCommand` uses `isKnobSensitivitySlow`, which Shift sets (`ToggleShiftViewCommand`); in the scenario Shift was used before (Shift + Page Left/Right), so maybe the Shift view or a release which does not reset it; to check |
 
 ## Fixed by the comparison
+
+- Chords mode: only the root note of a chord played, and only the pressed pad was lit: the
+  extension did not send the further notes of the chord to the note input
+  (`MidiInputImpl.sendRawMidiEvent`) and did not report the notes which play on the selected
+  track (BITWIG_DIVERGENCES.md §6) (2026-10-30).
 
 - AUTO and Shift + AUTO did nothing on Bitwig: the core had only Reaper's automation modes, the
   extension did not handle `automation`. Now as `TransportImpl` of the Java version (the

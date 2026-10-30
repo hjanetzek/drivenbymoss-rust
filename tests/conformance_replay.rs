@@ -24,6 +24,9 @@ use std::time::{Duration, Instant};
 use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordingBackend};
 
+/// The first line of a LED file of the runner: how system exclusive messages are keyed.
+const SYSEX_KEY_BYTES: &str = "#sysex_key_bytes";
+
 /// An event of a recording.
 struct Event {
     time: u64,
@@ -64,7 +67,7 @@ fn parse_recording(path: &Path) -> Vec<Event> {
 
 /// The kinds of output events (from the core to the host).
 fn is_output(kind: &str) -> bool {
-    matches!(kind, "noArg" | "string" | "strings" | "int" | "double" | "delay" | "enable" | "out" | "filters" | "keys" | "velocities")
+    matches!(kind, "noArg" | "string" | "strings" | "int" | "double" | "delay" | "enable" | "out" | "raw" | "filters" | "keys" | "velocities")
 }
 
 /// Doubles are compared with 6 fraction digits (Java's and Rust's formatting differ).
@@ -99,6 +102,8 @@ fn normalize_call(call: &BackendCall) -> Option<String> {
         BackendCall::DelayUpdates(p) => format!("delay {p}"),
         BackendCall::EnableUpdates(p, e) => format!("enable {p} {}", if *e { 1 } else { 0 }),
         BackendCall::SendMidi(0, data) if !data.is_empty() => format!("out {}", hex(data)),
+        // A MIDI event as if played on the device (e.g. the notes of a chord)
+        BackendCall::Midi(0, status, data1, data2) => format!("raw {}", hex(&[*status as u8, *data1 as u8, *data2 as u8])),
         BackendCall::NoteInputFilters(0, i, f) => format!("filters {i} {}", f.join(" ")),
         BackendCall::KeyTranslation(0, i, t) => format!("keys {i} {}", t.iter().map(i32::to_string).collect::<Vec<_>>().join(" ")),
         BackendCall::VelocityTranslation(0, i, t) => format!("velocities {i} {}", t.iter().map(i32::to_string).collect::<Vec<_>>().join(" ")),
@@ -107,9 +112,12 @@ fn normalize_call(call: &BackendCall) -> Option<String> {
 }
 
 /// The LED state of the controller (as the conformance runner keeps it): the last value per
-/// status and data 1, for system exclusive messages per all but the last data byte.
-fn update_leds(leds: &mut BTreeMap<String, String>, data: &[u8]) {
-    if data.first() == Some(&0xF0) && data.len() >= 2 {
+/// status and data 1; for system exclusive messages per the first `sysex_key_bytes` bytes (the
+/// rest is the value), or per all but the last data byte if 0.
+fn update_leds(leds: &mut BTreeMap<String, String>, data: &[u8], sysex_key_bytes: usize) {
+    if data.first() == Some(&0xF0) && sysex_key_bytes > 0 && sysex_key_bytes < data.len() {
+        leds.insert(hex(&data[..sysex_key_bytes]), hex(&data[sysex_key_bytes..data.len() - 1]));
+    } else if data.first() == Some(&0xF0) && data.len() >= 2 {
         leds.insert(hex(&data[..data.len() - 2]), format!("{:02X}", data[data.len() - 2]));
     } else if data.len() == 3 {
         leds.insert(hex(&data[..2]), format!("{:02X}", data[2]));
@@ -156,6 +164,10 @@ fn replay(path: &Path) -> Vec<String> {
 
     let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
     let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), &core_id, &app_version).expect("controller of the recording");
+    // How the runner keyed the system exclusive messages (first line of the Java LED file)
+    let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+    let java = path.with_file_name(format!("{}-java.leds", stem.trim_end_matches("-rust")));
+    let sysex_key_bytes = read_pairs(&java).iter().find(|(k, _)| k == SYSEX_KEY_BYTES).and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
     let base = Instant::now();
     let mut problems = Vec::new();
     let mut expected: Vec<String> = Vec::new();
@@ -187,7 +199,7 @@ fn replay(path: &Path) -> Vec<String> {
         // The outputs of the previous input are complete
         actual.extend(backend.take_calls().iter().filter_map(|call| {
             if let BackendCall::SendMidi(0, data) = call {
-                update_leds(&mut leds, data);
+                update_leds(&mut leds, data, sysex_key_bytes);
             }
             normalize_call(call)
         }));
@@ -213,11 +225,9 @@ fn replay(path: &Path) -> Vec<String> {
     compare(&mut expected, &mut actual, &last_input, &mut problems);
 
     // Conformance with the Java version
-    let stem = path.file_stem().unwrap().to_string_lossy().to_string();
-    let java = path.with_file_name(format!("{}-java.leds", stem.trim_end_matches("-rust")));
     if let (Some(leds), true) = (leds_at_end, java.exists()) {
         let known: Vec<Vec<char>> = read_pairs(&java.with_extension("known")).into_iter().map(|(p, _)| p.chars().collect()).collect();
-        for (key, value) in read_pairs(&java) {
+        for (key, value) in read_pairs(&java).into_iter().filter(|(k, _)| k != SYSEX_KEY_BYTES) {
             let id: Vec<char> = format!("leds {key}").chars().collect();
             if leds.get(&key) != Some(&value) && !known.iter().any(|p| glob(p, &id)) {
                 problems.push(format!("LED {key}: Java {value}, Rust {:?}", leds.get(&key)));

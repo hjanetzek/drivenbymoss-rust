@@ -66,6 +66,8 @@ public final class NativeCore implements AutoCloseable
 
         void sendMidiData (int deviceId, byte [] data);
 
+        void sendRawMidiEvent (int deviceId, int status, int data1, int data2);
+
         void setNoteInputFilters (int deviceId, int noteInputIndex, String [] filters);
 
         void setNoteInputKeyTranslationTable (int deviceId, int noteInputIndex, int [] table);
@@ -139,8 +141,7 @@ public final class NativeCore implements AutoCloseable
             this.upcall ("upcallDoubleArg", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS, JAVA_DOUBLE)),
             this.upcall ("upcallDelayUpdates", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS)),
             this.upcall ("upcallEnableUpdates", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, JAVA_INT)),
-            // process_midi_arg: only used by the Reaper backend
-            MemorySegment.NULL,
+            this.upcall ("upcallProcessMidiArg", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)),
             // get_midi_inputs, get_midi_outputs: not used for a single controller
             MemorySegment.NULL,
             MemorySegment.NULL,
@@ -552,6 +553,19 @@ public final class NativeCore implements AutoCloseable
 
 
     @SuppressWarnings("unused")
+    private void upcallProcessMidiArg (final MemorySegment user, final int deviceId, final int status, final int data1, final int data2)
+    {
+        try
+        {
+            this.callbacks.sendRawMidiEvent (deviceId, status, data1, data2);
+        }
+        catch (final Throwable ex)
+        {
+            this.callbacks.error ("sendRawMidiEvent", ex);
+        }
+    }
+
+
     private void upcallSendMidiData (final MemorySegment user, final int deviceId, final MemorySegment data, final int length)
     {
         try

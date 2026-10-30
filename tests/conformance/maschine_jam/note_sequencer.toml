@@ -5,6 +5,9 @@
 controller = "Native Instruments Maschine JAM"
 manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#note-sequencer"
 settle_ms = 400
+# System exclusive LEDs per message type (header up to the command byte): the strip
+# configuration carries the colors of all 8 strips
+sysex_key_bytes = 11
 
 require = { "/track/1/name" = "Synth", "/clip/exists" = "1", "/clip/step/*" = "0" }
 
@@ -15,6 +18,10 @@ setup = [
   { midi = "B0 50 7F | B0 50 00", note = "Scene 1: Note Sequencer" },
   { midi = "B0 1F 00", note = "STEP up" },
 ]
+
+[[known_difference]]
+match = "leds B0 4[01]"
+reason = "The VU meter of the master (strip left and right): audio levels"
 
 [[scenario]]
 id = "jam.noteseq.create-note"

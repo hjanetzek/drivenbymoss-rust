@@ -453,6 +453,21 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     }
 
 
+    /**
+     * A MIDI event as if it was played on the device, e.g. the further notes of a chord: sent to
+     * the default note input, as MidiInputImpl.sendRawMidiEvent of the Java version.
+     */
+    @Override
+    public void sendRawMidiEvent (final int deviceId, final int status, final int data1, final int data2)
+    {
+        if (this.recorder != null)
+            this.recorder.midi ("raw", new byte [] { (byte) status, (byte) data1, (byte) data2 });
+        final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (0));
+        if (noteInput != null)
+            noteInput.sendRawMidiEvent (status, data1, data2);
+    }
+
+
     /** {@inheritDoc} */
     @Override
     public void setNoteInputKeyTranslationTable (final int deviceId, final int noteInputIndex, final int [] table)

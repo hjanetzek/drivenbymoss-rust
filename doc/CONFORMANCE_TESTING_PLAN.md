@@ -15,8 +15,8 @@ Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
   several Rust bugs; the state per controller is in `tests/conformance/<controller>/CONFORMANCE.md`
   (coverage, open and known differences, fixes). Launch Control XL: all five templates the same
   in Java and Rust (except known differences), replays recorded. Maschine JAM: global,
-  transport, session, Note and Drum Sequencer the same, replays of global and session. Next: the
-  JAM play modes, then the Mk2/Mk3 and the Launchpad.
+  transport, session, Note and Drum Sequencer, play modes the same, replays recorded. Next: the
+  Mk2/Mk3 and the Launchpad.
 
 Setup for a run (Linux):
 
@@ -35,9 +35,11 @@ Setup for a run (Linux):
 3. The fixture project (`tests/conformance/FIXTURE.md`) is open, or better: it is saved as a
    template ("Save as Template…") and set as the default template for new projects. Then
    `--fresh-project <seconds>` starts each recording with a new project from it (Bitwig action
-   `New` via `/conformance/action`, no dialog), a clean copy for every run. The used copies stay
-   open (Bitwig switches their audio engine off); close them now and then, each asks once
-   whether to save.
+   `New` via `/conformance/action`, no dialog), a clean copy for every run. "New" keeps a changed project
+   open: close the used copies now and then by hand (Bitwig asks for a confirmation), with many
+   open projects Bitwig ran out of memory (2026-10-30). A new project does not always get the audio engine, without it Bitwig does
+   not monitor and the played notes are not heard: the runner switches it on
+   (`/project/engine 1`).
 4. `cd backends/bitwig/tools && ./conformance_runner.py pair
    ../../../tests/conformance/launchcontrol_xl/*.toml --java-port "VirMIDI 5-2" --rust-port
    "VirMIDI 5-1"` records the Java and the Rust controller for each scenario file and compares
@@ -56,7 +58,9 @@ Setup for a run (Linux):
    first scale and `osc` commands which select the fixture track), `before` steps per scenario
    (not compared, e.g. resetting a mute via `osc`), a `require` check of the fixture (after the
    setup), and `[[known_difference]]` entries (`match` = pattern of `<bitwig|leds> <key>`,
-   `reason`) which are reported but do not fail. Nothing else may listen on UDP 9000 (e.g.
+   `reason`) which are reported but do not fail, and `sysex_key_bytes` (system exclusive LEDs
+   are compared per their first n bytes, the rest is the value; default: all but the last data
+   byte). Nothing else may listen on UDP 9000 (e.g.
    `osc_monitor.py`).
 
 ## 1. Goal

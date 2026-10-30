@@ -6,6 +6,9 @@
 controller = "Native Instruments Maschine JAM"
 manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#session-mode"
 settle_ms = 400
+# System exclusive LEDs per message type (header up to the command byte): the strip
+# configuration carries the colors of all 8 strips
+sysex_key_bytes = 11
 
 require = { "/track/1/name" = "Synth", "/track/1/clip/1/hasContent" = "1" }
 
@@ -14,6 +17,10 @@ setup = [
   { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
   { midi = "B0 1E 7F | B0 1E 00", note = "SONG: session mode" },
 ]
+
+[[known_difference]]
+match = "leds B0 4[01]"
+reason = "The VU meter of the master (strip left and right): audio levels"
 
 [[known_difference]]
 match = "leds 90 5[CD]"

@@ -25,6 +25,7 @@
 import argparse
 import fnmatch
 import json
+import os
 import socket
 import sys
 import threading
@@ -98,15 +99,34 @@ class StateListener:
 
 
 class MidiPort:
-    """The virtual MIDI port in place of the device; records what the extension sends."""
+    """The virtual MIDI port in place of the device; records what the extension sends. Each port is
+    opened once per run and reused (MidiPort (name, stubs) returns the open one): closing an ALSA
+    input which receives a lot (e.g. the VU meters of the Maschine JAM) can hang in rtmidi."""
+
+    _open = {}
+
+    def __new__(cls, name, stubs):
+        port = cls._open.get(name)
+        if port is None:
+            port = super().__new__(cls)
+            port._init(name)
+            cls._open[name] = port
+        with port.lock:
+            port.stubs = stubs
+            port.received = []
+        return port
 
     def __init__(self, name, stubs):
+        # Everything is done in __new__ / _init
+        pass
+
+    def _init(self, name):
         import rtmidi
 
         self.midi_in = rtmidi.MidiIn()
         self.midi_in.ignore_types(sysex=False, timing=True, active_sense=True)
         self.midi_out = rtmidi.MidiOut()
-        self.stubs = stubs
+        self.stubs = []
         self.received = []
         self.lock = threading.Lock()
         self.midi_in.open_port(find_port(self.midi_in.get_ports(), name))
@@ -117,8 +137,9 @@ class MidiPort:
         message, _ = event
         with self.lock:
             self.received.append(message)
+            stubs = self.stubs
         # The device stub answers like the hardware
-        for stub in self.stubs:
+        for stub in stubs:
             if matches(stub["match"], message):
                 reply = message if stub["reply"] == "echo" else parse_hex(stub["reply"])
                 self.midi_out.send_message(reply)
@@ -132,11 +153,11 @@ class MidiPort:
             return result
 
     def close(self):
-        # Also free the ALSA sequencer clients, there is only a limited number of them
-        self.midi_in.close_port()
-        self.midi_out.close_port()
-        self.midi_in.delete()
-        self.midi_out.delete()
+        # The port stays open for the next use (see the class); only stop the stubs and the
+        # collection
+        with self.lock:
+            self.stubs = []
+            self.received = []
 
 
 def send_osc(text):
@@ -183,11 +204,14 @@ def to_hex(message):
     return " ".join(f"{b:02X}" for b in message)
 
 
-def led_state(messages, leds):
-    """The last value per controller output: status and data 1 for short messages, all but the
-    last data byte for system exclusive messages."""
+def led_state(messages, leds, sysex_key_bytes=0):
+    """The last value per controller output: status and data 1 for short messages; for system
+    exclusive messages the first sysex_key_bytes bytes (the rest is the value, e.g. the colors of
+    the Maschine JAM strips), or all but the last data byte if 0."""
     for message in messages:
-        if message and message[0] == 0xF0:
+        if message and message[0] == 0xF0 and 0 < sysex_key_bytes < len(message):
+            leds[to_hex(message[:sysex_key_bytes])] = to_hex(message[sysex_key_bytes:-1])
+        elif message and message[0] == 0xF0:
             leds[to_hex(message[:-2])] = f"{message[-2]:02X}"
         elif len(message) == 3:
             leds[to_hex(message[:2])] = f"{message[2]:02X}"
@@ -235,9 +259,17 @@ def restart_controller(port_name, timeout):
     return True
 
 
+# A recording which takes longer is hanging: print the stacks and end the run
+RECORD_TIMEOUT = 600
+
+
 def record(args, listener=None):
+    import faulthandler
+
+    faulthandler.dump_traceback_later(RECORD_TIMEOUT, exit=True)
     config = tomllib.loads(Path(args.scenarios).read_text())
     settle = config.get("settle_ms", DEFAULT_SETTLE_MS) / 1000.0
+    sysex_key_bytes = config.get("sysex_key_bytes", 0)
     own_listener = listener is None
     if own_listener:
         listener = StateListener()
@@ -254,15 +286,23 @@ def record(args, listener=None):
         if getattr(args, "fresh_project", 0):
             # A new project from the default template (the fixture): a clean copy for this run
             print(f"New project from the default template, waiting {args.fresh_project} s")
+            # "New" keeps changed projects open: close them now and then, many open projects
+            # let Bitwig run out of memory ("Close" asks for a confirmation)
             send_osc("/conformance/action New")
             time.sleep(args.fresh_project)
+            # A new project does not always get the audio engine; without it Bitwig does not
+            # monitor, the pads of a play mode play nothing
+            send_osc("/project/engine 1")
+            time.sleep(1.0)
         marker(1)
         time.sleep(1.0)
-        led_state(port.take(), leds)
+        # The output before the setup (e.g. the startup of a just restarted controller) depends on
+        # timing; the setup brings both versions into the same state (e.g. a full redraw)
+        port.take()
         # Bring the controller into a known state, e.g. a full redraw of the LEDs
         for step in config.get("setup", []):
             run_step(port, step, settle)
-        led_state(port.take(), leds)
+        led_state(port.take(), leds, sysex_key_bytes)
         # The fixture must be loaded, otherwise the scenarios fail for the wrong reason
         listener.request_dump()
         time.sleep(settle)
@@ -277,19 +317,19 @@ def record(args, listener=None):
         for scenario in config["scenario"]:
             listener.request_dump()
             time.sleep(settle)
-            led_state(port.take(), leds)
+            led_state(port.take(), leds, sysex_key_bytes)
             state = listener.snapshot()
             trace["version"] = state.get("probe:/probe/version", "?")
             entry = {"id": scenario["id"], "bullet": scenario.get("bullet", ""), "initial": {"bitwig": state, "leds": dict(leds)}, "steps": []}
             for step in scenario.get("before", []):
                 run_step(port, step, settle)
-            led_state(port.take(), leds)
+            led_state(port.take(), leds, sysex_key_bytes)
             state = listener.snapshot()
             # The state the steps start from: the comparison uses absolute values
             entry["start"] = state
             for step in scenario.get("steps", []):
                 run_step(port, step, settle)
-                led_state(port.take(), leds)
+                led_state(port.take(), leds, sysex_key_bytes)
                 new_state = listener.snapshot()
                 entry["steps"].append({"input": step, "bitwig": diff(state, new_state), "leds": dict(leds)})
                 state = new_state
@@ -317,7 +357,8 @@ def record(args, listener=None):
     path = out / f"{name}.json"
     path.write_text(json.dumps(trace, indent=1, sort_keys=True))
     # For the replay test: the final LED state and the known differences as text
-    (out / f"{name}.leds").write_text("".join(f"{k}\t{v}\n" for k, v in sorted(leds.items())))
+    # The first line tells the replay test how system exclusive messages are keyed
+    (out / f"{name}.leds").write_text(f"#sysex_key_bytes\t{sysex_key_bytes}\n" + "".join(f"{k}\t{v}\n" for k, v in sorted(leds.items())))
     (out / f"{name}.known").write_text("".join(f"{k['match']}\t{k.get('reason', '')}\n" for k in trace["known_differences"]))
     print(f"Trace written to {path}")
     return 1 if failures else 0
@@ -478,7 +519,12 @@ def main():
     cmp.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
     cmp.set_defaults(func=compare)
     args = parser.parse_args()
-    sys.exit(args.func(args))
+    code = args.func(args)
+    # The MIDI ports stay open (see MidiPort): rtmidi can crash when the interpreter shuts down
+    # with open ports, so end without the shutdown
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code or 0)
 
 
 if __name__ == "__main__":
