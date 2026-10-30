@@ -691,16 +691,26 @@ impl Model {
 
     /// True if overdub is enabled on the selected track (former `ITransport.isLauncherOverdub`).
     pub fn is_launcher_overdub(&self) -> bool {
+        if let Some((_, launcher)) = self.transport.host_overdub() {
+            return launcher;
+        }
         self.track_bank.selected_item().map(|t| t.is_overdub()).unwrap_or(false)
     }
 
-    /// Same as [`Model::is_launcher_overdub`].
+    /// Same as [`Model::is_launcher_overdub`] (Reaper); the arranger overdub switch on Bitwig.
     pub fn is_arranger_overdub(&self) -> bool {
+        if let Some((arranger, _)) = self.transport.host_overdub() {
+            return arranger;
+        }
         self.is_launcher_overdub()
     }
 
-    /// Enable overdub on the selected track.
+    /// Enable overdub on the selected track (Reaper), the clip launcher overdub (Bitwig).
     pub fn set_launcher_overdub(&mut self, on: bool) {
+        if self.transport.host_overdub().is_some() {
+            self.transport.send_overdub(true, on);
+            return;
+        }
         if let Some(track) = self.track_bank.selected_item() {
             let cmd = format!("{}/overdub", track.position());
             self.ctx.send_bool(Processor::Track, &cmd, on);
@@ -712,8 +722,13 @@ impl Model {
         self.set_launcher_overdub(on);
     }
 
-    /// Same as [`Model::toggle_launcher_overdub`] (former `ITransport.toggleOverdub`).
+    /// Same as [`Model::toggle_launcher_overdub`] (former `ITransport.toggleOverdub`); the
+    /// arranger overdub switch on Bitwig.
     pub fn toggle_overdub(&mut self) {
+        if let Some((arranger, _)) = self.transport.host_overdub() {
+            self.transport.send_overdub(false, !arranger);
+            return;
+        }
         self.toggle_launcher_overdub();
     }
 

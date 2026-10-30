@@ -106,6 +106,20 @@ light the pads of the played notes; the Java version observes the notes of all t
 (`TrackImpl.addNoteObserver`), the views use those of the selected track. Found by the conformance
 runner 2026-10-30 (Maschine JAM Chords mode).
 
+**Overdub.** As the automation: Bitwig's arranger and clip launcher overdub switches
+(`/overdub/arranger`, `/overdub/launcher`, the commands `transport overdub/arranger|launcher`),
+as `TransportImpl.toggleOverdub` / `toggleLauncherOverdub`; Reaper has the overdub record mode of
+the selected track for both. Found 2026-10-30 (Maschine Mk2 LOCK).
+
+**Device pinned.** The cursor device reports `/device/pinned` and takes `device pinned`
+(`isPinned` of the cursor device); in Reaper it counts as always pinned. Found 2026-10-30
+(Maschine Mk2 Pin button).
+
+**Repeated values.** The extension reports the values of a track again after a command to it
+(see the takeover mode); the core handles a track selection only when it changes, otherwise a
+repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view
+ended while Shift was held). Found 2026-10-30.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

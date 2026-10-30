@@ -573,6 +573,9 @@ pub struct SpecificDevice {
     name: String,
     is_enabled: bool,
     is_window_open: bool,
+    /// The pinned state reported by the host (Bitwig), `None` if not reported (Reaper: the
+    /// cursor device is always pinned).
+    pinned: Option<bool>,
     is_expanded: bool,
     parameter_bank: Option<ParameterBank>,
     drum_pad_bank: DrumPadBank,
@@ -620,6 +623,7 @@ impl SpecificDevice {
             name: String::new(),
             is_enabled: false,
             is_window_open: false,
+            pinned: None,
             is_expanded: false,
             device_count: 0,
             last_touched_parameter_index: -1,
@@ -833,14 +837,29 @@ impl SpecificDevice {
         (self.position as i64) < self.device_count as i64 - 1
     }
 
-    /// The cursor device is always pinned in Reaper.
+    /// The cursor device is always pinned in Reaper; Bitwig reports its state.
     pub fn is_pinned(&self) -> bool {
-        true
+        self.pinned.unwrap_or(true)
     }
 
-    pub fn toggle_pinned(&mut self) {}
+    /// Only on hosts which report the pinned state (Bitwig).
+    pub fn toggle_pinned(&mut self) {
+        if let Some(pinned) = self.pinned {
+            self.set_pinned(!pinned);
+        }
+    }
 
-    pub fn set_pinned(&mut self, _pinned: bool) {}
+    /// Only on hosts which report the pinned state (Bitwig).
+    pub fn set_pinned(&mut self, pinned: bool) {
+        if self.pinned.is_some() {
+            self.ctx.send_bool(self.processor(), "pinned", pinned);
+        }
+    }
+
+    /// The host reported the pinned state (Bitwig).
+    pub fn set_pinned_state(&mut self, pinned: bool) {
+        self.pinned = Some(pinned);
+    }
 
     /// Select the previous device of the track.
     pub fn select_previous(&mut self) {

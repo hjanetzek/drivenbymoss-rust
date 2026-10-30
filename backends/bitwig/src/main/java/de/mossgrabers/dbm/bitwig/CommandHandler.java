@@ -579,6 +579,8 @@ public final class CommandHandler
             case "punchIn" -> this.model.transport.isPunchInEnabled ().set (value > 0);
             case "punchOut" -> this.model.transport.isPunchOutEnabled ().set (value > 0);
             case "tapTempo" -> this.model.transport.tapTempo ();
+            case "overdub/arranger" -> this.model.transport.isArrangerOverdubEnabled ().set (value > 0);
+            case "overdub/launcher" -> this.model.transport.isClipLauncherOverdubEnabled ().set (value > 0);
             case "end" -> this.invokeAction ("jump_to_end_of_arrangement");
             default -> this.unhandled.accept ("transport " + command);
         }
@@ -978,6 +980,7 @@ public final class CommandHandler
                     this.model.remoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
             }
             case "window" -> this.model.cursorDevice.isWindowOpen ().set (value > 0);
+            case "pinned" -> this.model.cursorDevice.isPinned ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
             default -> this.handleDeviceIndexed (command, value);
         }

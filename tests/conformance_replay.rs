@@ -177,8 +177,12 @@ fn replay(path: &Path) -> Vec<String> {
     let mut last_input = String::from("start of the recording");
 
     let compare = |expected: &mut Vec<String>, actual: &mut Vec<String>, input: &str, problems: &mut Vec<String>| {
+        // As sets: the order and repetitions of the same call do not matter (e.g. a note mapping
+        // which is sent again unchanged)
         expected.sort();
+        expected.dedup();
         actual.sort();
+        actual.dedup();
         if expected != actual && problems.len() < 20 {
             let missing: Vec<_> = expected.iter().filter(|e| !actual.contains(e)).take(5).collect();
             let extra: Vec<_> = actual.iter().filter(|a| !expected.contains(a)).take(5).collect();

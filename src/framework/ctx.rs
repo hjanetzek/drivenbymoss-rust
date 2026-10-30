@@ -52,6 +52,9 @@ pub struct Ctx {
     pub sysex_handler: Option<SysexHandler>,
     /// Notify the name of the view when the preferred view of a track is recalled.
     pub notify_view_change: bool,
+    /// When the notification on the text display ends: checked against the time, not by counting
+    /// the watch intervals, since the scheduled tasks only run with the ticks
+    notification_end: Option<Instant>,
     /// Controller specific state, use [`Ctx::ext`] to access it.
     pub ext: Box<dyn Any>,
     /// The text display of the controller, if any. Notifications are shown on it instead of
@@ -75,6 +78,7 @@ impl Ctx {
             midi_handler: None,
             sysex_handler: None,
             notify_view_change: true,
+            notification_end: None,
             ext: Box::new(()),
             text_display: None,
         }
@@ -91,11 +95,19 @@ impl Ctx {
 
     /// Removes the notification from the text display when the notification time is over.
     fn watch_notification(ctx: &mut Ctx) {
-        if let Some(display) = &mut ctx.text_display {
-            if display.watch() {
-                ctx.schedule(super::display::NOTIFICATION_WATCH_INTERVAL as u64, Self::watch_notification);
+        let now = ctx.host.now();
+        let Some(end) = ctx.notification_end else {
+            return;
+        };
+        if now >= end {
+            ctx.notification_end = None;
+            if let Some(display) = &mut ctx.text_display {
+                display.end_notification();
             }
+            return;
         }
+        let remaining = end.duration_since(now).as_millis() as u64;
+        ctx.schedule(remaining.min(super::display::NOTIFICATION_WATCH_INTERVAL as u64), Self::watch_notification);
     }
 
     /// Execute a task after the given delay in milliseconds.
@@ -115,7 +127,9 @@ impl Ctx {
     /// notification is shown by the host.
     pub fn notify(&mut self, message: &str) {
         if let Some(display) = &mut self.text_display {
-            if display.notify(message) {
+            let start_timer = display.notify(message);
+            self.notification_end = Some(self.host.now() + std::time::Duration::from_millis(super::display::NOTIFICATION_TIME as u64));
+            if start_timer {
                 self.schedule(super::display::NOTIFICATION_WATCH_INTERVAL as u64, Self::watch_notification);
             }
             return;

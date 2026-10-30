@@ -297,6 +297,12 @@ impl TextDisplay {
         true
     }
 
+    /// End the notification: the content is shown again with the next flush.
+    pub fn end_notification(&mut self) {
+        self.notification_timeout = 0;
+        self.force_flush();
+    }
+
     pub fn cancel_notification(&mut self) {
         self.notification_timeout = 0;
     }

@@ -1,0 +1,208 @@
+# Conformance scenarios: Native Instruments Maschine Mk2, global, transport, group buttons and
+# encoder modes (MIDI mode, channel 1: buttons are CCs, pads notes 36-51 from the lower left; the
+# Mk2 has no Shift in MIDI mode, STEP LEFT (the Stop CC) is Shift). The display is the MCU text
+# display (F0 00 00 66 14 12 <position> <text> F7), compared per position.
+# Fixture: tests/conformance/FIXTURE.md.
+
+controller = "Native Instruments Maschine Mk2"
+manual = "Native-Instruments/Native-Instruments-Maschine-Mk3.md#mk2"
+settle_ms = 400
+# System exclusive LEDs per message type: the display text per position
+sysex_key_bytes = 7
+
+require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "B0 2C 7F | B0 2C 00", note = "VOLUME: volume mode, a full redraw of the display" },
+]
+
+[[known_difference]]
+match = "leds B0 4[01]"
+reason = "VU meters: audio levels"
+
+[[scenario]]
+id = "mk2.global.auto"
+bullet = "AUTO - Toggle write arranger automation. (The Auto button is the Auto Wr button on Mk2.)"
+# A fresh project starts without automation; /autowrite of the OSC controller toggles
+steps = [
+  { midi = "B0 23 7F", note = "AUTO" },
+  { midi = "B0 23 00" },
+]
+expect.bitwig = { "/autowrite" = "1" }
+
+[[scenario]]
+id = "mk2.global.shift-auto"
+bullet = "Shift+AUTO - Toggle write clip launcher automation. (STEP LEFT is Shift on the Mk2.)"
+steps = [
+  { midi = "B0 3B 7F", note = "STEP LEFT (Shift) down" },
+  { midi = "B0 23 7F", note = "AUTO" },
+  { midi = "B0 23 00" },
+  { midi = "B0 3B 00", note = "STEP LEFT up" },
+]
+expect.bitwig = { "/autowrite/launcher" = "1" }
+
+[[scenario]]
+id = "mk2.global.lock"
+bullet = "LOCK - Toggle arranger overdub. (The Lock button is the Enter button on Mk2.)"
+# The fixture starts with arranger overdub on; /overdub of the OSC controller toggles
+steps = [
+  { midi = "B0 24 7F", note = "LOCK (Enter)" },
+  { midi = "B0 24 00" },
+]
+expect.bitwig = { "/overdub" = "0" }
+
+[[scenario]]
+id = "mk2.global.shift-lock"
+bullet = "Shift+LOCK - Toggle clip launcher overdub."
+steps = [
+  { midi = "B0 3B 7F", note = "STEP LEFT (Shift) down" },
+  { midi = "B0 24 7F", note = "LOCK" },
+  { midi = "B0 24 00" },
+  { midi = "B0 3B 00", note = "STEP LEFT up" },
+]
+expect.bitwig = { "/overdub/launcher" = "1" }
+
+[[scenario]]
+id = "mk2.global.note-repeat"
+bullet = "NOTE REPEAT - Toggle Note repeat."
+# Only the LEDs: the OSC controller reports the note repeat of its own note input
+steps = [
+  { midi = "B0 25 7F", note = "NOTE REPEAT" },
+  { midi = "B0 25 00" },
+]
+
+[[scenario]]
+id = "mk2.transport.loop"
+bullet = "RESTART/LOOP - Toggle transport loop"
+before = [{ osc = "/repeat 0" }]
+steps = [
+  { midi = "B0 35 7F", note = "RESTART/LOOP" },
+  { midi = "B0 35 00" },
+]
+expect.bitwig = { "/repeat" = "1" }
+
+[[scenario]]
+id = "mk2.transport.metronome"
+bullet = "Shift+TAP - Toggle metronome. (STEP RIGHT is the TAP TEMPO/METRO button on the Mk2.)"
+before = [{ osc = "/repeat 0 | /click 0" }]
+steps = [
+  { midi = "B0 3B 7F", note = "STEP LEFT (Shift) down" },
+  { midi = "B0 37 7F", note = "STEP RIGHT (TAP/METRO)" },
+  { midi = "B0 37 00" },
+  { midi = "B0 3B 00", note = "STEP LEFT up" },
+]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "mk2.group.select"
+bullet = "The group buttons select the tracks in the current page of the track bank."
+before = [{ osc = "/click 0 | /track/1/select 1" }]
+steps = [
+  { midi = "B0 66 7F", note = "group C" },
+  { midi = "B0 66 00" },
+]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "mk2.group.mute"
+bullet = "MUTE (+ group button) - Toggle mute of the track"
+before = [{ osc = "/track/1/select 1 | /track/2/mute 0" }]
+steps = [
+  { midi = "B0 5C 7F", note = "MUTE down" },
+  { midi = "B0 65 7F", note = "group B" },
+  { midi = "B0 65 00" },
+  { midi = "B0 5C 00", note = "MUTE up" },
+]
+expect.bitwig = { "/track/2/mute" = "1", "/track/1/selected" = "1" }
+
+[[scenario]]
+id = "mk2.group.solo"
+bullet = "SOLO (+ group button) - Toggle solo of the track"
+before = [{ osc = "/track/2/mute 0 | /track/3/solo 0" }]
+steps = [
+  { midi = "B0 5B 7F", note = "SOLO down" },
+  { midi = "B0 66 7F", note = "group C" },
+  { midi = "B0 66 00" },
+  { midi = "B0 5B 00", note = "SOLO up" },
+]
+expect.bitwig = { "/track/3/solo" = "1" }
+
+[[scenario]]
+id = "mk2.group.recarm"
+bullet = "REC (+ group button) - Toggle rec arm of the track"
+before = [{ osc = "/track/3/solo 0 | /track/4/recarm 0" }]
+steps = [
+  { midi = "B0 3A 7F", note = "REC down" },
+  { midi = "B0 67 7F", note = "group D" },
+  { midi = "B0 67 00" },
+  { midi = "B0 3A 00", note = "REC up" },
+]
+expect.bitwig = { "/track/4/recarm" = "1", "/record" = "0" }
+
+[[scenario]]
+id = "mk2.global.clear-mute"
+bullet = "Shift+MUTE - Clears Mute on all tracks."
+before = [{ osc = "/track/4/recarm 0 | /track/2/mute 1 | /track/5/mute 1" }]
+steps = [
+  { midi = "B0 3B 7F", note = "STEP LEFT (Shift) down" },
+  { midi = "B0 5C 7F", note = "MUTE" },
+  { midi = "B0 5C 00" },
+  { midi = "B0 3B 00", note = "STEP LEFT up" },
+]
+expect.bitwig = { "/track/2/mute" = "0", "/track/5/mute" = "0" }
+
+[[scenario]]
+id = "mk2.global.clear-solo"
+bullet = "Shift+SOLO - Clears Solo on all tracks."
+before = [{ osc = "/track/3/solo 1" }]
+steps = [
+  { midi = "B0 3B 7F", note = "STEP LEFT (Shift) down" },
+  { midi = "B0 5B 7F", note = "SOLO" },
+  { midi = "B0 5B 00" },
+  { midi = "B0 3B 00", note = "STEP LEFT up" },
+]
+expect.bitwig = { "/track/3/solo" = "0" }
+
+[[scenario]]
+id = "mk2.mode.panorama"
+bullet = "The buttons above the display: Panorama - Enables panorama mode"
+before = [{ osc = "/track/3/solo 0" }]
+steps = [
+  { midi = "B0 17 7F", note = "button 2 above the display: Panorama" },
+  { midi = "B0 17 00" },
+]
+
+[[scenario]]
+id = "mk2.mode.send"
+bullet = "The buttons above the display: Send + - Select the next send mode (1-8)"
+steps = [
+  { midi = "B0 19 7F", note = "button 4 above the display: Send +" },
+  { midi = "B0 19 00" },
+]
+
+[[scenario]]
+id = "mk2.mode.parameters"
+bullet = "The buttons above the display: Parameters - Activates the device/parameters mode"
+steps = [
+  { midi = "B0 1D 7F", note = "button 8 above the display: Parameters" },
+  { midi = "B0 1D 00" },
+]
+
+[[scenario]]
+id = "mk2.mode.volume"
+bullet = "The buttons above the display: Volume - Enables volume mode"
+steps = [
+  { midi = "B0 16 7F", note = "button 1 above the display: Volume" },
+  { midi = "B0 16 00" },
+]
+
+[[scenario]]
+id = "mk2.encoder.tempo"
+bullet = "TEMPO/TUNE - Enables tempo mode. The encoder changes the tempo of the song."
+before = [{ osc = "/tempo/raw 120" }]
+steps = [
+  { midi = "B0 30 7F | B0 30 00", note = "TEMPO" },
+  { midi = "B0 07 01", note = "encoder +1" },
+]
+expect.bitwig = { "/tempo/raw" = "121" }

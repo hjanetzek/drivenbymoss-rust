@@ -196,6 +196,8 @@ public final class BitwigModel
         this.transport.isArrangerAutomationWriteEnabled ().markInterested ();
         this.transport.isClipLauncherAutomationWriteEnabled ().markInterested ();
         this.transport.automationWriteMode ().markInterested ();
+        this.transport.isArrangerOverdubEnabled ().markInterested ();
+        this.transport.isClipLauncherOverdubEnabled ().markInterested ();
         this.transport.isMetronomeAudibleDuringPreRoll ().markInterested ();
         this.transport.isPunchInEnabled ().markInterested ();
         this.transport.isPunchOutEnabled ().markInterested ();
@@ -277,6 +279,7 @@ public final class BitwigModel
         this.cursorDevice.name ().markInterested ();
         this.cursorDevice.isEnabled ().markInterested ();
         this.cursorDevice.isWindowOpen ().markInterested ();
+        this.cursorDevice.isPinned ().markInterested ();
         this.cursorDevice.isExpanded ().markInterested ();
         this.siblings.itemCount ().markInterested ();
         for (int i = 0; i < NUM_SIBLINGS; i++)
@@ -428,6 +431,9 @@ public final class BitwigModel
         // Read if no switch is on, as TransportImpl.getAutomationWriteMode
         final boolean arrangerAutomation = this.transport.isArrangerAutomationWriteEnabled ().get ();
         final boolean launcherAutomation = this.transport.isClipLauncherAutomationWriteEnabled ().get ();
+        // The overdub switches, as TransportImpl.isArrangerOverdub / isLauncherOverdub
+        reporter.put ("/overdub/arranger", this.transport.isArrangerOverdubEnabled ().get ());
+        reporter.put ("/overdub/launcher", this.transport.isClipLauncherOverdubEnabled ().get ());
         reporter.put ("/automode/arranger", arrangerAutomation);
         reporter.put ("/automode/launcher", launcherAutomation);
         reporter.put ("/automode", arrangerAutomation || launcherAutomation ? automationModeIndex (this.transport.automationWriteMode ().get ()) : AUTOMATION_READ);
@@ -668,6 +674,7 @@ public final class BitwigModel
         reporter.put ("/device/name", this.cursorDevice.name ().get ());
         reporter.put ("/device/bypass", !this.cursorDevice.isEnabled ().get ());
         reporter.put ("/device/window", this.cursorDevice.isWindowOpen ().get ());
+        reporter.put ("/device/pinned", this.cursorDevice.isPinned ().get ());
         reporter.put ("/device/expand", this.cursorDevice.isExpanded ().get ());
 
         for (int i = 0; i < NUM_SIBLINGS; i++)

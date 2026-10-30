@@ -1,0 +1,49 @@
+# Native Instruments Maschine Mk2: conformance with the Java version
+
+The state of the comparison of the Rust port with the Java DrivenByMoss on Bitwig, from the pair
+runs of the scenario files in this folder (see doc/CONFORMANCE_TESTING_PLAN.md and
+tests/conformance/FIXTURE.md). Updated with every run which changes something.
+
+The runner plays the device in its MIDI mode: buttons are CCs on channel 1, the pads notes 36-51
+from the lower left; the Mk2 has no Shift in MIDI mode, STEP LEFT (the Stop CC 59) is Shift. The
+display is the MCU text display (`F0 00 00 66 14 12 <position> <text> F7`), compared per
+position (`sysex_key_bytes = 7`).
+
+Last full run: 2026-10-30, on fresh fixture projects with restarted controllers (`pair ...
+--fresh-project 8 --restart 15`), Bitwig 5.3.13: all checks pass; one open difference (the
+shortened value texts), which stays on the display and so makes most scenarios differ.
+
+## Coverage
+
+| File | Manual sections | Scenarios |
+| --- | --- | --- |
+| `global.toml` | Mk2, Global, Transport, Group buttons, Encoder modes | AUTO, Shift + AUTO, LOCK, Shift + LOCK (overdub), Note Repeat, loop, metronome (Shift + TAP), group select / mute / solo / record arm, clear mute / solo, the buttons above the display (Volume, Panorama, Send +, Parameters), tempo |
+
+Not covered yet: the pad modes (drum, play, chords), the step sequencer, the browser, the knobs,
+the touch strip, Erase and Duplicate, the Shift view functions on the pads.
+
+## Open differences
+
+| Area | Java | Rust | Status |
+| --- | --- | --- | --- |
+| Display: values (e.g. panorama) | `0.00` | `0.00 %` | Java gets the texts shortened by Bitwig (`getPanStr (6)`, `displayedValue ().getLimited (6)`, which drops the unit), Rust cuts its full text (as the Java version for Reaper); the extension would have to report Bitwig's shortened texts for the lengths the controllers use; to be decided |
+
+## Known differences (not bugs of the port)
+
+| Area | Java | Rust | Why |
+| --- | --- | --- | --- |
+| VU meters | | | audio levels |
+
+## Fixed by the comparison
+
+- LOCK and Shift + LOCK (overdub) did nothing on Bitwig: the core had only Reaper's overdub of
+  the selected track. Now Bitwig's arranger and clip launcher overdub switches, as
+  `TransportImpl` (BITWIG_DIVERGENCES.md §6) (2026-10-30).
+- Shift (STEP LEFT) + LOCK / MUTE / SOLO left the Shift view of the pads while Shift was still
+  held: the extension reports the values of a track again after a command to it, and the core
+  treated the repeated `select 1` as a selection change (recalled the preferred view). A
+  selection is now only handled when it changes (2026-10-30).
+- A notification on the display lasted about 1.1 s instead of 700 ms: the checks were counted,
+  but each only ran with a tick. It now ends at its time (2026-10-30).
+- The Pin button was lit in the Parameters mode: the cursor device counted as always pinned (as
+  in Reaper); on Bitwig it is the pinned state of the cursor device (2026-10-30).

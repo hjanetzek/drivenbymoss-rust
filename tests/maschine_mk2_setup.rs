@@ -129,6 +129,27 @@ fn notifications_are_shown_on_the_display() {
     assert!(lines.iter().any(|(row, text)| *row == 0 && text.starts_with(">Drums")), "{lines:?}");
 }
 
+/// The notification ends after 700ms, also if the ticks come in a coarser interval than the
+/// checks (each check only runs with a tick, counting the checks made it last 900ms and more).
+#[test]
+fn notifications_end_after_their_time() {
+    let (mut app, backend) = start();
+    let base = std::time::Instant::now();
+    app.set_time(base);
+    backend.take_calls();
+    press(&mut app, mk::FIXED_VEL);
+    backend.take_calls();
+    // Ticks every 42ms (as in Bitwig) for 750ms
+    let mut t = 0;
+    while t < 750 {
+        t += 42;
+        app.set_time(base + Duration::from_millis(t));
+        app.tick();
+    }
+    let lines = display_lines(&backend.take_calls());
+    assert!(lines.iter().any(|(row, text)| *row == 0 && text.starts_with(">Drums")), "{lines:?}");
+}
+
 #[test]
 fn play_and_stop_leds() {
     let (mut app, backend) = start();

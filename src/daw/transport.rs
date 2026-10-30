@@ -205,6 +205,9 @@ pub struct Transport {
     /// The automation write switches of the host (Bitwig: arranger and clip launcher), `None`
     /// if the host has none (Reaper: only the automation mode).
     host_automation: Option<HostAutomation>,
+    /// The overdub switches of the host (Bitwig: arranger and clip launcher), `None` if the host
+    /// has none (Reaper: the record mode of the selected track).
+    host_overdub: Option<HostAutomation>,
     visible_pixels_per_second: f64,
 }
 
@@ -247,6 +250,7 @@ impl Transport {
             punch_mode: PUNCH_OFF,
             automation_mode: AutomationMode::TrimRead,
             host_automation: None,
+            host_overdub: None,
             visible_pixels_per_second: 0.0,
         }
     }
@@ -813,6 +817,27 @@ impl Transport {
     pub fn set_writing_arranger_automation_state(&mut self, enabled: bool) {
         self.host_automation.get_or_insert_with(HostAutomation::default).arranger = enabled;
         self.ctx.set_automation_rec_active(self.is_writing_arranger_automation());
+    }
+
+    /// The overdub switches of the host (arranger, clip launcher), if it has them (Bitwig).
+    pub fn host_overdub(&self) -> Option<(bool, bool)> {
+        self.host_overdub.map(|o| (o.arranger, o.launcher))
+    }
+
+    /// The host reported its arranger overdub switch (Bitwig).
+    pub fn set_arranger_overdub_state(&mut self, enabled: bool) {
+        self.host_overdub.get_or_insert_with(HostAutomation::default).arranger = enabled;
+    }
+
+    /// The host reported its clip launcher overdub switch (Bitwig).
+    pub fn set_launcher_overdub_state(&mut self, enabled: bool) {
+        self.host_overdub.get_or_insert_with(HostAutomation::default).launcher = enabled;
+    }
+
+    /// Set an overdub switch of the host (Bitwig), as `TransportImpl.setOverdub` /
+    /// `setLauncherOverdub`.
+    pub(crate) fn send_overdub(&self, launcher: bool, on: bool) {
+        self.ctx.send_bool(Processor::Transport, if launcher { "overdub/launcher" } else { "overdub/arranger" }, on);
     }
 
     /// The host reported its clip launcher automation write switch (Bitwig).

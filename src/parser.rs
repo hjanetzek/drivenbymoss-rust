@@ -352,6 +352,15 @@ impl Parser {
                     model.arranger_mut().set_playback_follow(v > 0.0);
                 }
             }
+            "overdub" => {
+                // Bitwig: the arranger and clip launcher overdub switches
+                let enabled = d.is_some_and(|v| v > 0.0);
+                match parts.poll() {
+                    Some("arranger") => model.transport_mut().set_arranger_overdub_state(enabled),
+                    Some("launcher") => model.transport_mut().set_launcher_overdub_state(enabled),
+                    _ => return false,
+                }
+            }
             "automode" => {
                 // Bitwig: the arranger and clip launcher automation write switches
                 match parts.poll() {
@@ -565,6 +574,11 @@ impl Parser {
             TAG_SELECT => {
                 if let Some(v) = d {
                     let is_selected = v > 0.0;
+                    // Only a change: Bitwig reports the values of a track again after a command
+                    // to it, a repeated selection must not e.g. recall the preferred view
+                    if track.is_selected() == is_selected {
+                        return;
+                    }
                     track.set_selected(is_selected);
                     tb.handle_bank_track_selection(track_ref, is_selected);
                     if is_selected {
@@ -760,6 +774,11 @@ impl Parser {
             "window" => {
                 if let Some(v) = parse_double(value) {
                     device.set_window_open(v > 0.0);
+                }
+            }
+            "pinned" => {
+                if let Some(v) = parse_double(value) {
+                    device.set_pinned_state(v > 0.0);
                 }
             }
             "expand" => {
@@ -1584,11 +1603,34 @@ mod tests {
         assert_eq!(model.marker_bank().item(0).name(), "Marker 1");
     }
 
+    /// A repeated selection (Bitwig reports the values of a track again after a command to it)
+    /// is no selection change.
+    #[test]
+    fn repeated_track_selection_is_no_change() {
+        let (mut model, mut parser, _, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1"]);
+        model.take_events();
+        let selections = |model: &mut Model| model.take_events().into_iter().filter(|e| matches!(e, ModelEvent::TrackSelectionChanged { .. })).count();
+        feed(&mut model, &mut parser, &["/track/0/select 1"]);
+        assert_eq!(selections(&mut model), 1);
+        feed(&mut model, &mut parser, &["/track/0/select 1"]);
+        assert_eq!(selections(&mut model), 0);
+    }
+
     /// Bitwig: the automation write switches replace the Reaper automation mode.
     #[test]
     fn host_automation_switches() {
         let (mut model, mut parser, backend, _) = create(ModelSetup::default());
-        feed(&mut model, &mut parser, &["/automode/arranger 0", "/automode/launcher 1", "/automode 4"]);
+        feed(&mut model, &mut parser, &["/automode/arranger 0", "/automode/launcher 1", "/automode 4", "/overdub/arranger 1", "/overdub/launcher 0"]);
+        assert!(model.is_arranger_overdub());
+        assert!(!model.is_launcher_overdub());
+        backend.take_calls();
+        model.toggle_overdub();
+        model.toggle_launcher_overdub();
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::IntArg("transport".into(), "overdub/arranger".into(), 0), BackendCall::IntArg("transport".into(), "overdub/launcher".into(), 1)]
+        );
         let t = model.transport();
         assert!(!t.is_writing_arranger_automation());
         assert!(t.is_writing_clip_launcher_automation());
