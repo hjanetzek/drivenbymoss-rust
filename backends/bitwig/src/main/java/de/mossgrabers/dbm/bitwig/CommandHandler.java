@@ -831,11 +831,39 @@ public final class CommandHandler
      */
     private void handleTrack (final String command, final double value, final String text)
     {
-        // AbstractTrackBankImpl.setIndication
-        if ("indicate".equals (command))
+        switch (command)
         {
-            this.model.trackBank.setShouldShowClipLauncherFeedback (value > 0);
-            return;
+            // AbstractTrackBankImpl.setIndication
+            case "indicate" ->
+            {
+                this.model.trackBank.setShouldShowClipLauncherFeedback (value > 0);
+                return;
+            }
+            // CursorTrackImpl.setPinned, togglePinned, selectPrevious, selectNext
+            case "pinned" ->
+            {
+                this.model.cursorTrack.isPinned ().set (value > 0);
+                return;
+            }
+            case "pinned/toggle" ->
+            {
+                this.model.cursorTrack.isPinned ().toggle ();
+                return;
+            }
+            case "selectPrevious" ->
+            {
+                this.model.cursorTrack.selectPrevious ();
+                return;
+            }
+            case "selectNext" ->
+            {
+                this.model.cursorTrack.selectNext ();
+                return;
+            }
+            default ->
+            {
+                // A command of a track
+            }
         }
         final int slash = command.indexOf ('/');
         final int index = slash > 0 ? parseIndex (command.substring (0, slash)) : -1;

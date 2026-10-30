@@ -519,6 +519,15 @@ impl Parser {
             "fx" => self.parse_track_fx_parameter(model, value, parts),
             // The host pages the tracks (protocol v2); the core keeps its own offset
             "offset" => model.track_bank_mut().enable_host_paging(),
+            // Bitwig (CursorTrackImpl): the position of the pinned cursor track (-1 if not
+            // pinned), hasPrevious (), hasNext ()
+            "pinned" => {
+                if let Some(position) = parse_int(value) {
+                    model.set_host_pinned_track(position);
+                }
+            }
+            "hasPrevious" => model.set_host_cursor_track_neighbours(Some(parse_flag(value)), None),
+            "hasNext" => model.set_host_cursor_track_neighbours(None, Some(parse_flag(value))),
             TAG_COUNT => {
                 if let Some(count) = parse_int(value) {
                     let tb = model.track_bank_mut();
@@ -626,8 +635,9 @@ impl Parser {
                 if let Some(v) = d {
                     let is_selected = v > 0.0;
                     // Only a change: Bitwig reports the values of a track again after a command
-                    // to it, a repeated selection must not e.g. recall the preferred view
-                    if track.is_selected() == is_selected {
+                    // to it, a repeated selection must not e.g. recall the preferred view. The
+                    // selection itself, not the pinned track (Track::is_selected)
+                    if track.channel().is_selected() == is_selected {
                         return;
                     }
                     track.set_selected(is_selected);
@@ -2401,6 +2411,42 @@ mod tests {
         assert!(!model.track_bank().item(0).is_selected());
         model.set_cursor_track_pinned(false);
         assert_eq!(model.cursor_track().position(), 0);
+    }
+
+    /// CursorTrackImpl of the Java version for Bitwig: the pin is Bitwig's, previous and next
+    /// track move the cursor track.
+    #[test]
+    fn host_pinning_and_cursor_track_navigation() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/offset 0", "/track/count 3", "/track/0/exists 1", "/track/1/exists 1", "/track/2/exists 1", "/track/0/select 1", "/track/hasPrevious 0", "/track/hasNext 1"],
+        );
+        assert!(!model.cursor_track_can_select_previous() && model.cursor_track_can_select_next());
+        backend.take_calls();
+        model.set_cursor_track_pinned(true);
+        model.toggle_cursor_track_pinned();
+        model.cursor_track_select_next();
+        model.cursor_track_select_previous();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("track".into(), "pinned".into(), 1),
+                BackendCall::NoArg("track".into(), "pinned/toggle".into()),
+                BackendCall::NoArg("track".into(), "selectNext".into()),
+                BackendCall::NoArg("track".into(), "selectPrevious".into()),
+            ]
+        );
+        // Not pinned until the host reports it
+        assert!(!model.is_cursor_track_pinned());
+        feed(&mut model, &mut parser, &["/track/pinned 2", "/track/0/select 0", "/track/1/select 1"]);
+        assert!(model.is_cursor_track_pinned());
+        assert_eq!(model.cursor_track().position(), 2);
+        feed(&mut model, &mut parser, &["/track/pinned -1"]);
+        assert!(!model.is_cursor_track_pinned());
+        assert_eq!(model.cursor_track().position(), 1);
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
     }
 
     #[test]

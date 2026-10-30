@@ -270,6 +270,10 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   `/master/active` (Reaper tracks cannot be deactivated: report 1 or the bypass of the FX chain),
   `canHoldNotes|canHoldAudio` (1, 1), `send/<s>/color` (the color of the receiving track).
   `can_hold_notes`/`can_hold_audio_data` stay true without a report.
+- **P2 pinned track, previous/next track:** behind the host check (the Reaper backend keeps the
+  core's pin, `track <p>/pin`, and the track bank navigation). For Reaper: `track pinned <0|1>`,
+  `pinned/toggle`, report `/track/pinned <position>`, `track selectPrevious|selectNext` and
+  `/track/hasPrevious|hasNext`; the core's own pin could then go.
 
 ## Replays to record again
 

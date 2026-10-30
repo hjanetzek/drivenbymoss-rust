@@ -60,6 +60,8 @@ pub struct Model {
     marker_bank: MarkerBank,
     track_bank: TrackBank,
     pinned_track: Option<TrackRef>,
+    /// `cursorTrack.hasPrevious ()`, `hasNext ()` reported by the host (Bitwig).
+    host_cursor_track_neighbours: Option<(bool, bool)>,
     cursor_device: SpecificDevice,
     first_instrument: Option<SpecificDevice>,
     eq_device: Option<SpecificDevice>,
@@ -129,6 +131,7 @@ impl Model {
             empty_slot_bank: SlotBank::new(ctx.muted(), num_scenes, -1),
             track_bank,
             pinned_track: None,
+            host_cursor_track_neighbours: None,
             first_instrument,
             eq_device,
             drum_device,
@@ -427,12 +430,41 @@ impl Model {
     }
 
     pub fn toggle_cursor_track_pinned(&mut self) {
+        // CursorTrackImpl.togglePinned: isPinned ().toggle () on Bitwig
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "pinned/toggle");
+            return;
+        }
         let pinned = self.pinned_track.is_none();
         self.set_cursor_track_pinned(pinned);
     }
 
-    /// Pin the currently selected track (or unpin it).
+    /// The host reported the position of its pinned cursor track, -1 if it is not pinned
+    /// (Bitwig: `cursorTrack.isPinned ()`; the cursor track then stays on that track, also for the
+    /// cursor device and the remote controls).
+    pub fn set_host_pinned_track(&mut self, position: i32) {
+        let pinned = (position >= 0).then_some(TrackRef::Position(position as usize));
+        if pinned == self.pinned_track {
+            return;
+        }
+        self.pinned_track = pinned;
+        self.ctx.set_pinned_track(pinned.map(|_| position));
+        self.after_parse();
+    }
+
+    /// The host reported `cursorTrack.hasPrevious ()` / `hasNext ()` (Bitwig).
+    pub fn set_host_cursor_track_neighbours(&mut self, has_previous: Option<bool>, has_next: Option<bool>) {
+        let (previous, next) = self.host_cursor_track_neighbours.unwrap_or((false, false));
+        self.host_cursor_track_neighbours = Some((has_previous.unwrap_or(previous), has_next.unwrap_or(next)));
+    }
+
+    /// Pin the currently selected track (or unpin it). Bitwig: CursorTrackImpl.setPinned,
+    /// `cursorTrack.isPinned ().set (pinned)`; the host reports the pinned track.
     pub fn set_cursor_track_pinned(&mut self, pinned: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Track, "pinned", pinned);
+            return;
+        }
         if pinned {
             let selected = self.selected_track_ref();
             match selected {
@@ -456,19 +488,38 @@ impl Model {
         self.after_parse();
     }
 
+    /// CursorTrackImpl.canSelectPrevious: `cursorTrack.hasPrevious ()` (Bitwig); Reaper: the
+    /// bank.
     pub fn cursor_track_can_select_previous(&self) -> bool {
-        self.track_bank.can_scroll_backwards()
+        match self.host_cursor_track_neighbours {
+            Some((previous, _)) => previous,
+            None => self.track_bank.can_scroll_backwards(),
+        }
     }
 
+    /// CursorTrackImpl.canSelectNext: `cursorTrack.hasNext ()` (Bitwig).
     pub fn cursor_track_can_select_next(&self) -> bool {
-        self.track_bank.can_scroll_forwards()
+        match self.host_cursor_track_neighbours {
+            Some((_, next)) => next,
+            None => self.track_bank.can_scroll_forwards(),
+        }
     }
 
+    /// CursorTrackImpl.selectPrevious: `cursorTrack.selectPrevious ()` (Bitwig).
     pub fn cursor_track_select_previous(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "selectPrevious");
+            return;
+        }
         self.track_bank.select_previous_item();
     }
 
+    /// CursorTrackImpl.selectNext: `cursorTrack.selectNext ()` (Bitwig).
     pub fn cursor_track_select_next(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "selectNext");
+            return;
+        }
         self.track_bank.select_next_item();
     }
 

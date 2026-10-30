@@ -235,6 +235,16 @@ the exclusive solo preference of Bitwig applies; before: `solo <!local>`). Indic
 before: no-ops. The VU clip state is `vuLeft >= 16241/16384` (`CLIP_BORDER`; before: Reaper's hold
 values, never reported). The Java bug of `TrackImpl.setMonitor (false)` (sets ON) is not copied.
 
+**Pinned cursor track, previous/next track (core port P2, 2026-10-30).** As `CursorTrackImpl`: the
+pin is Bitwig's `cursorTrack.isPinned ()` (`track pinned <0|1>`, `track pinned/toggle`); the extension
+reports `/track/pinned <position>` (−1 if not pinned) and the core shows the pinned track as the
+cursor track; the selection is reported from a second cursor track which is never pinned, so that
+Bitwig's cursor device and remote controls stay on the pinned track as in the Java version (before,
+the core kept the pin itself and sent `track <p>/pin`, which the extension ignored, so the device
+followed the selection). Previous and next track move the cursor track (`track selectPrevious|selectNext`,
+`cursorTrack.selectPrevious ()` etc.) and their availability is `/track/hasPrevious|hasNext`
+(before: via the track bank). The playing notes are those of the cursor track.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

@@ -79,6 +79,8 @@ public final class BitwigModel
     final int                numScenes;
     final Project            project;
     final CursorTrack        cursorTrack;
+    /** Follows the selection, also while the cursor track is pinned (for the selection reports). */
+    final CursorTrack        selectionTrack;
     final MasterTrack        masterTrack;
     final PinnableCursorDevice cursorDevice;
     final DeviceBank         siblings;
@@ -106,6 +108,8 @@ public final class BitwigModel
     private final boolean [] sceneSelected;
     /** The position of the selected track which was reported last, -1 if none. */
     private int              lastSelectedTrack   = -1;
+    /** The position of the cursor track (selected or pinned) which was reported last. */
+    private int              lastCursorTrack     = -1;
     private boolean          masterSelected;
     private int              masterVuLeft;
     private int              masterVuRight;
@@ -144,6 +148,7 @@ public final class BitwigModel
         this.sceneBank = this.trackBank.sceneBank ();
         this.project = host.getProject ();
         this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, this.numScenes, true);
+        this.selectionTrack = host.createCursorTrack ("DBM_SELECTION_TRACK", "Selected track", 0, 0, true);
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
@@ -242,6 +247,11 @@ public final class BitwigModel
         this.trackBank.itemCount ().markInterested ();
         this.trackBank.scrollPosition ().markInterested ();
         this.cursorTrack.position ().markInterested ();
+        this.selectionTrack.position ().markInterested ();
+        // CursorTrackImpl: isPinned (), hasPrevious (), hasNext ()
+        this.cursorTrack.isPinned ().markInterested ();
+        this.cursorTrack.hasPrevious ().markInterested ();
+        this.cursorTrack.hasNext ().markInterested ();
         for (int i = 0; i < this.numTracks; i++)
         {
             final Track track = this.trackBank.getItemAt (i);
@@ -522,15 +532,25 @@ public final class BitwigModel
     {
         final int offset = this.trackBank.scrollPosition ().get ();
         final int total = this.trackBank.itemCount ().get ();
-        final int selected = this.cursorTrack.position ().get ();
+        // The selection comes from a cursor track which is never pinned; the pinned cursor track
+        // (CursorTrackImpl.isPinned) is reported as "/track/pinned" with its position
+        final int selected = this.selectionTrack.position ().get ();
+        final int cursor = this.cursorTrack.position ().get ();
+        reporter.put ("/track/pinned", this.cursorTrack.isPinned ().get () ? cursor : -1);
+        reporter.put ("/track/hasPrevious", this.cursorTrack.hasPrevious ().get ());
+        reporter.put ("/track/hasNext", this.cursorTrack.hasNext ().get ());
         reporter.put ("/track/offset", offset);
         if (selected != this.lastSelectedTrack)
         {
             if (this.lastSelectedTrack >= 0)
                 reporter.put ("/track/" + this.lastSelectedTrack + "/select", false);
             this.lastSelectedTrack = selected;
-            // The core keeps one note cache: report the notes of the newly selected track
-            reporter.forget ("/track/" + selected + "/playingnotes");
+        }
+        if (cursor != this.lastCursorTrack)
+        {
+            this.lastCursorTrack = cursor;
+            // The core keeps one note cache: report the notes of the new cursor track
+            reporter.forget ("/track/" + cursor + "/playingnotes");
         }
 
         final int sceneOffset = this.sceneBank.scrollPosition ().get ();
@@ -574,8 +594,9 @@ public final class BitwigModel
         }
         reporter.put ("/track/count", total);
         if (selected >= 0 && selected < total)
-        {
             reporter.put ("/track/" + selected + "/select", true);
+        if (cursor >= 0 && cursor < total)
+        {
             // The notes which play on the selected track (live and from clips), e.g. to light
             // the pads of the played notes, as the note observer of TrackImpl; in the note format
             // of the core
@@ -586,7 +607,7 @@ public final class BitwigModel
                     notes.append (';');
                 notes.append ("0:0:0:0:0:").append (note.pitch ()).append (':').append (note.velocity ());
             }
-            reporter.put ("/track/" + selected + "/playingnotes", notes.toString ());
+            reporter.put ("/track/" + cursor + "/playingnotes", notes.toString ());
         }
     }
 
