@@ -110,6 +110,13 @@ must be created during init):
   became empty.
 - `/track/{1-8}/playingNotes`: the notes playing on the track, `note:velocity` separated by
   spaces.
+- `/conformance/action {id}` (command): invokes a Bitwig action; it acts on the GUI focus.
+- `/conformance/actions {text}` (command): reports `/conformance/actions`, the matching actions as
+  `identifier|name` lines.
+
+For building the fixture, `DeviceModule` also has `/device/layer/{1-8}/browse`,
+`/device/drumpad/{1-16}/browse` and `…/addDevice {name}`. They fill existing layers; nothing
+creates a layer over OSC, so the Instrument Layer of the fixture comes from a preset.
 
 With it, the probe of the Rust extension is only needed for the Bitwig version.
 
