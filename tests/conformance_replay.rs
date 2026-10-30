@@ -29,7 +29,8 @@ const SYSEX_KEY_BYTES: &str = "#sysex_key_bytes";
 
 /// An event of a recording.
 struct Event {
-    time: u64,
+    /// Milliseconds since the start (with decimals since 2026-10-31, whole before).
+    time: f64,
     kind: String,
     fields: Vec<String>,
 }
@@ -58,7 +59,7 @@ fn parse_recording(path: &Path) -> Vec<Event> {
         .filter(|line| !line.is_empty())
         .map(|line| {
             let mut parts = line.split('\t');
-            let time = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            let time = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0.0);
             let kind = parts.next().unwrap_or("").to_string();
             Event { time, kind, fields: parts.map(unescape).collect() }
         })
@@ -209,7 +210,7 @@ fn replay(path: &Path) -> Vec<String> {
         }));
         compare(&mut expected, &mut actual, &last_input, &mut problems);
 
-        app.set_time(base + Duration::from_millis(event.time));
+        app.set_time(base + Duration::from_secs_f64(event.time / 1000.0));
         last_input = format!("{} at {} ms", event.kind, event.time);
         match event.kind.as_str() {
             "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),

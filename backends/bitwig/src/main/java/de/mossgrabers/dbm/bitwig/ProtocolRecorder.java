@@ -18,8 +18,8 @@ import java.util.stream.Stream;
 /**
  * Records everything which goes into and out of the core, for the replay tests of the
  * conformance tests (doc/CONFORMANCE_TESTING_PLAN.md §5): the model lines, ticks, MIDI in and
- * out, the commands and the note input tables, with the milliseconds since the start of the
- * controller.
+ * out, the commands and the note input tables, with the milliseconds (3 decimals) since the
+ * start of the controller.
  *
  * <p>
  * Enabled with DBM_RECORD_DIR, or in dev mode (DBM_DEV_LIBRARY) into target/conformance/recordings
@@ -175,7 +175,10 @@ final class ProtocolRecorder
     synchronized void event (final String kind, final String... fields)
     {
         final StringBuilder line = new StringBuilder ();
-        line.append ((System.nanoTime () - this.start) / 1_000_000L).append ('\t').append (kind);
+        // Milliseconds with 3 decimals: a replay at whole milliseconds can end a timed state (e.g.
+        // a notification) one tick earlier than the run
+        final long micros = (System.nanoTime () - this.start) / 1_000L;
+        line.append (micros / 1000L).append ('.').append (String.format ("%03d", Long.valueOf (micros % 1000L))).append ('\t').append (kind);
         for (final String field: fields)
             line.append ('\t').append (escape (field));
         try
