@@ -151,7 +151,8 @@ extension calls `inc (delta)`; the core does not change its value, Bitwig report
 core sent its value plus the increment with `set`, which the takeover mode (catch) could swallow,
 and fractional increments were cut. The clip's play start and end, loop start and length change
 with `clip start|end|loopStart|loopLength/inc <beats>` (`getPlayStart ().inc (frac)` etc.; before:
-absolute, the loop length could become ≤ 0). Not yet for the groove.
+absolute, the loop length could become ≤ 0). Not yet for the groove. Only with host paging;
+Reaper gets the absolute values.
 
 **Reset (core port P1 6, 2026-10-30).** As `ParameterImpl.resetValue` (`parameter.reset ()`):
 resetting a device parameter, the volume or panorama of a track, the master, a drum pad or layer,

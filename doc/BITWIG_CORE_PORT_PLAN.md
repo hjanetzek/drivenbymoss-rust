@@ -224,15 +224,14 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   track` command): Reaper still gets the page-aligned `<pos>/scrollto`, which selects there. To
   replace it, the Reaper backend would need a scroll-only command (its track bank is paged by the
   core, so it would be `set_bank_offset` alone without a command).
-- **P1 5, relative value changes (replaced, needed on Reaper!):** `Parameter::inc` and
-  `change_value` send `<value command>/inc <normalized delta>` on every host (no Reaper test
-  encodes the absolute change). The Reaper backend must handle the suffix `/inc` for
-  `track <p>/volume|pan`, `track <p>/send/<s>/volume`, `master volume|pan`,
-  `device|primary|drum|eq param/<i>/value`, `track <p>/param/<i>/value` (track FX),
-  `drum|primary pad|layer/<i>/volume|pan` and `master user/param/0/value`: add the delta
-  (× the parameter range) to the current value and clamp. Until then knob changes do nothing on
-  Reaper. The clip's `start|end|loopStart|loopLength/inc` is only sent with the host step grid
-  (Bitwig).
+- **P1 5, relative value changes:** kept the Reaper path behind the host check
+  (`tests/maschine_jam_setup.rs::slow_fader_change_increments_the_volume` encodes the absolute
+  `0/volume` with the local value). To replace it, the Reaper backend must handle the suffix
+  `/inc <normalized delta>` for `track <p>/volume|pan`, `track <p>/send/<s>/volume`,
+  `master volume|pan`, `device|primary|drum|eq param/<i>/value`, `track <p>/param/<i>/value`
+  (track FX), `drum|primary pad|layer/<i>/volume|pan` and `master user/param/0/value` (add
+  the delta × the parameter range to the current value, clamp, report it). The clip's
+  `start|end|loopStart|loopLength/inc` is only sent with the host step grid (Bitwig).
 - **P1 6, reset:** kept the Reaper path behind the host check (`daw::parameter::tests::volume_and_touch`
   encodes Reaper's 0 dB reset). To replace it, the Reaper backend needs `<value command>/reset`
   (no value) for the same addresses as `/inc`, setting the parameter's default (Reaper: 0 dB for
@@ -244,7 +243,6 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   `device sibling/<index+1>/bypass|remove|duplicate|select` (the sibling window).
 - **P1 8, step attributes:** only with the host step grid (Bitwig); Reaper's clip keeps its note
   commands. Nothing to change.
-
 - **P1 9, step attribute knobs:** replaced (the Java version for Reaper casts the knob change to
   an integer; no Reaper test encodes it). The Reaper clip only edits velocity, duration and mute;
   the velocity knob now changes in finer steps there too. Nothing to change in the backend.

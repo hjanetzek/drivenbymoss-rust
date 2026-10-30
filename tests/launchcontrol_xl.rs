@@ -552,22 +552,21 @@ clip/grid/8x127/step/0/1/60 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 0 0 0 0 0 1 0 0 0 0 0
     );
     app.tick();
     backend.take_calls();
-    let update = |calls: &[BackendCall]| {
+    // CursorClipImpl.updateStep*: only the changed attribute is written
+    let attribute = |calls: &[BackendCall], name: &str| {
         calls.iter().find_map(|c| match c {
-            BackendCall::StringArg(p, cmd, v) if p == "clip" && cmd == "grid/8x127/step/0/1/60/update" => Some(v.split(' ').map(str::to_string).collect::<Vec<_>>()),
+            BackendCall::DoubleArg(p, cmd, v) if p == "clip" && *cmd == format!("grid/8x127/step/0/1/60/{name}") => Some(*v),
             _ => None,
         })
     };
 
     // Send B knob 2: repeat count, the range is limited to -15..15
     cc(&mut app, 12, 0x1E, 127);
-    let values = update(&backend.take_calls()).expect("repeat update");
-    assert_eq!(values[20], "15");
+    assert_eq!(attribute(&backend.take_calls(), "repeatCount"), Some(15.0));
 
     // Pan knob 2: panning -1..1
     cc(&mut app, 12, 0x32, 0);
-    let values = update(&backend.take_calls()).expect("pan update");
-    assert_eq!(values[9], "-1");
+    assert_eq!(attribute(&backend.take_calls(), "pan"), Some(-1.0));
 }
 
 /// Layer Mix: Track Focus selects a layer of the first instrument, or with a Drum Machine a pad

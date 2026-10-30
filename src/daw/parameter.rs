@@ -204,10 +204,10 @@ impl Parameter {
         self.number_of_steps
     }
 
-    /// True if the host changes the value relatively (`…/inc`, as `RangedValueImpl.inc` of the
-    /// Java version for Bitwig), false for the groove (still absolute).
+    /// True if the host changes the value relatively (Bitwig: `…/inc`, as `RangedValueImpl.inc`
+    /// of the Java version for Bitwig). Reaper gets absolute values (its backend has no `/inc`).
     fn host_increments(&self) -> bool {
-        !matches!(self.kind, ParameterKind::Groove(_) | ParameterKind::Empty)
+        self.ctx.is_host_paging() && !matches!(self.kind, ParameterKind::Groove(_) | ParameterKind::Empty)
     }
 
     /// Increase/decrease the value by the given amount (in the range of the value changer).
@@ -608,14 +608,17 @@ mod tests {
         );
     }
 
-    /// RangedValueImpl.inc / changeValue: the host changes the value relatively (`…/inc` with
-    /// the normalized delta, fractions kept).
+    /// RangedValueImpl.inc / changeValue: Bitwig changes the value relatively (`…/inc` with the
+    /// normalized delta, fractions kept); Reaper gets the absolute value.
     #[test]
-    fn relative_changes() {
+    fn relative_changes_on_bitwig() {
         let (ctx, backend) = test_ctx();
         let mut volume = Parameter::new(ctx.clone(), ParameterKind::TrackVolume, 3, 0.716);
         volume.set_exists(true);
         volume.set_internal_value(0.5);
+        volume.inc(1.0);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 65.0 / 127.0)]);
+        ctx.set_host_paging();
         volume.inc(1.5);
         assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume/inc".into(), 1.5 / 128.0)]);
         let mut param = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Device), 0, 0.0);
@@ -637,8 +640,8 @@ mod tests {
                 BackendCall::DoubleArg("drum".into(), "pad/36/pan/inc".into(), 4.0 / 128.0),
             ]
         );
-        // Not changed locally: the host reports the result
-        assert_eq!(volume.value(), 64);
+        // Not changed locally (the value of the Reaper change): Bitwig reports the result
+        assert_eq!(volume.value(), 65);
     }
 
     /// ParameterImpl.resetValue: `parameter.reset ()` on Bitwig.
