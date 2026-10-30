@@ -350,6 +350,12 @@ impl CursorClip {
 
     /// Change the start of the clip by a full (or with `slow` a single) beat.
     pub fn change_play_start(&mut self, control: i32, slow: bool) {
+        if self.host_grid {
+            // CursorClipImpl.changePlayStart: getPlayStart ().inc (frac)
+            let delta = self.time_change(control, slow);
+            self.ctx.send_double(Processor::Clip, "start/inc", delta);
+            return;
+        }
         if self.clip_start == -1.0 {
             return;
         }
@@ -381,6 +387,12 @@ impl CursorClip {
 
     /// Change the end of the clip by a full (or with `slow` a single) beat.
     pub fn change_play_end(&mut self, control: i32, slow: bool) {
+        if self.host_grid {
+            // CursorClipImpl.changePlayEnd: getPlayStop ().inc (frac)
+            let delta = self.time_change(control, slow);
+            self.ctx.send_double(Processor::Clip, "end/inc", delta);
+            return;
+        }
         if self.clip_end == -1.0 {
             return;
         }
@@ -441,8 +453,9 @@ impl CursorClip {
     /// [`Self::change_play_start`]).
     pub fn change_loop_start(&mut self, control: i32, slow: bool) {
         if self.host_grid {
-            let start = self.host_loop_start + self.time_change(control, slow);
-            self.set_loop_start(start);
+            // CursorClipImpl.changeLoopStart: getLoopStart ().inc (frac)
+            let delta = self.time_change(control, slow);
+            self.ctx.send_double(Processor::Clip, "loopStart/inc", delta);
             return;
         }
         self.change_play_start(control, slow);
@@ -471,8 +484,9 @@ impl CursorClip {
     /// [`Self::change_play_end`]).
     pub fn change_loop_length(&mut self, control: i32, slow: bool) {
         if self.host_grid {
-            let length = self.host_loop_length + self.time_change(control, slow);
-            self.set_loop_length(length);
+            // CursorClipImpl.changeLoopLength: getLoopLength ().inc (frac)
+            let delta = self.time_change(control, slow);
+            self.ctx.send_double(Processor::Clip, "loopLength/inc", delta);
             return;
         }
         self.change_play_end(control, slow);

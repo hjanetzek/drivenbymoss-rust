@@ -12,6 +12,7 @@ import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.PinnableCursorClip;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Scene;
+import com.bitwig.extension.controller.api.SettableBeatTimeValue;
 import com.bitwig.extension.controller.api.SettableRangedValue;
 import com.bitwig.extension.controller.api.Track;
 
@@ -34,6 +35,7 @@ public final class CommandHandler
     /** The delay before the values of a commanded item are reported again, in milliseconds. */
     private static final int     REPORT_AGAIN_DELAY = 300;
     private static final String  IMMEDIATELY = "/immediately";
+    private static final String  INCREMENT = "/inc";
     private static final Pattern COLOR_PATTERN = Pattern.compile ("RGB\\((\\d+),(\\d+),(\\d+)\\)");
 
 
@@ -42,6 +44,8 @@ public final class CommandHandler
     private final Consumer<String> unhandled;
     /** The current value command ends with "/immediately": set without the takeover mode. */
     private boolean              immediately;
+    /** The current value command ends with "/inc": change the value by the (normalized) delta. */
+    private boolean              increment;
 
 
     /**
@@ -108,7 +112,12 @@ public final class CommandHandler
         // "…/immediately": set the value without Bitwig's takeover mode (catch, relative
         // scaling), as setValueImmediatly of the Java version, e.g. for pads
         this.immediately = fullCommand.endsWith (IMMEDIATELY);
-        final String command = this.immediately ? fullCommand.substring (0, fullCommand.length () - IMMEDIATELY.length ()) : fullCommand;
+        String command = this.immediately ? fullCommand.substring (0, fullCommand.length () - IMMEDIATELY.length ()) : fullCommand;
+        // "…/inc": a relative change, as RangedValueImpl.inc (rangedValue.inc) of the Java version;
+        // the core sends the delta normalized (increment / upper bound)
+        this.increment = command.endsWith (INCREMENT);
+        if (this.increment)
+            command = command.substring (0, command.length () - INCREMENT.length ());
         this.reportAgain (processor, command);
         switch (processor)
         {
@@ -426,11 +435,12 @@ public final class CommandHandler
         {
             case "name" -> clip.setName (text == null ? "" : text);
             case "color" -> setColor (text, clip.color ()::set);
-            case "start" -> clip.getPlayStart ().set (value);
-            case "end" -> clip.getPlayStop ().set (value);
+            // "…/inc": CursorClipImpl.changePlayStart etc. (getPlayStart ().inc (frac))
+            case "start" -> setBeatTime (clip.getPlayStart (), value, this.increment);
+            case "end" -> setBeatTime (clip.getPlayStop (), value, this.increment);
             case "loop" -> clip.isLoopEnabled ().set (value > 0);
-            case "loopStart" -> clip.getLoopStart ().set (value);
-            case "loopLength" -> clip.getLoopLength ().set (value);
+            case "loopStart" -> setBeatTime (clip.getLoopStart (), value, this.increment);
+            case "loopLength" -> setBeatTime (clip.getLoopLength (), value, this.increment);
             case "shuffle" -> clip.getShuffle ().set (value > 0);
             case "accent" -> clip.getAccent ().set (value);
             case "duplicate" -> clip.duplicate ();
@@ -497,11 +507,25 @@ public final class CommandHandler
 
 
     /**
-     * Set a value, immediately if the command asked for it.
+     * Set a beat time value, or change it by the delta.
+     */
+    private static void setBeatTime (final SettableBeatTimeValue beatTime, final double value, final boolean increment)
+    {
+        if (increment)
+            beatTime.inc (value);
+        else
+            beatTime.set (value);
+    }
+
+
+    /**
+     * Set a value (change it with "…/inc"), immediately if the command asked for it.
      */
     private void setValue (final SettableRangedValue rangedValue, final double value)
     {
-        if (this.immediately)
+        if (this.increment)
+            rangedValue.inc (value);
+        else if (this.immediately)
             rangedValue.setImmediately (value);
         else
             rangedValue.set (value);

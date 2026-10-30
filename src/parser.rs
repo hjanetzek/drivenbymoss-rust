@@ -1299,6 +1299,7 @@ mod tests {
     use crate::backend::{BackendCall, RecordingBackend, Sender};
     use crate::daw::bank::BankItem;
     use crate::daw::clip::{NotePosition, StepState};
+    use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
     use crate::daw::events::ModelEvent;
     use crate::daw::model_setup::ModelSetup;
     use crate::framework::value_changer::ValueChanger;
@@ -1975,6 +1976,30 @@ mod tests {
         assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
         assert_eq!(calls[3], BackendCall::NoArg("clip".into(), "grid/8x128/page/+".into()));
         assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
+    }
+
+    /// CursorClipImpl.changePlayStart/End, changeLoopStart/Length: relative on Bitwig.
+    #[test]
+    fn host_clip_time_changes() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        model.note_clip(8, 128);
+        feed(&mut model, &mut parser, &["/clip/exists 1", "/clip/loopLength 4"]);
+        backend.take_calls();
+        let clip = model.note_clip(8, 128);
+        clip.change_play_start(1, false);
+        clip.change_play_end(127, true);
+        clip.change_loop_start(1, true);
+        clip.change_loop_length(127, false);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("clip".into(), "start/inc".into(), INC_FRACTION_TIME),
+                BackendCall::DoubleArg("clip".into(), "end/inc".into(), -INC_FRACTION_TIME_SLOW),
+                BackendCall::DoubleArg("clip".into(), "loopStart/inc".into(), INC_FRACTION_TIME_SLOW),
+                BackendCall::DoubleArg("clip".into(), "loopLength/inc".into(), -INC_FRACTION_TIME),
+            ]
+        );
+        assert_eq!(clip.loop_length(), 4.0);
     }
 
     #[test]

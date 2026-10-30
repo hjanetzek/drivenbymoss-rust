@@ -224,3 +224,12 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   track` command): Reaper still gets the page-aligned `<pos>/scrollto`, which selects there. To
   replace it, the Reaper backend would need a scroll-only command (its track bank is paged by the
   core, so it would be `set_bank_offset` alone without a command).
+- **P1 5, relative value changes (replaced, needed on Reaper!):** `Parameter::inc` and
+  `change_value` send `<value command>/inc <normalized delta>` on every host (no Reaper test
+  encodes the absolute change). The Reaper backend must handle the suffix `/inc` for
+  `track <p>/volume|pan`, `track <p>/send/<s>/volume`, `master volume|pan`,
+  `device|primary|drum|eq param/<i>/value`, `track <p>/param/<i>/value` (track FX),
+  `drum|primary pad|layer/<i>/volume|pan` and `master user/param/0/value`: add the delta
+  (× the parameter range) to the current value and clamp. Until then knob changes do nothing on
+  Reaper. The clip's `start|end|loopStart|loopLength/inc` is only sent with the host step grid
+  (Bitwig).

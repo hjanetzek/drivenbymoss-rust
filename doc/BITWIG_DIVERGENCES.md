@@ -141,6 +141,18 @@ displays; NI's driver ignores the message. Also on Reaper (the same core).
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view
 ended while Shift was held). Found 2026-10-30.
 
+**Relative value changes (core port P1 5, 2026-10-30).** As `RangedValueImpl.inc` /
+`changeValue`: knobs change the parameters, the volume and panorama of tracks, the master, drum
+pads and layers, the sends and the EQ parameters relatively. The core sends
+`<value command>/inc <delta>` (e.g. `track 3/volume/inc`, `device param/9/value/inc`,
+`track 2/send/1/volume/inc`, `drum pad/36/pan/inc`) with the delta normalized to the upper bound
+of the value changer (`increment / upperBound`, as `inc (increment, upperBound)`), and the
+extension calls `inc (delta)`; the core does not change its value, Bitwig reports it. Before, the
+core sent its value plus the increment with `set`, which the takeover mode (catch) could swallow,
+and fractional increments were cut. The clip's play start and end, loop start and length change
+with `clip start|end|loopStart|loopLength/inc <beats>` (`getPlayStart ().inc (frac)` etc.; before:
+absolute, the loop length could become ≤ 0). Not yet for the groove.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 
