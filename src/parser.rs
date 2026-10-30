@@ -303,6 +303,8 @@ impl Parser {
                 }
             }
             "volumeStr" => transport.metronome_volume_parameter_mut().set_metronome_volume_str(value),
+            // Bitwig: isMetronomeTickPlaybackEnabled
+            "ticks" => transport.set_host_switch_state("ticks", parse_double(value).is_some_and(|v| v > 0.0)),
             _ => Self::error(model, &format!("Unhandled Click Parameter: {click_command}")),
         }
     }
@@ -352,6 +354,8 @@ impl Parser {
                     }
                 }
             }
+            // Bitwig: the independent punch switches, the fill mode
+            "punchIn" | "punchOut" | "fill" => model.transport_mut().set_host_switch_state(command, d.is_some_and(|v| v > 0.0)),
             "followPlayback" => {
                 if let Some(v) = d {
                     model.arranger_mut().set_playback_follow(v > 0.0);
@@ -1717,6 +1721,53 @@ mod tests {
             backend.take_calls(),
             vec![BackendCall::NoArg("automation".into(), "toggleArranger".into()), BackendCall::NoArg("automation".into(), "toggleLauncher".into())]
         );
+    }
+
+    /// TransportImpl of the Java version for Bitwig: independent punch switches, fill mode,
+    /// metronome ticks and volume, play / stop / restart / stop and rewind of the host.
+    #[test]
+    fn host_transport() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let t = model.transport();
+        assert!(!t.is_punch_in_enabled() && !t.is_fill_mode_active() && !t.is_metronome_ticks_on());
+        feed(&mut model, &mut parser, &["/punchIn 1", "/punchOut 1", "/fill 1", "/click/ticks 1", "/click/volumeStr -6.0 dB", "/track/offset 0"]);
+        let t = model.transport();
+        assert!(t.is_punch_in_enabled() && t.is_punch_out_enabled() && t.is_fill_mode_active() && t.is_metronome_ticks_on());
+        assert_eq!(t.metronome_volume_str(), "-6.0 dB");
+        backend.take_calls();
+        let t = model.transport_mut();
+        t.play();
+        t.stop();
+        t.restart();
+        t.stop_and_rewind();
+        t.toggle_punch_in();
+        t.set_punch_out(false);
+        t.toggle_fill_mode_active();
+        t.set_fill_mode_active(true);
+        t.toggle_metronome_ticks();
+        t.set_metronome_ticks(false);
+        t.change_metronome_volume(1);
+        t.metronome_volume_parameter_mut().reset_value();
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("transport".into(), "play".into()),
+                BackendCall::NoArg("transport".into(), "stop".into()),
+                BackendCall::NoArg("transport".into(), "restart".into()),
+                BackendCall::NoArg("transport".into(), "stopAndRewind".into()),
+                BackendCall::NoArg("transport".into(), "togglePunchIn".into()),
+                BackendCall::IntArg("transport".into(), "punchOut".into(), 0),
+                BackendCall::NoArg("transport".into(), "toggleFill".into()),
+                BackendCall::IntArg("transport".into(), "fill".into(), 1),
+                BackendCall::NoArg("transport".into(), "toggleMetronomeTicks".into()),
+                BackendCall::IntArg("transport".into(), "metronomeTicks".into(), 0),
+                BackendCall::DoubleArg("transport".into(), "metronomeVolume/inc".into(), change),
+                BackendCall::DoubleArg("transport".into(), "metronomeVolume".into(), 0.8),
+            ]
+        );
+        // The host's switches are not changed locally
+        assert!(model.transport().is_punch_out_enabled());
     }
 
     #[test]

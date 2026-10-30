@@ -62,6 +62,7 @@ public final class BitwigModel
     /** VU meter resolution, as ChannelImpl of the Java version. */
     private static final int VU_RANGE            = 16384;
 
+    final ControllerHost     host;
     final Transport          transport;
     final Application        application;
     final Arranger           arranger;
@@ -119,6 +120,7 @@ public final class BitwigModel
      */
     public BitwigModel (final ControllerHost host, final String modelSetup, final Arpeggiator arpeggiator)
     {
+        this.host = host;
         this.arpeggiator = arpeggiator;
         this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
         this.numTracks = Math.max (1, getInt (modelSetup, "numTracks", 8));
@@ -202,6 +204,8 @@ public final class BitwigModel
         this.transport.isMetronomeAudibleDuringPreRoll ().markInterested ();
         this.transport.isPunchInEnabled ().markInterested ();
         this.transport.isPunchOutEnabled ().markInterested ();
+        this.transport.isFillModeActive ().markInterested ();
+        this.transport.isMetronomeTickPlaybackEnabled ().markInterested ();
         this.arranger.isPlaybackFollowEnabled ().markInterested ();
         this.transport.metronomeVolume ().markInterested ();
         this.transport.metronomeVolume ().displayedValue ().markInterested ();
@@ -442,7 +446,13 @@ public final class BitwigModel
         reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
         reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());
         reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
-        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().get ());
+        // As TransportImpl.getMetronomeVolumeStr
+        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().getLimited (6) + " dB");
+        reporter.put ("/click/ticks", this.transport.isMetronomeTickPlaybackEnabled ().get ());
+        // Independent punch switches, the fill mode (TransportImpl)
+        reporter.put ("/punchIn", this.transport.isPunchInEnabled ().get ());
+        reporter.put ("/punchOut", this.transport.isPunchOutEnabled ().get ());
+        reporter.put ("/fill", this.transport.isFillModeActive ().get ());
         reporter.put ("/project/canUndo", this.application.canUndo ().get ());
         reporter.put ("/project/canRedo", this.application.canRedo ().get ());
     }

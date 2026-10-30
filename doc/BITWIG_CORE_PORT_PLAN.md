@@ -253,6 +253,12 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   The Reaper backend would need: `createClip` followed by the launch of the new item (or ignore
   the launch), `clip/<s>/record` (record into the slot), and the Reaper meaning of the overdub
   (start recording with the overdub record mode) for `track <p>/overdub` after a new clip.
+- **P2 transport:** kept the Reaper paths behind the host check (the Reaper backend has its
+  own `play`, `stop`, `record`, `time`, `metro_vol` processors; no test encodes them, but these are
+  its protocol). To replace them, the Reaper backend needs `transport play|stop|restart|stopAndRewind`,
+  `transport metronomeVolume <0..1>` and `metronomeVolume/inc <delta>`, `transport togglePunchIn|togglePunchOut`
+  and reports `/punchIn`, `/punchOut` (Reaper has one record mode for both: the backend would have
+  to map them). Fill mode and metronome ticks do not exist in Reaper.
 
 ## Replays to record again
 

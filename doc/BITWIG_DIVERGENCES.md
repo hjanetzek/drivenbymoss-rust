@@ -55,10 +55,8 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | --- | --- | --- |
 | Changing the loop start and length | Step from the zoom resolution, rounded to it (`calcScrollFraction`) | Fixed step of 4 quarters, 1 quarter with Shift/slow, not rounded (as Java for Reaper, `INC_FRACTION_TIME`) |
 | Play position in seconds | Not used | Derived at the current tempo, only used by the core for Reaper's slot states |
-| Metronome volume | `metronomeVolume` | Not handled yet (`metro_vol` commands are ignored) |
 | Automation write mode | `isArrangerAutomationWriteEnabled` / `isClipLauncherAutomationWriteEnabled`, `automationWriteMode` | Not handled yet; the core sends Reaper's override numbering |
 | Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Only the metronome during pre-roll; the pre-roll length is not handled yet |
-| Punch in / out | `isPunchInEnabled` / `isPunchOutEnabled` | Same, but the core keeps one punch state (Reaper's record modes): punch in and punch out exclude each other |
 
 ## 4. Clip launcher
 
@@ -197,6 +195,20 @@ the clip was not launched. `recordNoteClip` records the slot unless it records a
 (`track <p>/clip/<s>/record`) and launches it; before, `track <p>/recordClip` was sent, which the
 extension did not handle. Also on Reaper.
 
+**Transport (core port P2, 2026-10-30).** As `TransportImpl` of the Java version for Bitwig:
+`transport play|stop|restart` (`transport.play ()`, `stop ()`, `restart ()`, record is not touched;
+before, play and stop switched the recording off first and restart was stop + play),
+`transport stopAndRewind` (`stop ()`, `setPosition (0)` 100 ms later; before, the play start
+position was set at once), the metronome ticks (`/click/ticks`, `transport metronomeTicks <0|1>`,
+`transport toggleMetronomeTicks`; before: always off), the fill mode (`/fill`, `transport fill <0|1>`,
+`transport toggleFill`; before: always off), independent punch in and out (`/punchIn`, `/punchOut`,
+`transport togglePunchIn|togglePunchOut`; before, one punch state in which in and out excluded each
+other), the metronome volume (`transport metronomeVolume <value>` and `metronomeVolume/inc <delta>`
+as `set`/`inc (…, upperBound)`, reset to 0.8, the text `displayedValue ().getLimited (6) + " dB"`;
+before, `metro_vol` was not handled). Only with host paging; Reaper keeps its commands. Note: the
+Pause behaviour of the play button calls `play`, which in Bitwig starts but does not pause (as in
+the Java version).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 
@@ -219,7 +231,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `inifile` (pre-roll measures), `groove`, `cursor`,
+- `inifile` (pre-roll measures), `groove`, `cursor`,
   user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues

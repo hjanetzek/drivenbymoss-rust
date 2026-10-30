@@ -634,6 +634,24 @@ public final class CommandHandler
             case "overdub/arranger" -> this.model.transport.isArrangerOverdubEnabled ().set (value > 0);
             case "overdub/launcher" -> this.model.transport.isClipLauncherOverdubEnabled ().set (value > 0);
             case "end" -> this.invokeAction ("jump_to_end_of_arrangement");
+            // TransportImpl of the Java version for Bitwig
+            case "play" -> this.model.transport.play ();
+            case "stop" -> this.model.transport.stop ();
+            case "restart" -> this.model.transport.restart ();
+            case "stopAndRewind" ->
+            {
+                this.model.transport.stop ();
+                // Delay the position movement to make sure that the playback is really stopped
+                this.model.host.scheduleTask ( () -> this.model.transport.setPosition (0), 100);
+            }
+            case "togglePunchIn" -> this.model.transport.isPunchInEnabled ().toggle ();
+            case "togglePunchOut" -> this.model.transport.isPunchOutEnabled ().toggle ();
+            case "fill" -> this.model.transport.isFillModeActive ().set (value > 0);
+            case "toggleFill" -> this.model.transport.isFillModeActive ().toggle ();
+            case "metronomeTicks" -> this.model.transport.isMetronomeTickPlaybackEnabled ().set (value > 0);
+            case "toggleMetronomeTicks" -> this.model.transport.isMetronomeTickPlaybackEnabled ().toggle ();
+            // MetronomeVolumeParameterImpl: set, "/inc"
+            case "metronomeVolume" -> this.setValue (this.model.transport.metronomeVolume (), value);
             default -> this.unhandled.accept ("transport " + command);
         }
     }
