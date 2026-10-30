@@ -1,0 +1,125 @@
+# Conformance scenarios: Native Instruments Maschine Mk2, pad modes (MIDI mode, channel 1: buttons
+# are CCs, pads notes 36-51 from the lower left, pad 1 is the lower left one; STEP LEFT (the Stop
+# CC) is Shift). The pads play through the note input of the controller; the notes which the
+# track plays are /track/<n>/playingNotes (the conformance module). A scenario holds its pads,
+# the next one releases them. The display is the MCU text display, compared per position.
+# From the Play mode (the startup view) PAD MODE cycles Chords, Drum and Play (keyboard). After a
+# notification on the display (700 ms) the steps wait, Java's end varies by up to some 100 ms.
+# Fixture: tests/conformance/FIXTURE.md (tracks Synth and Drums with an empty clip in slot 1).
+
+controller = "Native Instruments Maschine Mk2"
+manual = "Native-Instruments/Native-Instruments-Maschine-Mk3.md#pad-modes"
+settle_ms = 400
+# System exclusive LEDs per message type: the display text per position
+sysex_key_bytes = 7
+
+require = { "/track/1/name" = "Synth", "/track/2/name" = "Drums", "/track/1/playingNotes" = "", "/track/2/playingNotes" = "" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/2/select 1 | /track/2/clip/1/select", note = "track Drums, its clip" },
+  { osc = "/track/1/recarm 1 | /track/1/monitor 1 | /track/2/recarm 1 | /track/2/monitor 1", note = "armed and monitored: the tracks play their live input" },
+  { midi = "B0 2C 7F | B0 2C 00", note = "VOLUME: a full redraw of the display" },
+]
+
+[[known_difference]]
+match = "leds B0 4[01]"
+reason = "VU meters: audio levels"
+
+[[known_difference]]
+match = "leds 90 25"
+reason = "Variation mode: the selected parameter (pad 2) blinks (emulated): the last value depends on the phase"
+
+[[scenario]]
+id = "mk2.chords.play"
+bullet = "Enable the chord mode by pressing Chords. Playing a pad adds 2 thirds on top of the played note. (PAD MODE: Press it multiple times to toggle between PAD MODE, KEYBOARD and CHORDS mode.)"
+steps = [
+  { midi = "B0 51 7F | B0 51 00", wait_ms = 600, note = "PAD MODE: chords" },
+  { midi = "90 24 7F", note = "pad 1 (held)" },
+  { midi = "90 25 7F", note = "pad 2 (held)" },
+]
+
+[[scenario]]
+id = "mk2.drum.play"
+bullet = "Drum Mode: Press Pad Mode to activate."
+before = [{ midi = "90 24 00 | 90 25 00", note = "release the pads" }]
+steps = [
+  { midi = "B0 51 7F | B0 51 00", wait_ms = 600, note = "PAD MODE: drum" },
+  { midi = "90 24 7F", note = "pad 1 (held)" },
+  { midi = "90 29 7F", note = "pad 6 (held)" },
+]
+
+[[scenario]]
+id = "mk2.drum.step-on"
+bullet = "Enable the step sequencer by pressing Step. The pads represent 16 steps of the currently selected drum cell."
+before = [{ midi = "90 24 00 | 90 29 00", note = "release the pads" }]
+steps = [
+  { midi = "B0 53 7F | B0 53 00", wait_ms = 600, note = "STEP: step sequencer" },
+  { midi = "90 30 7F", note = "pad 13 (upper left)" },
+  { midi = "90 30 00" },
+]
+expect.bitwig = { "/clip/step/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "mk2.drum.mute-step"
+bullet = "MUTE+Pad in step sequencer toggles the mute state of the note. A muted note is lit in gray."
+steps = [
+  { midi = "B0 5C 7F", note = "MUTE down" },
+  { midi = "90 30 7F", note = "pad 13" },
+  { midi = "90 30 00" },
+  { midi = "B0 5C 00", note = "MUTE up" },
+]
+expect.bitwig = { "/clip/step/*" = { field = 2, value = "1" } }
+
+[[scenario]]
+id = "mk2.drum.step-off"
+bullet = "Enable the step sequencer by pressing Step. The pads represent 16 steps of the currently selected drum cell."
+steps = [
+  { midi = "90 30 7F", note = "pad 13: the step off" },
+  { midi = "90 30 00" },
+  { midi = "B0 53 7F | B0 53 00", wait_ms = 600, note = "STEP: back to playing" },
+]
+expect.bitwig = { "/clip/step/*" = "0" }
+
+[[scenario]]
+id = "mk2.keyboard.play"
+bullet = "Play Mode: Press Keyboard to activate. (PAD MODE: Press it multiple times to toggle between PAD MODE, KEYBOARD and CHORDS mode.)"
+before = [{ osc = "/track/1/select 1", note = "track Synth" }]
+steps = [
+  { midi = "B0 51 7F | B0 51 00", wait_ms = 600, note = "PAD MODE: play (keyboard)" },
+  { midi = "90 24 7F", note = "pad 1 (held)" },
+  { midi = "90 29 7F", note = "pad 6 (held)" },
+]
+
+[[scenario]]
+id = "mk2.pattern.select"
+bullet = "PATTERN (clip mode) - Press a pad to start one of 16 clips of the current bank page on the selected track. Combine with Select button to select the clip without starting it."
+before = [{ midi = "90 24 00 | 90 29 00", note = "release the pads" }]
+steps = [
+  { midi = "B0 56 7F | B0 56 00", wait_ms = 600, note = "PATTERN" },
+  { midi = "B0 5A 7F", note = "SELECT down" },
+  { midi = "90 24 7F", note = "pad 1" },
+  { midi = "90 24 00" },
+  { midi = "B0 5A 00", note = "SELECT up" },
+]
+expect.bitwig = { "/track/1/clip/1/isSelected" = "1", "/play" = "0" }
+
+[[scenario]]
+id = "mk2.scene.select"
+bullet = "SCENE - Press a pad to start one of the 16 scenes of the current bank page. Combine with Select button to select the scene without starting it."
+steps = [
+  { midi = "B0 55 7F | B0 55 00", wait_ms = 600, note = "SCENE" },
+  { midi = "B0 5A 7F", note = "SELECT down" },
+  { midi = "90 25 7F", note = "pad 2" },
+  { midi = "90 25 00" },
+  { midi = "B0 5A 00", note = "SELECT up" },
+]
+expect.bitwig = { "/play" = "0" }
+
+[[scenario]]
+id = "mk2.variation.parameter"
+bullet = "VARIATION/NAVIGATE - Press a pad to select one of 8 or 9 parameters of the current device on the selected track. The select parameter blinks."
+steps = [
+  { midi = "B0 58 7F | B0 58 00", wait_ms = 600, note = "VARIATION" },
+  { midi = "90 25 7F", note = "pad 2" },
+  { midi = "90 25 00" },
+]

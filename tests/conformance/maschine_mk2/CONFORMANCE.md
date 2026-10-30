@@ -10,8 +10,8 @@ display is the MCU text display (`F0 00 00 66 14 12 <position> <text> F7`), comp
 position (`sysex_key_bytes = 7`).
 
 Last full run: 2026-10-30, on fresh fixture projects with restarted controllers (`pair ...
---fresh-project 8 --restart 15`), Bitwig 5.3.13: all 18 scenarios the same, except the known
-differences below.
+--fresh-project 8 --restart 15`), Bitwig 5.3.13: all 27 scenarios of both files the same, except
+the known differences below.
 
 Replays (`replay/`, run by `cargo test --test conformance_replay`): the Rust recording with the
 final LED state of the Java version.
@@ -20,10 +20,12 @@ final LED state of the Java version.
 
 | File | Manual sections | Scenarios |
 | --- | --- | --- |
+| `pad_modes.toml` | Pad Modes, Drum Mode, Play Mode | Chords, Drum and Play (keyboard) via PAD MODE with the played notes, the drum step sequencer (step on/off, Mute + pad), Pattern + Select, Scene + Select, Variation |
 | `global.toml` | Mk2, Global, Transport, Group buttons, Encoder modes | AUTO, Shift + AUTO, LOCK, Shift + LOCK (overdub), Note Repeat, loop, metronome (Shift + TAP), group select / mute / solo / record arm, clear mute / solo, the buttons above the display (Volume, Panorama, Send +, Parameters), tempo |
 
-Not covered yet: the pad modes (drum, play, chords), the step sequencer, the browser, the knobs,
-the touch strip, Erase and Duplicate, the Shift view functions on the pads.
+Not covered yet: the Events mode, the grid configuration (Follow), the configuration pages (Shift
++ PAD MODE), the browser, the knobs, the touch strip, Erase and Duplicate, the Shift view
+functions on the pads.
 
 ## Open differences
 
@@ -34,6 +36,7 @@ None.
 | Area | Java | Rust | Why |
 | --- | --- | --- | --- |
 | VU meters | | | audio levels |
+| Variation mode: the pad of the selected parameter | blinks | blinks | emulated blinking: the last value depends on the phase |
 
 ## Fixed by the comparison
 

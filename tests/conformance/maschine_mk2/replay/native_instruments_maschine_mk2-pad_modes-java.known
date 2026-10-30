@@ -1,0 +1,2 @@
+leds B0 4[01]	VU meters: audio levels
+leds 90 25	Variation mode: the selected parameter (pad 2) blinks (emulated): the last value depends on the phase
