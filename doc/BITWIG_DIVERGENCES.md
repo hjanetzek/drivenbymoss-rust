@@ -122,6 +122,12 @@ volume and panorama of the tracks and the master, the sends and the device param
 layers and drum pads); the core uses them for these lengths and cuts the text for other lengths
 (Reaper). Found 2026-10-30 (Maschine Mk2 display).
 
+**Maschine Mk2 button labels (not in the Java version).** The core sends the labels of the 8
+buttons above the display (`F0 7D 44 42 4D 10 00 <56 characters> F7`, 8 cells of 7 characters as
+the MCU display, the active mode marked with `>`, Pin and Active as `PinDev`/`PinTrk`,
+`DevOn`/`TrkOn`), only when they change. dbm-nihost draws them above the MCU lines on the two
+displays; NI's driver ignores the message. Also on Reaper (the same core).
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

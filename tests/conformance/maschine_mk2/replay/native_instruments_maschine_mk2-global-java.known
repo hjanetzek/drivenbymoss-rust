@@ -1,1 +1,2 @@
+leds F0 7D 44 42 4D 10 00	The labels of the buttons above the display: only the Rust version sends them (for dbm-nihost)
 leds B0 4[01]	VU meters: audio levels

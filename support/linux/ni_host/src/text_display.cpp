@@ -14,6 +14,10 @@ namespace dbm::nihost
         // Mackie Control display: F0 00 00 66 <device> 12 <position> <characters> F7
         constexpr uint8_t mcuHeader[] = { 0xF0, 0x00, 0x00, 0x66 };
         constexpr uint8_t mcuDisplayCommand = 0x12;
+        // The labels of the buttons above the displays: F0 7D 44 42 4D 10 <position> <characters> F7
+        constexpr uint8_t labelsHeader[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x10 };
+        // The labels are drawn at single height in the free rows above the first line
+        constexpr int labelsY = 2;
 
         // A character cell is 9 pixels wide (28 x 9 = 252 of 256), the lines start at y = 12 and 40
         constexpr int cellWidth = 9, firstX = 2;
@@ -23,10 +27,31 @@ namespace dbm::nihost
     McuTextDisplay::McuTextDisplay()
     {
         this->text.fill( ' ' );
+        this->buttonLabels.fill( ' ' );
     }
 
     bool McuTextDisplay::handleSysex( const uint8_t* data, size_t length )
     {
+        // header, position, at least one character, F7
+        if( length >= sizeof labelsHeader + 3 && std::equal( std::begin( labelsHeader ), std::end( labelsHeader ), data ) )
+        {
+            const size_t position = data[sizeof labelsHeader];
+            for( size_t i = 0; i < length - sizeof labelsHeader - 2; i++ )
+            {
+                const size_t index = position + i;
+                if( index >= this->buttonLabels.size() )
+                    break;
+                const char raw = (char)data[sizeof labelsHeader + 1 + i];
+                const char c   = raw >= 32 && raw < 127 ? raw : ' ';
+                if( this->buttonLabels[index] != c )
+                {
+                    this->buttonLabels[index] = c;
+                    this->changed             = true;
+                }
+            }
+            return true;
+        }
+
         // header, device id, command, position, at least one character, F7
         if( length < sizeof mcuHeader + 4 || !std::equal( std::begin( mcuHeader ), std::end( mcuHeader ), data ) )
             return false;
@@ -54,6 +79,11 @@ namespace dbm::nihost
         }
     }
 
+    std::string McuTextDisplay::labels() const
+    {
+        return std::string( this->buttonLabels.data(), lineLength );
+    }
+
     std::string McuTextDisplay::line( int index ) const
     {
         if( index < 0 || index >= lines )
@@ -71,6 +101,17 @@ namespace dbm::nihost
         };
 
         constexpr int charsPerDisplay = lineLength / 2;
+        for( int column = 0; column < charsPerDisplay; column++ )
+        {
+            const char c = this->buttonLabels[(size_t)( display * charsPerDisplay + column )];
+            if( c < fontFirstChar || c > fontLastChar )
+                continue;
+            const auto& glyph = font5x7[c - fontFirstChar];
+            for( int y = 0; y < fontHeight; y++ )
+                for( int x = 0; x < fontWidth; x++ )
+                    if( glyph[y] & ( 0x80 >> x ) )
+                        setPixel( firstX + column * cellWidth + x, labelsY + y );
+        }
         for( int row = 0; row < lines; row++ )
         {
             for( int column = 0; column < charsPerDisplay; column++ )

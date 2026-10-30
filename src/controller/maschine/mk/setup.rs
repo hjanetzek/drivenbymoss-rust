@@ -32,7 +32,7 @@ use super::mode::play_configuration::PlayConfigurationMode;
 use super::mode::track_modes::{MaschinePanMode, MaschineSendMode, MaschineVolumeMode};
 use super::mode::transport_modes::{TransportMode, TransportModeKind};
 use super::mode::user_mode::MaschineUserMode;
-use super::surface::{self as mk, install_trigger_sender, set_stop_consumed, MaschineExt};
+use super::surface::{self as mk, ext, ext_mut, install_trigger_sender, maschine, set_stop_consumed, MaschineExt};
 use super::view::clip_view::ClipView;
 use super::view::drum_view::DrumView;
 use super::view::mute_view::MuteView;
@@ -195,6 +195,7 @@ impl ControllerSetup for MaschineSetup {
         ctx.flush_surface();
         flush_pad_grid(ctx);
         TouchstripCommand::update_value(ctx);
+        flush_button_labels(ctx);
     }
 
     fn handle_changes(&mut self, ctx: &mut Ctx) {
@@ -237,6 +238,48 @@ impl ControllerSetup for MaschineSetup {
             display.shutdown();
         }
     }
+}
+
+/// The system exclusive message with the labels of the 8 buttons above the display (not in the
+/// Java version): `F0 7D 44 42 4D 10 00 <56 characters> F7`, 8 cells of 7 characters as the MCU
+/// display. Only dbm-nihost shows it (on the Mk2 displays, above the MCU lines); NI's driver
+/// ignores it.
+pub const BUTTON_LABELS_HEADER: [u8; 7] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x10, 0x00];
+
+/// The labels of the buttons above the display of the Mk2: the active mode is marked with '>',
+/// Pin and Active show whether they act on the device or the track.
+pub fn button_labels(ctx: &Ctx) -> String {
+    let active = ctx.modes.active_id();
+    let is_send = active.is_some_and(is_send_mode);
+    let is_device = active == Some(Modes::DeviceParams);
+    let cells = [
+        (active == Some(Modes::Volume), "Volume"),
+        (active == Some(Modes::Pan), "Pan"),
+        (is_send, "Send-"),
+        (is_send, "Send+"),
+        (false, if is_device { "PinDev" } else { "PinTrk" }),
+        (false, if is_device { "DevOn" } else { "TrkOn" }),
+        (active == Some(Modes::User), "User"),
+        (is_device, "Params"),
+    ];
+    cells.iter().map(|(marked, label)| format!("{}{:<6}", if *marked { '>' } else { ' ' }, label)).collect()
+}
+
+/// Send the labels of the buttons above the display if they changed (Mk2 only, see
+/// [`BUTTON_LABELS_HEADER`]).
+fn flush_button_labels(ctx: &mut Ctx) {
+    if maschine(ctx) != Maschine::Mk2 {
+        return;
+    }
+    let labels = button_labels(ctx);
+    if ext(ctx).button_labels == labels {
+        return;
+    }
+    let mut data = BUTTON_LABELS_HEADER.to_vec();
+    data.extend(labels.bytes().map(|b| if b.is_ascii() { b } else { b'?' }));
+    data.push(0xF7);
+    ctx.surface.output.send_sysex(&data);
+    ext_mut(ctx).button_labels = labels;
 }
 
 // ------------------------------------------------------------------------------------------

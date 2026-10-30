@@ -12,7 +12,8 @@ namespace dbm::nihost
 {
     // The text of a Mackie MCU display (2 lines of 56 characters), as NI's driver shows it on
     // the two graphic displays of the Maschine Mk2: each display shows 28 characters of both
-    // lines.
+    // lines. Additionally the labels of the 8 buttons above the displays (56 characters, sent by
+    // DrivenByMoss: F0 7D 44 42 4D 10 <position> <characters> F7), shown above the lines.
     class McuTextDisplay
     {
     public:
@@ -27,6 +28,7 @@ namespace dbm::nihost
 
         void        setText( int position, const std::string& text );
         std::string line( int index ) const;
+        std::string labels() const;
 
         // Render the part of the text which is shown on the display (0 = left, 1 = right).
         Bitmap render( int display ) const;
@@ -36,6 +38,7 @@ namespace dbm::nihost
 
     private:
         std::array<char, lineLength * lines> text{};
+        std::array<char, lineLength>         buttonLabels{};
         bool                                 changed{ true };
     };
 }

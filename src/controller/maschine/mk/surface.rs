@@ -134,11 +134,13 @@ pub struct MaschineExt {
     /// The main encoder controls the last touched parameter (former
     /// `MainKnobRowModeCommand.controlLastParamActive`).
     pub control_last_param_active: bool,
+    /// The last labels sent for the buttons above the display (Mk2 with dbm-nihost).
+    pub button_labels: String,
 }
 
 impl MaschineExt {
     pub fn new(maschine: Maschine) -> Self {
-        MaschineExt { maschine, surface_ribbon_value: -1, ribbon_value: 0, stop_consumed: false, control_last_param_active: false }
+        MaschineExt { maschine, surface_ribbon_value: -1, ribbon_value: 0, stop_consumed: false, control_last_param_active: false, button_labels: String::new() }
     }
 }
 

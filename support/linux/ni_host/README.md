@@ -94,7 +94,9 @@ virtual MIDI driver bridges the two:
   matrix, touch strips with touch, and the JAM's Shift (as NI's sysex).
 - **Output:** button LEDs, pad, group and scene colours (NI's palette, hue × 4 + level), the JAM
   strip modes from the `STRIP_SETUP` sysex, and the Mk2 displays (Mackie MCU text, 2 × 56
-  characters split across both displays).
+  characters split across both displays; above them the labels of the 8 buttons over the
+  displays, which DrivenByMoss sends as `F0 7D 44 42 4D 10 <position> <56 characters> F7`, not
+  part of NI's MIDI mode).
 - **Not yet:** the Mk2 pad pressure as poly aftertouch, the JAM level meters and footswitch.
 
 ## Origin

@@ -37,6 +37,7 @@ None.
 | --- | --- | --- | --- |
 | VU meters | | | audio levels |
 | Variation mode: the pad of the selected parameter | blinks | blinks | emulated blinking: the last value depends on the phase |
+| The labels of the buttons above the display (`F0 7D 44 42 4D 10 00 …`) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6) |
 
 ## Fixed by the comparison
 

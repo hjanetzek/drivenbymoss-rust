@@ -189,6 +189,21 @@ static void testMk2()
     sysex.push_back( 0xF7 );
     host.midiIn( sysex.data(), sysex.size() );
     CHECK( host.display().line( 0 ).rfind( "Hello", 0 ) == 0 );
+    // the labels of the buttons above the displays (DrivenByMoss), drawn above the lines
+    const std::string labels = ">Volume Pan  ";
+    Bytes             labelsSysex = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x10, 0x00 };
+    labelsSysex.insert( labelsSysex.end(), labels.begin(), labels.end() );
+    labelsSysex.push_back( 0xF7 );
+    host.midiIn( labelsSysex.data(), labelsSysex.size() );
+    CHECK( host.display().labels().rfind( ">Volume Pan", 0 ) == 0 );
+    CHECK( host.display().line( 0 ).rfind( "Hello", 0 ) == 0 );
+    {
+        const auto bitmap = host.display().render( 0 );
+        bool       hasLabelPixels = false;
+        for( size_t i = 0; i < 12 * dbm::nihost::McuTextDisplay::displayWidth / 8; i++ )
+            hasLabelPixels |= bitmap[i] != 0;
+        CHECK( hasLabelPixels );
+    }
     // the displays are updated at most 20 times a second
     std::this_thread::sleep_for( std::chrono::milliseconds( 60 ) );
     host.flush( out.writer() );

@@ -22,6 +22,10 @@ setup = [
 ]
 
 [[known_difference]]
+match = "leds F0 7D 44 42 4D 10 00"
+reason = "The labels of the buttons above the display: only the Rust version sends them (for dbm-nihost)"
+
+[[known_difference]]
 match = "leds B0 4[01]"
 reason = "VU meters: audio levels"
 

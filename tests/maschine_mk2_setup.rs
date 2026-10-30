@@ -150,6 +150,32 @@ fn notifications_end_after_their_time() {
     assert!(lines.iter().any(|(row, text)| *row == 0 && text.starts_with(">Drums")), "{lines:?}");
 }
 
+/// The labels of the buttons above the display (for dbm-nihost, not in the Java version).
+#[test]
+fn button_labels_follow_the_mode() {
+    let labels = |calls: &[BackendCall]| {
+        calls.iter().rev().find_map(|c| match c {
+            BackendCall::SendMidi(OUT, d) if d.starts_with(&[0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x10, 0x00]) => Some(String::from_utf8_lossy(&d[7..d.len() - 1]).to_string()),
+            _ => None,
+        })
+    };
+    let (mut app, backend) = start();
+    app.tick();
+    let calls = backend.take_calls();
+    let text = labels(&calls).expect("labels after the startup");
+    assert_eq!(text.len(), 56);
+    assert!(text.starts_with(">Volume Pan    "), "{text}");
+    assert!(text.contains(" PinTrk"), "{text}");
+    // Parameters mode: Pin and Active act on the device
+    press(&mut app, mk::MODE_BUTTON_8);
+    app.tick();
+    let text = labels(&backend.take_calls()).expect("labels after the mode change");
+    assert!(text.contains(" PinDev DevOn  User  >Params"), "{text}");
+    // Only sent when they change
+    app.tick();
+    assert!(labels(&backend.take_calls()).is_none());
+}
+
 #[test]
 fn play_and_stop_leds() {
     let (mut app, backend) = start();
