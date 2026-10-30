@@ -29,6 +29,8 @@ struct Shared {
     scene_ranges: RefCell<Vec<(bool, f64, f64)>>,
     tasks: RefCell<Scheduler<Model>>,
     events: RefCell<Vec<ModelEvent>>,
+    /// The host pages the banks (Bitwig, protocol v2 host paging).
+    host_paging: Cell<bool>,
 }
 
 /// Cheap to clone context which every model item holds to send commands to the backend.
@@ -66,9 +68,21 @@ impl DawContext {
                 scene_ranges: RefCell::new(Vec::new()),
                 tasks: RefCell::new(Scheduler::default()),
                 events: RefCell::new(Vec::new()),
+                host_paging: Cell::new(false),
             }),
             muted: false,
         }
+    }
+
+    /// True if the host pages the banks (Bitwig, protocol v2): the banks then behave as in the
+    /// Java version for Bitwig, e.g. selecting the previous page selects its first item (Reaper:
+    /// its last item).
+    pub fn is_host_paging(&self) -> bool {
+        self.shared.host_paging.get()
+    }
+
+    pub(crate) fn set_host_paging(&self) {
+        self.shared.host_paging.set(true);
     }
 
     /// A copy of the context which does not send anything to the backend, does not schedule

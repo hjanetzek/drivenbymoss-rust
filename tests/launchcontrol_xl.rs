@@ -576,3 +576,47 @@ primary/layer/0/exists 1\nprimary/layer/0/name A\nprimary/layer/1/exists 1\nprim
     app.tick();
     assert!(has_call(&backend.take_calls(), "primary", "pad/38/select"));
 }
+
+/// Track Mix, Track Select previous: with host paging (Bitwig) the first track of the page is
+/// selected, as AbstractItemBankImpl.selectPreviousPage of the Java version for Bitwig (on
+/// Reaper the last one).
+#[test]
+fn track_select_previous_page_selects_the_first_track_with_host_paging() {
+    let (mut app, backend) = start("track-page", 8);
+    let mut lines = String::from("track/offset 0\ntrack/count 10\n");
+    for t in 0..10 {
+        lines.push_str(&format!("track/{t}/exists 1\ntrack/{t}/name T{t}\n"));
+    }
+    app.update_model(&lines);
+    app.tick();
+    backend.take_calls();
+    // Next page: track 8 is the first track of page 2
+    cc(&mut app, 8, 0x6B, 127);
+    cc(&mut app, 8, 0x6B, 0);
+    app.update_model("track/offset 8\n");
+    std::thread::sleep(Duration::from_millis(100));
+    app.tick();
+    assert!(has_call(&backend.take_calls(), "track", "8/select"));
+    // Previous page: track 0, not track 7
+    cc(&mut app, 8, 0x6A, 127);
+    cc(&mut app, 8, 0x6A, 0);
+    app.update_model("track/offset 0\n");
+    std::thread::sleep(Duration::from_millis(100));
+    app.tick();
+    let calls = backend.take_calls();
+    assert!(has_call(&calls, "track", "0/select"), "{calls:?}");
+    assert!(!has_call(&calls, "track", "7/select"), "{calls:?}");
+}
+
+/// Track Mix: a change of the device parameters (the app activates the mode again to rebind the
+/// knobs) keeps the track button mode, as the Java version for Bitwig.
+#[test]
+fn parameter_change_keeps_the_track_button_mode() {
+    let (mut app, _backend) = start("rebind-mode", 8);
+    press_note(&mut app, 8, 0x6C);
+    app.tick();
+    assert!(track_mode_active(&mut app, Modes::RecArm));
+    app.update_model("device/param/count 16\n");
+    app.tick();
+    assert!(track_mode_active(&mut app, Modes::RecArm));
+}

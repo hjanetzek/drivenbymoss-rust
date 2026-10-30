@@ -303,14 +303,16 @@ impl<T: BankItem> PagedBank<T> {
         }
     }
 
-    /// Scroll to the previous page and select the last item.
+    /// Scroll to the previous page and select its last item (with host paging its first item).
     pub fn select_previous_page(&mut self) {
         if !self.can_scroll_page_backwards() {
             return;
         }
         self.scroll_page_backwards();
-        let last = self.page_size.saturating_sub(1);
-        self.item_mut(last).select();
+        // Java for Bitwig (AbstractItemBankImpl) selects the first item of the page, Java for
+        // Reaper (AbstractPagedBankImpl) the last one
+        let index = if self.ctx.is_host_paging() { 0 } else { self.page_size.saturating_sub(1) };
+        self.item_mut(index).select();
     }
 
     /// Scroll to the next page and select the first item.

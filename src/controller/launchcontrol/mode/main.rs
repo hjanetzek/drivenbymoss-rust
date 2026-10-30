@@ -82,6 +82,9 @@ pub struct XlMainMode {
     pub kind: MainKind,
     default_mode: Modes,
     track_mode: Option<Modes>,
+    /// True between activation and deactivation: a repeated activation (to rebind the knobs when
+    /// the parameters of the device change) keeps the track button mode.
+    is_active: bool,
     parameter_provider: SharedProvider,
     parameter_provider_with_device_params: SharedProvider,
     was_long: bool,
@@ -98,6 +101,7 @@ impl XlMainMode {
             kind,
             default_mode,
             track_mode: None,
+            is_active: false,
             parameter_provider: providers.0,
             parameter_provider_with_device_params: providers.1,
             was_long: false,
@@ -843,12 +847,19 @@ impl Mode for XlMainMode {
     fn on_activate(&mut self, ctx: &mut Ctx) {
         // Make sure there is the correct provider if the settings has changed in another main mode
         self.update_provider(ctx);
-        let track_modes = track_modes(ctx);
-        ctx.set_active_mode_in(track_modes, self.track_mode.unwrap_or(self.default_mode));
+        // The app activates the mode again when the parameters of the device change (former
+        // rebindKnobs of the Java version for Reaper, which then also resets the track button
+        // mode; the Java version for Bitwig does not do this)
+        if !self.is_active {
+            self.is_active = true;
+            let track_modes = track_modes(ctx);
+            ctx.set_active_mode_in(track_modes, self.track_mode.unwrap_or(self.default_mode));
+        }
         self.base.on_activate(ctx);
     }
 
     fn on_deactivate(&mut self, ctx: &mut Ctx) {
+        self.is_active = false;
         self.track_mode = ctx.mode_manager(track_modes(ctx)).active_id();
         self.base.on_deactivate(ctx);
     }

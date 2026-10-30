@@ -322,7 +322,13 @@ impl TrackBank {
         self.send_page_selection(0);
     }
 
+    /// Move the selection to the new page (former `AbstractTrackBankImpl.scrollPage*` of the
+    /// Java version for Reaper). With host paging (Bitwig) scrolling only scrolls, as in the Java
+    /// version for Bitwig.
     fn send_page_selection(&mut self, sel_index: usize) {
+        if self.ctx.is_host_paging() {
+            return;
+        }
         if let Some(selected) = self.selected_item() {
             let pos = selected.position();
             self.ctx.send_int(Processor::Track, &format!("{pos}/select"), 0);
@@ -347,6 +353,7 @@ impl TrackBank {
     pub fn enable_host_paging(&mut self) {
         if !self.host_paged {
             self.host_paged = true;
+            self.ctx.set_host_paging();
             self.ctx.send_int(Processor::Bank, "track", self.bank_offset as i32);
         }
     }
@@ -379,8 +386,10 @@ impl TrackBank {
             return;
         }
         self.scroll_page_backwards();
-        let last = self.page_size.saturating_sub(1);
-        self.ctx.schedule(75, move |m| m.track_bank_mut().item_mut(last).select());
+        // Java for Bitwig (AbstractItemBankImpl) selects the first track of the page, Java for
+        // Reaper (AbstractPagedBankImpl) the last one
+        let index = if self.ctx.is_host_paging() { 0 } else { self.page_size.saturating_sub(1) };
+        self.ctx.schedule(75, move |m| m.track_bank_mut().item_mut(index).select());
     }
 
     pub fn select_next_page(&mut self) {

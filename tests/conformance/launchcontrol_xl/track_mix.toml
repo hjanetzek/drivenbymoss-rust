@@ -11,6 +11,8 @@ setup = [
   { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
   { midi = "F0 00 20 29 02 11 77 09 F7", note = "factory template 2" },
   { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+  # The track button mode is remembered by both versions: start with the Mute mode
+  { midi = "98 6A 7F | 88 6A 00", note = "Mute mode" },
 ]
 
 [[stub]]
