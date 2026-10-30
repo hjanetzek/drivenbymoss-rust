@@ -53,7 +53,7 @@ impl ExecuteFunction for ClipView {
                 let track = ctx.model.current_track_bank().item(track_index);
                 if track.does_exist() {
                     let slot = track.slot_bank().item(slot_index);
-                    let (name, track, position) = (slot.name().to_string(), slot.track_index(), slot.position());
+                    let (name, track, position) = (slot.name().to_string(), slot.track_position(), slot.position());
                     if let Some(browser) = ctx.model.browser_mut() {
                         browser.replace_slot(&name, track, position);
                     }

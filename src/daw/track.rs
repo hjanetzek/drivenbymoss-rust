@@ -44,10 +44,11 @@ impl Track {
     /// Create a track at the given position.
     pub fn new(ctx: DawContext, index: i32, position: i32, num_sends: usize, num_scenes: usize, num_params: usize) -> Self {
         let channel = Channel::new(ctx.clone(), ChannelKind::Track, index, position, num_sends);
-        Self::with_channel(ctx, channel, index, num_scenes, num_params)
+        Self::with_channel(ctx, channel, num_scenes, num_params)
     }
 
-    fn with_channel(ctx: DawContext, channel: Channel, index: i32, num_scenes: usize, num_params: usize) -> Self {
+    fn with_channel(ctx: DawContext, channel: Channel, num_scenes: usize, num_params: usize) -> Self {
+        let position = channel.position;
         Track {
             channel,
             is_group_expanded: true,
@@ -55,7 +56,7 @@ impl Track {
             is_rec_arm: false,
             monitor: false,
             auto_monitor: false,
-            slot_bank: SlotBank::new(ctx.clone(), num_scenes, index),
+            slot_bank: SlotBank::new(ctx.clone(), num_scenes, position),
             depth: 0,
             record_quantization_note_length: false,
             record_quantization: RecordQuantization::ResOff,
@@ -72,7 +73,7 @@ impl Track {
     /// Create the master track.
     pub fn new_master(ctx: DawContext, num_sends: usize, num_params: usize) -> Self {
         let channel = Channel::new(ctx.clone(), ChannelKind::Master, 0, 0, num_sends);
-        let mut track = Self::with_channel(ctx.clone(), channel, 0, 0, num_params);
+        let mut track = Self::with_channel(ctx.clone(), channel, 0, num_params);
         track.crossfader = Some(Parameter::new(ctx, ParameterKind::MasterCrossfader, 0, 0.0));
         track.channel.set_exists(true);
         track.channel.set_internal_name("Master");
@@ -83,7 +84,7 @@ impl Track {
     /// Create a placeholder for a non-existing track.
     pub fn empty(ctx: &DawContext, num_sends: usize) -> Self {
         let channel = Channel::empty(ctx, num_sends);
-        Self::with_channel(ctx.muted(), channel, -1, 0, 0)
+        Self::with_channel(ctx.muted(), channel, 0, 0)
     }
 
     pub fn channel(&self) -> &Channel {
@@ -353,7 +354,7 @@ impl Track {
 
     pub fn set_rec_arm_state(&mut self, is_rec_arm: bool) {
         self.is_rec_arm = is_rec_arm;
-        self.slot_bank.set_track_info(self.channel.index, self.is_rec_arm);
+        self.slot_bank.set_track_info(self.channel.position, self.is_rec_arm);
     }
 
     pub fn set_monitor_state(&mut self, monitor: bool) {
@@ -392,7 +393,8 @@ impl Track {
 
     pub(crate) fn set_index(&mut self, index: i32) {
         self.channel.set_index(index);
-        self.slot_bank.set_track_info(index, self.is_rec_arm);
+        // SlotImpl: the slot commands address the track by its position, as the channel commands
+        self.slot_bank.set_track_info(self.channel.position, self.is_rec_arm);
     }
 
     pub(crate) fn set_master_position(&mut self, position: i32) {

@@ -240,8 +240,8 @@ impl SessionViewBase {
                 self.source_slot = Some((track_index, slot_index));
             } else if let Some((source_track, source_slot)) = self.source_slot {
                 let source = ctx.model.current_track_bank().item(source_track).slot_bank().item(source_slot);
-                let (source_track_index, source_position) = (source.track_index(), source.position());
-                ctx.model.current_track_bank_mut().item_mut(track_index).slot_bank_mut().item_mut(slot_index).paste(source_track_index, source_position);
+                let (source_track_position, source_position) = (source.track_position(), source.position());
+                ctx.model.current_track_bank_mut().item_mut(track_index).slot_bank_mut().item_mut(slot_index).paste(source_track_position, source_position);
             }
             return true;
         }
@@ -256,7 +256,7 @@ impl SessionViewBase {
         // Browse for clips (only with a host browser, Reaper has none for slots)
         if hooks.is_button_combination(ctx, ButtonId::Browse) {
             let slot = ctx.model.current_track_bank().item(track_index).slot_bank().item(slot_index);
-            let (name, track, position) = (slot.name().to_string(), slot.track_index(), slot.position());
+            let (name, track, position) = (slot.name().to_string(), slot.track_position(), slot.position());
             if let Some(browser) = ctx.model.browser_mut() {
                 browser.replace_slot(&name, track, position);
             }

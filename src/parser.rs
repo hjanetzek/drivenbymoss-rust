@@ -1411,6 +1411,39 @@ mod tests {
         assert_eq!(model.track_bank().scroll_position(), 0);
     }
 
+    /// SlotImpl: the slot commands address the track by its position, also when the track bank
+    /// is scrolled (the index in the page launched the clip of another track).
+    #[test]
+    fn slot_commands_use_the_track_position() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let mut lines = vec!["/track/count 20".to_string(), "/scene/count 8".to_string()];
+        for i in 0..20 {
+            lines.push(format!("/track/{i}/exists 1"));
+        }
+        lines.push("/track/10/slot/count 8".into());
+        lines.push("/track/10/slot/2/exists 1".into());
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        feed(&mut model, &mut parser, &refs);
+        model.track_bank_mut().set_bank_offset(9);
+        backend.take_calls();
+        assert_eq!(model.track_bank().item(1).position(), 10);
+        let slot = model.track_bank_mut().item_mut(1).slot_bank_mut().item_mut(2);
+        slot.launch(true, false);
+        slot.set_color(ColorEx::RED);
+        slot.paste(9, 3);
+        slot.insert_file("a.wav");
+        assert_eq!(model.track_bank().item(1).slot_bank().item(2).track_position(), 10);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "10/clip/2/launch".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/color".into(), "RGB(255,0,0)".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/paste".into(), "9/3".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/insertFile".into(), "a.wav".into()),
+            ]
+        );
+    }
+
     #[test]
     fn full_flat_track_list_with_master() {
         let mut setup = ModelSetup::default();

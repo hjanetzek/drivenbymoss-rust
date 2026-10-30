@@ -71,6 +71,12 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 | --- | --- | --- |
 | Clip muted | Not available in the API, always false | Same |
 
+**Slot commands** (core port, P1 1): the slot commands (`track <p>/clip/<s>/…`, also the color,
+the paste source and insert file) address the track by its position, as `SlotImpl` acts on the
+slot of its own track. They used the index in the page, so with a scrolled track bank the clip of
+another track (or nothing) was launched. Also on Reaper (its track processor reads the same
+position for all track commands).
+
 ## 5. Note repeat
 
 | Topic | Java | Rust |

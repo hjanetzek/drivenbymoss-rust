@@ -209,5 +209,9 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
 
 ## Reaper backend follow-ups
 
-(To be filled during the implementation: commands and values the Reaper backend needs after a
-class was replaced.)
+(Commands and values the Reaper backend needs after a class was replaced.)
+
+- **P1 1, slot commands:** `track <position>/clip/<slot>/…` now carries the track position (as
+  all other track commands), not the index in the page. The Reaper `TrackProcessor` resolves the
+  first part as the track position for all commands, so this also fixes scrolled banks on Reaper;
+  nothing to change, but check the clip commands there with a scrolled bank.

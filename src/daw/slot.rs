@@ -33,8 +33,9 @@ pub struct Slot {
     has_content: bool,
     is_muted: bool,
     color: ColorEx,
-    /// The index (in the track bank page) of the track which contains this slot.
-    track_index: i32,
+    /// The position of the track which contains this slot (SlotImpl acts on the slot of its own
+    /// track; the track index of the page addressed the wrong track once the bank was scrolled).
+    track_position: i32,
     track_rec_arm: bool,
     /// The states reported by the host, `None` if it does not report them (Reaper).
     states: Option<SlotStates>,
@@ -51,7 +52,7 @@ struct SlotStates {
 }
 
 impl Slot {
-    pub fn new(ctx: DawContext, index: i32, position: i32, track_index: i32) -> Self {
+    pub fn new(ctx: DawContext, index: i32, position: i32, track_position: i32) -> Self {
         Slot {
             ctx,
             index,
@@ -62,7 +63,7 @@ impl Slot {
             has_content: false,
             is_muted: false,
             color: DEFAULT_COLOR,
-            track_index,
+            track_position,
             track_rec_arm: false,
             states: None,
         }
@@ -149,14 +150,14 @@ impl Slot {
         self.states.is_some_and(|s| s.stop_queued)
     }
 
-    /// The index of the track which contains this slot.
-    pub fn track_index(&self) -> i32 {
-        self.track_index
+    /// The position of the track which contains this slot.
+    pub fn track_position(&self) -> i32 {
+        self.track_position
     }
 
     fn send_track_clip(&self, command: &str) {
         if self.index >= 0 {
-            self.ctx.send(Processor::Track, &format!("{}/clip/{}/{}", self.track_index, self.position, command));
+            self.ctx.send(Processor::Track, &format!("{}/clip/{}/{}", self.track_position, self.position, command));
         }
     }
 
@@ -165,7 +166,7 @@ impl Slot {
         self.color = color;
         if self.index >= 0 {
             let [r, g, b] = color.to_int_rgb255();
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/color", self.track_index, self.position), &format!("RGB({r},{g},{b})"));
+            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/color", self.track_position, self.position), &format!("RGB({r},{g},{b})"));
         }
     }
 
@@ -193,15 +194,15 @@ impl Slot {
     }
 
     /// Paste the given slot into this slot (Reaper duplicates the source slot).
-    pub fn paste(&mut self, source_track_index: i32, source_position: i32) {
+    pub fn paste(&mut self, source_track_position: i32, source_position: i32) {
         if self.index >= 0 {
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/paste", self.track_index, self.position), &format!("{source_track_index}/{source_position}"));
+            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/paste", self.track_position, self.position), &format!("{source_track_position}/{source_position}"));
         }
     }
 
     pub fn insert_file(&mut self, path: &str) {
         if self.index >= 0 {
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/insertFile", self.track_index, self.position), path);
+            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/insertFile", self.track_position, self.position), path);
         }
     }
 
@@ -260,8 +261,8 @@ impl Slot {
         self.states.get_or_insert_with(SlotStates::default).stop_queued = value;
     }
 
-    pub(crate) fn set_track_info(&mut self, track_index: i32, rec_arm: bool) {
-        self.track_index = track_index;
+    pub(crate) fn set_track_info(&mut self, track_position: i32, rec_arm: bool) {
+        self.track_position = track_position;
         self.track_rec_arm = rec_arm;
     }
 }
@@ -291,12 +292,12 @@ impl BankItem for Slot {
 /// The clip slots of a track. Derefs to [`PagedBank<Slot>`].
 pub struct SlotBank {
     bank: PagedBank<Slot>,
-    track_index: i32,
+    track_position: i32,
     track_rec_arm: bool,
 }
 
 impl SlotBank {
-    pub fn new(ctx: DawContext, num_slots: usize, track_index: i32) -> Self {
+    pub fn new(ctx: DawContext, num_slots: usize, track_position: i32) -> Self {
         let item_ctx = ctx.clone();
         let empty_ctx = ctx.clone();
         let bank = PagedBank::new(
@@ -304,16 +305,16 @@ impl SlotBank {
             num_slots,
             move |position| {
                 let index = if num_slots == 0 { 0 } else { position % num_slots };
-                Slot::new(item_ctx.clone(), index as i32, position as i32, track_index)
+                Slot::new(item_ctx.clone(), index as i32, position as i32, track_position)
             },
             move || Slot::empty(&empty_ctx),
         );
-        SlotBank { bank, track_index, track_rec_arm: false }
+        SlotBank { bank, track_position, track_rec_arm: false }
     }
 
     /// Get a slot of the current page for modification.
     pub fn item_mut(&mut self, index: usize) -> &mut Slot {
-        let (ti, ra) = (self.track_index, self.track_rec_arm);
+        let (ti, ra) = (self.track_position, self.track_rec_arm);
         let slot = self.bank.item_mut(index);
         slot.set_track_info(ti, ra);
         slot
@@ -321,7 +322,7 @@ impl SlotBank {
 
     /// Get a slot by its absolute position for modification (creates it if necessary).
     pub fn unpaged_item_mut(&mut self, position: usize) -> &mut Slot {
-        let (ti, ra) = (self.track_index, self.track_rec_arm);
+        let (ti, ra) = (self.track_position, self.track_rec_arm);
         let slot = self.bank.unpaged_item_mut(position);
         slot.set_track_info(ti, ra);
         slot
@@ -366,22 +367,22 @@ impl SlotBank {
 
     /// Get a new (non-existing) slot with the given index (e.g. to create a new clip).
     pub fn empty_slot(&self, start_from: i32) -> Slot {
-        let mut slot = Slot::new(self.bank.ctx.clone(), start_from, start_from, self.track_index);
-        slot.set_track_info(self.track_index, self.track_rec_arm);
+        let mut slot = Slot::new(self.bank.ctx.clone(), start_from, start_from, self.track_position);
+        slot.set_track_info(self.track_position, self.track_rec_arm);
         slot
     }
 
-    pub(crate) fn set_track_info(&mut self, track_index: i32, rec_arm: bool) {
-        if self.track_index == track_index && self.track_rec_arm == rec_arm {
+    pub(crate) fn set_track_info(&mut self, track_position: i32, rec_arm: bool) {
+        if self.track_position == track_position && self.track_rec_arm == rec_arm {
             return;
         }
-        self.track_index = track_index;
+        self.track_position = track_position;
         self.track_rec_arm = rec_arm;
         self.update_slots();
     }
 
     fn update_slots(&mut self) {
-        let (ti, ra) = (self.track_index, self.track_rec_arm);
+        let (ti, ra) = (self.track_position, self.track_rec_arm);
         for slot in self.bank.all_items_mut() {
             slot.set_track_info(ti, ra);
         }
