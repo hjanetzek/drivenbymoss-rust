@@ -209,6 +209,18 @@ before, `metro_vol` was not handled). Only with host paging; Reaper keeps its co
 Pause behaviour of the play button calls `play`, which in Bitwig starts but does not pause (as in
 the Java version).
 
+**Application and project (core port P2, 2026-10-30).** As `ApplicationImpl`, `ProjectImpl`,
+`ArrangerImpl` and `MixerImpl`: the extension reports the audio engine (`/project/engine`,
+`project engine <0|1>` → `activateEngine ()` / `deactivateEngine ()`), the panel layout
+(`/layout <ARRANGE|MIX|EDIT|PLAY>`; previous and next with `application layout/-|+` →
+`previousPanelLayout ()` / `nextPanelLayout ()`), whether any track of the project is soloed or
+muted (`/project/hasSolo`, `/project/hasMute`; clearing with `project unsoloAll|unmuteAll`, before:
+a solo/mute command per known track), the cue volume and cue mix (`/project/cueVolume`,
+`/project/cueMix` with `…/str`, `…/str/6|8`; `project cueVolume|cueMix` with `/inc`, `/reset`, `/touch`;
+before: no-ops) and the visibility flags `/arranger/cueMarkers|doubleRowTrackHeight|clipLauncher|timeline|ioSection|effectTracks`
+and `/mixer/clipLauncherSection|crossFadeSection|deviceSection|ioSection|meterSection|sendSection`
+(before: always false).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

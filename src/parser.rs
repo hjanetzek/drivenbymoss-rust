@@ -194,8 +194,27 @@ impl Parser {
                             model.project_mut().set_dirty(v > 0);
                         }
                     }
+                    // Bitwig (ProjectImpl): solo and mute of all tracks, cue volume and mix
+                    "hasSolo" => model.track_bank_mut().set_host_project_solo(parse_flag(value)),
+                    "hasMute" => model.track_bank_mut().set_host_project_mute(parse_flag(value)),
+                    "cueVolume" | "cueMix" => {
+                        let project = model.project_mut();
+                        let param = if project_cmd == "cueVolume" { project.cue_volume_parameter_mut() } else { project.cue_mix_parameter_mut() };
+                        Self::parse_host_parameter(param, &mut parts, value);
+                    }
                     _ => Self::error(model, &format!("Unhandled Project parameter: {project_cmd}")),
                 }
+            }
+            // Bitwig: application.panelLayout (), the visibility flags of the arranger and the
+            // mixer (ArrangerImpl, MixerImpl)
+            "layout" => model.application_mut().set_internal_panel_layout(value),
+            "arranger" => {
+                let flag = parts.poll().unwrap_or("");
+                model.arranger_mut().set_flag_state(flag, parse_flag(value));
+            }
+            "mixer" => {
+                let flag = parts.poll().unwrap_or("");
+                model.mixer_mut().set_flag_state(flag, parse_flag(value));
             }
             "click" => Self::parse_click(model, &mut parts, value),
             "track" => self.parse_track(model, &mut parts, value),
@@ -223,6 +242,26 @@ impl Parser {
 
     /// The drum machine of the cursor track with its 128 pads (protocol v2), applied to the main
     /// and the additional drum devices.
+    /// A parameter of the host which is reported as `<prefix> <value>`, `<prefix>/str <text>`,
+    /// `<prefix>/str/<limit> <text>` and `<prefix>/name <name>` (protocol v2). The parameter
+    /// exists once its value is reported.
+    fn parse_host_parameter(param: &mut crate::daw::parameter::Parameter, parts: &mut Parts, value: &str) {
+        match parts.poll() {
+            None => {
+                if let Some(v) = parse_double(value) {
+                    param.set_exists(true);
+                    param.set_internal_value(v);
+                }
+            }
+            Some("str") => match parse_limit(parts) {
+                Some(limit) => param.set_limited_value_str(limit, value),
+                None => param.set_value_str(value),
+            },
+            Some(TAG_NAME) => param.set_internal_name(value),
+            Some(_) => {}
+        }
+    }
+
     fn parse_drum(model: &mut Model, parts: &mut Parts, value: &str) {
         let host = model.host().clone();
         let flag = parse_double(value).map(|v| v > 0.0);
@@ -1768,6 +1807,66 @@ mod tests {
         );
         // The host's switches are not changed locally
         assert!(model.transport().is_punch_out_enabled());
+    }
+
+    /// ApplicationImpl, ProjectImpl, ArrangerImpl, MixerImpl of the Java version for Bitwig.
+    #[test]
+    fn host_application_and_project() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        assert!(!model.project().cue_volume_parameter().does_exist());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/project/engine 0",
+                "/layout MIX",
+                "/project/hasSolo 1",
+                "/project/hasMute 0",
+                "/project/cueVolume 0.5",
+                "/project/cueVolume/str -6.0 dB",
+                "/project/cueVolume/str/6 -6.0",
+                "/project/cueMix 0.25",
+                "/project/cueMix/str 25 %",
+                "/arranger/cueMarkers 1",
+                "/arranger/ioSection 1",
+                "/mixer/meterSection 1",
+                "/mixer/ioSection 0",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        assert!(!model.application().is_engine_active());
+        assert!(model.application().is_mixer_layout());
+        assert!(model.track_bank().has_solo() && !model.track_bank().has_mute());
+        assert_eq!(model.project().cue_volume(), 64);
+        assert_eq!(model.project().cue_volume_str(), "-6.0 dB");
+        assert_eq!(model.project().cue_volume_str_limited(6), "-6.0");
+        assert_eq!(model.project().cue_mix_str(), "25 %");
+        assert!(model.arranger().are_cue_markers_visible() && model.arranger().is_io_section_visible() && !model.arranger().is_timeline_visible());
+        assert!(model.mixer().is_meter_section_visible() && !model.mixer().is_io_section_visible());
+        backend.take_calls();
+        model.application_mut().toggle_engine_active();
+        model.application_mut().next_panel_layout();
+        model.application_mut().previous_panel_layout();
+        model.track_bank_mut().clear_solo();
+        model.track_bank_mut().clear_mute();
+        model.project_mut().change_cue_volume(1);
+        model.project_mut().reset_cue_mix();
+        model.project_mut().touch_cue_mix(true);
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("project".into(), "engine".into(), 1),
+                BackendCall::NoArg("application".into(), "layout/+".into()),
+                BackendCall::NoArg("application".into(), "layout/-".into()),
+                BackendCall::NoArg("project".into(), "unsoloAll".into()),
+                BackendCall::NoArg("project".into(), "unmuteAll".into()),
+                BackendCall::DoubleArg("project".into(), "cueVolume/inc".into(), change),
+                BackendCall::NoArg("project".into(), "cueMix/reset".into()),
+                BackendCall::IntArg("project".into(), "cueMix/touch".into(), 1),
+            ]
+        );
     }
 
     #[test]

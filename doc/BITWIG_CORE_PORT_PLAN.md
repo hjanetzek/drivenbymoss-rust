@@ -259,6 +259,11 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   `transport metronomeVolume <0..1>` and `metronomeVolume/inc <delta>`, `transport togglePunchIn|togglePunchOut`
   and reports `/punchIn`, `/punchOut` (Reaper has one record mode for both: the backend would have
   to map them). Fill mode and metronome ticks do not exist in Reaper.
+- **P2 application/project:** the layout stepping, `unsoloAll`/`unmuteAll` are behind the host
+  check (the Reaper backend has neither; the Reaper path sends the layout index, the solo/mute of
+  each track). For Reaper: `project unsoloAll|unmuteAll` (Reaper actions 40340 / 40339), report
+  `/project/hasSolo|hasMute`, `/layout` (the screenset), `/project/engine`. The cue volume, cue mix
+  and the arranger/mixer flags do not exist in Reaper (they stay false / do not exist).
 
 ## Replays to record again
 
@@ -273,3 +278,7 @@ them again from a worktree run, see Verification):
   (P1 8): a step attribute change sends `step/…/<attribute> <value>` (e.g. `chance 0.503937`,
   `repeatCount 15`, `pan -1`, `velocity 0.629921`, `muted 1`) instead of `step/…/update` with
   all attributes; the values are the same.
+- `tests/conformance/launchcontrol_xl/replay/novation_launch_control_xl-track_mix-rust.rec`,
+  `tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-global-rust.rec` (P2
+  project): clearing solo/mute sends `project unsoloAll` / `project unmuteAll` (ProjectImpl)
+  instead of `track <p>/solo 0` / `mute 0` for every known track.

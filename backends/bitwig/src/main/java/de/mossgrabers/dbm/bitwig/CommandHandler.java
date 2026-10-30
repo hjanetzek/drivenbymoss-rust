@@ -86,7 +86,7 @@ public final class CommandHandler
             case "application" -> this.handleApplication (command, 1);
             case "arranger" -> this.handleArranger (command);
             case "mixer" -> this.handleMixer (command);
-            case "project" -> this.handleProject (command);
+            case "project" -> this.handleProject (command, 1);
             case "marker" -> this.handleMarker (command);
             case "automation" -> this.handleAutomation (command);
             case "scene" -> this.handleScene (command, null);
@@ -145,7 +145,7 @@ public final class CommandHandler
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
-            case "project" -> this.handleProject (command);
+            case "project" -> this.handleProject (command, value);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
             case "eq" -> this.handleEqualizer (command, value, null);
@@ -667,6 +667,9 @@ public final class CommandHandler
                 if (index >= 0 && index < PANEL_LAYOUTS.length)
                     this.model.application.setPanelLayout (PANEL_LAYOUTS[index]);
             }
+            // ApplicationImpl.previousPanelLayout / nextPanelLayout
+            case "layout/-" -> this.model.application.previousPanelLayout ();
+            case "layout/+" -> this.model.application.nextPanelLayout ();
             case "toggleNoteEditor" -> this.model.application.toggleNoteEditor ();
             case "toggleAutomationEditor" -> this.model.application.toggleAutomationEditor ();
             case "toggleDevices" -> this.model.application.toggleDevices ();
@@ -724,10 +727,26 @@ public final class CommandHandler
     }
 
 
-    private void handleProject (final String command)
+    private void handleProject (final String command, final double value)
     {
         switch (command)
         {
+            // ApplicationImpl.setEngineActive
+            case "engine" ->
+            {
+                if (value > 0)
+                    this.model.application.activateEngine ();
+                else
+                    this.model.application.deactivateEngine ();
+            }
+            // ProjectImpl.clearSolo / clearMute
+            case "unsoloAll" -> this.model.project.unsoloAll ();
+            case "unmuteAll" -> this.model.project.unmuteAll ();
+            // ProjectImpl: the cue volume and mix parameters
+            case "cueVolume" -> this.setValue (this.model.project.cueVolume (), value);
+            case "cueMix" -> this.setValue (this.model.project.cueMix (), value);
+            case "cueVolume/touch" -> this.model.project.cueVolume ().touch (value > 0);
+            case "cueMix/touch" -> this.model.project.cueMix ().touch (value > 0);
             case "createScene" -> this.model.project.createScene ();
             case "createSceneFromPlayingLauncherClips" -> this.model.project.createSceneFromPlayingLauncherClips ();
             case "previous" -> this.model.application.previousProject ();

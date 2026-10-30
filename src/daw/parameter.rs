@@ -42,6 +42,9 @@ pub enum ParameterKind {
     MasterCrossfader,
     /// A parameter of the groove (`groove` `active` / `amount`).
     Groove(GrooveParameterId),
+    /// The cue volume or cue mix of the project (Bitwig: `project` `cueVolume` / `cueMix`,
+    /// ProjectImpl of the Java version).
+    ProjectCue(&'static str),
     /// A parameter which does not exist (former `EmptyParameter`).
     Empty,
 }
@@ -315,6 +318,7 @@ impl Parameter {
             ParameterKind::MasterVolume => self.ctx.send_int(Processor::Master, "volume/touch", touch),
             ParameterKind::MasterPan => self.ctx.send_int(Processor::Master, "pan/touch", touch),
             ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
+            ParameterKind::ProjectCue(name) => self.ctx.send_int(Processor::Project, &format!("{name}/touch"), touch),
             _ => {}
         }
         self.is_being_touched = is_being_touched;
@@ -358,6 +362,7 @@ impl Parameter {
             ParameterKind::MasterPan => (Processor::Master, "pan".into()),
             ParameterKind::Send { channel_position } => (Processor::Track, format!("{}/send/{}/volume", channel_position, self.position)),
             ParameterKind::MasterCrossfader => (Processor::Master, "user/param/0/value".into()),
+            ParameterKind::ProjectCue(name) => (Processor::Project, name.into()),
             ParameterKind::Groove(GrooveParameterId::Enabled) => (Processor::Groove, "active".into()),
             ParameterKind::Groove(_) => (Processor::Groove, "amount".into()),
             ParameterKind::Empty => return None,

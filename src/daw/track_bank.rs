@@ -71,6 +71,9 @@ pub struct TrackBank {
     /// Tree: the node of the current folder.
     current_folder: usize,
     note_cache: [u8; 128],
+    /// `project.hasSoloedTracks ()` / `hasMutedTracks ()` reported by the host (Bitwig).
+    host_project_solo: Option<bool>,
+    host_project_mute: Option<bool>,
 }
 
 impl TrackBank {
@@ -88,6 +91,8 @@ impl TrackBank {
             empty: Track::empty(&ctx, num_sends),
             master: Track::new_master(ctx.clone(), num_sends, num_params),
             scene_bank: SceneBank::new(ctx.clone(), num_scenes),
+            host_project_solo: None,
+            host_project_mute: None,
             ctx,
             tracks: Vec::new(),
             page_size: num_tracks,
@@ -513,24 +518,54 @@ impl TrackBank {
         (0..self.raw_item_count.min(self.tracks.len())).any(|p| p != position && self.tracks[p].is_solo())
     }
 
+    /// ProjectImpl.hasSolo: `project.hasSoloedTracks ()` as reported by the host (Bitwig: of all
+    /// tracks); otherwise from the known tracks (Reaper).
     pub fn has_solo(&self) -> bool {
+        if let Some(solo) = self.host_project_solo {
+            return solo;
+        }
         self.tracks.iter().any(|t| t.is_solo())
     }
 
+    /// ProjectImpl.hasMute: `project.hasMutedTracks ()` as reported by the host.
     pub fn has_mute(&self) -> bool {
+        if let Some(mute) = self.host_project_mute {
+            return mute;
+        }
         self.tracks.iter().any(|t| t.is_mute())
     }
 
+    /// ProjectImpl.clearSolo: `project.unsoloAll ()` on Bitwig (all tracks, not only the known
+    /// ones).
     pub fn clear_solo(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Project, "unsoloAll");
+            return;
+        }
         for track in &mut self.tracks {
             track.set_solo(false);
         }
     }
 
+    /// ProjectImpl.clearMute: `project.unmuteAll ()` on Bitwig.
     pub fn clear_mute(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Project, "unmuteAll");
+            return;
+        }
         for track in &mut self.tracks {
             track.set_mute(false);
         }
+    }
+
+    /// The host reported whether any track of the project is soloed (Bitwig).
+    pub fn set_host_project_solo(&mut self, solo: bool) {
+        self.host_project_solo = Some(solo);
+    }
+
+    /// The host reported whether any track of the project is muted (Bitwig).
+    pub fn set_host_project_mute(&mut self, mute: bool) {
+        self.host_project_mute = Some(mute);
     }
 
     /// Not supported.

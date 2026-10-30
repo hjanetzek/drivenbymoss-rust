@@ -219,6 +219,25 @@ public final class BitwigModel
         this.transport.timeSignature ().denominator ().markInterested ();
         this.application.canUndo ().markInterested ();
         this.application.canRedo ().markInterested ();
+        // ApplicationImpl, ProjectImpl, ArrangerImpl, MixerImpl of the Java version
+        this.application.hasActiveEngine ().markInterested ();
+        this.application.panelLayout ().markInterested ();
+        this.project.hasSoloedTracks ().markInterested ();
+        this.project.hasMutedTracks ().markInterested ();
+        markParameter (this.project.cueVolume ());
+        markParameter (this.project.cueMix ());
+        this.arranger.areCueMarkersVisible ().markInterested ();
+        this.arranger.hasDoubleRowTrackHeight ().markInterested ();
+        this.arranger.isClipLauncherVisible ().markInterested ();
+        this.arranger.isTimelineVisible ().markInterested ();
+        this.arranger.isIoSectionVisible ().markInterested ();
+        this.arranger.areEffectTracksVisible ().markInterested ();
+        this.mixer.isClipLauncherSectionVisible ().markInterested ();
+        this.mixer.isCrossFadeSectionVisible ().markInterested ();
+        this.mixer.isDeviceSectionVisible ().markInterested ();
+        this.mixer.isIoSectionVisible ().markInterested ();
+        this.mixer.isMeterSectionVisible ().markInterested ();
+        this.mixer.isSendSectionVisible ().markInterested ();
 
         this.trackBank.itemCount ().markInterested ();
         this.trackBank.scrollPosition ().markInterested ();
@@ -455,6 +474,37 @@ public final class BitwigModel
         reporter.put ("/fill", this.transport.isFillModeActive ().get ());
         reporter.put ("/project/canUndo", this.application.canUndo ().get ());
         reporter.put ("/project/canRedo", this.application.canRedo ().get ());
+        this.collectApplication (reporter);
+    }
+
+
+    /**
+     * The engine, the panel layout, the project's solo and mute state, cue volume and mix, the
+     * visibility flags of the arranger and the mixer, as ApplicationImpl, ProjectImpl,
+     * ArrangerImpl and MixerImpl of the Java version.
+     */
+    private void collectApplication (final ModelReporter reporter)
+    {
+        reporter.put ("/project/engine", this.application.hasActiveEngine ().get ());
+        reporter.put ("/layout", this.application.panelLayout ().get ());
+        reporter.put ("/project/hasSolo", this.project.hasSoloedTracks ().get ());
+        reporter.put ("/project/hasMute", this.project.hasMutedTracks ().get ());
+        reporter.put ("/project/cueVolume", this.project.cueVolume ().value ().get ());
+        putDisplayedValue (reporter, "/project/cueVolume/str", this.project.cueVolume ().displayedValue (), true);
+        reporter.put ("/project/cueMix", this.project.cueMix ().value ().get ());
+        putDisplayedValue (reporter, "/project/cueMix/str", this.project.cueMix ().displayedValue (), true);
+        reporter.put ("/arranger/cueMarkers", this.arranger.areCueMarkersVisible ().get ());
+        reporter.put ("/arranger/doubleRowTrackHeight", this.arranger.hasDoubleRowTrackHeight ().get ());
+        reporter.put ("/arranger/clipLauncher", this.arranger.isClipLauncherVisible ().get ());
+        reporter.put ("/arranger/timeline", this.arranger.isTimelineVisible ().get ());
+        reporter.put ("/arranger/ioSection", this.arranger.isIoSectionVisible ().get ());
+        reporter.put ("/arranger/effectTracks", this.arranger.areEffectTracksVisible ().get ());
+        reporter.put ("/mixer/clipLauncherSection", this.mixer.isClipLauncherSectionVisible ().get ());
+        reporter.put ("/mixer/crossFadeSection", this.mixer.isCrossFadeSectionVisible ().get ());
+        reporter.put ("/mixer/deviceSection", this.mixer.isDeviceSectionVisible ().get ());
+        reporter.put ("/mixer/ioSection", this.mixer.isIoSectionVisible ().get ());
+        reporter.put ("/mixer/meterSection", this.mixer.isMeterSectionVisible ().get ());
+        reporter.put ("/mixer/sendSection", this.mixer.isSendSectionVisible ().get ());
     }
 
 
