@@ -6,7 +6,7 @@ Bitwig side follows the Java implementation where it can. This document lists ev
 it does not, for the maintainer of the Java version. It is updated with each change of the
 backend.
 
-As of 2026-10-29. "Java" means the Java DrivenByMoss for Bitwig, "Rust" the core with the Bitwig
+As of 2026-10-31 (core port of the Bitwig classes, P1 and P2: see BITWIG_CORE_PORT_PLAN.md). "Java" means the Java DrivenByMoss for Bitwig, "Rust" the core with the Bitwig
 extension. The core is a port of the Java version for Reaper, so where Java for Bitwig and Java
 for Reaper differ, Rust usually behaves like Java for Reaper.
 

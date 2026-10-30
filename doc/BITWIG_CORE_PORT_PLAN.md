@@ -1,6 +1,9 @@
 # Porting the Bitwig framework classes into the core: plan for an implementation agent
 
-Status: 2026-10-30, analysis done, implementation not started.
+Status: 2026-10-31, P1 1-10 done; P2 done except the scene navigation moving the cursor track's
+slot bank and the layer bank paging by the cursor layer; P3 not started. Verification step 1
+(`cargo test`) only: the replays listed under "Replays to record again" fail on purpose, steps 2-4
+(Bitwig, conformance runs) are still open.
 
 ## Goal
 
@@ -206,6 +209,17 @@ transport/application/arranger/mixer/project/groove/marker/browser/host/model; b
 channels, scenes, slots, sends, layers and drum pads; devices, parameters, parameter banks,
 clips and steps. The full reports with the method-level details and the quoted Java lines are
 in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specification.
+
+## Not done yet
+
+- P2 scene navigation: `SceneBankImpl.select*` / `scroll*` also move the cursor track's own slot
+  bank (`slotBank.selectNextItem ()` etc., which selects a slot of the cursor track in Bitwig). The
+  core's slot banks follow the scene bank page and the extension has no slot bank of the cursor
+  track; needs a slot bank of the cursor track in the extension (`cursorTrack.clipLauncherSlotBank ()`)
+  with its own commands.
+- P2 layer bank paging: `LayerBankImpl.canScrollPage*` from `cursorDeviceLayer.hasPrevious/Next ()`;
+  needs a cursor layer in the extension (`wantsCursorLayer`).
+- P3 completely.
 
 ## Reaper backend follow-ups
 
