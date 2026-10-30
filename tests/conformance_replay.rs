@@ -1,0 +1,265 @@
+// Copyright (c) 2026 Hannes Janetzek
+// Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+
+//! Replay of recorded Bitwig sessions (doc/CONFORMANCE_TESTING_PLAN.md §5).
+//!
+//! The Bitwig extension records everything which goes into and out of the core
+//! (`ProtocolRecorder`, files `*.rec`). A replay feeds the inputs (model lines, ticks, MIDI) into
+//! a fresh core at the recorded times and checks:
+//!
+//! - **regression:** after each input, the core sends the same commands, MIDI and note input
+//!   tables as in the recording (as a set, the order within one call may differ);
+//! - **conformance:** if there is a `<controller>-java.leds` next to `<controller>-rust.rec` (the
+//!   final LED state of the Java version in the same scenarios, written by the conformance
+//!   runner), the LED state at the end marker of the run equals it, except for the known
+//!   differences in `<controller>-java.known`.
+//!
+//! Replays all recordings in `tests/conformance/*/replay/`, or the one given in `DBM_REPLAY`.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use drivenbymoss::app::App;
+use drivenbymoss::backend::{BackendCall, RecordingBackend};
+
+/// An event of a recording.
+struct Event {
+    time: u64,
+    kind: String,
+    fields: Vec<String>,
+}
+
+fn unescape(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            result.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => result.push('\n'),
+            Some('t') => result.push('\t'),
+            Some(other) => result.push(other),
+            None => {}
+        }
+    }
+    result
+}
+
+fn parse_recording(path: &Path) -> Vec<Event> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    text.lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let mut parts = line.split('\t');
+            let time = parts.next().and_then(|t| t.parse().ok()).unwrap_or(0);
+            let kind = parts.next().unwrap_or("").to_string();
+            Event { time, kind, fields: parts.map(unescape).collect() }
+        })
+        .collect()
+}
+
+/// The kinds of output events (from the core to the host).
+fn is_output(kind: &str) -> bool {
+    matches!(kind, "noArg" | "string" | "strings" | "int" | "double" | "delay" | "enable" | "out" | "filters" | "keys" | "velocities")
+}
+
+/// Doubles are compared with 6 fraction digits (Java's and Rust's formatting differ).
+fn double(text: &str) -> String {
+    text.parse::<f64>().map_or_else(|_| text.to_string(), |v| format!("{v:.6}"))
+}
+
+fn hex(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+}
+
+/// A recorded output event in the normalized form.
+fn normalize_event(event: &Event) -> String {
+    let mut fields = event.fields.clone();
+    if event.kind == "double" {
+        if let Some(last) = fields.last_mut() {
+            *last = double(last);
+        }
+    }
+    format!("{} {}", event.kind, fields.join(" "))
+}
+
+/// A call of the core in the normalized form of [`normalize_event`]; None for calls which the
+/// extension does not record.
+fn normalize_call(call: &BackendCall) -> Option<String> {
+    Some(match call {
+        BackendCall::NoArg(p, c) => format!("noArg {p} {c}"),
+        BackendCall::StringArg(p, c, v) => format!("string {p} {c} {v}"),
+        BackendCall::StringArgs(p, c, v) => format!("strings {p} {c} {}", v.join(" ")),
+        BackendCall::IntArg(p, c, v) => format!("int {p} {c} {v}"),
+        BackendCall::DoubleArg(p, c, v) => format!("double {p} {c} {v:.6}"),
+        BackendCall::DelayUpdates(p) => format!("delay {p}"),
+        BackendCall::EnableUpdates(p, e) => format!("enable {p} {}", if *e { 1 } else { 0 }),
+        BackendCall::SendMidi(0, data) if !data.is_empty() => format!("out {}", hex(data)),
+        BackendCall::NoteInputFilters(0, i, f) => format!("filters {i} {}", f.join(" ")),
+        BackendCall::KeyTranslation(0, i, t) => format!("keys {i} {}", t.iter().map(i32::to_string).collect::<Vec<_>>().join(" ")),
+        BackendCall::VelocityTranslation(0, i, t) => format!("velocities {i} {}", t.iter().map(i32::to_string).collect::<Vec<_>>().join(" ")),
+        _ => return None,
+    })
+}
+
+/// The LED state of the controller (as the conformance runner keeps it): the last value per
+/// status and data 1, for system exclusive messages per all but the last data byte.
+fn update_leds(leds: &mut BTreeMap<String, String>, data: &[u8]) {
+    if data.first() == Some(&0xF0) && data.len() >= 2 {
+        leds.insert(hex(&data[..data.len() - 2]), format!("{:02X}", data[data.len() - 2]));
+    } else if data.len() == 3 {
+        leds.insert(hex(&data[..2]), format!("{:02X}", data[2]));
+    }
+}
+
+/// A pattern of the runner (`fnmatch`: `*`, `?`, `[...]`).
+fn glob(pattern: &[char], text: &[char]) -> bool {
+    match pattern.first() {
+        None => text.is_empty(),
+        Some('*') => (0..=text.len()).any(|i| glob(&pattern[1..], &text[i..])),
+        Some('?') => !text.is_empty() && glob(&pattern[1..], &text[1..]),
+        Some('[') => {
+            let Some(end) = pattern.iter().position(|&c| c == ']') else {
+                return false;
+            };
+            !text.is_empty() && pattern[1..end].contains(&text[0]) && glob(&pattern[end + 1..], &text[1..])
+        }
+        Some(&c) => text.first() == Some(&c) && glob(&pattern[1..], &text[1..]),
+    }
+}
+
+fn read_pairs(path: &Path) -> Vec<(String, String)> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.split_once('\t').map(|(a, b)| (a.to_string(), b.to_string())))
+        .collect()
+}
+
+/// Replay one recording; returns the problems.
+fn replay(path: &Path) -> Vec<String> {
+    let events = parse_recording(path);
+    let init = events.iter().find(|e| e.kind == "init").expect("init event");
+    let (core_id, app_version) = (init.fields[0].clone(), init.fields.get(1).cloned().unwrap_or_default());
+
+    // The configuration files of the recorded controller
+    let dir = std::env::temp_dir().join(format!("dbm-replay-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for event in events.iter().filter(|e| e.kind == "config") {
+        std::fs::write(dir.join(&event.fields[0]), event.fields.get(1).map_or("", String::as_str)).unwrap();
+    }
+
+    let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
+    let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), &core_id, &app_version).expect("controller of the recording");
+    let base = Instant::now();
+    let mut problems = Vec::new();
+    let mut expected: Vec<String> = Vec::new();
+    let mut actual: Vec<String> = Vec::new();
+    let mut leds = BTreeMap::new();
+    let mut leds_at_end = None;
+    let mut last_input = String::from("start of the recording");
+
+    let compare = |expected: &mut Vec<String>, actual: &mut Vec<String>, input: &str, problems: &mut Vec<String>| {
+        expected.sort();
+        actual.sort();
+        if expected != actual && problems.len() < 20 {
+            let missing: Vec<_> = expected.iter().filter(|e| !actual.contains(e)).take(5).collect();
+            let extra: Vec<_> = actual.iter().filter(|a| !expected.contains(a)).take(5).collect();
+            problems.push(format!("after {input}: missing {missing:?}, unexpected {extra:?}"));
+        }
+        expected.clear();
+        actual.clear();
+    };
+
+    for event in &events {
+        if is_output(&event.kind) {
+            expected.push(normalize_event(event));
+            continue;
+        }
+        if !matches!(event.kind.as_str(), "documentSettings" | "start" | "model" | "tick" | "in" | "mark") {
+            continue;
+        }
+        // The outputs of the previous input are complete
+        actual.extend(backend.take_calls().iter().filter_map(|call| {
+            if let BackendCall::SendMidi(0, data) = call {
+                update_leds(&mut leds, data);
+            }
+            normalize_call(call)
+        }));
+        compare(&mut expected, &mut actual, &last_input, &mut problems);
+
+        app.set_time(base + Duration::from_millis(event.time));
+        last_input = format!("{} at {} ms", event.kind, event.time);
+        match event.kind.as_str() {
+            "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),
+            "start" => app.start_infrastructure(),
+            "model" => app.update_model(&event.fields[0]),
+            "tick" => app.tick(),
+            "in" => {
+                let data: Vec<u8> = event.fields[0].split(' ').filter_map(|b| u8::from_str_radix(b, 16).ok()).collect();
+                app.on_midi_event(0, &data);
+            }
+            "mark" if event.fields.first().is_some_and(|f| f == "end") => leds_at_end = Some(leds.clone()),
+            _ => {}
+        }
+    }
+    actual.extend(backend.take_calls().iter().filter_map(normalize_call));
+    compare(&mut expected, &mut actual, &last_input, &mut problems);
+
+    // Conformance with the Java version
+    let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+    let java = path.with_file_name(format!("{}-java.leds", stem.trim_end_matches("-rust")));
+    if let (Some(leds), true) = (leds_at_end, java.exists()) {
+        let known: Vec<Vec<char>> = read_pairs(&java.with_extension("known")).into_iter().map(|(p, _)| p.chars().collect()).collect();
+        for (key, value) in read_pairs(&java) {
+            let id: Vec<char> = format!("leds {key}").chars().collect();
+            if leds.get(&key) != Some(&value) && !known.iter().any(|p| glob(p, &id)) {
+                problems.push(format!("LED {key}: Java {value}, Rust {:?}", leds.get(&key)));
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    problems
+}
+
+fn recordings() -> Vec<PathBuf> {
+    if let Ok(file) = std::env::var("DBM_REPLAY") {
+        return vec![PathBuf::from(file)];
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
+    let mut files = Vec::new();
+    for controller in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        for file in std::fs::read_dir(controller.path().join("replay")).into_iter().flatten().flatten() {
+            if file.path().extension().is_some_and(|e| e == "rec") {
+                files.push(file.path());
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+#[test]
+fn replay_recorded_sessions() {
+    let mut failures = Vec::new();
+    for path in recordings() {
+        let problems = replay(&path);
+        if !problems.is_empty() {
+            failures.push(format!("{}:\n  {}", path.display(), problems.join("\n  ")));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn glob_patterns() {
+    let m = |p: &str, t: &str| glob(&p.chars().collect::<Vec<_>>(), &t.chars().collect::<Vec<_>>());
+    assert!(m("leds 9C [45][9ABC]", "leds 9C 4A"));
+    assert!(!m("leds 9C [45][9ABC]", "leds 9C 4D"));
+    assert!(m("*/vu", "osc:/track/1/vu"));
+}

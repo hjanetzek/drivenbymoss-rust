@@ -166,7 +166,7 @@ impl PolySequencerBase {
         let x = index % self.num_columns;
         let y = index / self.num_columns;
         if y < self.num_rows - self.seq.num_sequencer_rows {
-            self.handle_note_area(note, velocity);
+            self.handle_note_area(note, velocity, ctx.host.now());
             return;
         }
         // Only allow playing the notes if there is no clip
@@ -175,9 +175,8 @@ impl PolySequencerBase {
         }
     }
 
-    fn handle_note_area(&mut self, note: i32, velocity: i32) {
+    fn handle_note_area(&mut self, note: i32, velocity: i32, now: Instant) {
         // No pressed keys? Clear up the note memory for programming the sequencer...
-        let now = Instant::now();
         if self.last_pressed_note_time.is_none_or(|t| now.duration_since(t).as_millis() > 500) {
             self.last_pressed_note_time = Some(now);
             self.note_memory.clear();

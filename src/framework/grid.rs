@@ -53,20 +53,15 @@ pub enum BlinkMode {
 pub const BLINK_SPEED: u128 = 600;
 
 /// The state of the emulated blinking (former `BlinkingPadGrid`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BlinkingState {
     /// The pad states which were changed since the last flush (by controller note).
     pub pad_infos: BTreeMap<i32, LightInfo>,
     /// The pads which are currently blinking (by controller note).
     pub blinking_lights: BTreeMap<i32, LightInfo>,
     pub is_blink: bool,
-    pub update_time: std::time::Instant,
-}
-
-impl Default for BlinkingState {
-    fn default() -> Self {
-        BlinkingState { pad_infos: BTreeMap::new(), blinking_lights: BTreeMap::new(), is_blink: false, update_time: std::time::Instant::now() }
-    }
+    /// The time of the last blink change, set with the first flush.
+    pub update_time: Option<std::time::Instant>,
 }
 
 /// Translates a grid note into a (MIDI channel, MIDI note) pair of the controller.
@@ -238,7 +233,7 @@ impl PadGrid {
 impl PadGrid {
     /// Send the changed pad states and toggle the colors of the blinking pads every 600ms
     /// (former `BlinkingPadGrid.flush`). Only used with [`BlinkMode::Emulated`].
-    pub fn flush_blinking(&mut self, output: &MidiOutput) {
+    pub fn flush_blinking(&mut self, output: &MidiOutput, now: std::time::Instant) {
         let infos = std::mem::take(&mut self.blinking.pad_infos);
         for (note, info) in infos {
             Self::send_pad_update(output, note, info.color);
@@ -250,7 +245,7 @@ impl PadGrid {
         }
 
         // Toggle blink colors every 600ms
-        if !self.check_blinking() {
+        if !self.check_blinking(now) {
             return;
         }
         for (note, info) in &self.blinking.blinking_lights {
@@ -259,10 +254,13 @@ impl PadGrid {
         }
     }
 
-    fn check_blinking(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        if now.duration_since(self.blinking.update_time).as_millis() > BLINK_SPEED {
-            self.blinking.update_time = now;
+    fn check_blinking(&mut self, now: std::time::Instant) -> bool {
+        let Some(update_time) = self.blinking.update_time else {
+            self.blinking.update_time = Some(now);
+            return false;
+        };
+        if now.duration_since(update_time).as_millis() > BLINK_SPEED {
+            self.blinking.update_time = Some(now);
             self.blinking.is_blink = !self.blinking.is_blink;
             return true;
         }
@@ -300,13 +298,13 @@ mod tests {
         grid.send_state(&output, 36);
         grid.send_state(&output, 37);
         assert!(backend.take_calls().is_empty());
-        grid.flush_blinking(&output);
+        let now = std::time::Instant::now();
+        grid.flush_blinking(&output, now);
         let calls = backend.take_calls();
         assert_eq!(calls.len(), 2);
         assert!(matches!(&calls[0], BackendCall::SendMidi(1, data) if data == &vec![0x90, 36, 5]));
         assert_eq!(grid.blinking.blinking_lights.len(), 1);
-        grid.blinking.update_time -= std::time::Duration::from_millis(700);
-        grid.flush_blinking(&output);
+        grid.flush_blinking(&output, now + std::time::Duration::from_millis(700));
         let calls = backend.take_calls();
         assert!(matches!(&calls[0], BackendCall::SendMidi(1, data) if data == &vec![0x90, 36, 7]));
     }

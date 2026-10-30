@@ -76,6 +76,9 @@ pub struct App {
     /// True for a host which runs exactly one controller on its own MIDI ports (Bitwig): there is
     /// no main configuration, the ports are not discovered and the controller is always enabled.
     single: bool,
+    /// The time is set by [`App::set_time`] (replay of a recorded session), not taken from the
+    /// clock at each call.
+    fixed_time: bool,
 }
 
 impl App {
@@ -109,7 +112,22 @@ impl App {
             devices: Vec::new(),
             is_started: false,
             single,
+            fixed_time: false,
         }
+    }
+
+    /// A call into the core: take the time of the call (see [`Host::now`]).
+    fn enter(&self) {
+        if !self.fixed_time {
+            self.host.set_time(Instant::now());
+        }
+    }
+
+    /// Run the core on the given time from now on, not on the clock (replay of a recorded
+    /// session, tests).
+    pub fn set_time(&mut self, time: Instant) {
+        self.fixed_time = true;
+        self.host.set_time(time);
     }
 
     fn main_config_path(&self) -> PathBuf {
@@ -191,6 +209,7 @@ impl App {
 
     /// Start all controller instances.
     pub fn start_infrastructure(&mut self) {
+        self.enter();
         if self.is_started {
             return;
         }
@@ -207,6 +226,7 @@ impl App {
 
     /// Restart all configured controllers.
     pub fn restart_controllers(&mut self) {
+        self.enter();
         for index in 0..self.instances.len() {
             self.stop_instance(index);
         }
@@ -292,7 +312,7 @@ impl App {
                     parts.ctx.model.note_clip(cols, rows);
                 }
                 parts.ctx.config.mark_all_changed();
-                let startup_due = Some(Instant::now() + Duration::from_millis(STARTUP_DELAY_MS));
+                let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
                 instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, startup_due });
                 self.host.println(&format!("{name}: Running."));
             }
@@ -330,6 +350,7 @@ impl App {
 
     /// Update the model from Reaper data: lines of `<address> <value>`.
     pub fn update_model(&mut self, data: &str) {
+        self.enter();
         for line in data.split('\n') {
             if line.is_empty() {
                 continue;
@@ -345,6 +366,7 @@ impl App {
 
     /// Handle MIDI received from a Reaper MIDI input.
     pub fn on_midi_event(&mut self, device_id: i32, data: &[u8]) {
+        self.enter();
         let Some(&status) = data.first() else {
             return;
         };
@@ -368,7 +390,8 @@ impl App {
 
     /// Execute scheduled tasks and update the controllers (called every 30ms).
     pub fn tick(&mut self) {
-        let now = Instant::now();
+        self.enter();
+        let now = self.host.now();
         for instance in &mut self.instances {
             let Some(running) = &mut instance.running else {
                 continue;
@@ -385,6 +408,7 @@ impl App {
 
     /// Reset the document settings of all controllers to their defaults.
     pub fn set_default_document_settings(&mut self) {
+        self.enter();
         for instance in &mut self.instances {
             if let Some(running) = &mut instance.running {
                 running.ctx.config.reset_scope(Scope::Document);
@@ -404,6 +428,7 @@ impl App {
 
     /// Apply the document settings from the Reaper project.
     pub fn set_formatted_document_settings(&mut self, data: &str) {
+        self.enter();
         let parsed = parse_document_settings(data);
         for instance in &mut self.instances {
             let model = instance.hardware_model();
@@ -418,6 +443,7 @@ impl App {
 
     /// There is no UI in the Rust version: print the status and the recent log instead.
     pub fn display_window(&mut self) {
+        self.enter();
         let lines: Vec<String> = self.log.lines.borrow().iter().rev().take(20).rev().cloned().collect();
         for line in lines {
             eprintln!("[DrivenByMoss] {line}");

@@ -55,6 +55,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
     // Dev mode: the state of the library file when it was loaded, and at the last check
     private Path                             devLibrary;
+    /** Records the protocol for the replay tests, null if not enabled. */
+    private ProtocolRecorder                 recorder;
     private FileState                        loadedState;
     private FileState                        lastState;
 
@@ -136,6 +138,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         }
 
+        this.recorder = ProtocolRecorder.create (this.definition.getHardwareModel (), this.devLibrary);
+        if (this.recorder != null)
+        {
+            this.recorder.init (this.definition.getCoreId (), appVersion, configFolder);
+            this.println ("Recording the protocol to " + this.recorder.getFile ());
+        }
+
         this.midiIn = host.getMidiInPort (0);
         this.midiOut = host.getMidiOutPort (0);
         this.midiIn.setMidiCallback ( (status, data1, data2) -> this.receiveMidi (new byte []
@@ -150,10 +159,14 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
         final String settings = KEPT_SETTINGS.remove (this.definition.getId ().toString ());
         if (settings != null)
+        {
+            this.record ("documentSettings", settings);
             this.core.setFormattedDocumentSettings (settings);
+        }
 
         // Note inputs can only be created during init, the core creates them on start
         this.isInitializing = true;
+        this.record ("start");
         this.core.startInfrastructure ();
         this.isInitializing = false;
 
@@ -184,6 +197,15 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         if (this.core != null)
             KEPT_SETTINGS.put (this.definition.getId ().toString (), this.core.getFormattedDocumentSettings ());
         this.closeCore ();
+        if (this.recorder != null)
+            this.recorder.close ();
+    }
+
+
+    private void record (final String kind, final String... fields)
+    {
+        if (this.recorder != null)
+            this.recorder.event (kind, fields);
     }
 
 
@@ -191,6 +213,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         if (LOG_MIDI)
             this.logMidi ("in ", data);
+        if (this.recorder != null)
+        {
+            // A marker of the conformance runner is not for the core
+            if (this.recorder.handleMarker (data))
+                return;
+            this.recorder.midi ("in", data);
+        }
         if (this.core != null)
             this.core.onMidiEvent (0, data);
     }
@@ -224,7 +253,11 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         // Send the changed state first, so that the controller is updated with fresh values
         this.model.collect (this.reporter);
-        this.core.updateModel (this.reporter.take ());
+        final String lines = this.reporter.take ();
+        if (!lines.isEmpty ())
+            this.record ("model", lines);
+        this.core.updateModel (lines);
+        this.record ("tick");
         this.core.tick ();
         this.getHost ().scheduleTask (this::tickLoop, TICK_INTERVAL);
     }
@@ -258,6 +291,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processNoArg (final String processor, final String command)
     {
+        this.record ("noArg", processor, command);
         if ("refresh".equals (processor))
             this.reporter.requestDump ();
         else if (this.commands != null)
@@ -269,6 +303,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processStringArg (final String processor, final String command, final String value)
     {
+        this.record ("string", processor, command, value);
         if (this.commands != null)
             this.commands.handle (processor, command, value);
     }
@@ -278,6 +313,14 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processStringArgs (final String processor, final String command, final String [] values)
     {
+        if (this.recorder != null)
+        {
+            final String [] fields = new String [values.length + 2];
+            fields[0] = processor;
+            fields[1] = command;
+            System.arraycopy (values, 0, fields, 2, values.length);
+            this.recorder.event ("strings", fields);
+        }
         this.unhandled (processor + " " + command);
     }
 
@@ -286,6 +329,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processIntArg (final String processor, final String command, final int value)
     {
+        this.record ("int", processor, command, Integer.toString (value));
         if (this.commands != null)
             this.commands.handle (processor, command, value);
     }
@@ -295,6 +339,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processDoubleArg (final String processor, final String command, final double value)
     {
+        this.record ("double", processor, command, Double.toString (value));
         if (this.commands != null)
             this.commands.handle (processor, command, value);
     }
@@ -304,7 +349,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void delayUpdates (final String processor)
     {
-        // Not needed yet
+        this.record ("delay", processor);
     }
 
 
@@ -312,7 +357,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void enableUpdates (final String processor, final boolean enable)
     {
-        // Not needed yet
+        this.record ("enable", processor, enable ? "1" : "0");
     }
 
 
@@ -356,6 +401,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         if (LOG_MIDI)
             this.logMidi ("out", data);
+        if (this.recorder != null)
+            this.recorder.midi ("out", data);
         if ((data[0] & 0xFF) == 0xF0)
             this.midiOut.sendSysex (data);
         else if (data.length >= 3)
@@ -369,6 +416,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void setNoteInputFilters (final int deviceId, final int noteInputIndex, final String [] filters)
     {
+        if (this.recorder != null)
+        {
+            final String [] fields = new String [filters.length + 1];
+            fields[0] = Integer.toString (noteInputIndex);
+            System.arraycopy (filters, 0, fields, 1, filters.length);
+            this.recorder.event ("filters", fields);
+        }
         if (deviceId != 0 || this.midiIn == null)
             return;
         if (!this.isInitializing)
@@ -387,6 +441,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void setNoteInputKeyTranslationTable (final int deviceId, final int noteInputIndex, final int [] table)
     {
+        if (this.recorder != null)
+            this.recorder.ints ("keys", noteInputIndex, table);
         final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (noteInputIndex));
         if (noteInput != null)
             noteInput.setKeyTranslationTable (toObjects (table));
@@ -397,6 +453,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void setNoteInputVelocityTranslationTable (final int deviceId, final int noteInputIndex, final int [] table)
     {
+        if (this.recorder != null)
+            this.recorder.ints ("velocities", noteInputIndex, table);
         final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (noteInputIndex));
         if (noteInput != null)
             noteInput.setVelocityTranslationTable (toObjects (table));

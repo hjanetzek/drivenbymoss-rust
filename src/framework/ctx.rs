@@ -100,7 +100,7 @@ impl Ctx {
 
     /// Execute a task after the given delay in milliseconds.
     pub fn schedule(&mut self, delay_ms: u64, task: impl FnOnce(&mut Ctx) + 'static) {
-        self.scheduler.schedule(delay_ms, task);
+        self.scheduler.schedule(self.host.now(), delay_ms, task);
     }
 
     /// Execute all scheduled tasks which are due.

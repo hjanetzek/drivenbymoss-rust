@@ -160,7 +160,7 @@ impl DawContext {
         if self.muted {
             return;
         }
-        self.shared.tasks.borrow_mut().schedule(delay_ms, task);
+        self.shared.tasks.borrow_mut().schedule(self.host.now(), delay_ms, task);
     }
 
     pub(crate) fn take_due_tasks(&self, now: Instant) -> Vec<ModelTask> {

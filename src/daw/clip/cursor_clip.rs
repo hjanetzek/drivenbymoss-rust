@@ -1118,7 +1118,7 @@ impl CursorClip {
         self.stop_edit();
 
         self.edit_steps.extend_from_slice(edit_steps);
-        let now = Instant::now();
+        let now = self.ctx.host().now();
         for step in edit_steps {
             self.delayed_update(*step, now);
         }

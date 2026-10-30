@@ -184,7 +184,11 @@ def record(args, listener=None):
         listener.start()
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
+    name = config["controller"].lower().replace(" ", "_") + f"-{args.label}"
+    # The Rust extension records the protocol of the run for the replay test (§5 of the plan)
+    marker = (lambda kind: port.send([0xF0, 0x7D, 0x44, 0x42, 0x4D, kind] + list(name.encode("ascii")) + [0xF7])) if args.label == "rust" else (lambda kind: None)
     try:
+        marker(1)
         time.sleep(1.0)
         led_state(port.take(), leds)
         # The fixture must be loaded, otherwise the scenarios fail for the wrong reason
@@ -229,6 +233,8 @@ def record(args, listener=None):
             for problem in problems:
                 print(f"       {problem}")
             trace["scenarios"].append(entry)
+        marker(2)
+        time.sleep(0.2)
     finally:
         port.close()
         if own_listener:
@@ -236,9 +242,11 @@ def record(args, listener=None):
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    name = config["controller"].lower().replace(" ", "_")
-    path = out / f"{name}-{args.label}.json"
+    path = out / f"{name}.json"
     path.write_text(json.dumps(trace, indent=1, sort_keys=True))
+    # For the replay test: the final LED state and the known differences as text
+    (out / f"{name}.leds").write_text("".join(f"{k}\t{v}\n" for k, v in sorted(leds.items())))
+    (out / f"{name}.known").write_text("".join(f"{k['match']}\t{k.get('reason', '')}\n" for k in trace["known_differences"]))
     print(f"Trace written to {path}")
     return 1 if failures else 0
 

@@ -58,8 +58,9 @@ pub fn force_flush(ctx: &mut Ctx) {
 
 /// Send the collected pad states (former `MaschinePadGrid.flush`, called in `flushHardware`).
 pub fn flush_pad_grid(ctx: &mut Ctx) {
+    let now = ctx.host.now();
     let surface = &mut ctx.surface;
     if let Some(grid) = &mut surface.pad_grid {
-        grid.flush_blinking(&surface.output);
+        grid.flush_blinking(&surface.output, now);
     }
 }

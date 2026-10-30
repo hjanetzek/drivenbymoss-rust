@@ -1,6 +1,7 @@
 # Conformance testing against the Java DrivenByMoss: plan
 
-Status: 2026-10-30, step 1 done: the runner (`backends/bitwig/tools/conformance_runner.py`), the
+Status: 2026-10-30, steps 1 and 2 done (step 2: the recorder and the replay test, §5; the first
+replay is `tests/conformance/launchcontrol_xl/replay/`). Step 1: the runner (`backends/bitwig/tools/conformance_runner.py`), the
 OSC conformance module (branch `conformance-osc` of the Java repository), the probe
 (`ProbeExtension`) and the first scenarios (`tests/conformance/launchcontrol_xl/note_sequencer.toml`).
 The first pair run found the master track twice (fixed) and a Java bug (Note Sequencer Track
@@ -189,12 +190,29 @@ MIDI in, with their timing. A replay test feeds the same into `App` + `Recording
 - the backend commands against the recorded Rust run (the regression part, so that a later
   change shows up without Bitwig).
 
-This needs a protocol recorder in the extension (environment variable, like `DBM_LOG_MIDI`): it
-writes the model lines, MIDI in/out and commands with timestamps. The replay runs the core's
-tick at the recorded times. Host reactions to commands are part of the recorded model lines, so
-a replay is only valid as long as the core sends the same commands; when it does not, the test
-fails with the first differing command, which is the point where the scenario has to be
-recorded again in Bitwig.
+Host reactions to commands are part of the recorded model lines, so a replay is only valid as
+long as the core sends the same commands; when it does not, the test fails with the first
+differing command, which is the point where the scenario has to be recorded again in Bitwig.
+
+**Implemented (step 2):**
+
+- **Time:** the core only runs when the host calls it. `App` sets the time of each call
+  (`Host::now`, used by the scheduled tasks, the delayed startup, blinking, long presses); a
+  replay sets the recorded time with `App::set_time`.
+- **Recorder** (`ProtocolRecorder` in the Bitwig extension): records from the start of the
+  controller, in dev mode into `target/conformance/recordings` (or `DBM_RECORD_DIR`), one event
+  per line `<ms>\t<kind>\t<fields>`: the controller ID, its configuration files and document
+  settings, model lines, ticks, MIDI in and out, commands and note input tables. The runner marks
+  a Rust run with a system exclusive message (`F0 7D 44 42 4D 01|02 <name> F7`, not passed to the
+  core); the end marker saves a copy as `<controller>-rust.rec`.
+- **Replay test** (`tests/conformance_replay.rs`): replays `tests/conformance/*/replay/*.rec` (or
+  `DBM_REPLAY=<file>`) in a fresh core: after each input the same outputs as recorded; at the end
+  marker the LED state of `<controller>-java.leds` (written by the runner with
+  `<controller>-java.known`, the known differences).
+
+To record a replay: restart the Rust controller (the recording starts with it, from a fresh
+state), run `pair`, then copy `target/conformance/recordings/<controller>-rust.rec` and
+`target/conformance/<controller>-java.leds|known` to `tests/conformance/<controller>/replay/`.
 
 ## 6. Comparison rules
 

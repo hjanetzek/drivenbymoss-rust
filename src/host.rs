@@ -4,7 +4,7 @@
 
 //! Host services: logging, notifications and delayed task execution (former `IHost`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -48,11 +48,25 @@ impl LogSink for MemoryLog {
 pub struct Host {
     log: Rc<dyn LogSink>,
     notifications: Rc<RefCell<Vec<String>>>,
+    /// The time of the current call into the core (see [`Host::now`]).
+    time: Rc<Cell<Instant>>,
 }
 
 impl Host {
     pub fn new(log: Rc<dyn LogSink>) -> Self {
-        Host { log, notifications: Rc::new(RefCell::new(Vec::new())) }
+        Host { log, notifications: Rc::new(RefCell::new(Vec::new())), time: Rc::new(Cell::new(Instant::now())) }
+    }
+
+    /// The time of the current call into the core. The core only runs when the host calls it
+    /// (tick, MIDI, model updates); the app sets the time at each of these calls, a replay of a
+    /// recorded session sets it to the recorded time. All timing of the core uses it.
+    pub fn now(&self) -> Instant {
+        self.time.get()
+    }
+
+    /// Set the time of the current call into the core (see [`Host::now`]).
+    pub fn set_time(&self, time: Instant) {
+        self.time.set(time);
     }
 
     pub fn println(&self, message: &str) {
@@ -89,9 +103,9 @@ impl<T> Default for Scheduler<T> {
 }
 
 impl<T> Scheduler<T> {
-    /// Schedule a task to be executed after the given number of milliseconds.
-    pub fn schedule(&mut self, delay_ms: u64, task: impl FnOnce(&mut T) + 'static) {
-        self.tasks.push((Instant::now() + Duration::from_millis(delay_ms), Box::new(task)));
+    /// Schedule a task to be executed the given number of milliseconds after `now`.
+    pub fn schedule(&mut self, now: Instant, delay_ms: u64, task: impl FnOnce(&mut T) + 'static) {
+        self.tasks.push((now + Duration::from_millis(delay_ms), Box::new(task)));
     }
 
     /// Remove all tasks which are due.
