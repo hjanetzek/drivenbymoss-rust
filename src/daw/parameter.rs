@@ -335,6 +335,15 @@ impl Parameter {
             if self.position >= 0 {
                 self.ctx.send_int(processor, &format!("param/{}/indicate", self.position), if enable { 1 } else { 0 });
             }
+            return;
+        }
+        // ParameterImpl.setIndication of the Java version for Bitwig: also the volume, panorama
+        // and sends (`<value command>/indicate`)
+        if !self.host_increments() {
+            return;
+        }
+        if let Some((processor, cmd)) = self.value_address() {
+            self.ctx.send_int(processor, &format!("{cmd}/indicate"), if enable { 1 } else { 0 });
         }
     }
 

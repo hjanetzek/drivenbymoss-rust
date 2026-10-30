@@ -221,6 +221,20 @@ before: no-ops) and the visibility flags `/arranger/cueMarkers|doubleRowTrackHei
 and `/mixer/clipLauncherSection|crossFadeSection|deviceSection|ioSection|meterSection|sendSection`
 (before: always false).
 
+**Tracks and channels (core port P2, 2026-10-30).** As `ChannelImpl`, `TrackImpl`, `SendImpl` and
+`AbstractTrackBankImpl`: the extension reports `active` for tracks and the master
+(`isActivated ()`; before only for pads and layers, the core kept true and toggled locally, which
+also broke `set_skip_disabled_items`; the master can be (de)activated), `/track/<p>/monitor` is the
+effective monitoring `isMonitoring ()` (also AUTO while armed; before: monitor mode ON),
+`/track/<p>/canHoldNotes|canHoldAudio` (`canHoldNoteData ()`, `canHoldAudioData ()`; before: true for
+every track), the send colors `/track/<p>/send/<s>/color` (`sendChannelColor ()`; before: black).
+The solo button toggles with `<channel> solo/toggle` (`solo ().toggleUsingPreferences (false)`, so
+the exclusive solo preference of Bitwig applies; before: `solo <!local>`). Indications:
+`<channel> volume/indicate|pan/indicate <0|1>`, `track <p>/send/<s>/volume/indicate <0|1>`
+(`setIndication`) and `track indicate <0|1>` (`trackBank.setShouldShowClipLauncherFeedback`);
+before: no-ops. The VU clip state is `vuLeft >= 16241/16384` (`CLIP_BORDER`; before: Reaper's hold
+values, never reported). The Java bug of `TrackImpl.setMonitor (false)` (sets ON) is not copied.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

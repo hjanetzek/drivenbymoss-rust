@@ -578,8 +578,13 @@ impl TrackBank {
         self.ctx.send(Processor::Scene, if is_alternative { "stopAlt" } else { "stop" });
     }
 
-    /// Not supported.
-    pub fn set_indication(&mut self, _enable: bool) {}
+    /// AbstractTrackBankImpl.setIndication: `trackBank.setShouldShowClipLauncherFeedback` on
+    /// Bitwig (`track indicate <0|1>`).
+    pub fn set_indication(&mut self, enable: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Track, "indicate", enable);
+        }
+    }
 
     /// The color ID (see [`DawColor::id`]) of the selected track.
     pub fn selected_channel_color_entry(&self) -> &'static str {

@@ -604,6 +604,9 @@ impl Parser {
                     tb.mark_dirty();
                 }
             }
+            // Bitwig (TrackImpl): canHoldNoteData (), canHoldAudioData ()
+            "canHoldNotes" => track.set_can_hold_notes_state(parse_flag(value)),
+            "canHoldAudio" => track.set_can_hold_audio_state(parse_flag(value)),
             "type" => match ChannelType::from_name(value.trim()) {
                 Some(t) => {
                     track.set_type(t);
@@ -1865,6 +1868,61 @@ mod tests {
                 BackendCall::DoubleArg("project".into(), "cueVolume/inc".into(), change),
                 BackendCall::NoArg("project".into(), "cueMix/reset".into()),
                 BackendCall::IntArg("project".into(), "cueMix/touch".into(), 1),
+            ]
+        );
+    }
+
+    /// ChannelImpl / TrackImpl / SendImpl of the Java version for Bitwig: activation of tracks
+    /// and the master, monitoring, can hold notes/audio, send colors, VU clip state, solo toggle,
+    /// indications.
+    #[test]
+    fn host_tracks_and_channels() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/track/count 2",
+                "/track/0/exists 1",
+                "/track/1/exists 1",
+                "/track/0/active 0",
+                "/master/active 0",
+                "/track/0/monitor 1",
+                "/track/0/canHoldNotes 0",
+                "/track/0/canHoldAudio 1",
+                "/track/0/send/count 1",
+                "/track/0/send/0/name FX",
+                "/track/0/send/0/color 255 0 0",
+                "/track/1/vuleft 0.995",
+                "/track/1/vuright 0.5",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let tb = model.track_bank();
+        let track = tb.item(0);
+        assert!(!track.is_activated() && track.is_monitor() && !track.can_hold_notes() && track.can_hold_audio_data());
+        assert!(tb.item(1).can_hold_notes());
+        assert!(!tb.master().is_activated());
+        assert_eq!(track.send_bank().item(0).color(), ColorEx::RED);
+        assert!(tb.item(1).vu_left_clip_state() && !tb.item(1).vu_right_clip_state() && tb.item(1).vu_clip_state());
+        backend.take_calls();
+        let tb = model.track_bank_mut();
+        tb.item_mut(1).toggle_solo();
+        tb.item_mut(1).set_volume_indication(true);
+        tb.item_mut(1).set_pan_indication(false);
+        tb.item_mut(0).send_bank_mut().item_mut(0).set_indication(true);
+        tb.master_mut().set_is_activated(true);
+        tb.set_indication(true);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "1/solo/toggle".into()),
+                BackendCall::IntArg("track".into(), "1/volume/indicate".into(), 1),
+                BackendCall::IntArg("track".into(), "1/pan/indicate".into(), 0),
+                BackendCall::IntArg("track".into(), "0/send/0/volume/indicate".into(), 1),
+                BackendCall::IntArg("master".into(), "active".into(), 1),
+                BackendCall::IntArg("track".into(), "indicate".into(), 1),
             ]
         );
     }

@@ -252,6 +252,9 @@ public final class BitwigModel
             track.isGroupExpanded ().markInterested ();
             track.arm ().markInterested ();
             track.monitorMode ().markInterested ();
+            track.isMonitoring ().markInterested ();
+            track.canHoldNoteData ().markInterested ();
+            track.canHoldAudioData ().markInterested ();
             track.addVuMeterObserver (VU_RANGE, 0, true, value -> this.trackVuLeft[index] = value);
             track.addVuMeterObserver (VU_RANGE, 1, true, value -> this.trackVuRight[index] = value);
             track.isStopped ().markInterested ();
@@ -278,6 +281,7 @@ public final class BitwigModel
                 send.value ().markInterested ();
                 send.displayedValue ().markInterested ();
                 send.isEnabled ().markInterested ();
+                send.sendChannelColor ().markInterested ();
             }
         }
 
@@ -348,6 +352,7 @@ public final class BitwigModel
         channel.color ().markInterested ();
         channel.mute ().markInterested ();
         channel.solo ().markInterested ();
+        channel.isActivated ().markInterested ();
         markParameter (channel.volume ());
         markParameter (channel.pan ());
     }
@@ -544,8 +549,11 @@ public final class BitwigModel
             reporter.put (prefix + "select", position == selected);
             reporter.put (prefix + "recarm", track.arm ().get ());
             final String monitorMode = track.monitorMode ().get ();
-            reporter.put (prefix + "monitor", "ON".equals (monitorMode));
+            // TrackImpl.isMonitor: the effective monitoring (also AUTO while armed)
+            reporter.put (prefix + "monitor", track.isMonitoring ().get ());
             reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
+            reporter.put (prefix + "canHoldNotes", track.canHoldNoteData ().get ());
+            reporter.put (prefix + "canHoldAudio", track.canHoldAudioData ().get ());
             reportVu (reporter, prefix, this.trackVuLeft[i], this.trackVuRight[i]);
             collectChannel (reporter, prefix, track, true);
 
@@ -558,6 +566,8 @@ public final class BitwigModel
                 reporter.put (sendPrefix + "volume", send.value ().get ());
                 putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
                 reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+                // SendImpl.getColor: sendChannelColor ()
+                reporter.putColor (sendPrefix + "color", send.sendChannelColor ().red (), send.sendChannelColor ().green (), send.sendChannelColor ().blue ());
             }
             reporter.put (prefix + "send/count", sendCount);
             this.collectSlots (reporter, prefix, track, sceneOffset, sceneTotal);
@@ -746,6 +756,8 @@ public final class BitwigModel
         reporter.putColor (prefix + "color", channel.color ().red (), channel.color ().green (), channel.color ().blue ());
         reporter.put (prefix + "mute", channel.mute ().get ());
         reporter.put (prefix + "solo", channel.solo ().get ());
+        // ChannelImpl.isActivated
+        reporter.put (prefix + "active", channel.isActivated ().get ());
         reporter.put (prefix + "volume", channel.volume ().value ().get ());
         if (limited)
             putDisplayedValue (reporter, prefix + "volume/str", channel.volume ().displayedValue (), true);

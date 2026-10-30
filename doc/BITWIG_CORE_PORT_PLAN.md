@@ -264,6 +264,12 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   each track). For Reaper: `project unsoloAll|unmuteAll` (Reaper actions 40340 / 40339), report
   `/project/hasSolo|hasMute`, `/layout` (the screenset), `/project/engine`. The cue volume, cue mix
   and the arranger/mixer flags do not exist in Reaper (they stay false / do not exist).
+- **P2 tracks and channels:** solo toggle, indications, VU clip state and the master activation
+  are behind the host check (the Reaper backend has no `solo/toggle`, `…/indicate`, `track indicate`).
+  For Reaper: `<channel> solo/toggle` (toggle with Reaper's solo mode), report `/track/<p>/active` and
+  `/master/active` (Reaper tracks cannot be deactivated: report 1 or the bypass of the FX chain),
+  `canHoldNotes|canHoldAudio` (1, 1), `send/<s>/color` (the color of the receiving track).
+  `can_hold_notes`/`can_hold_audio_data` stay true without a report.
 
 ## Replays to record again
 
@@ -282,3 +288,11 @@ them again from a worktree run, see Verification):
   `tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-global-rust.rec` (P2
   project): clearing solo/mute sends `project unsoloAll` / `project unmuteAll` (ProjectImpl)
   instead of `track <p>/solo 0` / `mute 0` for every known track.
+- `…/launchcontrol_xl/replay/novation_launch_control_xl-track_mix-rust.rec`,
+  `…/maschine_jam/replay/native_instruments_maschine_jam-global-rust.rec`,
+  `…/maschine_mk2/replay/native_instruments_maschine_mk2-global-rust.rec` (P2 tracks): the solo
+  button sends `track <p>/solo/toggle` (`toggleUsingPreferences`) instead of `track <p>/solo 1`;
+  the core no longer sets the solo locally, so the LED follows one tick later, when Bitwig reports it.
+- `…/maschine_jam/replay/native_instruments_maschine_jam-global-rust.rec` (P2 transport): punch in
+  toggles with `transport togglePunchIn` (`isPunchInEnabled ().toggle ()`) instead of
+  `transport punchIn 1`.

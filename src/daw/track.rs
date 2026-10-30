@@ -38,6 +38,9 @@ pub struct Track {
     is_overdub: bool,
     parameter_bank: Option<ParameterBank>,
     crossfader: Option<Parameter>,
+    /// `canHoldNoteData ()` / `canHoldAudioData ()` reported by the host (Bitwig).
+    host_can_hold_notes: Option<bool>,
+    host_can_hold_audio: Option<bool>,
 }
 
 impl Track {
@@ -67,6 +70,8 @@ impl Track {
                 None
             },
             crossfader: None,
+            host_can_hold_notes: None,
+            host_can_hold_audio: None,
         }
     }
 
@@ -231,12 +236,14 @@ impl Track {
 
     /// All Reaper tracks can hold notes (false for empty tracks).
     pub fn can_hold_notes(&self) -> bool {
-        self.channel.kind != ChannelKind::Empty
+        // TrackImpl.canHoldNotes: track.canHoldNoteData () (Bitwig)
+        self.channel.kind != ChannelKind::Empty && self.host_can_hold_notes.unwrap_or(true)
     }
 
     /// All Reaper tracks can hold audio (false for empty tracks).
     pub fn can_hold_audio_data(&self) -> bool {
-        self.channel.kind != ChannelKind::Empty
+        // TrackImpl.canHoldAudioData: track.canHoldAudioData () (Bitwig)
+        self.channel.kind != ChannelKind::Empty && self.host_can_hold_audio.unwrap_or(true)
     }
 
     /// Not supported.
@@ -355,6 +362,14 @@ impl Track {
     pub fn set_rec_arm_state(&mut self, is_rec_arm: bool) {
         self.is_rec_arm = is_rec_arm;
         self.slot_bank.set_track_info(self.channel.position, self.is_rec_arm);
+    }
+
+    pub fn set_can_hold_notes_state(&mut self, value: bool) {
+        self.host_can_hold_notes = Some(value);
+    }
+
+    pub fn set_can_hold_audio_state(&mut self, value: bool) {
+        self.host_can_hold_audio = Some(value);
     }
 
     pub fn set_monitor_state(&mut self, monitor: bool) {

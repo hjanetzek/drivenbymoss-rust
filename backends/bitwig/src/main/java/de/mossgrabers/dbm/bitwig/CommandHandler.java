@@ -831,6 +831,12 @@ public final class CommandHandler
      */
     private void handleTrack (final String command, final double value, final String text)
     {
+        // AbstractTrackBankImpl.setIndication
+        if ("indicate".equals (command))
+        {
+            this.model.trackBank.setShouldShowClipLauncherFeedback (value > 0);
+            return;
+        }
         final int slash = command.indexOf ('/');
         final int index = slash > 0 ? parseIndex (command.substring (0, slash)) : -1;
         final Track track = this.model.getTrack (index);
@@ -1000,13 +1006,19 @@ public final class CommandHandler
     private void handleSend (final Track track, final String command, final double value)
     {
         final String [] parts = command.split ("/");
-        final int index = parts.length == 3 ? parseIndex (parts[1]) : -1;
+        final int index = parts.length >= 3 ? parseIndex (parts[1]) : -1;
         if (index < 0 || index >= this.model.numSends)
         {
             this.unhandled.accept ("track send " + command);
             return;
         }
         final Parameter send = track.sendBank ().getItemAt (index);
+        // "send/<index>/volume/indicate": ParameterImpl.setIndication
+        if (parts.length == 4 && "volume".equals (parts[2]) && "indicate".equals (parts[3]))
+        {
+            send.setIndication (value > 0);
+            return;
+        }
         switch (parts[2])
         {
             case "volume" -> this.setValue (send, value);
@@ -1031,6 +1043,11 @@ public final class CommandHandler
             case "mute" -> channel.mute ().set (value > 0);
             case "active" -> channel.isActivated ().set (value > 0);
             case "solo" -> channel.solo ().set (value > 0);
+            // ChannelImpl.toggleSolo
+            case "solo/toggle" -> channel.solo ().toggleUsingPreferences (false);
+            // ParameterImpl.setIndication of the volume and panorama
+            case "volume/indicate" -> channel.volume ().setIndication (value > 0);
+            case "pan/indicate" -> channel.pan ().setIndication (value > 0);
             case "volume" -> this.setValue (channel.volume (), value);
             case "pan" -> this.setValue (channel.pan (), value);
             case "volume/touch" -> channel.volume ().touch (value > 0);
