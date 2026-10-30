@@ -2,7 +2,7 @@
 # See doc/CONFORMANCE_TESTING_PLAN.md. Run with backends/bitwig/tools/conformance_runner.py.
 #
 # Fixture: the selected track is an instrument track with a synth which has at least two remote
-# control pages; an empty launcher clip of one bar is selected (the cursor clip). The Java OSC
+# control pages; an empty launcher clip of one bar is selected (the cursor clip, no notes). The Java OSC
 # controller sends to port 9000, the "Conformance Probe (Rust)" controller is added. The
 # controller under test (Java or Rust) uses the virtual MIDI port as input and output.
 
@@ -10,17 +10,39 @@ controller = "Novation Launch Control XL"
 manual = "Novation/Novation-LaunchControlXL.md#note-sequencer---5th-factory-template"
 settle_ms = 400
 
+# The fixture (checked before the scenarios run)
+require = { "/primary/exists" = "1", "/primary/page/2/exists" = "1", "/clip/exists" = "1", "/clip/step/*" = "0" }
+
+# Before the scenarios: a template change makes the controller redraw all LEDs, so that both
+# versions start from the same LED state
+setup = [
+  { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
+  { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
+  # Send Select previous = previous scale: go to the first scale (Major), the scale is a setting
+  { midi = "BC 68 7F | BC 68 00", repeat = 45, interval_ms = 20, note = "first scale" },
+]
+
 # The device confirms a template selection with the same message
 [[stub]]
 match = "F0 00 20 29 02 11 77 ?? F7"
 reply = "echo"
 
+# The Java version registers the same note edit mode in the main and the fader mode manager: on a
+# template change it is deactivated twice and remembers the track button mode of the new main
+# mode (track mute of the Mixer). After a template round trip its Track Control row shows track
+# mutes instead of the step mutes of the manual. Rust follows the manual. See
+# doc/BITWIG_DIVERGENCES.md.
+[[known_difference]]
+match = "leds 9C [45][9ABC]"
+reason = "Java bug: Note Sequencer Track Control row shows track mutes after a template change"
+
 [[scenario]]
 id = "lcxl.noteseq.device-page"
 bullet = "Device (yellow): Keep the device button pressed to select one of the 1st 8 parameter pages of the first instrument device."
 steps = [
-  { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
   { midi = "9C 69 7F", note = "hold Device" },
+  { midi = "9C 49 7F", note = "Track Control 1" },
+  { midi = "8C 49 00" },
   { midi = "9C 4A 7F", note = "Track Control 2" },
   { midi = "8C 4A 00" },
   { midi = "8C 69 00", note = "release Device" },

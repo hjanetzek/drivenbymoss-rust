@@ -1,8 +1,11 @@
 # Conformance testing against the Java DrivenByMoss: plan
 
-Status: 2026-10-30, step 1 in progress: the runner (`backends/bitwig/tools/conformance_runner.py`),
-the probe (`ProbeExtension` in the Bitwig extension) and the first scenarios
-(`tests/conformance/launchcontrol_xl/note_sequencer.toml`) exist; not yet run against Bitwig.
+Status: 2026-10-30, step 1 done: the runner (`backends/bitwig/tools/conformance_runner.py`), the
+OSC conformance module (branch `conformance-osc` of the Java repository), the probe
+(`ProbeExtension`) and the first scenarios (`tests/conformance/launchcontrol_xl/note_sequencer.toml`).
+The first pair run found the master track twice (fixed) and a Java bug (Note Sequencer Track
+Control row after a template change, a known difference); after that Java and Rust were the same
+in all five scenarios.
 
 Setup for a run (Linux):
 
@@ -20,6 +23,11 @@ Setup for a run (Linux):
    ../../../tests/conformance/launchcontrol_xl/note_sequencer.toml --label java --port "VirMIDI 5-2"`,
    the same with `--label rust` after switching the controller, then
    `./conformance_runner.py compare <java trace> <rust trace>` (traces in `target/conformance`).
+   With both controllers active, each on its own port: `./conformance_runner.py pair
+   <scenarios> --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-1"` records both and compares.
+   A scenario file can have `setup` steps (run once before the scenarios, e.g. a template change
+   and the first scale), a `require` check of the fixture, and `[[known_difference]]` entries
+   (`match` = pattern of `<bitwig|leds> <key>`, `reason`) which are reported but do not fail.
    Nothing else may listen on UDP 9000 (e.g. `osc_monitor.py`).
 
 ## 1. Goal
@@ -157,6 +165,19 @@ device port in Bitwig's controller settings. NI controllers already go through `
 `--virmidi`; the runner sends the MIDI that `dbm-nihost` would send, and reads the LED and
 display output from it. Only one of the two controller extensions is active at a time, on the
 same ports.
+
+**Same starting state.** Both extensions keep state between scenarios and runs: modes they
+remember (e.g. the track button mode per main mode of the Launch Control XL), the scale and other
+settings (Java: Bitwig's preferences, Rust: `~/.config/DrivenByMoss-Bitwig`). Before a pair run
+both controllers are restarted (deactivated and activated in Bitwig) and their settings are the
+same; the `setup` steps of a scenario file then bring them into the state the scenarios start
+from (e.g. a template change for a full LED redraw). The first pair run (2026-10-30, Launch
+Control XL Note Sequencer) had identical Bitwig states in all steps, but LED differences which
+came from a Java extension with state from earlier manual tests.
+
+Running both extensions at the same time is fine, each on its own virtual port; the runner only
+drives one at a time (`pair`). Bitwig does not reopen a port which was busy when a controller
+was activated: activate the controller again after the port is free.
 
 ## 5. Replay in `cargo test`
 

@@ -129,3 +129,19 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   the step grid of the host. Still limited to the Reaper attributes: the Maschine edit note mode
   (`mk/mode/edit_note.rs`: velocity spread, release velocity, chance, occurrence, gain, pan,
   transpose, timbre, pressure) and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`).
+- **Launch Control XL, Note Sequencer Track Control row after a template change (Java bug):**
+  the Java version registers the same note edit mode object (`noteEditMode`, also
+  `drumPadEditMode`) in the main and in the fader mode manager. On a template change it is
+  deactivated twice; the second `XLAbstractMainMode.onDeactivate` stores the track button mode
+  which the new main mode has just activated (track mute of the Mixer), and the next activation
+  restores it. After going to another template and back, the Track Control row of the Note
+  Sequencer shows and toggles the track mutes instead of the mute state of the steps (manual:
+  "Mute/Solo/Rec Arm buttons are off: Press to toggle the mute state of the note of the step").
+  The Rust port registers separate fader modes and follows the manual. Found by the conformance
+  runner 2026-10-30 (`tests/conformance/launchcontrol_xl/note_sequencer.toml`).
+- **Master track twice (fixed 2026-10-30):** the extension always created Bitwig's full track
+  bank (with effect tracks and the master) and the core added its own master for a full flat
+  track list, so the master appeared twice (Maschine Mk2/JAM, the 8th track of the Launch Control
+  XL Mixer). Now the extension creates the main track bank unless `hasFullFlatTrackList`, as
+  `ModelImpl` of the Java version, and the core adds the master only if the host does not list
+  one (Reaper).

@@ -128,7 +128,12 @@ public final class BitwigModel
         this.application = host.createApplication ();
         this.arranger = host.createArranger ();
         this.mixer = host.createMixer ();
-        this.trackBank = host.createTrackBank (this.numTracks, this.numSends, this.numScenes, true);
+        // As ModelImpl of the Java version: with effect tracks and the master only for a full
+        // flat track list
+        if (getBoolean (modelSetup, "hasFullFlatTrackList", false))
+            this.trackBank = host.createTrackBank (this.numTracks, this.numSends, this.numScenes, true);
+        else
+            this.trackBank = host.createMainTrackBank (this.numTracks, this.numSends, this.numScenes);
         this.largeTrackBank = host.createTrackBank (NUM_LARGE_TRACKS, 0, 0, true);
         this.sceneBank = this.trackBank.sceneBank ();
         this.project = host.getProject ();

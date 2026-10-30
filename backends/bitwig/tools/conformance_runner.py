@@ -17,6 +17,7 @@
 #   conformance_runner.py ports
 #   conformance_runner.py record SCENARIOS.toml --label java|rust --port "VirMIDI 5-2" [--out DIR]
 #   conformance_runner.py compare ORACLE.json PORT.json
+#   conformance_runner.py pair SCENARIOS.toml --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-1"
 #
 # "record" writes DIR/<controller>-<label>.json and checks the expectations of the scenarios;
 # "compare" compares the run of the port with the run of the oracle.
@@ -59,6 +60,11 @@ class StateListener:
             self.sockets.append(sock)
             threading.Thread(target=self._receive, args=(sock, handler), daemon=True).start()
         self.request_dump()
+
+    def stop(self):
+        for sock in self.sockets:
+            sock.close()
+        self.sockets = []
 
     def request_dump(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -169,17 +175,36 @@ def diff(before, after):
     return {k: v for k, v in after.items() if before.get(k) != v}
 
 
-def record(args):
+def record(args, listener=None):
     config = tomllib.loads(Path(args.scenarios).read_text())
     settle = config.get("settle_ms", DEFAULT_SETTLE_MS) / 1000.0
-    listener = StateListener()
-    listener.start()
+    own_listener = listener is None
+    if own_listener:
+        listener = StateListener()
+        listener.start()
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
     try:
         time.sleep(1.0)
         led_state(port.take(), leds)
-        trace = {"controller": config["controller"], "manual": config.get("manual", ""), "label": args.label, "scenarios": []}
+        # The fixture must be loaded, otherwise the scenarios fail for the wrong reason
+        missing = check_expectations({"expect": {"bitwig": config.get("require", {})}}, {"bitwig": listener.snapshot(), "leds": {}})
+        if missing:
+            print("The fixture is not ready:")
+            for problem in missing:
+                print(f"       {problem}")
+            return 2
+        # Bring the controller into a known state, e.g. a full redraw of the LEDs
+        for step in config.get("setup", []):
+            # "repeat" sends the messages of "midi" (separated by "|") several times
+            for _ in range(step.get("repeat", 1)):
+                for message in step.get("midi", "").split("|"):
+                    if message.strip():
+                        port.send(parse_hex(message))
+                        time.sleep(step.get("interval_ms", 0) / 1000.0)
+            time.sleep(step.get("wait_ms", 0) / 1000.0 + settle)
+        led_state(port.take(), leds)
+        trace = {"controller": config["controller"], "manual": config.get("manual", ""), "label": args.label, "scenarios": [], "known_differences": config.get("known_difference", [])}
         failures = 0
         for scenario in config["scenario"]:
             listener.request_dump()
@@ -206,6 +231,8 @@ def record(args):
             trace["scenarios"].append(entry)
     finally:
         port.close()
+        if own_listener:
+            listener.stop()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -218,14 +245,15 @@ def record(args):
 
 def check_expectations(scenario, final):
     """Check the expectations: "bitwig" maps addresses (OSC unless prefixed with "probe:", may
-    contain wildcards, the first match counts) to a value or to { field = n, value = v } for the
-    n-th value of a line (e.g. of a step of the probe); "leds" maps output keys to values."""
+    contain wildcards: the first match which is not "0" counts, e.g. the step with a note, so
+    "0" means that no match has a value) to a value or to { field = n, value = v } for the n-th
+    value of a line (e.g. of a clip step); "leds" maps output keys to values."""
     problems = []
     expect = scenario.get("expect", {})
     for address, value in expect.get("bitwig", {}).items():
         key = address if ":" in address else "osc:" + address
-        matching = sorted(k for k in final["bitwig"] if fnmatch.fnmatchcase(k, key))
-        actual = final["bitwig"].get(matching[0]) if matching else None
+        matching = sorted(k for k in final["bitwig"] if fnmatch.fnmatchcase(k, key) and final["bitwig"][k] != "0")
+        actual = final["bitwig"][matching[0]] if matching else None
         if isinstance(value, dict):
             fields = (actual or "").split()
             actual = fields[value["field"]] if value["field"] < len(fields) else None
@@ -258,6 +286,9 @@ def compare(args):
     port = json.loads(Path(args.port).read_text())
     ignore = DEFAULT_IGNORE + list(args.ignore or [])
     port_scenarios = {s["id"]: s for s in port["scenarios"]}
+    # Known differences (e.g. bugs of the Java version): "match" is a pattern of "<kind> <key>"
+    known = oracle.get("known_differences", [])
+    known_seen = {}
     print(f"{oracle['controller']}: {oracle['label']} ({oracle.get('version')}) vs. {port['label']} ({port.get('version')})")
     failures = 0
     for scenario in oracle["scenarios"]:
@@ -274,6 +305,10 @@ def compare(args):
                     if kind == "bitwig" and ignored(key, ignore):
                         continue
                     if not same_value(a[kind].get(key), b[kind].get(key)):
+                        rule = next((k for k in known if fnmatch.fnmatchcase(f"{kind} {key}", k["match"])), None)
+                        if rule is not None:
+                            known_seen[rule["match"]] = rule.get("reason", "")
+                            continue
                         differences.append(f"step {index + 1} ({label}) {kind} {key}: {a[kind].get(key)} | {b[kind].get(key)}")
         if len(scenario["steps"]) != len(other["steps"]):
             differences.append(f"different number of steps: {len(scenario['steps'])} | {len(other['steps'])}")
@@ -281,12 +316,34 @@ def compare(args):
         print(f"{'DIFF' if differences else 'same'} {scenario['id']}")
         for line in differences:
             print(f"       {line}")
+    for pattern, reason in known_seen.items():
+        print(f"KNOWN {pattern}: {reason}")
     return 1 if failures else 0
 
 
 def ignored(key, patterns):
     address = key.split(":", 1)[-1]
     return any(fnmatch.fnmatch(address, p) for p in patterns)
+
+
+def pair(args):
+    """Record the oracle and the port (both extensions active, each on its own MIDI port), then
+    compare."""
+    import types
+
+    paths = []
+    # One listener for both runs: the UDP ports are not free again right after closing them
+    listener = StateListener()
+    listener.start()
+    for label, port in (("java", args.java_port), ("rust", args.rust_port)):
+        print(f"--- {label} on {port}")
+        result = record(types.SimpleNamespace(scenarios=args.scenarios, label=label, port=port, out=args.out), listener)
+        if result == 2:
+            return result
+        config = tomllib.loads(Path(args.scenarios).read_text())
+        paths.append(Path(args.out) / (config["controller"].lower().replace(" ", "_") + f"-{label}.json"))
+    print("--- compare")
+    return compare(types.SimpleNamespace(oracle=paths[0], port=paths[1], ignore=args.ignore))
 
 
 def list_ports(_args):
@@ -307,6 +364,13 @@ def main():
     rec.add_argument("--port", required=True, help="part of the name of the virtual MIDI port")
     rec.add_argument("--out", default="target/conformance")
     rec.set_defaults(func=record)
+    both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
+    both.add_argument("scenarios")
+    both.add_argument("--java-port", required=True)
+    both.add_argument("--rust-port", required=True)
+    both.add_argument("--out", default="target/conformance")
+    both.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
+    both.set_defaults(func=pair)
     cmp = commands.add_parser("compare", help="compare the trace of the port with the oracle")
     cmp.add_argument("oracle")
     cmp.add_argument("port")

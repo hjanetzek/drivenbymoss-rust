@@ -536,7 +536,13 @@ impl Parser {
                 }
             }
             "type" => match ChannelType::from_name(value.trim()) {
-                Some(t) => track.set_type(t),
+                Some(t) => {
+                    track.set_type(t);
+                    // A master in the track list of the host replaces the one of the core
+                    if t == ChannelType::Master {
+                        tb.mark_dirty();
+                    }
+                }
                 None => host.error(&format!("Unknown channel type: {value}")),
             },
             "isGroupExpanded" => {
@@ -1697,6 +1703,21 @@ mod tests {
             backend.take_calls(),
             vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
         );
+    }
+
+    #[test]
+    fn full_flat_track_list_with_the_master_of_the_host() {
+        let setup = ModelSetup { has_full_flat_track_list: true, ..ModelSetup::default() };
+        // Reaper: the core adds the master to the end of the list
+        let (mut model, mut parser, _backend, _log) = create(setup.clone());
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1"]);
+        model.track_bank_mut().recalc_if_dirty();
+        assert_eq!(model.track_bank().item_count(), 3);
+        // Bitwig: the master is part of the track list of the host and not added again
+        let (mut model, mut parser, _backend, _log) = create(setup);
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/1/type MASTER"]);
+        model.track_bank_mut().recalc_if_dirty();
+        assert_eq!(model.track_bank().item_count(), 2);
     }
 
     #[test]

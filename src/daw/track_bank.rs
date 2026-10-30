@@ -619,7 +619,10 @@ impl TrackBank {
             }
             self.view.push(Entry::Track(p));
         }
-        if self.has_full_flat_track_list {
+        // Bitwig lists its master (and the effect tracks) in the full flat track list itself
+        // (createTrackBank of the Java version); Reaper does not, then the core adds it
+        let host_lists_master = self.tracks[..self.raw_item_count.min(self.tracks.len())].iter().any(|t| t.channel_type() == ChannelType::Master);
+        if self.has_full_flat_track_list && !host_lists_master {
             self.view.push(Entry::Master);
         }
         let ps = self.page_size.max(1);
