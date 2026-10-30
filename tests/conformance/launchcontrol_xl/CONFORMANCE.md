@@ -32,8 +32,7 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 
 | Area | Java | Rust | Status |
 | --- | --- | --- | --- |
-| Template change: LEDs of the previous template | turned off | left on | Rust difference |
-| Drum Sequencer (Java run): Track Control row | arms tracks for recording | steps | the Java bug of the Note Sequencer (below) also hits the Drum Sequencer (`drumPadEditMode` registered twice); the Java controller has to be restarted before a run, otherwise its Drum Sequencer scenarios fail |
+| Runs of several files: LEDs of other templates, Layer Mix and sequencer results | depends on the history | depends on the history | both remember modes and the active template; the controllers must be restarted before each recording (`--restart`), but touching the Java extension did not restart the Java controller in a check (no MIDI within 40 s); to be solved |
 
 ## Known differences (not bugs of the port)
 
@@ -44,8 +43,21 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 | Equalizer: Send A knob to the center | band stays off | Bell (as the manual) | takeover mode catch: Java's knob sets the EQ+ type parameter (16 values) and its jump is caught; Rust selects one of the 7 types (as the Java version for Reaper) with a command |
 | Layer Mix with an Instrument Layer of 2 layers: Track Select "previous" LED | on | off | there is no previous page; Java takes it from Bitwig's layer bank (`canScrollPageBackwards`), Rust from its paging over all layers |
 
+## Possible Java bugs (to decide later)
+
+Behaviour of the Java version which looks wrong. The port does not copy it; listed here (and as
+known differences of the scenario files) until it is decided what to do with it.
+
+| Area | Java | Rust | Java code |
+| --- | --- | --- | --- |
+| Note and Drum Sequencer: Track Control row after a template change | track mutes or record arm | step mutes | the edit mode is registered in the main and in the fader mode manager (`LaunchControlXLControllerSetup.createModes`), see BITWIG_DIVERGENCES.md §8 |
+| Equalizer: band type knob with the takeover mode catch | a jump of the knob is ignored, "center is Bell" (manual) does not hold | selects one of the 7 types | `XLEqMode`: the knob sets the EQ+ type parameter (16 values) as a continuous parameter; maybe intended |
+| Sequencers: console errors | "Illegal index accessing step info array", `ArrayIndexOutOfBoundsException` (about 240000 times in Bitwig's log of 2026-10-30, during the Launch Control XL runs) | - | not located yet |
+
 ## Fixed by the comparison
 
+- Equalizer: activating the template did not add an EQ+ to a selected track without one, only a
+  track selection did; the port missed `XLEqMode.onActivate` (2026-10-30).
 - Equalizer: all knob LEDs were off, the extension did not support the EQ. It now reports the
   first EQ+ of the cursor track as EqualizerDeviceImpl of the Java version (BITWIG_DIVERGENCES.md
   §6) (2026-10-30).

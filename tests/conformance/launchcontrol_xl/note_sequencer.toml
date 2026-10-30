@@ -14,6 +14,7 @@ require = { "/track/1/name" = "Synth", "/primary/exists" = "1", "/primary/page/2
 # Before the scenarios: a template change makes the controller redraw all LEDs, so that both
 # versions start from the same LED state
 setup = [
+  { midi = "F0 00 20 29 02 11 77 00 F7", note = "user template 1: no mode reacts on the track selection, and the next template is a change for both" },
   { osc = "/track/bank/page/- | /track/1/select 1 | /track/1/clip/1/select", note = "track Synth, its clip" },
   { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
   { midi = "F0 00 20 29 02 11 77 0C F7", note = "factory template 5" },
@@ -31,6 +32,10 @@ reply = "echo"
 # mode (track mute of the Mixer). After a template round trip its Track Control row shows track
 # mutes instead of the step mutes of the manual. Rust follows the manual. See
 # doc/BITWIG_DIVERGENCES.md.
+[[known_difference]]
+match = "leds [89B]0 *"
+reason = "User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller"
+
 [[known_difference]]
 match = "leds 9C [45][9ABC]"
 reason = "Java bug: Note Sequencer Track Control row shows track mutes after a template change"

@@ -279,6 +279,25 @@ fn equalizer_template_controls_the_eq() {
     assert!(calls.iter().any(|c| matches!(c, BackendCall::StringArg(p, cmd, v) if p == "eq" && cmd == "band/0" && v == "6")), "{calls:?}");
 }
 
+/// Activating the Equalizer adds an equalizer to the selected track if it has none
+/// (`XLEqMode.onActivate`), but not again when the knobs are rebound.
+#[test]
+fn equalizer_template_adds_a_missing_eq() {
+    let (mut app, backend) = start("eq-add", 8);
+    select_template(&mut app, 9);
+    app.tick();
+    assert!(has_call(&backend.take_calls(), "eq", "add"));
+    app.update_model("device/param/count 16\n");
+    app.tick();
+    assert!(!has_call(&backend.take_calls(), "eq", "add"));
+    // With an equalizer
+    app.update_model("eq/exists 1\n");
+    select_template(&mut app, 8);
+    select_template(&mut app, 9);
+    app.tick();
+    assert!(!has_call(&backend.take_calls(), "eq", "add"));
+}
+
 #[test]
 fn track_mix_mode_selects_parameter_banks_with_device_and_cursor() {
     let (mut app, backend) = start("parambanks", 8);

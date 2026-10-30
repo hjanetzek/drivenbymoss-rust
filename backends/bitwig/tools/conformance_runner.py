@@ -212,6 +212,14 @@ def record(args, listener=None):
     if own_listener:
         listener = StateListener()
         listener.start()
+    restart = getattr(args, "restart", 0)
+    if restart:
+        # A fresh controller: both remember modes (e.g. the track button mode), and the Java
+        # version has a bug which shows after template changes (CONFORMANCE.md)
+        restart_file = Path(args.java_restart_file if args.label == "java" else args.rust_restart_file).expanduser()
+        print(f"Restarting the controller ({restart_file.name}), waiting {restart} s")
+        restart_file.touch()
+        time.sleep(restart)
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
     name = run_name(config, args.scenarios) + f"-{args.label}"
@@ -393,7 +401,7 @@ def pair(args):
         config = tomllib.loads(Path(scenarios).read_text())
         for label, port in (("java", args.java_port), ("rust", args.rust_port)):
             print(f"--- {Path(scenarios).stem}: {label} on {port}")
-            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project), listener)
+            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project, restart=args.restart, java_restart_file=args.java_restart_file, rust_restart_file=args.rust_restart_file), listener)
             if result == 2:
                 return result
             paths.append(Path(args.out) / (run_name(config, scenarios) + f"-{label}.json"))
@@ -420,6 +428,9 @@ def main():
     rec.add_argument("--port", required=True, help="part of the name of the virtual MIDI port")
     rec.add_argument("--out", default="target/conformance")
     rec.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start with a new project from the default template (the fixture) and wait SECONDS for it")
+    rec.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (touch its extension or library, which Bitwig or the Rust extension reloads) and wait SECONDS for it")
+    rec.add_argument("--java-restart-file", default="~/Bitwig Studio/Extensions/DrivenByMoss.bwextension", help="touched to restart the Java controllers (also restarts the OSC observer)")
+    rec.add_argument("--rust-restart-file", default=str(Path(__file__).resolve().parents[3] / "target/debug/libdrivenbymoss.so"), help="touched to restart the Rust controller (dev mode)")
     rec.set_defaults(func=record)
     both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
     both.add_argument("scenarios", nargs="+")
@@ -427,6 +438,9 @@ def main():
     both.add_argument("--rust-port", required=True)
     both.add_argument("--out", default="target/conformance")
     both.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start each recording with a new project from the default template (the fixture) and wait SECONDS for it")
+    both.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (touch its extension or library, which Bitwig or the Rust extension reloads) and wait SECONDS for it")
+    both.add_argument("--java-restart-file", default="~/Bitwig Studio/Extensions/DrivenByMoss.bwextension", help="touched to restart the Java controllers (also restarts the OSC observer)")
+    both.add_argument("--rust-restart-file", default=str(Path(__file__).resolve().parents[3] / "target/debug/libdrivenbymoss.so"), help="touched to restart the Rust controller (dev mode)")
     both.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
     both.set_defaults(func=pair)
     cmp = commands.add_parser("compare", help="compare the trace of the port with the oracle")

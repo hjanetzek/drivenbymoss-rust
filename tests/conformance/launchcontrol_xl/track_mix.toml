@@ -8,8 +8,8 @@ settle_ms = 400
 require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ", "/primary/page/2/exists" = "1" }
 
 setup = [
+  { midi = "F0 00 20 29 02 11 77 00 F7", note = "user template 1: no mode reacts on the track selection, and the next template is a change for both" },
   { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
-  { midi = "F0 00 20 29 02 11 77 09 F7", note = "factory template 2" },
   { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
   # The track button mode is remembered by both versions: start with the Mute mode
   { midi = "98 6A 7F | 88 6A 00", note = "Mute mode" },
@@ -18,6 +18,10 @@ setup = [
 [[stub]]
 match = "F0 00 20 29 02 11 77 ?? F7"
 reply = "echo"
+
+[[known_difference]]
+match = "leds [89B]0 *"
+reason = "User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller"
 
 [[scenario]]
 id = "lcxl.mix.track-focus"

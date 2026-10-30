@@ -144,6 +144,12 @@ fn eq_track_selection_changed(ctx: &mut Ctx, is_selected: bool) {
     if !is_selected || !ctx.modes.is_active(Modes::EqDeviceParams) {
         return;
     }
+    add_missing_equalizer(ctx);
+}
+
+/// Add an equalizer to the selected track if it has none (part of the former
+/// `XLEqMode.trackSelectionChanged`, also called when the mode is activated).
+pub(crate) fn add_missing_equalizer(ctx: &mut Ctx) {
     if ctx.model.specific_device(DeviceId::Eq).is_some_and(|d| d.does_exist()) {
         return;
     }

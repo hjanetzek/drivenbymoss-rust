@@ -8,6 +8,7 @@ settle_ms = 400
 require = { "/track/4/name" = "EQ" }
 
 setup = [
+  { midi = "F0 00 20 29 02 11 77 00 F7", note = "user template 1: no mode reacts on the track selection, and the next template is a change for both" },
   { osc = "/track/bank/page/- | /track/4/select 1", note = "track EQ" },
   { midi = "F0 00 20 29 02 11 77 08 F7", note = "factory template 1" },
   { midi = "F0 00 20 29 02 11 77 09 F7", note = "factory template 2" },
@@ -16,6 +17,10 @@ setup = [
 [[stub]]
 match = "F0 00 20 29 02 11 77 ?? F7"
 reply = "echo"
+
+[[known_difference]]
+match = "leds [89B]0 *"
+reason = "User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller"
 
 [[known_difference]]
 match = "bitwig osc:/eq/type/*/value"

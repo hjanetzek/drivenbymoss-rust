@@ -852,6 +852,11 @@ impl Mode for XlMainMode {
         // mode; the Java version for Bitwig does not do this)
         if !self.is_active {
             self.is_active = true;
+            // XLEqMode.onActivate; not on the repeated activations, the equalizer added by the
+            // first might not be reported yet
+            if let MainKind::Eq = self.kind {
+                crate::controller::launchcontrol::setup::add_missing_equalizer(ctx);
+            }
             let track_modes = track_modes(ctx);
             ctx.set_active_mode_in(track_modes, self.track_mode.unwrap_or(self.default_mode));
         }

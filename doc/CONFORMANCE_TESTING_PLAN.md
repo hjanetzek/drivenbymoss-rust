@@ -39,7 +39,11 @@ Setup for a run (Linux):
 4. `cd backends/bitwig/tools && ./conformance_runner.py pair
    ../../../tests/conformance/launchcontrol_xl/*.toml --java-port "VirMIDI 5-2" --rust-port
    "VirMIDI 5-3"` records the Java and the Rust controller for each scenario file and compares
-   them (traces, LED states and recordings in `target/conformance`). Single runs:
+   them (traces, LED states and recordings in `target/conformance`). Add `--fresh-project 8
+   --restart 10`: `--restart <seconds>` restarts the controller before each recording (it
+   touches the installed Java extension, which Bitwig reloads together with the OSC observer, or
+   the dev library of the Rust core, which the Rust extension reloads) and waits for it, before
+   the MIDI port is opened. Single runs:
    `record <scenarios> --label java|rust --port <port>`, then `compare <java trace> <rust trace>`.
    A scenario file can have `setup` steps (once before the scenarios, e.g. a template change, the
    first scale and `osc` commands which select the fixture track), `before` steps per scenario
@@ -199,12 +203,17 @@ same ports.
 
 **Same starting state.** Both extensions keep state between scenarios and runs: modes they
 remember (e.g. the track button mode per main mode of the Launch Control XL), the scale and other
-settings (Java: Bitwig's preferences, Rust: `~/.config/DrivenByMoss-Bitwig`). Before a pair run
-both controllers are restarted (deactivated and activated in Bitwig) and their settings are the
-same; the `setup` steps of a scenario file then bring them into the state the scenarios start
+settings (Java: Bitwig's preferences, Rust: `~/.config/DrivenByMoss-Bitwig`). Before each recording
+the controller is restarted (`--restart`, or deactivated and activated in Bitwig) and the
+settings of both are the same; the `setup` steps of a scenario file then bring them into the state the scenarios start
 from (e.g. a template change for a full LED redraw). The first pair run (2026-10-30, Launch
 Control XL Note Sequencer) had identical Bitwig states in all steps, but LED differences which
-came from a Java extension with state from earlier manual tests.
+came from a Java extension with state from earlier manual tests. Runs of several scenario files
+without restarts showed many more such differences (2026-10-30): remembered track button modes,
+the LEDs written on a template change which was none for one of them (the template was already
+active), and the Java bug which shows after template changes (Launch Control XL CONFORMANCE.md).
+The `setup` steps also start with a user template, so that no mode of the previous file reacts
+on the track selection of the setup, and the following template is a change for both.
 
 Running both extensions at the same time is fine, each on its own virtual port; the runner only
 drives one at a time (`pair`). Bitwig does not reopen a port which was busy when a controller
