@@ -63,6 +63,9 @@ pub struct Parameter {
     default_value: i32,
     /// The modulated value reported by the host (Bitwig), `None` if not reported (Reaper).
     modulated: Option<f64>,
+    /// The displayed value shortened by the host for some lengths (Bitwig: `getLimited`, which
+    /// shortens in its own way, e.g. drops the unit), empty if not reported (Reaper).
+    limited_value_strs: Vec<(usize, String)>,
     /// The value is sent to be applied immediately, without the takeover mode of the host
     /// (see [`Parameter::set_value_immediatly`]).
     immediately: bool,
@@ -89,6 +92,7 @@ impl Parameter {
             number_of_steps: 0,
             default_value,
             modulated: None,
+            limited_value_strs: Vec::new(),
         };
         match kind {
             ParameterKind::TrackVolume | ParameterKind::DeviceChannelVolume(..) => p.name = "Volume".into(),
@@ -162,9 +166,15 @@ impl Parameter {
         }
     }
 
-    /// The displayed value (not shortened, as in the Java implementation).
-    pub fn displayed_value_limited(&self, _limit: usize) -> String {
-        self.displayed_value()
+    /// The displayed value shortened by the host for the length (Bitwig), otherwise not
+    /// shortened (as the Java version for Reaper).
+    pub fn displayed_value_limited(&self, limit: usize) -> String {
+        self.host_limited_value_str(limit).map_or_else(|| self.displayed_value(), str::to_string)
+    }
+
+    /// The displayed value shortened by the host for the length, if reported (Bitwig).
+    pub fn host_limited_value_str(&self, limit: usize) -> Option<&str> {
+        self.limited_value_strs.iter().find(|(l, _)| *l == limit).map(|(_, s)| s.as_str())
     }
 
     /// The value in the range of the value changer.
@@ -366,6 +376,14 @@ impl Parameter {
 
     pub fn set_value_str(&mut self, value_str: &str) {
         self.value_str = value_str.to_string();
+    }
+
+    /// The host reported the displayed value shortened for the length (Bitwig).
+    pub fn set_limited_value_str(&mut self, limit: usize, value_str: &str) {
+        match self.limited_value_strs.iter_mut().find(|(l, _)| *l == limit) {
+            Some(entry) => entry.1 = value_str.to_string(),
+            None => self.limited_value_strs.push((limit, value_str.to_string())),
+        }
     }
 
     pub fn set_internal_name(&mut self, name: &str) {

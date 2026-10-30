@@ -95,6 +95,11 @@ fn parse_int(value: &str) -> Option<i32> {
     v.parse::<i32>().ok().or_else(|| v.parse::<f64>().ok().map(|d| d as i32))
 }
 
+/// The length of a shortened text: "&lt;value&gt;/str/&lt;length&gt;" (Bitwig, `getLimited`).
+fn parse_limit(parts: &mut Parts) -> Option<usize> {
+    parts.poll().and_then(|p| p.parse().ok())
+}
+
 fn parse_index(value: &str) -> Option<usize> {
     let v = value.trim();
     if v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
@@ -602,7 +607,10 @@ impl Parser {
                         track.set_internal_volume(v);
                     }
                 }
-                Some("str") => track.set_volume_str(value),
+                Some("str") => match parse_limit(parts) {
+                    Some(limit) => track.volume_parameter_mut().set_limited_value_str(limit, value),
+                    None => track.set_volume_str(value),
+                },
                 Some(_) => {}
             },
             "pan" => match parts.poll() {
@@ -611,7 +619,10 @@ impl Parser {
                         track.set_internal_pan(v);
                     }
                 }
-                Some("str") => track.set_pan_str(value),
+                Some("str") => match parse_limit(parts) {
+                    Some(limit) => track.pan_parameter_mut().set_limited_value_str(limit, value),
+                    None => track.set_pan_str(value),
+                },
                 Some(_) => {}
             },
             "vu" | "vuleft" | "vuright" | "vuholdleft" | "vuholdright" | "mute" | "solo" | "recarm" | "monitor" | "autoMonitor" | "overdub"
@@ -713,7 +724,10 @@ impl Parser {
                                 send.set_internal_value(v);
                             }
                         }
-                        Some("str") => send.set_value_str(value),
+                        Some("str") => match parse_limit(parts) {
+                            Some(limit) => send.set_limited_value_str(limit, value),
+                            None => send.set_value_str(value),
+                        },
                         Some(_) => {}
                     },
                     TAG_COLOR => {
@@ -961,7 +975,10 @@ impl Parser {
                         bank.notify_value_observers(param_no);
                     }
                 }
-                Some("str") => bank.unpaged_item_mut(param_no).set_value_str(value),
+                Some("str") => match parse_limit(parts) {
+                    Some(limit) => bank.unpaged_item_mut(param_no).set_limited_value_str(limit, value),
+                    None => bank.unpaged_item_mut(param_no).set_value_str(value),
+                },
                 Some(_) => {}
             },
             "steps" => {
@@ -1601,6 +1618,28 @@ mod tests {
         assert_eq!(model.groove().parameter(GrooveParameterId::Enabled).value(), 127);
         assert_eq!(model.groove().parameter(GrooveParameterId::ShuffleAmount).displayed_value(), "0.0 %");
         assert_eq!(model.marker_bank().item(0).name(), "Marker 1");
+    }
+
+    /// Bitwig reports its shortened texts (`getLimited`) for some lengths; other lengths are cut.
+    #[test]
+    fn host_limited_texts() {
+        let (mut model, mut parser, _, _) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/count 1", "/track/0/exists 1", "/track/0/pan/str 0.00 %", "/track/0/pan/str/6 0.00", "/track/0/volume/str -10.0 dB", "/track/0/volume/str/6 -10.0"],
+        );
+        let track = model.track_bank().item(0);
+        assert_eq!(track.pan_str(), "0.00 %");
+        assert_eq!(track.pan_str_limited(6), "0.00");
+        assert_eq!(track.volume_str_limited(6), "-10.0");
+        // Not reported for this length: cut as for Reaper
+        assert_eq!(track.pan_str_limited(3), "0.0");
+        feed(&mut model, &mut parser, &["/device/exists 1", "/device/param/count 8", "/device/param/0/name Cutoff", "/device/param/0/value/str 1.50 kHz", "/device/param/0/value/str/6 1.5k"]);
+        let param = model.cursor_device().parameter_bank().unwrap().item(0);
+        assert_eq!(param.displayed_value(), "1.50 kHz");
+        assert_eq!(param.displayed_value_limited(6), "1.5k");
+        assert_eq!(param.displayed_value_limited(8), "1.50 kHz");
     }
 
     /// A repeated selection (Bitwig reports the values of a track again after a command to it)

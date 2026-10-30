@@ -237,8 +237,12 @@ impl Channel {
         }
     }
 
+    /// Bitwig's shortened text if reported, otherwise the text cut to the length (Reaper).
     pub fn volume_str_limited(&self, limit: usize) -> String {
-        util::limit(&self.volume_str(), limit)
+        match self.volume.host_limited_value_str(limit) {
+            Some(text) if self.exists => text.to_string(),
+            _ => util::limit(&self.volume_str(), limit),
+        }
     }
 
     pub fn volume(&self) -> i32 {
@@ -284,8 +288,12 @@ impl Channel {
         }
     }
 
+    /// Bitwig's shortened text if reported, otherwise the text cut to the length (Reaper).
     pub fn pan_str_limited(&self, limit: usize) -> String {
-        util::limit(&self.pan_str(), limit)
+        match self.pan.host_limited_value_str(limit) {
+            Some(text) if self.exists => text.to_string(),
+            _ => util::limit(&self.pan_str(), limit),
+        }
     }
 
     pub fn pan(&self) -> i32 {

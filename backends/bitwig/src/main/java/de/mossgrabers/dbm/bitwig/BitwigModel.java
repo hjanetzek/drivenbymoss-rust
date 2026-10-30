@@ -24,6 +24,7 @@ import com.bitwig.extension.controller.api.Scene;
 import com.bitwig.extension.controller.api.SceneBank;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Send;
+import com.bitwig.extension.controller.api.StringValue;
 import com.bitwig.extension.controller.api.Track;
 import com.bitwig.extension.controller.api.TrackBank;
 import com.bitwig.extension.controller.api.Transport;
@@ -486,7 +487,7 @@ public final class BitwigModel
             reporter.put (prefix + "monitor", "ON".equals (monitorMode));
             reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
             reportVu (reporter, prefix, this.trackVuLeft[i], this.trackVuRight[i]);
-            this.collectChannel (reporter, prefix, track);
+            collectChannel (reporter, prefix, track, true);
 
             final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
             for (int s = 0; s < sendCount; s++)
@@ -495,7 +496,7 @@ public final class BitwigModel
                 final String sendPrefix = prefix + "send/" + s + "/";
                 reporter.put (sendPrefix + "name", send.name ().get ());
                 reporter.put (sendPrefix + "volume", send.value ().get ());
-                reporter.put (sendPrefix + "volume/str", send.displayedValue ().get ());
+                putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
                 reporter.put (sendPrefix + "active", send.isEnabled ().get ());
             }
             reporter.put (prefix + "send/count", sendCount);
@@ -634,7 +635,7 @@ public final class BitwigModel
     {
         reporter.put ("/master/select", this.masterSelected);
         reportVu (reporter, "/master/", this.masterVuLeft, this.masterVuRight);
-        this.collectChannel (reporter, "/master/", this.masterTrack);
+        collectChannel (reporter, "/master/", this.masterTrack, true);
     }
 
 
@@ -652,16 +653,49 @@ public final class BitwigModel
     }
 
 
+    /** The lengths for which the texts shortened by Bitwig are reported (getLimited). */
+    static final int [] LIMITS = { 6, 8 };
+
+
+    /**
+     * Report a displayed value and its texts shortened by Bitwig ("&lt;address&gt;/&lt;length&gt;"), as
+     * getDisplayedValue (limit) of the Java version, which shortens in its own way (e.g. drops
+     * the unit).
+     */
+    static void putDisplayedValue (final ModelReporter reporter, final String address, final StringValue value, final boolean exists)
+    {
+        reporter.put (address, exists ? value.get () : "");
+        for (final int limit: LIMITS)
+            reporter.put (address + "/" + limit, exists ? value.getLimited (limit) : "");
+    }
+
+
     static void collectChannel (final ModelReporter reporter, final String prefix, final Channel channel)
+    {
+        collectChannel (reporter, prefix, channel, false);
+    }
+
+
+    /**
+     * The values of a channel; the shortened texts of volume and pan only for tracks and the
+     * master (the core does not read them for layers and pads).
+     */
+    static void collectChannel (final ModelReporter reporter, final String prefix, final Channel channel, final boolean limited)
     {
         reporter.put (prefix + "name", channel.name ().get ());
         reporter.putColor (prefix + "color", channel.color ().red (), channel.color ().green (), channel.color ().blue ());
         reporter.put (prefix + "mute", channel.mute ().get ());
         reporter.put (prefix + "solo", channel.solo ().get ());
         reporter.put (prefix + "volume", channel.volume ().value ().get ());
-        reporter.put (prefix + "volume/str", channel.volume ().displayedValue ().get ());
+        if (limited)
+            putDisplayedValue (reporter, prefix + "volume/str", channel.volume ().displayedValue (), true);
+        else
+            reporter.put (prefix + "volume/str", channel.volume ().displayedValue ().get ());
         reporter.put (prefix + "pan", channel.pan ().value ().get ());
-        reporter.put (prefix + "pan/str", channel.pan ().displayedValue ().get ());
+        if (limited)
+            putDisplayedValue (reporter, prefix + "pan/str", channel.pan ().displayedValue (), true);
+        else
+            reporter.put (prefix + "pan/str", channel.pan ().displayedValue ().get ());
     }
 
 
@@ -722,7 +756,7 @@ public final class BitwigModel
                 final boolean exists = isUsed && parameter.exists ().get ();
                 reporter.put (paramPrefix + "name", exists ? parameter.name ().get () : "");
                 reporter.put (paramPrefix + "value", exists ? parameter.value ().get () : 0);
-                reporter.put (paramPrefix + "value/str", exists ? parameter.displayedValue ().get () : "");
+                putDisplayedValue (reporter, paramPrefix + "value/str", parameter.displayedValue (), exists);
                 reporter.put (paramPrefix + "steps", -1);
                 reporter.put (paramPrefix + "modulated", exists ? parameter.modulatedValue ().get () : 0);
             }

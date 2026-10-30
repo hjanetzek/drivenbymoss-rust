@@ -115,6 +115,13 @@ the selected track for both. Found 2026-10-30 (Maschine Mk2 LOCK).
 (`isPinned` of the cursor device); in Reaper it counts as always pinned. Found 2026-10-30
 (Maschine Mk2 Pin button).
 
+**Shortened texts.** The Java version shows the texts which Bitwig shortens itself
+(`getDisplayedValue (limit)`, `getVolumeStr (limit)`: `displayedValue ().getLimited`, e.g. without
+the unit). The extension reports them for 6 and 8 characters (`<…>/str/6`, `<…>/str/8`) for the
+volume and panorama of the tracks and the master, the sends and the device parameters (not for
+layers and drum pads); the core uses them for these lengths and cuts the text for other lengths
+(Reaper). Found 2026-10-30 (Maschine Mk2 display).
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

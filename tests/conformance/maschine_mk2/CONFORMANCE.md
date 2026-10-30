@@ -10,8 +10,11 @@ display is the MCU text display (`F0 00 00 66 14 12 <position> <text> F7`), comp
 position (`sysex_key_bytes = 7`).
 
 Last full run: 2026-10-30, on fresh fixture projects with restarted controllers (`pair ...
---fresh-project 8 --restart 15`), Bitwig 5.3.13: all checks pass; one open difference (the
-shortened value texts), which stays on the display and so makes most scenarios differ.
+--fresh-project 8 --restart 15`), Bitwig 5.3.13: all 18 scenarios the same, except the known
+differences below.
+
+Replays (`replay/`, run by `cargo test --test conformance_replay`): the Rust recording with the
+final LED state of the Java version.
 
 ## Coverage
 
@@ -24,9 +27,7 @@ the touch strip, Erase and Duplicate, the Shift view functions on the pads.
 
 ## Open differences
 
-| Area | Java | Rust | Status |
-| --- | --- | --- | --- |
-| Display: values (e.g. panorama) | `0.00` | `0.00 %` | Java gets the texts shortened by Bitwig (`getPanStr (6)`, `displayedValue ().getLimited (6)`, which drops the unit), Rust cuts its full text (as the Java version for Reaper); the extension would have to report Bitwig's shortened texts for the lengths the controllers use; to be decided |
+None.
 
 ## Known differences (not bugs of the port)
 
@@ -36,6 +37,10 @@ the touch strip, Erase and Duplicate, the Shift view functions on the pads.
 
 ## Fixed by the comparison
 
+- The values on the display (e.g. panorama `0.00 %` instead of `0.00`): Java gets the texts
+  shortened by Bitwig (`getPanStr (6)`, `getLimited`, which shortens in its own way), Rust cut
+  its full text. The extension now reports Bitwig's texts for 6 and 8 characters
+  (BITWIG_DIVERGENCES.md §6) (2026-10-30).
 - LOCK and Shift + LOCK (overdub) did nothing on Bitwig: the core had only Reaper's overdub of
   the selected track. Now Bitwig's arranger and clip launcher overdub switches, as
   `TransportImpl` (BITWIG_DIVERGENCES.md §6) (2026-10-30).

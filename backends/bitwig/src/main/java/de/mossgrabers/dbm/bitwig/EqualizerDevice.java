@@ -126,7 +126,7 @@ final class EqualizerDevice
             final boolean paramExists = exists && parameter.exists ().get ();
             reporter.put (paramPrefix + "name", paramExists ? parameter.name ().get () : "");
             reporter.put (paramPrefix + "value", paramExists ? parameter.value ().get () : 0);
-            reporter.put (paramPrefix + "value/str", paramExists ? parameter.displayedValue ().get () : "");
+            BitwigModel.putDisplayedValue (reporter, paramPrefix + "value/str", parameter.displayedValue (), paramExists);
             reporter.put (paramPrefix + "steps", -1);
             reporter.put (paramPrefix + "modulated", paramExists ? parameter.modulatedValue ().get () : 0);
         }

@@ -16,8 +16,7 @@ Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
   (coverage, open and known differences, fixes). Launch Control XL: all five templates the same
   in Java and Rust (except known differences), replays recorded. Maschine JAM: global,
   transport, session, Note and Drum Sequencer, play modes the same, replays recorded. Maschine Mk2: global,
-  transport, group buttons, encoder modes, all checks pass (one open difference, the shortened
-  value texts). Next: the Mk2 pad modes, the Launchpad.
+  transport, group buttons, encoder modes, all 18 scenarios the same, replay recorded. Next: the Mk2 pad modes, the Launchpad.
 
 Setup for a run (Linux):
 
