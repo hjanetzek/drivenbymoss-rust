@@ -312,7 +312,7 @@ impl Parameter {
     }
 
     /// Signal that the parameter is touched (e.g. a touch sensitive knob). While touched, values
-    /// received from the DAW are deferred.
+    /// received from the DAW are deferred (Reaper; Bitwig: only `parameter.touch (b)`).
     pub fn touch_value(&mut self, is_being_touched: bool) {
         let touch = if is_being_touched { 1 } else { 0 };
         match self.kind {
@@ -427,7 +427,9 @@ impl Parameter {
             ParameterKind::Groove(_) => (value + 1.0) / 2.0,
             _ => value,
         };
-        if self.is_being_touched {
+        // ParameterImpl.touchValue of the Java version for Bitwig only calls parameter.touch (b):
+        // the values of the host are shown while touched (Reaper: held back until released)
+        if self.is_being_touched && !self.ctx.is_host_paging() {
             self.last_received_value = value;
         } else {
             self.value = value;

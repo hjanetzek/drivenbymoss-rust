@@ -258,6 +258,20 @@ of the first track of the page and its name, as `AbstractTrackBankImpl.canEditSe
 accent of the clip sends `clip accent/immediately 0.5` (`getAccent ().setImmediately (0.5)`; before:
 `set`, which the takeover mode could swallow).
 
+**Scenes, parameter pages, touch, pads, layers (core port P2, 2026-10-30).** With host paging:
+the scene bank's `can_scroll_backwards|forwards` are those of `AbstractItemBank` (a selected scene
+after the first one / an existing next scene on the page, or a previous / next page; before: the
+offset as the Java version for Reaper); after a device change the parameter page is the one
+Bitwig reported last (`remoteControls.selectedPageIndex ()`, Bitwig remembers the page per device;
+before: the page the core remembered for the device name); `ParameterPageBankImpl.canScrollPageForwards`
+asks for a next page *of pages* (before: a next parameter page); touching a parameter only sends
+`touch` (`ParameterImpl.touchValue`), the host's values are shown while touched (before: held back
+until released, as Reaper); selecting a drum pad selects it only in the editor
+(`DrumPadImpl.select`: `selectInEditor ()`; before: also in the mixer and made visible) and the
+generic bank selections (`select_next_item` etc.) work on pads (before: no-ops); the layer bank
+scrolls exactly to a position (`scrollTo`, `adjustPage` ignored; before: page aligned). Selecting
+the master selects it in the editor and the mixer and makes it visible (`ChannelImpl.select`).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

@@ -265,6 +265,15 @@ impl BankItem for DrumPad {
     fn position(&self) -> i32 {
         self.channel.position
     }
+
+    /// DrumPadImpl.select: `deviceChain.selectInEditor ()` (`<owner> pad/<p>/select`, only with
+    /// a host which reports the pads; Reaper's pads are virtual), so that the generic bank
+    /// selections (`select_next_item` etc.) work on pads.
+    fn select(&mut self) {
+        if self.channel.ctx.is_host_paging() && self.channel.exists {
+            self.channel.send_cmd("select");
+        }
+    }
 }
 
 /// The first pad of the page of a drum pad bank which is reported by the host (Bitwig starts its
@@ -498,6 +507,13 @@ impl LayerBank {
 
     pub fn set_item_count(&mut self, count: usize) {
         self.bank.set_item_count(count);
+    }
+
+    /// Scroll to the layer position. Bitwig (AbstractItemBankImpl.scrollTo): exactly to the
+    /// position (`adjust_page` is ignored); Reaper: page aligned if `adjust_page`.
+    pub fn scroll_to(&mut self, position: usize, adjust_page: bool) {
+        let adjust = adjust_page && !self.bank.ctx.is_host_paging();
+        self.bank.scroll_to(position, adjust);
     }
 
     pub fn scroll_page_backwards(&mut self) {

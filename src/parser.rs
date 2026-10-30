@@ -2009,6 +2009,30 @@ mod tests {
         assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("clip".into(), "accent/immediately".into(), 0.5)]);
     }
 
+    /// Bitwig: scene scrolling as AbstractItemBank (selected scene and pages), the generic
+    /// selections on drum pads (DrumPadImpl.select), layers scroll exactly.
+    #[test]
+    fn host_scene_scrolling_pads_and_layers() {
+        let mut setup = ModelSetup::default();
+        setup.device_ids.push(DeviceId::FirstInstrument);
+        let (mut model, mut parser, backend, _) = create(setup);
+        feed(&mut model, &mut parser, &["/scene/count 4", "/scene/0/exists 1", "/scene/1/exists 1", "/scene/offset 0", "/track/offset 0"]);
+        // Reaper would allow scrolling forwards by one (offset 0 of 4); Bitwig: no selected scene
+        // and no next page
+        assert!(!model.scene_bank().can_scroll_forwards() && !model.scene_bank().can_scroll_backwards());
+        feed(&mut model, &mut parser, &["/scene/0/select 1"]);
+        assert!(model.scene_bank().can_scroll_forwards());
+        feed(&mut model, &mut parser, &["/primary/exists 1", "/primary/hasDrumPads 1", "/primary/pad/36/exists 1", "/primary/pad/37/exists 1", "/primary/layer/count 20"]);
+        backend.take_calls();
+        let device = model.specific_device_mut(DeviceId::FirstInstrument).unwrap();
+        let pads = device.drum_pad_bank_mut();
+        let index = (37 - pads.scroll_position()) as usize;
+        pads.item_mut(index).select();
+        device.layer_bank_mut().scroll_to(5, true);
+        assert_eq!(device.layer_bank().scroll_position(), 5);
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("primary".into(), "pad/37/select".into())]);
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());

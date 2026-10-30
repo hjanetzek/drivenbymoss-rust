@@ -279,6 +279,10 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   `/groove/enabled|shuffleAmount` normalized with texts and take `groove <name>` (`/inc`, `/reset`).
 - **P2 send names:** replaced; the Reaper backend reports the send names already, so the views
   show the name of the send of the first track instead of "Send N". Nothing to change.
+- **P2 scenes, pages, touch, pads, layers:** all behind the host check or only reachable with a
+  host report (`set_selected_page_from_host`); the page-of-pages paging was replaced (no Reaper
+  test encodes the old one; Reaper now also pages by pages of pages, as the Java version for
+  Bitwig). Nothing to change in the Reaper backend.
 
 ## Replays to record again
 

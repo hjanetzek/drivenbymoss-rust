@@ -201,13 +201,22 @@ impl SceneBank {
         self.bank.ctx.enable_updates(Processor::Session, enable);
     }
 
-    /// Scenes scroll by one.
+    /// Scenes scroll by one (SceneBankImpl of the Java version for Reaper). With host paging
+    /// (Bitwig) as AbstractItemBank.canScrollBackwards: a selected scene after the first one or
+    /// a previous page.
     pub fn can_scroll_backwards(&self) -> bool {
+        if self.bank.ctx.is_host_paging() {
+            return self.bank.can_scroll_backwards();
+        }
         self.bank.bank_offset > 0
     }
 
-    /// Scenes scroll by one.
+    /// Scenes scroll by one (Reaper). With host paging as AbstractItemBank.canScrollForwards: an
+    /// existing scene after the selected one on the page or a next page.
     pub fn can_scroll_forwards(&self) -> bool {
+        if self.bank.ctx.is_host_paging() {
+            return self.bank.can_scroll_forwards();
+        }
         self.bank.bank_offset + 1 < self.bank.item_count
     }
 

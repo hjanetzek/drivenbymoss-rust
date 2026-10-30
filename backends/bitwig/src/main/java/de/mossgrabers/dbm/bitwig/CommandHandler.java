@@ -293,8 +293,14 @@ public final class CommandHandler
                 }
                 if ("select".equals (parts[2]))
                 {
+                    // DrumPadImpl.select: only selectInEditor; layers as ChannelImpl.select
                     if (value > 0)
-                        selectChannel (channel);
+                    {
+                        if ("pad".equals (parts[0]))
+                            channel.selectInEditor ();
+                        else
+                            selectChannel (channel);
+                    }
                 }
                 else
                     this.handleChannel (channel, parts[2], value, text);
@@ -1090,10 +1096,11 @@ public final class CommandHandler
     {
         switch (command)
         {
+            // ChannelImpl.select (the master; tracks are selected in handleTrack)
             case "select" ->
             {
                 if (value > 0)
-                    channel.selectInEditor ();
+                    selectChannel (channel);
             }
             case "mute" -> channel.mute ().set (value > 0);
             case "active" -> channel.isActivated ().set (value > 0);
