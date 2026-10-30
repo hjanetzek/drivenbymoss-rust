@@ -261,7 +261,12 @@ impl Channel {
         self.volume.set_value(value);
     }
 
+    /// ChannelImpl.resetVolume: the volume parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_volume(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.volume.reset_value();
+            return;
+        }
         let value = (0.716 * self.ctx.value_changer().upper_bound() as f64) as i32;
         self.set_volume(value);
     }
@@ -312,7 +317,12 @@ impl Channel {
         self.pan.set_value(value);
     }
 
+    /// ChannelImpl.resetPan: the panorama parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_pan(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.pan.reset_value();
+            return;
+        }
         let value = self.ctx.value_changer().upper_bound() / 2;
         self.set_pan(value);
     }

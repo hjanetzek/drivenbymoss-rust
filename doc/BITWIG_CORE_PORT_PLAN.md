@@ -233,3 +233,7 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   (× the parameter range) to the current value and clamp. Until then knob changes do nothing on
   Reaper. The clip's `start|end|loopStart|loopLength/inc` is only sent with the host step grid
   (Bitwig).
+- **P1 6, reset:** kept the Reaper path behind the host check (`daw::parameter::tests::volume_and_touch`
+  encodes Reaper's 0 dB reset). To replace it, the Reaper backend needs `<value command>/reset`
+  (no value) for the same addresses as `/inc`, setting the parameter's default (Reaper: 0 dB for
+  the volume, center for the panorama, the FX parameter's default).

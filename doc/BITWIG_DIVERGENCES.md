@@ -153,6 +153,13 @@ and fractional increments were cut. The clip's play start and end, loop start an
 with `clip start|end|loopStart|loopLength/inc <beats>` (`getPlayStart ().inc (frac)` etc.; before:
 absolute, the loop length could become ≤ 0). Not yet for the groove.
 
+**Reset (core port P1 6, 2026-10-30).** As `ParameterImpl.resetValue` (`parameter.reset ()`):
+resetting a device parameter, the volume or panorama of a track, the master, a drum pad or layer,
+a send or an EQ parameter sends `<value command>/reset` without a value (e.g. `track 3/volume/reset`,
+`eq param/4/value/reset`, `master pan/reset`), and Bitwig sets its own default. Before, the core
+set Reaper's defaults (0 for device parameters and sends, 0.716 = Reaper's 0 dB for the volume).
+Only with host paging; Reaper keeps the core's defaults.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

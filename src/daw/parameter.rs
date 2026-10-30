@@ -289,8 +289,16 @@ impl Parameter {
         self.send_value();
     }
 
-    /// Reset the value to its default.
+    /// Reset the value to its default. With host paging (Bitwig) as ParameterImpl.resetValue:
+    /// `parameter.reset ()`, Bitwig's own default (`<value command>/reset`). Reaper: the default
+    /// of the core (the Reaper backend has no reset).
     pub fn reset_value(&mut self) {
+        if self.ctx.is_host_paging() && self.host_increments() {
+            if let Some((processor, cmd)) = self.value_address() {
+                self.ctx.send(processor, &format!("{cmd}/reset"));
+            }
+            return;
+        }
         match self.kind {
             ParameterKind::Groove(id) if id != GrooveParameterId::Enabled => self.set_normalized_value(0.5),
             _ => self.set_value(self.default_value),
@@ -631,6 +639,32 @@ mod tests {
         );
         // Not changed locally: the host reports the result
         assert_eq!(volume.value(), 64);
+    }
+
+    /// ParameterImpl.resetValue: `parameter.reset ()` on Bitwig.
+    #[test]
+    fn reset_on_bitwig() {
+        let (ctx, backend) = test_ctx();
+        ctx.set_host_paging();
+        let mut volume = Parameter::new(ctx.clone(), ParameterKind::TrackVolume, 3, 0.716);
+        volume.reset_value();
+        let mut param = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Eq), 0, 0.0);
+        param.set_position(4);
+        param.reset_value();
+        let mut send = Parameter::new(ctx.clone(), ParameterKind::Send { channel_position: 2 }, 0, 0.0);
+        send.set_position(1);
+        send.reset_value();
+        let mut master = Parameter::new(ctx, ParameterKind::MasterPan, 0, 0.5);
+        master.reset_value();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "3/volume/reset".into()),
+                BackendCall::NoArg("eq".into(), "param/4/value/reset".into()),
+                BackendCall::NoArg("track".into(), "2/send/1/volume/reset".into()),
+                BackendCall::NoArg("master".into(), "pan/reset".into()),
+            ]
+        );
     }
 
     #[test]

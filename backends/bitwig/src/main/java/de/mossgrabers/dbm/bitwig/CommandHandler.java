@@ -36,6 +36,7 @@ public final class CommandHandler
     private static final int     REPORT_AGAIN_DELAY = 300;
     private static final String  IMMEDIATELY = "/immediately";
     private static final String  INCREMENT = "/inc";
+    private static final String  RESET = "/reset";
     private static final Pattern COLOR_PATTERN = Pattern.compile ("RGB\\((\\d+),(\\d+),(\\d+)\\)");
 
 
@@ -46,6 +47,8 @@ public final class CommandHandler
     private boolean              immediately;
     /** The current value command ends with "/inc": change the value by the (normalized) delta. */
     private boolean              increment;
+    /** The current value command ends with "/reset": reset the parameter (ParameterImpl.resetValue). */
+    private boolean              reset;
 
 
     /**
@@ -71,6 +74,12 @@ public final class CommandHandler
      */
     public void handle (final String processor, final String command)
     {
+        // "<value command>/reset" (see the value commands)
+        if (command.endsWith (RESET))
+        {
+            this.handle (processor, command, 0);
+            return;
+        }
         switch (processor)
         {
             case "transport" -> this.handleTransport (command, 1);
@@ -118,6 +127,10 @@ public final class CommandHandler
         this.increment = command.endsWith (INCREMENT);
         if (this.increment)
             command = command.substring (0, command.length () - INCREMENT.length ());
+        // "…/reset": ParameterImpl.resetValue (parameter.reset ())
+        this.reset = command.endsWith (RESET);
+        if (this.reset)
+            command = command.substring (0, command.length () - RESET.length ());
         this.reportAgain (processor, command);
         switch (processor)
         {
@@ -304,7 +317,7 @@ public final class CommandHandler
                     {
                         switch (parts[2])
                         {
-                            case "value" -> this.setValue (parameter.value (), value);
+                            case "value" -> this.setValue (parameter, value);
                             case "touch" -> parameter.touch (value > 0);
                             case "indicate" -> parameter.setIndication (value > 0);
                             default -> this.unhandled.accept ("eq " + command);
@@ -515,6 +528,19 @@ public final class CommandHandler
             beatTime.inc (value);
         else
             beatTime.set (value);
+    }
+
+
+    /**
+     * Set the value of a parameter, reset it ("…/reset"), change it ("…/inc"), immediately if the
+     * command asked for it.
+     */
+    private void setValue (final Parameter parameter, final double value)
+    {
+        if (this.reset)
+            parameter.reset ();
+        else
+            this.setValue (parameter.value (), value);
     }
 
 
@@ -944,7 +970,7 @@ public final class CommandHandler
         final Parameter send = track.sendBank ().getItemAt (index);
         switch (parts[2])
         {
-            case "volume" -> this.setValue (send.value (), value);
+            case "volume" -> this.setValue (send, value);
             case "active" -> track.sendBank ().getItemAt (index).isEnabled ().toggle ();
             default -> this.unhandled.accept ("track send " + parts[2]);
         }
@@ -966,8 +992,8 @@ public final class CommandHandler
             case "mute" -> channel.mute ().set (value > 0);
             case "active" -> channel.isActivated ().set (value > 0);
             case "solo" -> channel.solo ().set (value > 0);
-            case "volume" -> this.setValue (channel.volume ().value (), value);
-            case "pan" -> this.setValue (channel.pan ().value (), value);
+            case "volume" -> this.setValue (channel.volume (), value);
+            case "pan" -> this.setValue (channel.pan (), value);
             case "volume/touch" -> channel.volume ().touch (value > 0);
             case "pan/touch" -> channel.pan ().touch (value > 0);
             case "color" ->
@@ -1057,7 +1083,7 @@ public final class CommandHandler
         final Parameter parameter = pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
         switch (parts[2])
         {
-            case "value" -> this.setValue (parameter.value (), value);
+            case "value" -> this.setValue (parameter, value);
             case "touch" -> parameter.touch (value > 0);
             case "indicate" -> parameter.setIndication (value > 0);
             default ->
