@@ -160,6 +160,17 @@ a send or an EQ parameter sends `<value command>/reset` without a value (e.g. `t
 set Reaper's defaults (0 for device parameters and sends, 0.716 = Reaper's 0 dB for the volume).
 Only with host paging; Reaper keeps the core's defaults.
 
+**Device commands (core port P1 7, 2026-10-30).** As `SpecificDeviceImpl` and `DeviceImpl`: the
+cursor device, the first instrument, the drum device and the EQ act on themselves with
+`<device|primary|drum|eq> window/toggle|expand/toggle|bypass|remove|duplicate|select` (no value;
+`isWindowOpen ().toggle ()`, `isExpanded ().toggle ()`, `isEnabled ().toggle ()`,
+`deleteObject ()`, `afterDeviceInsertionPoint ().copyDevices (device)`, `selectInEditor ()`), the
+siblings with `device sibling/<index + 1>/bypass|remove|duplicate|select` by their index in the
+sibling window. Before, window and expand of all kinds went to the cursor device, and the bypass,
+remove and duplicate of the specific devices were sent as `<index+1>/…` with index −1 or the
+window index, which the extension matched against the position in the chain (wrong from position
+8 on). Only with host paging; Reaper keeps its commands.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

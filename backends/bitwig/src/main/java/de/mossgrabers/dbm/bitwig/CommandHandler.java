@@ -232,6 +232,7 @@ public final class CommandHandler
             case "indicate" -> device.drumPadBank.setIndication (value > 0);
             case "window" -> device.device.isWindowOpen ().set (value > 0);
             case "expand" -> device.device.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (device.device, command);
             case "parameterPage" ->
             {
                 // Show the page in Bitwig as well (ParameterPageBankImpl.scrollTo)
@@ -295,6 +296,7 @@ public final class CommandHandler
             case "add" -> this.model.cursorTrack.endOfDeviceChainInsertionPoint ().insertBitwigDevice (EqualizerDevice.ID_BITWIG_EQ_PLUS);
             case "window" -> eq.device.isWindowOpen ().set (value > 0);
             case "expand" -> eq.device.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (eq.device, command);
             default ->
             {
                 final String [] parts = command.split ("/");
@@ -1034,6 +1036,7 @@ public final class CommandHandler
             case "window" -> this.model.cursorDevice.isWindowOpen ().set (value > 0);
             case "pinned" -> this.model.cursorDevice.isPinned ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (this.model.cursorDevice, command);
             default -> this.handleDeviceIndexed (command, value);
         }
     }
@@ -1047,6 +1050,15 @@ public final class CommandHandler
         {
             if (!this.handleParameter (this.model.pages, parts, value))
                 this.unhandled.accept ("device " + command);
+            return;
+        }
+        // sibling/<index+1>/bypass|remove|duplicate|select: the sibling of the window (DeviceImpl)
+        if (parts.length == 3 && "sibling".equals (parts[0]))
+        {
+            final int index = parseIndex (parts[1]) - 1;
+            if (index >= 0 && index < BitwigModel.NUM_SIBLINGS && handleOwnDevice (this.model.siblings.getItemAt (index), parts[2]))
+                return;
+            this.unhandled.accept ("device " + command);
             return;
         }
         // <position+1>/bypass, remove, duplicate
@@ -1086,6 +1098,32 @@ public final class CommandHandler
             case "value" -> this.setValue (parameter, value);
             case "touch" -> parameter.touch (value > 0);
             case "indicate" -> parameter.setIndication (value > 0);
+            default ->
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * The commands of a device on the device itself, as SpecificDeviceImpl and DeviceImpl of the
+     * Java version: toggle the window and the expanded state, toggle the bypass, remove,
+     * duplicate, select.
+     *
+     * @return False if the command is unknown
+     */
+    private static boolean handleOwnDevice (final Device device, final String command)
+    {
+        switch (command)
+        {
+            case "window/toggle" -> device.isWindowOpen ().toggle ();
+            case "expand/toggle" -> device.isExpanded ().toggle ();
+            case "bypass" -> device.isEnabled ().toggle ();
+            case "remove" -> device.deleteObject ();
+            case "duplicate" -> device.afterDeviceInsertionPoint ().copyDevices (device);
+            case "select" -> device.selectInEditor ();
             default ->
             {
                 return false;

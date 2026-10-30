@@ -237,3 +237,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   encodes Reaper's 0 dB reset). To replace it, the Reaper backend needs `<value command>/reset`
   (no value) for the same addresses as `/inc`, setting the parameter's default (Reaper: 0 dB for
   the volume, center for the panorama, the FX parameter's default).
+- **P1 7, device commands:** kept the Reaper path behind the host check
+  (`daw::device::tests::cursor_device` encodes `device <index+1>/bypass`). To replace it, the
+  Reaper backend needs `device|primary|drum|eq window/toggle|expand/toggle|bypass|remove|duplicate|select`
+  without an index (the cursor device, the first instrument, the drum device, the EQ) and
+  `device sibling/<index+1>/bypass|remove|duplicate|select` (the sibling window).

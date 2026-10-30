@@ -56,17 +56,38 @@ impl Device {
         self.is_enabled
     }
 
-    /// Toggle the bypass state of the device.
+    /// With host paging (Bitwig) the command acts on the sibling itself (DeviceImpl), addressed
+    /// by its index in the sibling window: `sibling/<index + 1>/<command>`.
+    fn send_sibling(&self, command: &str) -> bool {
+        if !self.ctx.is_host_paging() {
+            return false;
+        }
+        if self.index >= 0 {
+            self.ctx.send(Processor::Device, &format!("sibling/{}/{command}", self.index + 1));
+        }
+        true
+    }
+
+    /// Toggle the bypass state of the device (DeviceImpl.toggleEnabledState:
+    /// `device.isEnabled ().toggle ()`).
     pub fn toggle_enabled_state(&mut self) {
-        self.ctx.send_bool(Processor::Device, &format!("{}/bypass", self.index + 1), self.is_enabled);
+        if !self.send_sibling("bypass") {
+            self.ctx.send_bool(Processor::Device, &format!("{}/bypass", self.index + 1), self.is_enabled);
+        }
     }
 
+    /// DeviceImpl.remove: `device.deleteObject ()`.
     pub fn remove(&mut self) {
-        self.ctx.send(Processor::Device, &format!("{}/remove", self.index + 1));
+        if !self.send_sibling("remove") {
+            self.ctx.send(Processor::Device, &format!("{}/remove", self.index + 1));
+        }
     }
 
+    /// DeviceImpl.duplicate: `device.afterDeviceInsertionPoint ().copyDevices (device)`.
     pub fn duplicate(&mut self) {
-        self.ctx.send(Processor::Device, &format!("{}/duplicate", self.index + 1));
+        if !self.send_sibling("duplicate") {
+            self.ctx.send(Processor::Device, &format!("{}/duplicate", self.index + 1));
+        }
     }
 
     // Internal setters
@@ -112,8 +133,11 @@ impl BankItem for Device {
         self.position
     }
 
+    /// DeviceImpl.select: `device.selectInEditor ()`.
     fn select(&mut self) {
-        self.ctx.send_int(Processor::Device, "selected", self.index + 1);
+        if !self.send_sibling("select") {
+            self.ctx.send_int(Processor::Device, "selected", self.index + 1);
+        }
     }
 }
 
@@ -768,33 +792,70 @@ impl SpecificDevice {
 
     pub fn select_slot_chain(&mut self, _name: &str) {}
 
-    pub fn toggle_window_open(&mut self) {
-        self.ctx.send_bool(Processor::Device, "window", !self.is_window_open);
+    /// The processor of the device's own commands (protocol v2): each kind acts on its own
+    /// device, as SpecificDeviceImpl / DeviceImpl of the Java version for Bitwig.
+    fn own_processor(&self) -> Processor {
+        match self.kind {
+            DeviceKind::Cursor => Processor::Device,
+            DeviceKind::FirstInstrument => Processor::Primary,
+            DeviceKind::Drum => Processor::Drum,
+            DeviceKind::Eq => Processor::Eq,
+        }
     }
 
+    /// With host paging (Bitwig) send a command to the device itself; false otherwise.
+    fn send_own(&self, command: &str) -> bool {
+        if !self.ctx.is_host_paging() {
+            return false;
+        }
+        self.ctx.send(self.own_processor(), command);
+        true
+    }
+
+    /// SpecificDeviceImpl.toggleWindowOpen: `device.isWindowOpen ().toggle ()`.
+    pub fn toggle_window_open(&mut self) {
+        if !self.send_own("window/toggle") {
+            self.ctx.send_bool(Processor::Device, "window", !self.is_window_open);
+        }
+    }
+
+    /// SpecificDeviceImpl.toggleExpanded: `device.isExpanded ().toggle ()`.
     pub fn toggle_expanded(&mut self) {
+        if self.send_own("expand/toggle") {
+            return;
+        }
         self.is_expanded = !self.is_expanded;
         self.ctx.send_bool(Processor::Device, "expand", self.is_expanded);
     }
 
     pub fn toggle_parameter_page_section_visible(&mut self) {}
 
-    /// Toggle the bypass state.
+    /// Toggle the bypass state (DeviceImpl.toggleEnabledState: `device.isEnabled ().toggle ()`).
     pub fn toggle_enabled_state(&mut self) {
-        self.ctx.send_bool(self.processor(), &format!("{}/bypass", self.index() + 1), self.is_enabled);
+        if !self.send_own("bypass") {
+            self.ctx.send_bool(self.processor(), &format!("{}/bypass", self.index() + 1), self.is_enabled);
+        }
     }
 
-    /// Select this device in the DAW.
+    /// Select this device in the DAW (DeviceImpl.select: `device.selectInEditor ()`).
     pub fn select(&mut self) {
-        self.ctx.send_int(self.processor(), "selected", self.index() + 1);
+        if !self.send_own("select") {
+            self.ctx.send_int(self.processor(), "selected", self.index() + 1);
+        }
     }
 
+    /// DeviceImpl.remove: `device.deleteObject ()`.
     pub fn remove(&mut self) {
-        self.ctx.send(self.processor(), &format!("{}/remove", self.index() + 1));
+        if !self.send_own("remove") {
+            self.ctx.send(self.processor(), &format!("{}/remove", self.index() + 1));
+        }
     }
 
+    /// DeviceImpl.duplicate: `device.afterDeviceInsertionPoint ().copyDevices (device)`.
     pub fn duplicate(&mut self) {
-        self.ctx.send(self.processor(), &format!("{}/duplicate", self.index() + 1));
+        if !self.send_own("duplicate") {
+            self.ctx.send(self.processor(), &format!("{}/duplicate", self.index() + 1));
+        }
     }
 
     pub fn parameter_bank(&self) -> Option<&ParameterBank> {
@@ -1044,5 +1105,50 @@ mod tests {
         assert_eq!(pads.scroll_position(), 32);
         assert!(pads.item(4).is_selected());
         assert_eq!(pads.item(0).name(), "Drum 32");
+    }
+
+    /// Bitwig: the specific devices and the siblings act on themselves (SpecificDeviceImpl,
+    /// DeviceImpl), not on the cursor device or a sibling at the window index as position.
+    #[test]
+    fn host_device_commands() {
+        let (ctx, backend) = test_ctx();
+        ctx.set_host_paging();
+        let mut primary = SpecificDevice::new(ctx.clone(), DeviceKind::FirstInstrument, 0, 8, 8, 16);
+        primary.toggle_window_open();
+        primary.toggle_expanded();
+        primary.toggle_enabled_state();
+        primary.remove();
+        primary.duplicate();
+        primary.select();
+        let mut eq = SpecificDevice::new(ctx.clone(), DeviceKind::Eq, 0, 8, 8, 16);
+        eq.toggle_window_open();
+        let mut drum = SpecificDevice::new(ctx.clone(), DeviceKind::Drum, 0, 8, 8, 16);
+        drum.toggle_enabled_state();
+        let mut cursor = SpecificDevice::new(ctx, DeviceKind::Cursor, 0, 8, 8, 16);
+        cursor.set_position(11);
+        cursor.duplicate();
+        let sibling = cursor.device_bank_mut().item_mut(2);
+        sibling.toggle_enabled_state();
+        sibling.remove();
+        sibling.duplicate();
+        sibling.select();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("primary".into(), "window/toggle".into()),
+                BackendCall::NoArg("primary".into(), "expand/toggle".into()),
+                BackendCall::NoArg("primary".into(), "bypass".into()),
+                BackendCall::NoArg("primary".into(), "remove".into()),
+                BackendCall::NoArg("primary".into(), "duplicate".into()),
+                BackendCall::NoArg("primary".into(), "select".into()),
+                BackendCall::NoArg("eq".into(), "window/toggle".into()),
+                BackendCall::NoArg("drum".into(), "bypass".into()),
+                BackendCall::NoArg("device".into(), "duplicate".into()),
+                BackendCall::NoArg("device".into(), "sibling/3/bypass".into()),
+                BackendCall::NoArg("device".into(), "sibling/3/remove".into()),
+                BackendCall::NoArg("device".into(), "sibling/3/duplicate".into()),
+                BackendCall::NoArg("device".into(), "sibling/3/select".into()),
+            ]
+        );
     }
 }
