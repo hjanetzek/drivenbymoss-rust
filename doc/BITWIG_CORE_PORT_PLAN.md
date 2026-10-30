@@ -283,6 +283,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   host report (`set_selected_page_from_host`); the page-of-pages paging was replaced (no Reaper
   test encodes the old one; Reaper now also pages by pages of pages, as the Java version for
   Bitwig). Nothing to change in the Reaper backend.
+- **P2 device siblings:** behind the host check; Reaper's sibling window follows the cursor device
+  in its backend. Nothing to change.
 
 ## Replays to record again
 

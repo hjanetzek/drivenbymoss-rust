@@ -2033,6 +2033,23 @@ mod tests {
         assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("primary".into(), "pad/37/select".into())]);
     }
 
+    /// CursorDeviceImpl.selectPrevious/Next: the sibling page moves at its edges and its first
+    /// device is selected 75 ms later (AbstractItemBankImpl.selectPreviousPage/NextPage).
+    #[test]
+    fn host_cursor_device_siblings() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/offset 0", "/device/exists 1", "/device/count 12", "/device/position 7", "/device/sibling/1/name A"]);
+        backend.take_calls();
+        model.cursor_device_mut().select_next();
+        model.cursor_device_mut().select_previous();
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::NoArg("device".into(), "+".into()), BackendCall::NoArg("device".into(), "page/+".into()), BackendCall::NoArg("device".into(), "-".into())]
+        );
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("device".into(), "sibling/1/select".into())]);
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());

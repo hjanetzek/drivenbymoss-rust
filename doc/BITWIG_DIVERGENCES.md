@@ -272,6 +272,14 @@ generic bank selections (`select_next_item` etc.) work on pads (before: no-ops);
 scrolls exactly to a position (`scrollTo`, `adjustPage` ignored; before: page aligned). Selecting
 the master selects it in the editor and the mixer and makes it visible (`ChannelImpl.select`).
 
+**Device siblings (core port P2, 2026-10-30).** As `CursorDeviceImpl.selectPrevious/Next`: at the
+first (last) device of the sibling page the page moves as well (`device page/-|+`), and as
+`AbstractItemBankImpl.selectPreviousPage/NextPage` the first device of the new page is selected
+75 ms later (`device sibling/1/select`); without the guard on the core's position and count. Before,
+the sibling window did not follow the cursor device and a page change did not select. Note: so
+`selectPrevious` at the first device of a page ends on the first device of the previous page (as in
+the Java version).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

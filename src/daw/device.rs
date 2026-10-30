@@ -210,12 +210,24 @@ impl DeviceBank {
         (sel >= 0 && (sel as usize) + 1 < self.items.len() && self.items[sel as usize + 1].does_exist()) || self.can_scroll_page_forwards()
     }
 
+    /// AbstractItemBankImpl.selectPreviousPage of the siblings: scroll the page backwards and
+    /// select its first device 75 ms later (Bitwig).
     pub fn select_previous_page(&mut self) {
         self.ctx.send(Processor::Device, "page/-");
+        self.select_first_later();
     }
 
+    /// AbstractItemBankImpl.selectNextPage of the siblings: scroll the page forwards and select
+    /// its first device 75 ms later (Bitwig).
     pub fn select_next_page(&mut self) {
         self.ctx.send(Processor::Device, "page/+");
+        self.select_first_later();
+    }
+
+    fn select_first_later(&self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.schedule(75, |m| m.cursor_device_mut().device_bank_mut().item_mut(0).select());
+        }
     }
 }
 
@@ -940,6 +952,16 @@ impl SpecificDevice {
 
     /// Select the previous device of the track.
     pub fn select_previous(&mut self) {
+        if self.ctx.is_host_paging() {
+            // CursorDeviceImpl.selectPrevious: at the first device of the sibling page, the page
+            // moves as well (and selects its first device, AbstractItemBankImpl.selectPreviousPage)
+            let move_bank = self.index() == 0;
+            self.ctx.send(Processor::Device, "-");
+            if move_bank {
+                self.device_bank.select_previous_page();
+            }
+            return;
+        }
         if !self.can_select_previous() {
             return;
         }
@@ -953,6 +975,16 @@ impl SpecificDevice {
 
     /// Select the next device of the track.
     pub fn select_next(&mut self) {
+        if self.ctx.is_host_paging() {
+            // CursorDeviceImpl.selectNext: at the last device of the sibling page, the page moves
+            // as well (and selects its first device)
+            let move_bank = self.index() == self.device_bank.page_size() as i32 - 1;
+            self.ctx.send(Processor::Device, "+");
+            if move_bank {
+                self.device_bank.select_next_page();
+            }
+            return;
+        }
         if !self.can_select_next() {
             return;
         }
