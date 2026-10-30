@@ -214,25 +214,24 @@ RESTART = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x03, 0xF7]
 
 def restart_controller(port_name, timeout):
     """Restart the controller (both extensions call ControllerHost.restart on RESTART if Bitwig
-    runs with DBM_OSC_CONFORMANCE) and wait until it has sent its startup output: the old one
-    turns its lights off at once, the new one starts about 1 s later. Returns False if it did
-    not start within the timeout (seconds)."""
+    runs with DBM_OSC_CONFORMANCE) and wait for it. The restart cannot be seen reliably in the
+    output (e.g. the Maschine JAM sends its VU meters all the time, the old and the new instance
+    without a gap); all controllers restarted within about 1.2 s, so this waits 3 s and then
+    until the controller has sent something. Returns False if it did not within the timeout
+    (seconds)."""
     startup = MidiPort(port_name, [])
     started = time.time()
     startup.send(RESTART)
     print(f"Restarting the controller on {port_name}, waiting up to {timeout} s")
-    last_output = None
-    while time.time() - started < timeout:
-        if startup.take():
-            last_output = time.time()
-        elif last_output is not None and time.time() - last_output > 2.0:
-            break
+    time.sleep(3.0)
+    alive = bool(startup.take())
+    while not alive and time.time() - started < timeout:
         time.sleep(0.1)
+        alive = bool(startup.take())
     startup.close()
-    if last_output is None:
-        print(f"The controller did not start within {timeout} s")
+    if not alive:
+        print(f"The controller did not send anything within {timeout} s after the restart")
         return False
-    print(f"Started after {last_output - started:.1f} s")
     return True
 
 

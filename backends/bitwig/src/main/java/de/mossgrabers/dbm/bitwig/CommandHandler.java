@@ -75,6 +75,7 @@ public final class CommandHandler
             case "mixer" -> this.handleMixer (command);
             case "project" -> this.handleProject (command);
             case "marker" -> this.handleMarker (command);
+            case "automation" -> this.handleAutomation (command);
             case "scene" -> this.handleScene (command, null);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 1, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 1, null);
@@ -128,6 +129,7 @@ public final class CommandHandler
             case "eq" -> this.handleEqualizer (command, value, null);
             case "browser" -> this.handleBrowser (command, value);
             case "clip" -> this.handleClip (command, value, null);
+            case "automation" -> this.setAutomationWriteMode ((int) value);
             case "quantize" ->
             {
                 // As CursorClipImpl.quantize
@@ -507,6 +509,41 @@ public final class CommandHandler
 
 
     /**
+     * The automation write switches, as TransportImpl of the Java version.
+     */
+    private void handleAutomation (final String command)
+    {
+        switch (command)
+        {
+            case "toggleArranger" -> this.model.transport.toggleWriteArrangerAutomation ();
+            case "toggleLauncher" -> this.model.transport.toggleWriteClipLauncherAutomation ();
+            case "resetOverrides" -> this.model.transport.resetAutomationOverrides ();
+            default -> this.unhandled.accept ("automation " + command);
+        }
+    }
+
+
+    /**
+     * Set the automation write mode by the index of the core's mode, as
+     * TransportImpl.setAutomationWriteMode: Read (and Trim/Read) turns both switches off, the other
+     * modes turn them on (Latch Preview is Latch).
+     */
+    private void setAutomationWriteMode (final int index)
+    {
+        if (index <= BitwigModel.AUTOMATION_READ)
+        {
+            this.model.transport.isArrangerAutomationWriteEnabled ().set (false);
+            this.model.transport.isClipLauncherAutomationWriteEnabled ().set (false);
+            return;
+        }
+        this.model.transport.isArrangerAutomationWriteEnabled ().set (true);
+        this.model.transport.isClipLauncherAutomationWriteEnabled ().set (true);
+        final String mode = index < BitwigModel.AUTOMATION_MODES.length ? BitwigModel.AUTOMATION_MODES[index] : null;
+        this.model.transport.automationWriteMode ().set (mode == null ? "latch" : mode);
+    }
+
+
+    /**
      * Select a channel as ChannelImpl.select of the Java version.
      */
     private static void selectChannel (final Channel channel)
@@ -643,11 +680,12 @@ public final class CommandHandler
 
     private void changeTempo (final String command)
     {
+        // "+" and "-" are the slow changes: 0.01 as TransportImpl.changeTempo (Reaper: 0.1)
         final double delta = switch (command)
         {
-            case "+" -> 0.1;
+            case "+" -> 0.01;
             case "++" -> 1;
-            case "-" -> -0.1;
+            case "-" -> -0.01;
             case "--" -> -1;
             default -> 0;
         };

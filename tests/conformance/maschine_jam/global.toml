@@ -1,0 +1,172 @@
+# Conformance scenarios: Native Instruments Maschine JAM, global, transport and group buttons
+# (MIDI mode, channel 1: buttons are CCs, pads notes 36-99, Shift a system exclusive message).
+# Fixture: tests/conformance/FIXTURE.md.
+
+controller = "Native Instruments Maschine JAM"
+manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#global"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
+]
+
+[[scenario]]
+id = "jam.global.auto"
+bullet = "AUTO - Toggle write arranger automation."
+# A fresh project starts without automation; /autowrite of the OSC controller toggles
+steps = [
+  { midi = "B0 28 7F", note = "AUTO" },
+  { midi = "B0 28 00" },
+]
+expect.bitwig = { "/autowrite" = "1" }
+
+[[scenario]]
+id = "jam.global.shift-auto"
+bullet = "SHIFT+AUTO - Toggle write clip launcher automation."
+steps = [
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 01 F7", note = "SHIFT down" },
+  { midi = "B0 28 7F", note = "AUTO" },
+  { midi = "B0 28 00" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 00 F7", note = "SHIFT up" },
+]
+expect.bitwig = { "/autowrite/launcher" = "1" }
+
+[[scenario]]
+id = "jam.global.note-repeat"
+bullet = "NOTE REPEAT - Toggle Note repeat."
+# Only the LEDs: the OSC controller reports the note repeat of its own note input
+steps = [
+  { midi = "B0 23 7F", note = "NOTE REPEAT" },
+  { midi = "B0 23 00" },
+]
+
+[[scenario]]
+id = "jam.transport.metronome"
+bullet = "SHIFT+PAGE LEFT - Toggle the metronome."
+before = [{ osc = "/click 0" }]
+steps = [
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 01 F7", note = "SHIFT down" },
+  { midi = "B0 5C 7F", note = "PAGE LEFT" },
+  { midi = "B0 5C 00" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 00 F7", note = "SHIFT up" },
+]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "jam.transport.loop"
+bullet = "SHIFT+PAGE RIGHT - Toggle transport loop."
+before = [{ osc = "/click 0 | /repeat 0" }]
+steps = [
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 01 F7", note = "SHIFT down" },
+  { midi = "B0 5D 7F", note = "PAGE RIGHT" },
+  { midi = "B0 5D 00" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 00 F7", note = "SHIFT up" },
+]
+expect.bitwig = { "/repeat" = "1" }
+
+[[scenario]]
+id = "jam.transport.punch-in"
+bullet = "SELECT+PLAY - Toggle punch in."
+before = [{ osc = "/repeat 0 | /punchIn 0" }]
+steps = [
+  { midi = "B0 32 7F", note = "SELECT down" },
+  { midi = "B0 5A 7F", note = "PLAY" },
+  { midi = "B0 5A 00" },
+  { midi = "B0 32 00", note = "SELECT up" },
+]
+expect.bitwig = { "/punchIn" = "1", "/play" = "0" }
+
+[[scenario]]
+id = "jam.transport.tempo"
+bullet = "TEMPO (+ encoder) - Changes the tempo."
+before = [{ osc = "/punchIn 0 | /tempo/raw 120" }]
+steps = [
+  { midi = "B0 5E 7F", note = "TEMPO down" },
+  { midi = "B0 39 01", note = "encoder +1" },
+  { midi = "B0 5E 00", note = "TEMPO up" },
+]
+expect.bitwig = { "/tempo/raw" = "121" }
+
+[[scenario]]
+id = "jam.group.select"
+bullet = "The group buttons (A-H) select the tracks in the current page of the track bank."
+before = [{ osc = "/tempo/raw 120 | /track/1/select 1" }]
+steps = [
+  { midi = "B0 48 7F", note = "group C" },
+  { midi = "B0 48 00" },
+]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "jam.group.mute"
+bullet = "MUTE (+ group button) - Toggle mute of the track."
+before = [{ osc = "/track/1/select 1 | /track/2/mute 0" }]
+steps = [
+  { midi = "B0 61 7F", note = "MUTE down" },
+  { midi = "B0 47 7F", note = "group B" },
+  { midi = "B0 47 00" },
+  { midi = "B0 61 00", note = "MUTE up" },
+]
+expect.bitwig = { "/track/2/mute" = "1", "/track/1/selected" = "1" }
+
+[[scenario]]
+id = "jam.group.solo"
+bullet = "SOLO (+ group button) - Toggle solo of the track."
+before = [{ osc = "/track/2/mute 0 | /track/3/solo 0" }]
+steps = [
+  { midi = "B0 60 7F", note = "SOLO down" },
+  { midi = "B0 48 7F", note = "group C" },
+  { midi = "B0 48 00" },
+  { midi = "B0 60 00", note = "SOLO up" },
+]
+expect.bitwig = { "/track/3/solo" = "1" }
+
+[[scenario]]
+id = "jam.group.recarm"
+bullet = "REC (+ group button) - Toggle rec arm of the track."
+before = [{ osc = "/track/3/solo 0 | /track/4/recarm 0" }]
+steps = [
+  { midi = "B0 5B 7F", note = "REC down" },
+  { midi = "B0 49 7F", note = "group D" },
+  { midi = "B0 49 00" },
+  { midi = "B0 5B 00", note = "REC up" },
+]
+expect.bitwig = { "/track/4/recarm" = "1", "/record" = "0" }
+
+[[scenario]]
+id = "jam.transport.clear-mute"
+bullet = "SELECT+MUTE - Clears Mute on all tracks."
+before = [{ osc = "/track/4/recarm 0 | /track/2/mute 1 | /track/5/mute 1" }]
+steps = [
+  { midi = "B0 32 7F", note = "SELECT down" },
+  { midi = "B0 61 7F", note = "MUTE" },
+  { midi = "B0 61 00" },
+  { midi = "B0 32 00", note = "SELECT up" },
+]
+expect.bitwig = { "/track/2/mute" = "0", "/track/5/mute" = "0" }
+
+[[scenario]]
+id = "jam.transport.clear-solo"
+bullet = "SELECT+SOLO - Clears Solo on all tracks."
+before = [{ osc = "/track/3/solo 1" }]
+steps = [
+  { midi = "B0 32 7F", note = "SELECT down" },
+  { midi = "B0 60 7F", note = "SOLO" },
+  { midi = "B0 60 00" },
+  { midi = "B0 32 00", note = "SELECT up" },
+]
+expect.bitwig = { "/track/3/solo" = "0" }
+
+[[scenario]]
+id = "jam.strip.level"
+bullet = "LEVEL - Toggles between Volume and Panorama editing of 8 tracks. All strips are lit in their tracks' color."
+before = [{ osc = "/track/3/solo 0" }]
+steps = [
+  { midi = "B0 25 7F", note = "LEVEL" },
+  { midi = "B0 25 00" },
+  { midi = "B0 25 7F", note = "LEVEL again: panorama" },
+  { midi = "B0 25 00" },
+]

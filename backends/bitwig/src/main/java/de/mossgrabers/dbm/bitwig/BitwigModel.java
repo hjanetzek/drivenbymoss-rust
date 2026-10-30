@@ -191,6 +191,9 @@ public final class BitwigModel
         this.transport.isArrangerRecordEnabled ().markInterested ();
         this.transport.isArrangerLoopEnabled ().markInterested ();
         this.transport.isMetronomeEnabled ().markInterested ();
+        this.transport.isArrangerAutomationWriteEnabled ().markInterested ();
+        this.transport.isClipLauncherAutomationWriteEnabled ().markInterested ();
+        this.transport.automationWriteMode ().markInterested ();
         this.transport.isMetronomeAudibleDuringPreRoll ().markInterested ();
         this.transport.isPunchInEnabled ().markInterested ();
         this.transport.isPunchOutEnabled ().markInterested ();
@@ -377,6 +380,21 @@ public final class BitwigModel
     }
 
 
+    /** The index of the automation mode Read of the core. */
+    static final int AUTOMATION_READ = 1;
+    /** Bitwig's automation write modes by the index of the core's mode. */
+    static final String [] AUTOMATION_MODES = { null, null, "touch", "write", "latch" };
+
+
+    private static int automationModeIndex (final String mode)
+    {
+        for (int i = 0; i < AUTOMATION_MODES.length; i++)
+            if (AUTOMATION_MODES[i] != null && AUTOMATION_MODES[i].equals (mode))
+                return i;
+        return AUTOMATION_READ;
+    }
+
+
     private void collectTransport (final ModelReporter reporter)
     {
         final double tempo = this.transport.tempo ().value ().getRaw ();
@@ -404,6 +422,13 @@ public final class BitwigModel
         if (contentPerPixel > 0)
             reporter.put ("/time/hzoom", 1.0 / contentPerPixel);
         reporter.put ("/click", this.transport.isMetronomeEnabled ().get ());
+        // The automation write switches, and the mode as the index of the core's mode (Reaper);
+        // Read if no switch is on, as TransportImpl.getAutomationWriteMode
+        final boolean arrangerAutomation = this.transport.isArrangerAutomationWriteEnabled ().get ();
+        final boolean launcherAutomation = this.transport.isClipLauncherAutomationWriteEnabled ().get ();
+        reporter.put ("/automode/arranger", arrangerAutomation);
+        reporter.put ("/automode/launcher", launcherAutomation);
+        reporter.put ("/automode", arrangerAutomation || launcherAutomation ? automationModeIndex (this.transport.automationWriteMode ().get ()) : AUTOMATION_READ);
         // As Reaper's pre-roll bit field: 2 = the metronome is audible during the pre-roll
         reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
         reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());

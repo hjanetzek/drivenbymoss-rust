@@ -282,7 +282,9 @@ impl TrackBank {
     }
 
     pub fn can_scroll_page_backwards(&self) -> bool {
-        self.bank_offset >= self.page_size
+        // Java for Bitwig asks the bank of the host (canScrollBackwards: any position > 0), Java
+        // for Reaper requires a full page
+        if self.ctx.is_host_paging() { self.bank_offset > 0 } else { self.bank_offset >= self.page_size }
     }
 
     pub fn can_scroll_page_forwards(&self) -> bool {

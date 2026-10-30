@@ -36,6 +36,7 @@ These do not change what a controller does, but explain the other differences.
 | Browser | `PopupBrowser` with 7 filter columns (no smart collections) of `numFilterColumnEntries` items, `numResults` results; observers only while used | Same columns and pages, reported only while the browser is open. Slots outside of the track and scene window cannot be browsed |
 | Note clips | `getNoteClip (cols, rows)` creates a launcher cursor clip per size when a view asks for it | Same, but the sizes must be known before the extension creates its objects: the core collects the sizes of the sequencer views created during the setup of the controller (plus 8x128 for the Drum 64 views) and lists them in the model setup. A size first requested later has no grid in Bitwig. The clip properties come from the first grid; `pinned` is set on all grids |
 | Effect tracks | Created from the ModelSetup | Not created yet |
+| Bank paging | `canScrollPageBackwards` of the banks is Bitwig's `canScrollBackwards`: true for any position > 0 | Same with host paging (the Java version for Reaper requires a full page); found 2026-10-30 (Maschine JAM session, Shift + arrow scrolls by 1 track) |
 | Device siblings | `createSiblingsDeviceBank (numDevicesInBank)` | Always 8 siblings (the Reaper protocol's fixed window) |
 | Device parameters | One remote-control page cursor; its selected page is the page shown on the controller and in Bitwig, page names from `pageNames` | Same page names and the same page selection in both directions (an extra page cursor follows Bitwig's selection). The parameter values come from `numParamPages` page cursors, each fixed to one page, as one flat list; pages beyond `numParamPages` are not reachable. When pages are switched quickly, the controller can briefly show the previous page while Bitwig catches up |
 | Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `modulatedValue`, `setIndication` and `touch` for the cursor device's parameters, `touch` for track and master volume and pan; not for sends, the track and project remote controls |
@@ -88,6 +89,17 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 | Drum device parameters | The drum device's parameter bank | Not reported, the drum device has no parameters |
 | Equalizer (`DeviceID.EQ`) | `EqualizerDeviceImpl`: the first EQ+ of the cursor track; type, frequency, gain, Q of 8 bands | Same device (`EqualizerDevice`), reported in the layout of the Reaper EQ (`/eq/param/<3 * band + 0, 1, 2>` frequency, gain, Q; `/eq/band/<band>/value` the type as Reaper index). A type knob selects one of the 7 types (as `EqBandTypeParameterImpl` of the Java version for Reaper), Java's sets the EQ+ type parameter (16 values) directly; with the takeover mode catch, Java's is ignored when it jumps |
 
+**Automation.** As `TransportImpl` of the Java version: Bitwig has two write switches (arranger
+and clip launcher) and the modes Read, Latch, Touch and Write; the mode counts as Read while no
+switch is on. The extension reports `/automode/arranger`, `/automode/launcher` and `/automode`
+(the index of the core's mode); the core then toggles the switches with the commands
+`automation toggleArranger|toggleLauncher|resetOverrides`, and setting a mode sets both switches
+(Read: off). Without the switches (Reaper) the core keeps Reaper's modes. Found by the conformance
+runner 2026-10-30 (Maschine JAM AUTO, Shift + AUTO).
+
+**Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
+(Reaper: 0.1), the normal one 1 BPM.
+
 **Values Bitwig does not take (takeover mode).** Bitwig applies its global takeover mode
 (Settings > Controllers: immediate, catch, relative scaling) to `SettableRangedValue.set`; with
 catch, a value is ignored until the control reaches Bitwig's current value. It is set to catch here, which is why
@@ -107,7 +119,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `automation`, `inifile` (pre-roll measures), `groove`, `cursor`,
+- `metro_vol`, `inifile` (pre-roll measures), `groove`, `cursor`,
   user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues

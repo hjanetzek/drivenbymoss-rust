@@ -1,0 +1,76 @@
+# Conformance scenarios: Native Instruments Maschine JAM, session mode and scene buttons (MIDI
+# mode, channel 1: buttons are CCs, pads notes 36-99 from the lower left, Shift a system
+# exclusive message). Fixture: tests/conformance/FIXTURE.md (tracks Synth and Drums with an
+# empty clip in slot 1).
+
+controller = "Native Instruments Maschine JAM"
+manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#session-mode"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/1/clip/1/hasContent" = "1" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
+  { midi = "B0 1E 7F | B0 1E 00", note = "SONG: session mode" },
+]
+
+[[known_difference]]
+match = "leds 90 5[CD]"
+reason = "The selected clip blinks (emulated, about 600 ms) between its color and the selected color: the final value depends on the phase"
+
+[[scenario]]
+id = "jam.session.select-clip"
+bullet = "SELECT+PAD - Selects the clip."
+steps = [
+  { midi = "B0 32 7F", note = "SELECT down" },
+  { midi = "90 5D 7F", note = "pad 2 of the top row (track Drums, scene 1)" },
+  { midi = "90 5D 00" },
+  { midi = "B0 32 00", note = "SELECT up" },
+]
+expect.bitwig = { "/track/2/clip/1/isSelected" = "1", "/play" = "0" }
+
+[[scenario]]
+id = "jam.session.launch"
+bullet = "PAD - The pads on the grid start/record the clips."
+steps = [
+  { midi = "90 5C 7F", note = "pad 1 of the top row (track Synth, scene 1)" },
+  { midi = "90 5C 00" },
+]
+# The launch is not visible (the transport is stopped, nothing plays); the clip is selected
+# ("Select clip/scene on launch")
+expect.bitwig = { "/track/1/clip/1/isSelected" = "1" }
+
+[[scenario]]
+id = "jam.session.stop"
+bullet = "MUTE+PAD - Select any clip of the track to stop playback of the playing clip of the track."
+steps = [
+  { midi = "B0 61 7F", note = "MUTE down" },
+  { midi = "90 5C 7F", note = "pad 1 of the top row" },
+  { midi = "90 5C 00" },
+  { midi = "B0 61 00", note = "MUTE up" },
+]
+expect.bitwig = { "/track/1/clip/1/isPlaying" = "0", "/track/1/clip/1/isPlayingQueued" = "0" }
+
+[[scenario]]
+id = "jam.session.flip"
+bullet = "Press \"Song\" to enter Session mode. Press again to toggle the clip orientation (vertical or horizontal)."
+steps = [
+  { midi = "B0 1E 7F", note = "SONG" },
+  { midi = "B0 1E 00" },
+]
+
+[[scenario]]
+id = "jam.session.scroll"
+bullet = "The arrow keys scroll the grid by blocks of 8 tracks/scenes. Hold Shift to only scroll 1 track/scene."
+before = [{ midi = "B0 1E 7F | B0 1E 00", note = "SONG: back to the vertical orientation" }]
+steps = [
+  { midi = "B0 2C 7F", note = "arrow right" },
+  { midi = "B0 2C 00" },
+  { midi = "B0 2B 7F", note = "arrow left" },
+  { midi = "B0 2B 00" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 01 F7", note = "SHIFT down" },
+  { midi = "B0 2C 7F", note = "arrow right: 1 track" },
+  { midi = "B0 2C 00" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 4D 00 F7", note = "SHIFT up" },
+]

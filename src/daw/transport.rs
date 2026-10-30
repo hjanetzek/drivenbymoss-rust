@@ -202,8 +202,21 @@ pub struct Transport {
     metronome_volume: MetronomeVolumeParameter,
     tempo: TempoParameter,
     automation_mode: AutomationMode,
+    /// The automation write switches of the host (Bitwig: arranger and clip launcher), `None`
+    /// if the host has none (Reaper: only the automation mode).
+    host_automation: Option<HostAutomation>,
     visible_pixels_per_second: f64,
 }
+
+/// The automation write switches of Bitwig (former `TransportImpl` of the Java version).
+#[derive(Debug, Clone, Copy, Default)]
+struct HostAutomation {
+    arranger: bool,
+    launcher: bool,
+}
+
+/// The automation write modes of Bitwig (`TransportImpl.AUTOMATION_MODES`).
+const HOST_AUTOMATION_MODES: &[AutomationMode] = &[AutomationMode::Read, AutomationMode::Latch, AutomationMode::Touch, AutomationMode::Write];
 
 impl Transport {
     pub fn new(ctx: DawContext) -> Self {
@@ -233,6 +246,7 @@ impl Transport {
             preroll_measures: 2,
             punch_mode: PUNCH_OFF,
             automation_mode: AutomationMode::TrimRead,
+            host_automation: None,
             visible_pixels_per_second: 0.0,
         }
     }
@@ -368,15 +382,18 @@ impl Transport {
     // Automation
 
     pub fn is_writing_clip_launcher_automation(&self) -> bool {
-        false
+        self.host_automation.is_some_and(|a| a.launcher)
     }
 
     pub fn is_writing_arranger_automation(&self) -> bool {
-        self.automation_mode != AutomationMode::Read && self.automation_mode != AutomationMode::TrimRead
+        match self.host_automation {
+            Some(a) => a.arranger,
+            None => self.automation_mode != AutomationMode::Read && self.automation_mode != AutomationMode::TrimRead,
+        }
     }
 
     pub fn automation_write_modes(&self) -> &'static [AutomationMode] {
-        AutomationMode::ALL
+        if self.host_automation.is_some() { HOST_AUTOMATION_MODES } else { AutomationMode::ALL }
     }
 
     pub fn automation_write_mode(&self) -> AutomationMode {
@@ -425,6 +442,10 @@ impl Transport {
     }
 
     pub fn toggle_write_arranger_automation(&mut self) {
+        if self.host_automation.is_some() {
+            self.ctx.send(Processor::Automation, "toggleArranger");
+            return;
+        }
         if self.is_writing_arranger_automation() {
             self.set_automation_write_mode(AutomationMode::TrimRead);
         } else {
@@ -432,9 +453,19 @@ impl Transport {
         }
     }
 
-    pub fn toggle_write_clip_launcher_automation(&mut self) {}
+    /// Only on hosts with a clip launcher automation switch (Bitwig).
+    pub fn toggle_write_clip_launcher_automation(&mut self) {
+        if self.host_automation.is_some() {
+            self.ctx.send(Processor::Automation, "toggleLauncher");
+        }
+    }
 
-    pub fn reset_automation_overrides(&mut self) {}
+    /// Only on hosts with automation overrides (Bitwig).
+    pub fn reset_automation_overrides(&mut self) {
+        if self.host_automation.is_some() {
+            self.ctx.send(Processor::Automation, "resetOverrides");
+        }
+    }
 
     pub fn return_to_arrangement(&mut self) {}
 
@@ -776,6 +807,17 @@ impl Transport {
     pub fn set_automation_write_mode_state(&mut self, mode: AutomationMode) {
         self.automation_mode = mode;
         self.ctx.set_automation_rec_active(self.is_writing_arranger_automation());
+    }
+
+    /// The host reported its arranger automation write switch (Bitwig).
+    pub fn set_writing_arranger_automation_state(&mut self, enabled: bool) {
+        self.host_automation.get_or_insert_with(HostAutomation::default).arranger = enabled;
+        self.ctx.set_automation_rec_active(self.is_writing_arranger_automation());
+    }
+
+    /// The host reported its clip launcher automation write switch (Bitwig).
+    pub fn set_writing_clip_launcher_automation_state(&mut self, enabled: bool) {
+        self.host_automation.get_or_insert_with(HostAutomation::default).launcher = enabled;
     }
 
     pub fn set_position_text(&mut self, text: &str) {

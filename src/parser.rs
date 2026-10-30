@@ -353,6 +353,18 @@ impl Parser {
                 }
             }
             "automode" => {
+                // Bitwig: the arranger and clip launcher automation write switches
+                match parts.poll() {
+                    Some("arranger") => {
+                        model.transport_mut().set_writing_arranger_automation_state(d.is_some_and(|v| v > 0.0));
+                        return true;
+                    }
+                    Some("launcher") => {
+                        model.transport_mut().set_writing_clip_launcher_automation_state(d.is_some_and(|v| v > 0.0));
+                        return true;
+                    }
+                    _ => {}
+                }
                 let mode = match d.map(|v| v as i32) {
                     Some(0) => Some(AutomationMode::TrimRead),
                     Some(1) => Some(AutomationMode::Read),
@@ -1572,6 +1584,26 @@ mod tests {
         assert_eq!(model.marker_bank().item(0).name(), "Marker 1");
     }
 
+    /// Bitwig: the automation write switches replace the Reaper automation mode.
+    #[test]
+    fn host_automation_switches() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/automode/arranger 0", "/automode/launcher 1", "/automode 4"]);
+        let t = model.transport();
+        assert!(!t.is_writing_arranger_automation());
+        assert!(t.is_writing_clip_launcher_automation());
+        assert_eq!(t.automation_write_mode(), AutomationMode::Latch);
+        assert_eq!(t.automation_write_modes()[0], AutomationMode::Read);
+        backend.take_calls();
+        let t = model.transport_mut();
+        t.toggle_write_arranger_automation();
+        t.toggle_write_clip_launcher_automation();
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::NoArg("automation".into(), "toggleArranger".into()), BackendCall::NoArg("automation".into(), "toggleLauncher".into())]
+        );
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());
@@ -1654,6 +1686,22 @@ mod tests {
             bank_calls(backend.take_calls()),
             vec![BackendCall::IntArg("bank".into(), "track".into(), 0), BackendCall::IntArg("bank".into(), "scene".into(), 8)]
         );
+    }
+
+    /// With host paging the banks can scroll back from any offset > 0, as Bitwig's banks.
+    #[test]
+    fn host_paging_can_scroll_back_from_an_unaligned_offset() {
+        let (mut model, mut parser, _, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 20", "/scene/count 20"]);
+        model.track_bank_mut().set_bank_offset(1);
+        // Without host paging (Reaper) a full page is required
+        assert!(!model.track_bank().can_scroll_page_backwards());
+        feed(&mut model, &mut parser, &["/track/offset 0", "/scene/offset 0"]);
+        assert!(model.track_bank().can_scroll_page_backwards());
+        model.track_bank_mut().scene_bank_mut().set_bank_offset(1);
+        assert!(model.track_bank().scene_bank().can_scroll_page_backwards());
+        model.track_bank_mut().set_bank_offset(0);
+        assert!(!model.track_bank().can_scroll_page_backwards());
     }
 
     #[test]
