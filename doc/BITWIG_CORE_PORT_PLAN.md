@@ -248,6 +248,13 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
 - **P1 9, step attribute knobs:** replaced (the Java version for Reaper casts the knob change to
   an integer; no Reaper test encodes it). The Reaper clip only edits velocity, duration and mute;
   the velocity knob now changes in finer steps there too. Nothing to change in the backend.
+- **P1 10, new note clips (replaced):** `create_note_clip` now selects and launches the slot
+  (`track <p>/clip/<s>/select|launch`) and overdub sets the launcher overdub (on Reaper the
+  selected track's `track <p>/overdub 1`) instead of starting the (arranger) recording;
+  `record_note_clip` sends `track <p>/clip/<s>/record` + `launch` instead of `track <p>/recordClip`.
+  The Reaper backend would need: `createClip` followed by the launch of the new item (or ignore
+  the launch), `clip/<s>/record` (record into the slot), and the Reaper meaning of the overdub
+  (start recording with the overdub record mode) for `track <p>/overdub` after a new clip.
 
 ## Replays to record again
 

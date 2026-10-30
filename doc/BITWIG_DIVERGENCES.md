@@ -189,6 +189,13 @@ keep their fraction (`toNormalizedValue (calcKnobChange (control))` of `CursorCl
 the core cut them to integers as the Java version for Reaper does (`(int) calcKnobChange`), so at
 the default sensitivity (1.09 per step) the changes were smaller. Also on Reaper.
 
+**New note clips (core port P1 10, 2026-10-30).** As `ModelImpl.createNoteClip`: the clip is
+created (`track <p>/createClip/<slot> <length>`), the slot selected and launched, overdub switches
+the launcher overdub on (`transport overdub/launcher 1`); before, arranger recording started and
+the clip was not launched. `recordNoteClip` records the slot unless it records already
+(`track <p>/clip/<s>/record`) and launches it; before, `track <p>/recordClip` was sent, which the
+extension did not handle. Also on Reaper.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

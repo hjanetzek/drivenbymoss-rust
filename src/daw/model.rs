@@ -661,18 +661,27 @@ impl Model {
 
     /// Create a new clip on the track and select it. If `overdub` is set, recording is started.
     pub fn create_note_clip(&mut self, track: TrackRef, slot_index: usize, length_in_beats: i32, overdub: bool) {
+        // ModelImpl.createNoteClip: track.createClip; slot.select (); slot.launch (true, false);
+        // if (overdub) transport.setLauncherOverdub (true)
         let t = self.track_bank.track_mut(track);
         let position = t.slot_bank().item(slot_index).position();
         t.create_clip(position, length_in_beats);
-        t.slot_bank_mut().item_mut(slot_index).select();
+        let slot = t.slot_bank_mut().item_mut(slot_index);
+        slot.select();
+        slot.launch(true, false);
         if overdub {
-            self.transport.start_recording();
+            self.set_launcher_overdub(true);
         }
     }
 
-    /// Record a new clip on the track.
-    pub fn record_note_clip(&mut self, track: TrackRef) {
-        self.track_bank.track_mut(track).record_clip();
+    /// Record a new clip in the slot of the track (ModelImpl.recordNoteClip: start recording if
+    /// the slot does not record yet, then launch it).
+    pub fn record_note_clip(&mut self, track: TrackRef, slot_index: usize) {
+        let slot = self.track_bank.track_mut(track).slot_bank_mut().item_mut(slot_index);
+        if !slot.is_recording() {
+            slot.start_recording();
+        }
+        slot.launch(true, false);
     }
 
     pub fn can_convert_clip(&self) -> bool {

@@ -207,7 +207,7 @@ impl SessionViewBase {
             return;
         };
         match ctx.config.action_for_rec_armed_pad() {
-            0 => ctx.model.record_note_clip(track),
+            0 => ctx.model.record_note_clip(track, slot_index),
             1 => {
                 let length_in_beats = ctx.config.new_clip_length_in_beats(ctx.model.transport().quarters_per_measure());
                 ctx.model.create_note_clip(track, slot_index, length_in_beats, true);

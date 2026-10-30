@@ -1803,6 +1803,34 @@ mod tests {
         );
     }
 
+    /// ModelImpl.createNoteClip / recordNoteClip of the Java version for Bitwig.
+    #[test]
+    fn create_and_record_note_clip() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/count 1", "/track/0/exists 1", "/track/0/slot/count 8", "/track/0/slot/2/exists 1", "/track/0/slot/3/exists 1", "/track/0/slot/3/recording 1", "/overdub/arranger 0", "/overdub/launcher 0"],
+        );
+        backend.take_calls();
+        let track = model.track_bank().ref_at(0).unwrap();
+        model.create_note_clip(track, 2, 4, true);
+        model.record_note_clip(track, 2);
+        model.record_note_clip(track, 3);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("track".into(), "0/createClip/2".into(), 4),
+                BackendCall::NoArg("track".into(), "0/clip/2/select".into()),
+                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
+                BackendCall::IntArg("transport".into(), "overdub/launcher".into(), 1),
+                BackendCall::NoArg("track".into(), "0/clip/2/record".into()),
+                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
+                BackendCall::NoArg("track".into(), "0/clip/3/launch".into()),
+            ]
+        );
+    }
+
     /// AbstractItemBankImpl: the selections after a page change are scheduled (75 ms), the
     /// previous item at the first item of a page is the last item of the previous page, the
     /// previous page selects its first item (Bitwig).
