@@ -26,7 +26,7 @@ use crate::host::Host;
 use crate::scale::Scales;
 
 use super::application::{Application, Arranger, Mixer};
-use super::bank::BankItem;
+use super::bank::{bank_locator, BankItem};
 use super::browser::Browser;
 use super::clip::{CursorClip, Note};
 use super::color::ColorEx;
@@ -113,6 +113,7 @@ impl Model {
         let mut track_bank =
             TrackBank::new(ctx.clone(), setup.num_tracks, num_scenes, num_sends, num_params, setup.has_flat_track_list, setup.has_full_flat_track_list);
         track_bank.recalc_if_dirty();
+        track_bank.scene_bank_unguarded_mut().set_locator(bank_locator(|m: &mut Model| Some(&mut **m.track_bank_mut().scene_bank_unguarded_mut())));
 
         Model {
             application: Application::new(ctx.clone()),
@@ -519,7 +520,9 @@ impl Model {
     /// bank (use [`Model::scene_bank`] / [`Model::scene_bank_mut`] for it).
     pub fn ensure_scene_bank(&mut self, num_scenes: usize) {
         if num_scenes != self.setup.num_scenes && !self.extra_scene_banks.iter().any(|(n, _)| *n == num_scenes) {
-            self.extra_scene_banks.push((num_scenes, SceneBank::new(self.ctx.clone(), num_scenes)));
+            let mut bank = SceneBank::new(self.ctx.clone(), num_scenes);
+            bank.set_locator(bank_locator(move |m: &mut Model| m.scene_bank_sized_mut(num_scenes).map(|b| &mut **b)));
+            self.extra_scene_banks.push((num_scenes, bank));
         }
     }
 

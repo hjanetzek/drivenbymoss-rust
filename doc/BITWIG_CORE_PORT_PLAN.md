@@ -215,3 +215,7 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   all other track commands), not the index in the page. The Reaper `TrackProcessor` resolves the
   first part as the track position for all commands, so this also fixes scrolled banks on Reaper;
   nothing to change, but check the clip commands there with a scrolled bank.
+- **P1 2 and 4, selections after a page change:** the scene bank (and the other paged banks with
+  a place in the model) now selects 75 ms after the page change, as the Java version for Reaper
+  (`AbstractPagedBankImpl`) does too; the previous item of a track or scene bank at the first item
+  selects the last item of the previous page on both hosts. Nothing to change.

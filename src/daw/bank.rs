@@ -10,9 +10,12 @@
 //! ([`PagedBank::unpaged_item`]). Indices outside of the existing items return an "empty"
 //! placeholder item which reports `does_exist() == false` and whose commands do nothing.
 
+use std::rc::Rc;
+
 use super::context::DawContext;
 use crate::backend::Processor;
 use super::events::ModelEvent;
+use super::model::Model;
 
 /// Common functions of all items which are managed by a bank (former `IItem`).
 pub trait BankItem {
@@ -31,6 +34,21 @@ pub trait BankItem {
 type Factory<T> = Box<dyn Fn(usize) -> T>;
 type EmptyFactory<T> = Box<dyn Fn() -> T>;
 
+/// Finds a bank in the model, for the selections which the Java version schedules after a page
+/// change (`host.scheduleTask (() -> this.getItem (index).select (), 75)`).
+pub(crate) type BankLocator<T> = Rc<dyn Fn(&mut Model) -> Option<&mut PagedBank<T>>>;
+
+/// Create a [`BankLocator`] from a closure.
+pub(crate) fn bank_locator<T, F>(f: F) -> BankLocator<T>
+where
+    F: Fn(&mut Model) -> Option<&mut PagedBank<T>> + 'static,
+{
+    Rc::new(f)
+}
+
+/// The delay of a selection after a page change (AbstractItemBankImpl of the Java version).
+const PAGE_SELECT_DELAY: u64 = 75;
+
 /// A bank which stores all items and gives paged access to them.
 pub struct PagedBank<T> {
     pub(crate) ctx: DawContext,
@@ -47,9 +65,12 @@ pub struct PagedBank<T> {
     /// True if the host pages the bank (it reported the bank offset, protocol v2): the host only
     /// reports the items of its window and is told each change of the bank offset.
     host_paged: bool,
+    /// Where the bank is in the model, to select an item after a page change. Without it the
+    /// item is selected at once.
+    locator: Option<BankLocator<T>>,
 }
 
-impl<T: BankItem> PagedBank<T> {
+impl<T: BankItem + 'static> PagedBank<T> {
     /// Create a bank. `factory` creates the item for a position, `empty_factory` creates the
     /// placeholder for non-existing items.
     pub fn new(
@@ -70,6 +91,39 @@ impl<T: BankItem> PagedBank<T> {
             page_event: None,
             host_bank: None,
             host_paged: false,
+            locator: None,
+        }
+    }
+
+    /// Set where the bank is in the model (see [`BankLocator`]).
+    pub(crate) fn set_locator(&mut self, locator: BankLocator<T>) {
+        self.locator = Some(locator);
+    }
+
+    /// Select the item at the index of the page after the page change reached the host
+    /// (AbstractItemBankImpl: `host.scheduleTask (() -> this.getItem (index).select (), 75)`). The
+    /// host still has the old window when the select arrives in the same tick.
+    fn select_later(&mut self, index: usize, fire_page_event: bool) {
+        let Some(locator) = self.locator.clone() else {
+            self.item_mut(index).select();
+            if fire_page_event {
+                self.post_page_event();
+            }
+            return;
+        };
+        self.ctx.schedule(PAGE_SELECT_DELAY, move |m| {
+            if let Some(bank) = locator(m) {
+                bank.item_mut(index).select();
+                if fire_page_event {
+                    bank.post_page_event();
+                }
+            }
+        });
+    }
+
+    fn post_page_event(&self) {
+        if let Some(event) = &self.page_event {
+            self.ctx.post_event(event.clone());
         }
     }
 
@@ -280,9 +334,7 @@ impl<T: BankItem> PagedBank<T> {
         if self.bank_offset != old_offset {
             self.send_bank_offset();
         }
-        if let Some(event) = &self.page_event {
-            self.ctx.post_event(event.clone());
-        }
+        self.post_page_event();
     }
 
     /// Select the next item. Switches to the next page if necessary.
@@ -295,11 +347,16 @@ impl<T: BankItem> PagedBank<T> {
         }
     }
 
-    /// Select the previous item. Switches to the previous page if necessary.
+    /// Select the previous item. Switches to the previous page if necessary and selects its
+    /// last item (AbstractItemBankImpl.selectPreviousItem).
     pub fn select_previous_item(&mut self) {
         let index = self.selected_item().map(|i| i.index() - 1).unwrap_or(0);
         if index == -1 {
-            self.select_previous_page();
+            if !self.can_scroll_page_backwards() {
+                return;
+            }
+            self.scroll_page_backwards();
+            self.select_later(self.page_size.saturating_sub(1), false);
         } else {
             self.item_mut(index as usize).select();
         }
@@ -314,26 +371,27 @@ impl<T: BankItem> PagedBank<T> {
         // Java for Bitwig (AbstractItemBankImpl) selects the first item of the page, Java for
         // Reaper (AbstractPagedBankImpl) the last one
         let index = if self.ctx.is_host_paging() { 0 } else { self.page_size.saturating_sub(1) };
-        self.item_mut(index).select();
+        self.select_later(index, false);
     }
 
-    /// Scroll to the next page and select the first item.
+    /// Scroll to the next page and select the first item (AbstractItemBankImpl.selectNextPage).
     pub fn select_next_page(&mut self) {
         if !self.can_scroll_page_forwards() {
             return;
         }
         self.scroll_page_forwards();
-        self.item_mut(0).select();
+        self.select_later(0, false);
     }
 
-    /// Scroll to the page of the item at the given position and select the item.
+    /// Scroll to the page of the item at the given position and select the item
+    /// (AbstractItemBank.selectItemAtPosition: the select and the page observers after 75 ms).
     pub fn select_item_at_position(&mut self, position: usize) {
         if position >= self.item_count || self.page_size == 0 {
             return;
         }
         let ps = self.page_size;
         self.scroll_to(position / ps * ps, false);
-        self.item_mut(position % ps).select();
+        self.select_later(position % ps, true);
     }
 }
 

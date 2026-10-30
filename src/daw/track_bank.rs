@@ -374,10 +374,17 @@ impl TrackBank {
         }
     }
 
+    /// AbstractItemBankImpl.selectPreviousItem: at the first track, scroll to the previous page
+    /// and select its last track (`select_previous_page` selects the first one on Bitwig).
     pub fn select_previous_item(&mut self) {
         let index = self.selected_item().map(|t| t.index() - 1).unwrap_or(0);
         if index == -1 {
-            self.select_previous_page();
+            if !self.can_scroll_page_backwards() {
+                return;
+            }
+            self.scroll_page_backwards();
+            let index = self.page_size.saturating_sub(1);
+            self.ctx.schedule(75, move |m| m.track_bank_mut().item_mut(index).select());
         } else {
             self.item_mut(index as usize).select();
         }
@@ -569,6 +576,11 @@ impl TrackBank {
     /// all tracks are updated to the page of the scene bank.
     pub fn scene_bank_mut(&mut self) -> SceneBankGuard<'_> {
         SceneBankGuard { bank: self }
+    }
+
+    /// The scene bank without updating the slot banks (for selections which do not page).
+    pub(crate) fn scene_bank_unguarded_mut(&mut self) -> &mut SceneBank {
+        &mut self.scene_bank
     }
 
     fn update_slot_banks(&mut self) {

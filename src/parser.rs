@@ -1802,6 +1802,51 @@ mod tests {
         );
     }
 
+    /// AbstractItemBankImpl: the selections after a page change are scheduled (75 ms), the
+    /// previous item at the first item of a page is the last item of the previous page, the
+    /// previous page selects its first item (Bitwig).
+    #[test]
+    fn page_change_selections() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let mut lines = vec!["/track/count 20".to_string(), "/scene/count 20".to_string()];
+        for i in 0..20 {
+            lines.push(format!("/track/{i}/exists 1"));
+            lines.push(format!("/scene/{i}/exists 1"));
+        }
+        lines.push("/track/offset 0".into());
+        lines.push("/scene/offset 0".into());
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        feed(&mut model, &mut parser, &refs);
+        model.track_bank_mut().set_bank_offset(8);
+        model.scene_bank_mut().set_bank_offset(8);
+        feed(&mut model, &mut parser, &["/track/8/select 1", "/scene/8/select 1"]);
+        backend.take_calls();
+
+        model.scene_bank_mut().select_previous_item();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "7/select".into())]);
+
+        model.scene_bank_mut().select_next_page();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "8/select".into())]);
+
+        model.scene_bank_mut().select_previous_page();
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0), BackendCall::NoArg("scene".into(), "0/select".into())]);
+
+        model.scene_bank_mut().select_item_at_position(13);
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "13/select".into())]);
+
+        model.track_bank_mut().select_previous_item();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 0)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "7/select".into(), 1)]);
+    }
+
     /// With host paging the banks can scroll back from any offset > 0, as Bitwig's banks.
     #[test]
     fn host_paging_can_scroll_back_from_an_unaligned_offset() {
