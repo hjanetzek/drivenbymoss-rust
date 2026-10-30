@@ -63,6 +63,9 @@ pub struct Parameter {
     default_value: i32,
     /// The modulated value reported by the host (Bitwig), `None` if not reported (Reaper).
     modulated: Option<f64>,
+    /// The value is sent to be applied immediately, without the takeover mode of the host
+    /// (see [`Parameter::set_value_immediatly`]).
+    immediately: bool,
 }
 
 impl Parameter {
@@ -80,6 +83,7 @@ impl Parameter {
             name: String::new(),
             value_str: String::new(),
             is_being_touched: false,
+            immediately: false,
             value: 0.0,
             last_received_value: -1.0,
             number_of_steps: 0,
@@ -238,8 +242,13 @@ impl Parameter {
         self.set_normalized_value(value_changer.to_normalized_value(value as f64));
     }
 
+    /// Set the value without the takeover mode of the host (Bitwig: catch, immediate or
+    /// relative scaling, `SettableRangedValue.setImmediately`), for controls without a physical
+    /// position such as pads. Reaper has no takeover mode, there it is the same as `set_value`.
     pub fn set_value_immediatly(&mut self, value: i32) {
+        self.immediately = true;
         self.set_value(value);
+        self.immediately = false;
     }
 
     /// Set the normalized value [0..1].
@@ -289,6 +298,10 @@ impl Parameter {
     }
 
     fn send_value(&self) {
+        // The extension for Bitwig (the host which pages the banks) knows the commands to set a
+        // value immediately
+        let suffix = if self.immediately && self.ctx.is_host_paging() { "/immediately" } else { "" };
+        let send = |processor: Processor, cmd: &str, value: f64| self.ctx.send_double(processor, &format!("{cmd}{suffix}"), value);
         match self.kind {
             ParameterKind::Device(processor) => {
                 let mut cmd = format!("param/{}/value", self.position);
@@ -300,30 +313,30 @@ impl Parameter {
                         cmd = format!("{pos}/{cmd}");
                     }
                 }
-                self.ctx.send_double(processor, &cmd, self.value);
+                send(processor, &cmd, self.value);
             }
             ParameterKind::TrackVolume | ParameterKind::TrackPan => {
                 if self.ctx.is_automation_rec_active() {
                     self.ctx.delay_updates(Processor::Track);
                 }
                 let name = if self.kind == ParameterKind::TrackVolume { "volume" } else { "pan" };
-                self.ctx.send_double(Processor::Track, &format!("{}/{}", self.index, name), self.value);
+                send(Processor::Track, &format!("{}/{}", self.index, name), self.value);
             }
-            ParameterKind::DeviceChannelVolume(processor, prefix) => self.ctx.send_double(processor, &format!("{prefix}/{}/volume", self.index), self.value),
-            ParameterKind::DeviceChannelPan(processor, prefix) => self.ctx.send_double(processor, &format!("{prefix}/{}/pan", self.index), self.value),
+            ParameterKind::DeviceChannelVolume(processor, prefix) => send(processor, &format!("{prefix}/{}/volume", self.index), self.value),
+            ParameterKind::DeviceChannelPan(processor, prefix) => send(processor, &format!("{prefix}/{}/pan", self.index), self.value),
             ParameterKind::MasterVolume | ParameterKind::MasterPan => {
                 if self.ctx.is_automation_rec_active() {
                     self.ctx.delay_updates(Processor::Master);
                 }
                 let name = if self.kind == ParameterKind::MasterVolume { "volume" } else { "pan" };
-                self.ctx.send_double(Processor::Master, name, self.value);
+                send(Processor::Master, name, self.value);
             }
             ParameterKind::Send { channel_position } => {
-                self.ctx.send_double(Processor::Track, &format!("{}/send/{}/volume", channel_position, self.position), self.value);
+                send(Processor::Track, &format!("{}/send/{}/volume", channel_position, self.position), self.value);
             }
-            ParameterKind::MasterCrossfader => self.ctx.send_double(Processor::Master, "user/param/0/value", self.value),
-            ParameterKind::Groove(GrooveParameterId::Enabled) => self.ctx.send_double(Processor::Groove, "active", self.value),
-            ParameterKind::Groove(_) => self.ctx.send_double(Processor::Groove, "amount", self.value * 2.0 - 1.0),
+            ParameterKind::MasterCrossfader => send(Processor::Master, "user/param/0/value", self.value),
+            ParameterKind::Groove(GrooveParameterId::Enabled) => send(Processor::Groove, "active", self.value),
+            ParameterKind::Groove(_) => send(Processor::Groove, "amount", self.value * 2.0 - 1.0),
             ParameterKind::Empty => {}
         }
     }
@@ -515,6 +528,25 @@ mod tests {
         );
         p.reset_value();
         assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 91.0 / 127.0)]);
+    }
+
+    #[test]
+    fn set_value_immediately_only_on_bitwig() {
+        let (ctx, backend) = test_ctx();
+        let mut p = Parameter::new(ctx.clone(), ParameterKind::Send { channel_position: 2 }, 0, 0.0);
+        p.set_exists(true);
+        p.set_value_immediatly(127);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/send/0/volume".into(), 1.0)]);
+        ctx.set_host_paging();
+        p.set_value_immediatly(0);
+        p.set_value(127);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("track".into(), "2/send/0/volume/immediately".into(), 0.0),
+                BackendCall::DoubleArg("track".into(), "2/send/0/volume".into(), 1.0)
+            ]
+        );
     }
 
     #[test]

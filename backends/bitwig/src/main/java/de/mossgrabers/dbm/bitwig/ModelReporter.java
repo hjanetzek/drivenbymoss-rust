@@ -18,6 +18,8 @@ public final class ModelReporter
     private final Map<String, String> lastValues = new HashMap<> ();
     private final StringBuilder       lines      = new StringBuilder ();
     private boolean                   dumpAll    = true;
+    /** Prefixes to report again and when (System.nanoTime), see forgetLater. */
+    private final Map<String, Long>   pending    = new HashMap<> ();
 
 
     /**
@@ -26,6 +28,55 @@ public final class ModelReporter
     public void requestDump ()
     {
         this.dumpAll = true;
+    }
+
+
+    /**
+     * Report the values under the address prefix again with the next collection, even if they
+     * did not change. Used after a command which sets a value: the core changes its value at once
+     * (as for Reaper), and if Bitwig does not take the new value (e.g. because a control has to
+     * pick up the current value first) nothing would correct it.
+     *
+     * @param prefix The address prefix, e.g. "/track/3/"
+     */
+    public void forget (final String prefix)
+    {
+        this.lastValues.keySet ().removeIf (address -> address.startsWith (prefix));
+    }
+
+
+    /**
+     * As forget, but only after the delay, counted from the last call for the prefix: while a
+     * knob is turned Bitwig might not have applied the last value yet, and reporting the old one
+     * would set the core back.
+     *
+     * @param prefix The address prefix
+     * @param delayMs The delay in milliseconds
+     */
+    public void forgetLater (final String prefix, final int delayMs)
+    {
+        this.pending.put (prefix, Long.valueOf (System.nanoTime () + delayMs * 1_000_000L));
+    }
+
+
+    /**
+     * Forget the prefixes whose delay is over (call before collecting).
+     */
+    public void applyPendingForgets ()
+    {
+        if (this.pending.isEmpty ())
+            return;
+        final long now = System.nanoTime ();
+        final var iterator = this.pending.entrySet ().iterator ();
+        while (iterator.hasNext ())
+        {
+            final var entry = iterator.next ();
+            if (entry.getValue ().longValue () - now <= 0)
+            {
+                this.forget (entry.getKey ());
+                iterator.remove ();
+            }
+        }
     }
 
 

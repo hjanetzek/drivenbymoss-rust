@@ -33,9 +33,7 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 | Area | Java | Rust | Status |
 | --- | --- | --- | --- |
 | Equalizer: knob LEDs | type, Q, frequency colors | off | Rust bug |
-| Track Mix: knob LEDs after turning a knob | Send A at 64: off; Pan at full left: amber | Send A: green; Pan: off | Rust shows the new values; Java's look like the values before the change; to be investigated |
 | Template change: LEDs of the previous template | turned off | left on | Rust difference |
-| Track Mix: pan knob | no change | pan | probably state: the Device toggle of the Java controller (3rd knob row = device parameters) was on; restart both controllers before a run |
 | Equalizer: Send A at the center | off | off | the scenario expects Bell (manual); check the Java code |
 | Drum Sequencer (Java run): Track Control row | arms tracks for recording | steps | the Java bug of the Note Sequencer (below) also hits the Drum Sequencer (`drumPadEditMode` registered twice); the Java controller has to be restarted before a run, otherwise its Drum Sequencer scenarios fail |
 
@@ -49,6 +47,12 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 
 ## Fixed by the comparison
 
+- Track Mix: knob LEDs after turning a knob showed the value sent, also when Bitwig did not take
+  it (in the fixture, Bitwig keeps track volume and sends, also from OSC; Bitwig's takeover
+  mode is set to catch).
+  The Java version shows Bitwig's value. The extension now reports the values of the addressed
+  channel again 300 ms after a value command, so the LEDs fall back to Bitwig's value
+  (BITWIG_DIVERGENCES.md §6). This also explained the pan difference (2026-10-30).
 - Track Mix: Track Select to the previous page selected the last track of the page and moved the
   selection on every page scroll, as the Java version for Reaper; with host paging (Bitwig) the
   first track is selected and scrolling only scrolls, as the Java version for Bitwig

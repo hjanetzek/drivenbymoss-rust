@@ -331,6 +331,7 @@ public final class BitwigModel
      */
     public void collect (final ModelReporter reporter)
     {
+        reporter.applyPendingForgets ();
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         this.collectScenes (reporter);

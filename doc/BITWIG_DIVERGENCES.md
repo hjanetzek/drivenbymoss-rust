@@ -86,6 +86,21 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 | Device parameter commands of the first instrument | The specific device | Same (`primary param/…`) |
 | Drum device parameters | The drum device's parameter bank | Not reported, the drum device has no parameters |
 
+**Values Bitwig does not take (takeover mode).** Bitwig applies its global takeover mode
+(Settings > Controllers: immediate, catch, relative scaling) to `SettableRangedValue.set`; with
+catch, a value is ignored until the control reaches Bitwig's current value. It is set to catch here, which is why
+track volume and sends did not change in the fixture project, even from OSC. The Java version
+uses `set` for knobs and faders (so does the Rust core, as on Reaper), and `setImmediately`
+(`setValueImmediatly`) where the control has no position, e.g. the pads of the Launchpad Mix,
+Device, User and Note Edit views. The Rust core sends these with the suffix `/immediately`
+(`Parameter::set_value_immediatly`, only with host paging, i.e. Bitwig), and the extension calls
+`setImmediately`. The core sets a value it sends locally right away, as for Reaper, and the
+extension reports only changes, so a value which Bitwig ignored stayed on the controller; the
+Java version always shows Bitwig's value. The extension now forgets the reported values of the
+addressed channel or parameter 300 ms after a value command (`CommandHandler.reportAgain`,
+`ModelReporter.forgetLater`), so the next collect reports Bitwig's values again and the LEDs fall
+back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob LEDs).
+
 ## 7. Open: not handled yet
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.

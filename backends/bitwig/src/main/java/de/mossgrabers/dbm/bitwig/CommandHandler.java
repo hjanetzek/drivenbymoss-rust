@@ -12,6 +12,7 @@ import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.PinnableCursorClip;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Scene;
+import com.bitwig.extension.controller.api.SettableRangedValue;
 import com.bitwig.extension.controller.api.Track;
 
 import java.util.Arrays;
@@ -30,12 +31,17 @@ public final class CommandHandler
     /** The panel layouts in the order of the core's layout index. */
     private static final String [] PANEL_LAYOUTS = { "ARRANGE", "MIX", "EDIT", "PLAY" };
 
+    /** The delay before the values of a commanded item are reported again, in milliseconds. */
+    private static final int     REPORT_AGAIN_DELAY = 300;
+    private static final String  IMMEDIATELY = "/immediately";
     private static final Pattern COLOR_PATTERN = Pattern.compile ("RGB\\((\\d+),(\\d+),(\\d+)\\)");
 
 
     private final BitwigModel    model;
     private final ModelReporter  reporter;
     private final Consumer<String> unhandled;
+    /** The current value command ends with "/immediately": set without the takeover mode. */
+    private boolean              immediately;
 
 
     /**
@@ -95,8 +101,13 @@ public final class CommandHandler
      * @param command The command
      * @param value The value
      */
-    public void handle (final String processor, final String command, final double value)
+    public void handle (final String processor, final String fullCommand, final double value)
     {
+        // "…/immediately": set the value without Bitwig's takeover mode (catch, relative
+        // scaling), as setValueImmediatly of the Java version, e.g. for pads
+        this.immediately = fullCommand.endsWith (IMMEDIATELY);
+        final String command = this.immediately ? fullCommand.substring (0, fullCommand.length () - IMMEDIATELY.length ()) : fullCommand;
+        this.reportAgain (processor, command);
         switch (processor)
         {
             case "transport" -> this.handleTransport (command, value);
@@ -393,6 +404,47 @@ public final class CommandHandler
                 this.unhandled.accept ("clip " + command);
             }
         }
+    }
+
+
+    /**
+     * A command which sets a value: report the values of the item again a bit later (see
+     * ModelReporter.forgetLater), so that the core gets Bitwig's value even if it did not change. Only the item of the command: a track, the master, or a parameter, pad or layer
+     * of a device.
+     */
+    private void reportAgain (final String processor, final String command)
+    {
+        final String [] parts = command.split ("/");
+        switch (processor)
+        {
+            case "master" -> this.reporter.forgetLater ("/master/", REPORT_AGAIN_DELAY);
+            case "track" ->
+            {
+                if (parseIndex (parts[0]) >= 0)
+                    this.reporter.forgetLater ("/track/" + parts[0] + "/", REPORT_AGAIN_DELAY);
+            }
+            case "device", "primary", "drum", "eq" ->
+            {
+                if (parts.length >= 2 && ("param".equals (parts[0]) || "pad".equals (parts[0]) || "layer".equals (parts[0])))
+                    this.reporter.forgetLater ("/" + processor + "/" + parts[0] + "/" + parts[1] + "/", REPORT_AGAIN_DELAY);
+            }
+            default ->
+            {
+                // Nothing to correct
+            }
+        }
+    }
+
+
+    /**
+     * Set a value, immediately if the command asked for it.
+     */
+    private void setValue (final SettableRangedValue rangedValue, final double value)
+    {
+        if (this.immediately)
+            rangedValue.setImmediately (value);
+        else
+            rangedValue.set (value);
     }
 
 
@@ -768,7 +820,7 @@ public final class CommandHandler
         final Parameter send = track.sendBank ().getItemAt (index);
         switch (parts[2])
         {
-            case "volume" -> send.value ().set (value);
+            case "volume" -> this.setValue (send.value (), value);
             case "active" -> track.sendBank ().getItemAt (index).isEnabled ().toggle ();
             default -> this.unhandled.accept ("track send " + parts[2]);
         }
@@ -790,8 +842,8 @@ public final class CommandHandler
             case "mute" -> channel.mute ().set (value > 0);
             case "active" -> channel.isActivated ().set (value > 0);
             case "solo" -> channel.solo ().set (value > 0);
-            case "volume" -> channel.volume ().value ().set (value);
-            case "pan" -> channel.pan ().value ().set (value);
+            case "volume" -> this.setValue (channel.volume ().value (), value);
+            case "pan" -> this.setValue (channel.pan ().value (), value);
             case "volume/touch" -> channel.volume ().touch (value > 0);
             case "pan/touch" -> channel.pan ().touch (value > 0);
             case "color" ->
@@ -880,7 +932,7 @@ public final class CommandHandler
         final Parameter parameter = pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
         switch (parts[2])
         {
-            case "value" -> parameter.value ().set (value);
+            case "value" -> this.setValue (parameter.value (), value);
             case "touch" -> parameter.touch (value > 0);
             case "indicate" -> parameter.setIndication (value > 0);
             default ->
