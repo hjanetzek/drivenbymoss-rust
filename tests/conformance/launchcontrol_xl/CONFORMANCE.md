@@ -52,7 +52,7 @@ known differences of the scenario files) until it is decided what to do with it.
 | --- | --- | --- | --- |
 | Note and Drum Sequencer: Track Control row after a template change | track mutes or record arm | step mutes | the edit mode is registered in the main and in the fader mode manager (`LaunchControlXLControllerSetup.createModes`), see BITWIG_DIVERGENCES.md §8 |
 | Equalizer: band type knob with the takeover mode catch | a jump of the knob is ignored, "center is Bell" (manual) does not hold | selects one of the 7 types | `XLEqMode`: the knob sets the EQ+ type parameter (16 values) as a continuous parameter; maybe intended |
-| Sequencers: console errors | "Illegal index accessing step info array", `ArrayIndexOutOfBoundsException` (about 240000 times in Bitwig's log of 2026-10-30, during the Launch Control XL runs) | - | not located yet |
+| Note Sequencer, Track Control row: console errors | "Illegal index accessing step info array", `ArrayIndexOutOfBoundsException` (about 240000 times in Bitwig's log of 2026-10-30), on every LED update while a step of the 8 has no note but had one before; the LED is off and the button does nothing, as intended | same result, no error (the lookup of row -1 gives the empty step) | `XLNoteSequencerMode.getSequencerStepColor` and `onButton` pass `clip.getHighestRow (channel, column)`, -1 for an empty step, as the row to `clip.getStep`; `CursorClipImpl.getStep` indexes the row array of the step with it once the array exists. `XLBaseNoteEditMode.onKnobValue` checks for a row < 0, these two do not |
 
 ## Fixed by the comparison
 
