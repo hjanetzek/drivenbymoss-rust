@@ -32,9 +32,7 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 
 | Area | Java | Rust | Status |
 | --- | --- | --- | --- |
-| Equalizer: knob LEDs | type, Q, frequency colors | off | Rust bug |
 | Template change: LEDs of the previous template | turned off | left on | Rust difference |
-| Equalizer: Send A at the center | off | off | the scenario expects Bell (manual); check the Java code |
 | Drum Sequencer (Java run): Track Control row | arms tracks for recording | steps | the Java bug of the Note Sequencer (below) also hits the Drum Sequencer (`drumPadEditMode` registered twice); the Java controller has to be restarted before a run, otherwise its Drum Sequencer scenarios fail |
 
 ## Known differences (not bugs of the port)
@@ -43,10 +41,14 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 | --- | --- | --- | --- |
 | Note Sequencer: Track Control row after a template change | track mutes | step mutes | Java bug: the note edit mode is registered in the main and the fader mode manager (BITWIG_DIVERGENCES.md §8); Rust follows the manual |
 | Note and drum step knobs (chance etc.): value of an absolute knob | CC / 128 (Bitwig's normalized value of the hardware control, passed to the note parameter) | CC / 127 (as the Java version for Reaper) | at most 0.8 %; Bitwig hardware binding of the Java version |
+| Equalizer: Send A knob to the center | band stays off | Bell (as the manual) | takeover mode catch: Java's knob sets the EQ+ type parameter (16 values) and its jump is caught; Rust selects one of the 7 types (as the Java version for Reaper) with a command |
 | Layer Mix with an Instrument Layer of 2 layers: Track Select "previous" LED | on | off | there is no previous page; Java takes it from Bitwig's layer bank (`canScrollPageBackwards`), Rust from its paging over all layers |
 
 ## Fixed by the comparison
 
+- Equalizer: all knob LEDs were off, the extension did not support the EQ. It now reports the
+  first EQ+ of the cursor track as EqualizerDeviceImpl of the Java version (BITWIG_DIVERGENCES.md
+  §6) (2026-10-30).
 - Track Mix: knob LEDs after turning a knob showed the value sent, also when Bitwig did not take
   it (in the fixture, Bitwig keeps track volume and sends, also from OSC; Bitwig's takeover
   mode is set to catch).

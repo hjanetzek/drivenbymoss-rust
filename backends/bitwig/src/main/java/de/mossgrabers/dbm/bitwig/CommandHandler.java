@@ -78,6 +78,7 @@ public final class CommandHandler
             case "scene" -> this.handleScene (command, null);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 1, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 1, null);
+            case "eq" -> this.handleEqualizer (command, 1, null);
             case "browser" -> this.handleBrowser (command, 1);
             case "clip" -> this.handleClip (command, 1, null);
             case "refresh" -> this.reporter.requestDump ();
@@ -124,6 +125,7 @@ public final class CommandHandler
             case "project" -> this.handleProject (command);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
+            case "eq" -> this.handleEqualizer (command, value, null);
             case "browser" -> this.handleBrowser (command, value);
             case "clip" -> this.handleClip (command, value, null);
             case "quantize" ->
@@ -182,6 +184,7 @@ public final class CommandHandler
             case "scene" -> this.handleScene (command, value);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 0, value);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
+            case "eq" -> this.handleEqualizer (command, 0, value);
             case "clip" -> this.handleClip (command, 0, value);
             default -> this.unhandled.accept (processor + " " + command);
         }
@@ -244,6 +247,61 @@ public final class CommandHandler
                 }
                 else
                     this.handleChannel (channel, parts[2], value, text);
+            }
+        }
+    }
+
+
+    /**
+     * The first EQ+ of the cursor track, as EqualizerDeviceImpl of the Java version, in the layout
+     * of the Reaper EQ (see EqualizerDevice): "add" (ChannelImpl.addEqualizerDevice),
+     * "param/&lt;index&gt;/value|touch|indicate", "band/&lt;band&gt;" with the Reaper type index as
+     * text, "window", "expand".
+     */
+    private void handleEqualizer (final String command, final double value, final String text)
+    {
+        final EqualizerDevice eq = this.model.eqDevice;
+        if (eq == null)
+        {
+            this.unhandled.accept ("eq " + command);
+            return;
+        }
+        switch (command)
+        {
+            case "add" -> this.model.cursorTrack.endOfDeviceChainInsertionPoint ().insertBitwigDevice (EqualizerDevice.ID_BITWIG_EQ_PLUS);
+            case "window" -> eq.device.isWindowOpen ().set (value > 0);
+            case "expand" -> eq.device.isExpanded ().set (value > 0);
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                if (parts.length == 2 && "band".equals (parts[0]) && text != null)
+                {
+                    try
+                    {
+                        if (eq.setType (parseIndex (parts[1]), Integer.parseInt (text.trim ())))
+                            return;
+                    }
+                    catch (final NumberFormatException ex)
+                    {
+                        // Reported below
+                    }
+                }
+                else if (parts.length == 3 && "param".equals (parts[0]))
+                {
+                    final Parameter parameter = eq.getParameter (parseIndex (parts[1]));
+                    if (parameter != null)
+                    {
+                        switch (parts[2])
+                        {
+                            case "value" -> this.setValue (parameter.value (), value);
+                            case "touch" -> parameter.touch (value > 0);
+                            case "indicate" -> parameter.setIndication (value > 0);
+                            default -> this.unhandled.accept ("eq " + command);
+                        }
+                        return;
+                    }
+                }
+                this.unhandled.accept ("eq " + command);
             }
         }
     }

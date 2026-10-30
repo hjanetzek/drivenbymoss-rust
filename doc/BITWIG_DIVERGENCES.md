@@ -85,6 +85,7 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 | Track volume/pan "touch" | `touch` | Same |
 | Device parameter commands of the first instrument | The specific device | Same (`primary param/…`) |
 | Drum device parameters | The drum device's parameter bank | Not reported, the drum device has no parameters |
+| Equalizer (`DeviceID.EQ`) | `EqualizerDeviceImpl`: the first EQ+ of the cursor track; type, frequency, gain, Q of 8 bands | Same device (`EqualizerDevice`), reported in the layout of the Reaper EQ (`/eq/param/<3 * band + 0, 1, 2>` frequency, gain, Q; `/eq/band/<band>/value` the type as Reaper index). A type knob selects one of the 7 types (as `EqBandTypeParameterImpl` of the Java version for Reaper), Java's sets the EQ+ type parameter (16 values) directly; with the takeover mode catch, Java's is ignored when it jumps |
 
 **Values Bitwig does not take (takeover mode).** Bitwig applies its global takeover mode
 (Settings > Controllers: immediate, catch, relative scaling) to `SettableRangedValue.set`; with
@@ -105,7 +106,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `automation`, `inifile` (pre-roll measures), `groove`, `eq`, `cursor`,
+- `metro_vol`, `automation`, `inifile` (pre-roll measures), `groove`, `cursor`,
   user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues

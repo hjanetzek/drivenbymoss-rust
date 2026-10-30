@@ -87,6 +87,8 @@ public final class BitwigModel
     final SpecificDevice     drumDevice;
     /** The first instrument of the cursor track, null if the controller does not need it. */
     final SpecificDevice     firstInstrument;
+    /** The first EQ+ of the cursor track; null if the controller does not use it. */
+    final EqualizerDevice    eqDevice;
     /** The popup browser, null if the controller does not need it. */
     final BitwigBrowser      browser;
     /** The step grids of the note clips of the core (model setup "noteClips"). */
@@ -153,6 +155,11 @@ public final class BitwigModel
             this.firstInstrument = new SpecificDevice (this.createDevice (host.createInstrumentMatcher ()), "/primary", numParamPages, NUM_DRUM_PADS, NUM_LAYERS);
         else
             this.firstInstrument = null;
+        // The first EQ+ of the cursor track (ModelImpl, DeviceID.EQ)
+        if (modelSetup.contains ("\"EQ\""))
+            this.eqDevice = new EqualizerDevice (this.createDevice (host.createBitwigDeviceMatcher (EqualizerDevice.ID_BITWIG_EQ_PLUS)));
+        else
+            this.eqDevice = null;
         final int numResults = getInt (modelSetup, "numResults", 16);
         this.browser = numResults > 0 ? new BitwigBrowser (host, Math.max (1, getInt (modelSetup, "numFilterColumnEntries", 16)), numResults) : null;
         // The note clips, as ModelImpl.getNoteClip: one launcher cursor clip per size
@@ -314,7 +321,7 @@ public final class BitwigModel
     }
 
 
-    private static void markParameter (final Parameter parameter)
+    static void markParameter (final Parameter parameter)
     {
         parameter.exists ().markInterested ();
         parameter.name ().markInterested ();
@@ -342,6 +349,8 @@ public final class BitwigModel
             this.drumDevice.collect (reporter);
         if (this.firstInstrument != null)
             this.firstInstrument.collect (reporter);
+        if (this.eqDevice != null)
+            this.eqDevice.collect (reporter);
         if (this.browser != null)
             this.browser.collect (reporter);
         this.cursorClip.collectClip (reporter);
