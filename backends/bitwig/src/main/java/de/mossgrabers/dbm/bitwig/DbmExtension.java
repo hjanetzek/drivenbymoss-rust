@@ -15,6 +15,7 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
@@ -36,6 +37,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
     /** Log all MIDI from and to the controller to stderr if the environment variable is set. */
     private static final boolean             LOG_MIDI           = System.getenv ("DBM_LOG_MIDI") != null && !System.getenv ("DBM_LOG_MIDI").isBlank ();
+    /**
+     * The conformance runner restarts the controller with this system exclusive message (see
+     * ProtocolRecorder for its markers); only if the environment variable DBM_OSC_CONFORMANCE is
+     * set, as the conformance module of the Java version.
+     */
+    private static final byte []             RESTART            = { (byte) 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x03, (byte) 0xF7 };
+    private static final boolean             RESTARTABLE        = System.getenv ("DBM_OSC_CONFORMANCE") != null && !System.getenv ("DBM_OSC_CONFORMANCE").isBlank ();
 
     private final DbmExtensionDefinition     definition;
     private final Map<Integer, NoteInput>    noteInputs         = new HashMap<> ();
@@ -208,6 +216,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         if (LOG_MIDI)
             this.logMidi ("in ", data);
+        // The conformance runner restarts the controller for a run from a fresh state
+        if (RESTARTABLE && Arrays.equals (data, RESTART))
+        {
+            this.println ("Restart requested by the conformance runner");
+            this.getHost ().restart ();
+            return;
+        }
         if (this.recorder != null)
         {
             // A marker of the conformance runner is not for the core

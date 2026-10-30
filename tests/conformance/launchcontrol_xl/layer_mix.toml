@@ -20,6 +20,10 @@ match = "F0 00 20 29 02 11 77 ?? F7"
 reply = "echo"
 
 [[known_difference]]
+match = "leds BA 6A"
+reason = "Instrument Layer with 2 layers: Java's Track Select previous LED is on (Bitwig's layer bank), Rust's off (no previous page)"
+
+[[known_difference]]
 match = "leds [89B]0 *"
 reason = "User template 1 of the setup: both write their button LEDs there on the channel they were bound to before, which depends on the history of the controller"
 

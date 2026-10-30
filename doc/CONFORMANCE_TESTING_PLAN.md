@@ -38,12 +38,17 @@ Setup for a run (Linux):
    whether to save.
 4. `cd backends/bitwig/tools && ./conformance_runner.py pair
    ../../../tests/conformance/launchcontrol_xl/*.toml --java-port "VirMIDI 5-2" --rust-port
-   "VirMIDI 5-3"` records the Java and the Rust controller for each scenario file and compares
+   "VirMIDI 5-1"` records the Java and the Rust controller for each scenario file and compares
    them (traces, LED states and recordings in `target/conformance`). Add `--fresh-project 8
-   --restart 10`: `--restart <seconds>` restarts the controller before each recording (it
-   touches the installed Java extension, which Bitwig reloads together with the OSC observer, or
-   the dev library of the Rust core, which the Rust extension reloads) and waits for it, before
-   the MIDI port is opened. Single runs:
+   --restart 15`: `--restart <seconds>` restarts the controller before and after each recording
+   (a pair run also both at its start) and waits up to that long until it has sent its startup
+   output (about 1 s), before the MIDI port of the recording is opened. The restart after the
+   recording leaves the idle controller without an active mode, otherwise it reacts on the
+   recording of the other one (e.g. the Launch Control XL Equalizer adds an EQ+ to a selected
+   track). It sends `F0 7D 44 42 4D 03 F7`, on which both extensions call
+   `ControllerHost.restart` if Bitwig runs with `DBM_OSC_CONFORMANCE` (Java: `MidiInputImpl` on
+   the branch `conformance-osc`, for all controllers; Rust: `DbmExtension`). Touching or changing
+   the installed Java extension did not reliably restart the Java controllers. Single runs:
    `record <scenarios> --label java|rust --port <port>`, then `compare <java trace> <rust trace>`.
    A scenario file can have `setup` steps (once before the scenarios, e.g. a template change, the
    first scale and `osc` commands which select the fixture track), `before` steps per scenario

@@ -4,8 +4,9 @@ The state of the comparison of the Rust port with the Java DrivenByMoss on Bitwi
 runs of the scenario files in this folder (see doc/CONFORMANCE_TESTING_PLAN.md and
 tests/conformance/FIXTURE.md). Updated with every run which changes something.
 
-Last full run: 2026-10-30, all five templates, each recording on a fresh fixture project
-(`pair ... --fresh-project 8`), Bitwig 5.3.13.
+Last full run: 2026-10-30, all five templates, each recording on a fresh fixture project and
+with restarted controllers (`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all
+scenarios the same, except the known differences below.
 
 ## Coverage
 
@@ -30,9 +31,11 @@ and the first instrument; track paging; click, tempo and mute/solo defeat; the N
 
 ## Open differences
 
-| Area | Java | Rust | Status |
-| --- | --- | --- | --- |
-| Runs of several files: LEDs of other templates, Layer Mix and sequencer results | depends on the history | depends on the history | both remember modes and the active template; the controllers must be restarted before each recording (`--restart`), but touching the Java extension did not restart the Java controller in a check (no MIDI within 40 s); to be solved |
+None. Runs of several files without restarts showed many differences which came from the history
+of the controllers (remembered modes and templates, the Java bug of the sequencers) and from the
+idle controller, which reacts on the recording of the other one (the Rust Equalizer added an EQ+
+to the track which the Java Layer Mix setup selected): the runner restarts each controller
+before and after its recording (`--restart`).
 
 ## Known differences (not bugs of the port)
 
@@ -52,12 +55,14 @@ known differences of the scenario files) until it is decided what to do with it.
 | --- | --- | --- | --- |
 | Note and Drum Sequencer: Track Control row after a template change | track mutes or record arm | step mutes | the edit mode is registered in the main and in the fader mode manager (`LaunchControlXLControllerSetup.createModes`), see BITWIG_DIVERGENCES.md §8 |
 | Equalizer: band type knob with the takeover mode catch | a jump of the knob is ignored, "center is Bell" (manual) does not hold | selects one of the 7 types | `XLEqMode`: the knob sets the EQ+ type parameter (16 values) as a continuous parameter; maybe intended |
-| Note Sequencer, Track Control row: console errors | "Illegal index accessing step info array", `ArrayIndexOutOfBoundsException` (about 240000 times in Bitwig's log of 2026-10-30), on every LED update while a step of the 8 has no note but had one before; the LED is off and the button does nothing, as intended | same result, no error (the lookup of row -1 gives the empty step) | `XLNoteSequencerMode.getSequencerStepColor` and `onButton` pass `clip.getHighestRow (channel, column)`, -1 for an empty step, as the row to `clip.getStep`; `CursorClipImpl.getStep` indexes the row array of the step with it once the array exists. `XLBaseNoteEditMode.onKnobValue` checks for a row < 0, these two do not |
+| Equalizer: activating the template with a selected track without an EQ+ | no EQ+ is added | an EQ+ is added (manual: "If the track does not contain such a device it is automatically added") | `XLEqMode.onActivate` calls `trackSelectionChanged (-1, true)` before `super.onActivate ()`, which sets `isActive`, so its check fails; only a later track selection adds one |
+| Note Sequencer, Track Control row: console errors | "Illegal index accessing step info array", `ArrayIndexOutOfBoundsException` (about 240000 times in Bitwig's log of 2026-10-30), on every LED update while a step of the 8 has no note but had one before; the LED is off and the button does nothing, as intended | same result, no error (the lookup of row -1 gives the empty step) | `XLNoteSequencerMode.getSequencerStepColor` and `onButton` pass `clip.getHighestRow (channel, column)`, -1 for an empty step, as the row to `clip.getStep`; `CursorClipImpl.getStep` indexes the row array of the step with it once the array exists. `XLBaseNoteEditMode.onKnobValue` checks for a row < 0, these two do not Fixed on the branch `conformance-osc` of DrivenByMoss (d66bb744, the step counts as empty), see its CONFORMANCE-OSC.md |
 
 ## Fixed by the comparison
 
 - Equalizer: activating the template did not add an EQ+ to a selected track without one, only a
-  track selection did; the port missed `XLEqMode.onActivate` (2026-10-30).
+  track selection did. The manual says it is added; the Java version does not do it either (see
+  Possible Java bugs), Rust now follows the manual (2026-10-30).
 - Equalizer: all knob LEDs were off, the extension did not support the EQ. It now reports the
   first EQ+ of the cursor track as EqualizerDeviceImpl of the Java version (BITWIG_DIVERGENCES.md
   §6) (2026-10-30).
