@@ -277,6 +277,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
 - **P2 groove:** separate parameters which exist only when the host reports `/groove/<name>`;
   Reaper keeps `groove active|amount` (−1..1). To unify, the Reaper backend could report
   `/groove/enabled|shuffleAmount` normalized with texts and take `groove <name>` (`/inc`, `/reset`).
+- **P2 send names:** replaced; the Reaper backend reports the send names already, so the views
+  show the name of the send of the first track instead of "Send N". Nothing to change.
 
 ## Replays to record again
 

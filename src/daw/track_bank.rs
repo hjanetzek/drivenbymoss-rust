@@ -595,16 +595,14 @@ impl TrackBank {
     }
 
     /// True if the send with the given index exists on one of the tracks of the page.
+    /// AbstractTrackBankImpl.canEditSend: the send exists on the first track of the page.
     pub fn can_edit_send(&self, send_index: usize) -> bool {
-        self.page_items().any(|t| t.send_bank().item_count() > 0 && t.send_bank().item(send_index).does_exist())
+        self.item(0).send_bank().item(send_index).does_exist()
     }
 
+    /// AbstractTrackBankImpl.getEditSendName: the name of the send of the first track of the page.
     pub fn edit_send_name(&self, send_index: usize) -> String {
-        if self.can_edit_send(send_index) {
-            format!("Send {}", send_index + 1)
-        } else {
-            String::new()
-        }
+        self.item(0).send_bank().item(send_index).name().to_string()
     }
 
     /// Add a new track (former `addChannel`). Without a color the next DAW color is used.

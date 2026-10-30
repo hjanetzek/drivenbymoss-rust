@@ -543,9 +543,11 @@ impl CursorClip {
     }
 
     /// Reset the accent value to its default. Only with a host grid.
+    /// CursorClipImpl.resetAccent: `getAccent ().setImmediately (0.5)` (without the takeover
+    /// mode of the host).
     pub fn reset_accent(&mut self) {
         if self.host_grid {
-            self.ctx.send_double(Processor::Clip, "accent", 0.5);
+            self.ctx.send_double(Processor::Clip, "accent/immediately", 0.5);
         }
     }
 

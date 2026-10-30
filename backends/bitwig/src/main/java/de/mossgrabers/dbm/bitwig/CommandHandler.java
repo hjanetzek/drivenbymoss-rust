@@ -483,7 +483,8 @@ public final class CommandHandler
             case "loopStart" -> setBeatTime (clip.getLoopStart (), value, this.increment);
             case "loopLength" -> setBeatTime (clip.getLoopLength (), value, this.increment);
             case "shuffle" -> clip.getShuffle ().set (value > 0);
-            case "accent" -> clip.getAccent ().set (value);
+            // "accent/immediately": CursorClipImpl.resetAccent (setImmediately)
+            case "accent" -> this.setValue (clip.getAccent (), value);
             case "duplicate" -> clip.duplicate ();
             case "duplicateContent" -> clip.duplicateContent ();
             case "pinned" ->

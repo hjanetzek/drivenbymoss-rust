@@ -252,6 +252,12 @@ followed the selection). Previous and next track move the cursor track (`track s
 the shuffle amount existed with Reaper's range −1..1 and texts computed by the core, and the extension
 handled none of them (the groove did not work on Bitwig). Reaper keeps `groove active|amount`.
 
+**Send names, accent reset (core port P2, 2026-10-30).** `can_edit_send` / `edit_send_name` use the send
+of the first track of the page and its name, as `AbstractTrackBankImpl.canEditSend` /
+`getEditSendName` (before: any track of the page, the name "Send N"); also on Reaper. Resetting the
+accent of the clip sends `clip accent/immediately 0.5` (`getAccent ().setImmediately (0.5)`; before:
+`set`, which the takeover mode could swallow).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

@@ -1995,6 +1995,20 @@ mod tests {
         assert_eq!(calls.len(), 10);
     }
 
+    /// AbstractTrackBankImpl.getEditSendName (the send of the first track),
+    /// CursorClipImpl.resetAccent (setImmediately).
+    #[test]
+    fn send_names_and_accent_reset() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        model.note_clip(8, 128);
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/0/send/count 2", "/track/0/send/1/name Reverb", "/clip/exists 1", "/clip/grid/8x128/playingStep 0"]);
+        assert!(model.track_bank().can_edit_send(1) && !model.track_bank().can_edit_send(0));
+        assert_eq!(model.track_bank().edit_send_name(1), "Reverb");
+        backend.take_calls();
+        model.note_clip(8, 128).reset_accent();
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("clip".into(), "accent/immediately".into(), 0.5)]);
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());
