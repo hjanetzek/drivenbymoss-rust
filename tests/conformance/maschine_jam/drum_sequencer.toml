@@ -1,0 +1,81 @@
+# Conformance scenarios: Native Instruments Maschine JAM, Drum sequencer (MIDI mode, channel 1:
+# buttons are CCs, pads notes 36-99 from the lower left, Shift a system exclusive message).
+# Layout as Push: the upper 4 rows are 32 steps (step 1 at the top left), the lower left 4x4 pads
+# the drum pads (C1 at the lower left). Fixture: tests/conformance/FIXTURE.md (track Drums with a
+# Drum Machine and an empty clip in slot 1).
+
+controller = "Native Instruments Maschine JAM"
+manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#drum-mode"
+settle_ms = 400
+
+require = { "/track/2/name" = "Drums", "/clip/exists" = "1", "/clip/step/*" = "0" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/2/select 1 | /track/2/clip/1/select", note = "track Drums, its clip" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
+  { midi = "B0 1F 7F", note = "STEP down" },
+  { midi = "B0 53 7F | B0 53 00", note = "Scene 4: Drum sequencer" },
+  { midi = "B0 1F 00", note = "STEP up" },
+]
+
+[[scenario]]
+id = "jam.drum.select-pad"
+bullet = "The drum sequencer works as described in the Ableton Push manual: the drum pads select the sound."
+steps = [
+  { midi = "90 25 7F", note = "drum pad 2 (C#1)" },
+  { midi = "90 25 00" },
+]
+expect.bitwig = { "/conformance/primary/drumpad/2/selected" = "1" }
+
+[[scenario]]
+id = "jam.drum.step-on"
+bullet = "The drum sequencer works as described in the Ableton Push manual: the step pads toggle the steps of the selected sound."
+steps = [
+  { midi = "90 5C 7F", note = "top left pad: step 1" },
+  { midi = "90 5C 00" },
+]
+expect.bitwig = { "/clip/step/0/0/37" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.drum.step-other-pad"
+bullet = "The drum sequencer works as described in the Ableton Push manual: the step pads toggle the steps of the selected sound."
+steps = [
+  { midi = "90 24 7F", note = "drum pad 1 (C1)" },
+  { midi = "90 24 00" },
+  { midi = "90 5E 7F", note = "top row, 3rd pad: step 3" },
+  { midi = "90 5E 00" },
+]
+expect.bitwig = { "/clip/step/0/2/36" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.drum.mute-step"
+bullet = "MUTE+Pad in step sequencer toggles the mute state of the note. A muted note is lit in gray."
+steps = [
+  { midi = "B0 61 7F", note = "MUTE down" },
+  { midi = "90 5E 7F", note = "step 3" },
+  { midi = "90 5E 00" },
+  { midi = "B0 61 00", note = "MUTE up" },
+]
+expect.bitwig = { "/clip/step/0/2/36" = { field = 2, value = "1" } }
+
+[[scenario]]
+id = "jam.drum.clear-pad"
+bullet = "Hold Delete + Drumpad to delete the midi notes of the current clip on that 'pad'."
+steps = [
+  { midi = "B0 21 7F", note = "CLEAR down" },
+  { midi = "90 25 7F", note = "drum pad 2 (C#1)" },
+  { midi = "90 25 00" },
+  { midi = "B0 21 00", note = "CLEAR up" },
+]
+expect.bitwig = { "/clip/step/0/0/37" = "0", "/clip/step/0/2/36" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.drum.step-off"
+bullet = "The drum sequencer works as described in the Ableton Push manual: the step pads toggle the steps of the selected sound."
+steps = [
+  { midi = "90 24 7F", note = "drum pad 1 (C1)" },
+  { midi = "90 24 00" },
+  { midi = "90 5E 7F", note = "step 3 off" },
+  { midi = "90 5E 00" },
+]
+expect.bitwig = { "/clip/step/*" = "0" }

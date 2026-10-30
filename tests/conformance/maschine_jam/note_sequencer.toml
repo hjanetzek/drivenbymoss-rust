@@ -1,0 +1,87 @@
+# Conformance scenarios: Native Instruments Maschine JAM, Note Sequencer (MIDI mode, channel 1:
+# buttons are CCs, pads notes 36-99 from the lower left, Shift a system exclusive message).
+# Fixture: tests/conformance/FIXTURE.md (track Synth with an empty clip in slot 1).
+
+controller = "Native Instruments Maschine JAM"
+manual = "Native-Instruments/Native-Instruments-Maschine-Jam.md#note-sequencer"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/clip/exists" = "1", "/clip/step/*" = "0" }
+
+setup = [
+  { osc = "/track/bank/page/- | /track/1/select 1 | /track/1/clip/1/select", note = "track Synth, its clip" },
+  { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
+  { midi = "B0 1F 7F", note = "STEP down" },
+  { midi = "B0 50 7F | B0 50 00", note = "Scene 1: Note Sequencer" },
+  { midi = "B0 1F 00", note = "STEP up" },
+]
+
+[[scenario]]
+id = "jam.noteseq.create-note"
+bullet = "The other pads display an 8x7 view of the selected clips note grid. The rows represent the notes of the selected scale."
+steps = [
+  { midi = "90 24 7F", note = "lower left pad: step 1, lowest note" },
+  { midi = "90 24 00" },
+]
+expect.bitwig = { "/clip/step/*/0/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.noteseq.second-note"
+bullet = "The other pads display an 8x7 view of the selected clips note grid. The rows represent the notes of the selected scale."
+steps = [
+  { midi = "90 2D 7F", note = "2nd row, 2nd pad: step 2, the next note of the scale" },
+  { midi = "90 2D 00" },
+]
+expect.bitwig = { "/clip/step/*/1/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.noteseq.mute-note"
+bullet = "MUTE+Pad in step sequencer toggles the mute state of the note. A muted note is lit in gray."
+steps = [
+  { midi = "B0 61 7F", note = "MUTE down" },
+  { midi = "90 24 7F", note = "lower left pad" },
+  { midi = "90 24 00" },
+  { midi = "B0 61 00", note = "MUTE up" },
+]
+expect.bitwig = { "/clip/step/*/0/*" = { field = 2, value = "1" } }
+
+[[scenario]]
+id = "jam.noteseq.transpose"
+bullet = "Arrow keys up/down change the note range (transposition)."
+steps = [
+  { midi = "B0 29 7F", note = "arrow up" },
+  { midi = "B0 29 00" },
+]
+
+[[scenario]]
+id = "jam.noteseq.transposed-note"
+bullet = "Arrow keys up/down change the note range (transposition)."
+steps = [
+  { midi = "90 26 7F", note = "lower row, 3rd pad: step 3, the lowest note of the new range" },
+  { midi = "90 26 00" },
+  { midi = "B0 2A 7F", note = "arrow down: back" },
+  { midi = "B0 2A 00" },
+]
+expect.bitwig = { "/clip/step/*/2/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.noteseq.page"
+bullet = "The pads of the top row represent the pages of the clip. Blue is the page selected for editing. Press one of the pads to select it for editing."
+steps = [
+  { midi = "90 5D 7F", note = "top row, 2nd pad: page 2" },
+  { midi = "90 5D 00" },
+  { midi = "90 24 7F", note = "lower left pad: step 1 of page 2 (step 9)" },
+  { midi = "90 24 00" },
+  { midi = "90 5C 7F", note = "top row, 1st pad: back to page 1" },
+  { midi = "90 5C 00" },
+]
+expect.bitwig = { "/clip/step/*/8/*" = { field = 0, value = "1" } }
+
+[[scenario]]
+id = "jam.noteseq.delete-note"
+bullet = "The other pads display an 8x7 view of the selected clips note grid."
+steps = [
+  { midi = "90 24 7F", note = "lower left pad: the note of step 1 off" },
+  { midi = "90 24 00" },
+]
+expect.bitwig = { "/clip/step/*/0/*" = "0" }

@@ -13,8 +13,10 @@ Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
   `--fresh-project`) and scenarios for all five templates of the Launch Control XL
   (`tests/conformance/launchcontrol_xl/*.toml`, 27 scenarios). The first full pair run found
   several Rust bugs; the state per controller is in `tests/conformance/<controller>/CONFORMANCE.md`
-  (coverage, open and known differences, fixes). Next: fix the Launch Control XL differences,
-  record the replays; then the JAM, the Mk2/Mk3 and the Launchpad.
+  (coverage, open and known differences, fixes). Launch Control XL: all five templates the same
+  in Java and Rust (except known differences), replays recorded. Maschine JAM: global,
+  transport, session, Note and Drum Sequencer the same, replays of global and session. Next: the
+  JAM play modes, then the Mk2/Mk3 and the Launchpad.
 
 Setup for a run (Linux):
 

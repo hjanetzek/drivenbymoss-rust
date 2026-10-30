@@ -1,0 +1,2138 @@
+0	init	72F32A83-A697-446B-9016-64AA3F9476E4	Bitwig Studio 5.3.13
+0	config	DrivenByMoss4Reaper-Launch-Control-XL.config	#\n#Fri Oct 30 15:04:58 UTC 2026\nPLAY_AND_SEQUENCE_MIDI_EDIT/INSERT_NOTE_CHANNEL=1\nTRANSPORT_BEHAVIOUR_ON_PAUSE=Pause\nTRANSPORT_DOUBLE_CLICK_PLAY_RETURNS_TO_ZERO=On\nWORKFLOW_EXCLUDE_DEACTIVATED_ITEMS_(TRACKS,_SENDS,_DEVICES,_LAYERS)=Off\nWORKFLOW_NEW_CLIP_LENGTH=1 Bar\n
+0	config	DrivenByMoss4Reaper-Maschine-JAM.config	#\n#Fri Oct 30 15:38:54 UTC 2026\nDRUM_SEQUENCER_TURN_OFF_EMPTY_DRUM_PADS=Off\nPLAY_AND_SEQUENCE_ACTIVATE_FIXED_ACCENT=Off\nPLAY_AND_SEQUENCE_FIXED_ACCENT_VALUE=127\nPLAY_AND_SEQUENCE_NOTIFY_PLAYED_CHORDS=Off\nPLAY_AND_SEQUENCE_QUANTIZE_AMOUNT=100\nPLAY_AND_SEQUENCE_STARTUP_VIEW=Play\nPLAY_AND_SEQUENCE_START_WITH_SESSION_VIEW=Off\nPLAY_AND_SEQUENCE_TURN_OFF_SCALE_PADS=Off\nSESSION_ACTION_FOR_PRESSING_REC_ARMED_EMPTY_CLIP=Start recording\nSESSION_DISPLAY_CLIPS_OF_RECORD_ENABLED_TRACKS_IN_RED=On\nSESSION_FLIP_SESSION=Off\nSESSION_SELECT_CLIP/SCENE_ON_LAUNCH=On\nTRANSPORT_BEHAVIOUR_ON_PAUSE=Pause\nTRANSPORT_DOUBLE_CLICK_PLAY_RETURNS_TO_ZERO=On\nTRANSPORT_RECORD_BUTTON=Record arranger + enable automation\nTRANSPORT_SHIFT_+_RECORD_BUTTON=New clip + enable automation\nWORKFLOW_EXCLUDE_DEACTIVATED_ITEMS_(TRACKS,_SENDS,_DEVICES,_LAYERS)=Off\nWORKFLOW_FOOTSWITCH_(RING)=New Button\nWORKFLOW_FOOTSWITCH_(TIP)=Sustain Pedal\nWORKFLOW_KNOB_SENSITIVITY_DEFAULT=Normal\nWORKFLOW_KNOB_SENSITIVITY_SLOW=-40\nWORKFLOW_NEW_CLIP_LENGTH=1 Bar\nWORKFLOW_SLOW_FADER_CHANGE=Off\nWORKFLOW_STARTUP_MODE=Volume\n
+0	config	DrivenByMoss4Reaper-Maschine-Mk2.config	#\n#Thu Oct 29 23:02:15 UTC 2026\nPADS_CONVERT_POLY_AFTERTOUCH_TO=Poly Aftertouch\nPLAY_AND_SEQUENCE_ACTIVATE_FIXED_ACCENT=Off\nPLAY_AND_SEQUENCE_FIXED_ACCENT_VALUE=127\nPLAY_AND_SEQUENCE_NOTIFY_PLAYED_CHORDS=Off\nPLAY_AND_SEQUENCE_QUANTIZE_AMOUNT=100\nPLAY_AND_SEQUENCE_RIBBON_MODE=Pitch Down\nPLAY_AND_SEQUENCE_STARTUP_VIEW=Play\nPLAY_AND_SEQUENCE_TURN_OFF_SCALE_PADS=Off\nSESSION_ACTION_FOR_PRESSING_REC_ARMED_EMPTY_CLIP=Start recording\nSESSION_SELECT_CLIP/SCENE_ON_LAUNCH=On\nTRANSPORT_BEHAVIOUR_ON_PAUSE=Pause\nTRANSPORT_DOUBLE_CLICK_PLAY_RETURNS_TO_ZERO=On\nTRANSPORT_RECORD_BUTTON=Record arranger + enable automation\nTRANSPORT_SHIFT_+_RECORD_BUTTON=New clip + enable automation\nWORKFLOW_EXCLUDE_DEACTIVATED_ITEMS_(TRACKS,_SENDS,_DEVICES,_LAYERS)=Off\nWORKFLOW_KNOB_SENSITIVITY_DEFAULT=Normal\nWORKFLOW_KNOB_SENSITIVITY_SLOW=-40\nWORKFLOW_NEW_CLIP_LENGTH=1 Bar\n
+0	start
+1	filters	0	80	90
+2	noArg	refresh	
+6	setting	0	Major
+6	setting	1	C
+6	setting	2	In Key
+6	setting	3	4th ^
+6	setting	32	Off
+6	setting	33	1/16
+6	setting	34	1/16
+6	setting	35	Up
+6	setting	7	Pause
+6	setting	56	On
+6	setting	39	Record arranger + enable automation
+6	setting	40	New clip + enable automation
+6	setting	12	Off
+6	setting	13	127
+7	setting	14	100
+7	setting	46	Play
+7	setting	48	Off
+7	setting	19	Off
+7	setting	53	Off
+7	setting	18	Off
+7	setting	9	On
+7	setting	21	Start recording
+7	setting	10	On
+7	setting	8	Off
+7	setting	38	Off
+7	setting	100	Off
+7	setting	47	Volume
+7	setting	16	1 Bar
+7	setting	30	Normal
+7	setting	31	-40
+7	setting	42	Sustain Pedal
+7	setting	43	New Button
+17	setting	0	Major
+17	setting	1	C
+17	setting	2	In Key
+17	setting	3	4th ^
+17	setting	32	Off
+17	setting	33	1/16
+17	setting	34	1/16
+17	setting	35	Up
+17	setting	7	Pause
+17	setting	56	On
+17	setting	39	Record arranger + enable automation
+17	setting	40	New clip + enable automation
+17	setting	12	Off
+17	setting	46	Play
+17	setting	48	Off
+17	setting	19	Off
+17	setting	53	Off
+17	setting	18	Off
+17	setting	9	On
+17	setting	21	Start recording
+17	setting	10	On
+17	setting	8	Off
+17	setting	38	Off
+17	setting	100	Off
+17	setting	47	Volume
+17	setting	16	1 Bar
+17	setting	30	Normal
+17	setting	31	-40
+17	setting	42	Sustain Pedal
+17	setting	43	New Button
+60	model	/play 0\n/record 0\n/repeat 0\n/tempo 110.000000\n/numerator 4\n/denominator 4\n/time 0.000000\n/beats/position 0.000000\n/beats/loop/start 0.000000\n/beats/loop/length 8.000000\n/time/text 0.00.00:000\n/beats/text 1.01.01:00\n/beats/loop/start/text 1.01.01:00\n/beats/loop/length/text 2.00.00:00\n/time/hzoom 196.500000\n/click 0\n/automode/arranger 0\n/automode/launcher 0\n/automode 1\n/click/preroll 2\n/followPlayback 1\n/click/volume 0.750000\n/click/volumeStr -12.0 dB\n/project/canUndo 1\n/project/canRedo 0\n/track/offset 0\n/track/0/exists 1\n/track/0/number 0\n/track/0/type INSTRUMENT\n/track/0/isGroupExpanded 0\n/track/0/select 1\n/track/0/recarm 1\n/track/0/monitor 0\n/track/0/autoMonitor 1\n/track/0/vuleft 0.000000\n/track/0/vuright 0.000000\n/track/0/vu 0.000000\n/track/0/name Synth\n/track/0/color 87 97 198\n/track/0/mute 0\n/track/0/solo 0\n/track/0/volume 0.540742\n/track/0/volume/str -10.0 dB\n/track/0/pan 0.500000\n/track/0/pan/str 0.00 %\n/track/0/send/0/name FX 1\n/track/0/send/0/volume 0.000000\n/track/0/send/0/volume/str -Inf dB\n/track/0/send/0/active 0\n/track/0/send/1/name FX 2\n/track/0/send/1/volume 0.000000\n/track/0/send/1/volume/str -Inf dB\n/track/0/send/1/active 0\n/track/0/send/count 2\n/track/0/isStopped 0\n/track/0/slot/count 8\n/track/0/slot/0/exists 1\n/track/0/slot/0/hasContent 1\n/track/0/slot/0/name \n/track/0/slot/0/color 87 97 198\n/track/0/slot/0/selected 1\n/track/0/slot/0/playing 0\n/track/0/slot/0/recording 0\n/track/0/slot/0/playQueued 0\n/track/0/slot/0/recQueued 0\n/track/0/slot/0/stopQueued 0\n/track/0/slot/1/exists 1\n/track/0/slot/1/hasContent 0\n/track/0/slot/1/name \n/track/0/slot/1/color 0 0 0\n/track/0/slot/1/selected 0\n/track/0/slot/1/playing 0\n/track/0/slot/1/recording 0\n/track/0/slot/1/playQueued 0\n/track/0/slot/1/recQueued 0\n/track/0/slot/1/stopQueued 0\n/track/0/slot/2/exists 1\n/track/0/slot/2/hasContent 0\n/track/0/slot/2/name \n/track/0/slot/2/color 0 0 0\n/track/0/slot/2/selected 0\n/track/0/slot/2/playing 0\n/track/0/slot/2/recording 0\n/track/0/slot/2/playQueued 0\n/track/0/slot/2/recQueued 0\n/track/0/slot/2/stopQueued 0\n/track/0/slot/3/exists 1\n/track/0/slot/3/hasContent 0\n/track/0/slot/3/name \n/track/0/slot/3/color 0 0 0\n/track/0/slot/3/selected 0\n/track/0/slot/3/playing 0\n/track/0/slot/3/recording 0\n/track/0/slot/3/playQueued 0\n/track/0/slot/3/recQueued 0\n/track/0/slot/3/stopQueued 0\n/track/0/slot/4/exists 1\n/track/0/slot/4/hasContent 0\n/track/0/slot/4/name \n/track/0/slot/4/color 0 0 0\n/track/0/slot/4/selected 0\n/track/0/slot/4/playing 0\n/track/0/slot/4/recording 0\n/track/0/slot/4/playQueued 0\n/track/0/slot/4/recQueued 0\n/track/0/slot/4/stopQueued 0\n/track/0/slot/5/exists 1\n/track/0/slot/5/hasContent 0\n/track/0/slot/5/name \n/track/0/slot/5/color 0 0 0\n/track/0/slot/5/selected 0\n/track/0/slot/5/playing 0\n/track/0/slot/5/recording 0\n/track/0/slot/5/playQueued 0\n/track/0/slot/5/recQueued 0\n/track/0/slot/5/stopQueued 0\n/track/0/slot/6/exists 1\n/track/0/slot/6/hasContent 0\n/track/0/slot/6/name \n/track/0/slot/6/color 0 0 0\n/track/0/slot/6/selected 0\n/track/0/slot/6/playing 0\n/track/0/slot/6/recording 0\n/track/0/slot/6/playQueued 0\n/track/0/slot/6/recQueued 0\n/track/0/slot/6/stopQueued 0\n/track/0/slot/7/exists 1\n/track/0/slot/7/hasContent 0\n/track/0/slot/7/name \n/track/0/slot/7/color 0 0 0\n/track/0/slot/7/selected 0\n/track/0/slot/7/playing 0\n/track/0/slot/7/recording 0\n/track/0/slot/7/playQueued 0\n/track/0/slot/7/recQueued 0\n/track/0/slot/7/stopQueued 0\n/track/1/exists 1\n/track/1/number 1\n/track/1/type INSTRUMENT\n/track/1/isGroupExpanded 0\n/track/1/select 0\n/track/1/recarm 0\n/track/1/monitor 0\n/track/1/autoMonitor 1\n/track/1/vuleft 0.000000\n/track/1/vuright 0.000000\n/track/1/vu 0.000000\n/track/1/name Drums\n/track/1/color 149 73 203\n/track/1/mute 0\n/track/1/solo 0\n/track/1/volume 0.540742\n/track/1/volume/str -10.0 dB\n/track/1/pan 0.500000\n/track/1/pan/str 0.00 %\n/track/1/send/0/name FX 1\n/track/1/send/0/volume 0.000000\n/track/1/send/0/volume/str -Inf dB\n/track/1/send/0/active 0\n/track/1/send/1/name FX 2\n/track/1/send/1/volume 0.000000\n/track/1/send/1/volume/str -Inf dB\n/track/1/send/1/active 0\n/track/1/send/count 2\n/track/1/isStopped 0\n/track/1/slot/count 8\n/track/1/slot/0/exists 1\n/track/1/slot/0/hasContent 1\n/track/1/slot/0/name \n/track/1/slot/0/color 149 73 203\n/track/1/slot/0/selected 0\n/track/1/slot/0/playing 0\n/track/1/slot/0/recording 0\n/track/1/slot/0/playQueued 0\n/track/1/slot/0/recQueued 0\n/track/1/slot/0/stopQueued 0\n/track/1/slot/1/exists 1\n/track/1/slot/1/hasContent 0\n/track/1/slot/1/name \n/track/1/slot/1/color 0 0 0\n/track/1/slot/1/selected 0\n/track/1/slot/1/playing 0\n/track/1/slot/1/recording 0\n/track/1/slot/1/playQueued 0\n/track/1/slot/1/recQueued 0\n/track/1/slot/1/stopQueued 0\n/track/1/slot/2/exists 1\n/track/1/slot/2/hasContent 0\n/track/1/slot/2/name \n/track/1/slot/2/color 0 0 0\n/track/1/slot/2/selected 0\n/track/1/slot/2/playing 0\n/track/1/slot/2/recording 0\n/track/1/slot/2/playQueued 0\n/track/1/slot/2/recQueued 0\n/track/1/slot/2/stopQueued 0\n/track/1/slot/3/exists 1\n/track/1/slot/3/hasContent 0\n/track/1/slot/3/name \n/track/1/slot/3/color 0 0 0\n/track/1/slot/3/selected 0\n/track/1/slot/3/playing 0\n/track/1/slot/3/recording 0\n/track/1/slot/3/playQueued 0\n/track/1/slot/3/recQueued 0\n/track/1/slot/3/stopQueued 0\n/track/1/slot/4/exists 1\n/track/1/slot/4/hasContent 0\n/track/1/slot/4/name \n/track/1/slot/4/color 0 0 0\n/track/1/slot/4/selected 0\n/track/1/slot/4/playing 0\n/track/1/slot/4/recording 0\n/track/1/slot/4/playQueued 0\n/track/1/slot/4/recQueued 0\n/track/1/slot/4/stopQueued 0\n/track/1/slot/5/exists 1\n/track/1/slot/5/hasContent 0\n/track/1/slot/5/name \n/track/1/slot/5/color 0 0 0\n/track/1/slot/5/selected 0\n/track/1/slot/5/playing 0\n/track/1/slot/5/recording 0\n/track/1/slot/5/playQueued 0\n/track/1/slot/5/recQueued 0\n/track/1/slot/5/stopQueued 0\n/track/1/slot/6/exists 1\n/track/1/slot/6/hasContent 0\n/track/1/slot/6/name \n/track/1/slot/6/color 0 0 0\n/track/1/slot/6/selected 0\n/track/1/slot/6/playing 0\n/track/1/slot/6/recording 0\n/track/1/slot/6/playQueued 0\n/track/1/slot/6/recQueued 0\n/track/1/slot/6/stopQueued 0\n/track/1/slot/7/exists 1\n/track/1/slot/7/hasContent 0\n/track/1/slot/7/name \n/track/1/slot/7/color 0 0 0\n/track/1/slot/7/selected 0\n/track/1/slot/7/playing 0\n/track/1/slot/7/recording 0\n/track/1/slot/7/playQueued 0\n/track/1/slot/7/recQueued 0\n/track/1/slot/7/stopQueued 0\n/track/2/exists 1\n/track/2/number 2\n/track/2/type INSTRUMENT\n/track/2/isGroupExpanded 0\n/track/2/select 0\n/track/2/recarm 0\n/track/2/monitor 0\n/track/2/autoMonitor 1\n/track/2/vuleft 0.000000\n/track/2/vuright 0.000000\n/track/2/vu 0.000000\n/track/2/name Layers\n/track/2/color 217 56 113\n/track/2/mute 0\n/track/2/solo 0\n/track/2/volume 0.540742\n/track/2/volume/str -10.0 dB\n/track/2/pan 0.500000\n/track/2/pan/str 0.00 %\n/track/2/send/0/name FX 1\n/track/2/send/0/volume 0.000000\n/track/2/send/0/volume/str -Inf dB\n/track/2/send/0/active 0\n/track/2/send/1/name FX 2\n/track/2/send/1/volume 0.000000\n/track/2/send/1/volume/str -Inf dB\n/track/2/send/1/active 0\n/track/2/send/count 2\n/track/2/isStopped 0\n/track/2/slot/count 8\n/track/2/slot/0/exists 1\n/track/2/slot/0/hasContent 0\n/track/2/slot/0/name \n/track/2/slot/0/color 0 0 0\n/track/2/slot/0/selected 0\n/track/2/slot/0/playing 0\n/track/2/slot/0/recording 0\n/track/2/slot/0/playQueued 0\n/track/2/slot/0/recQueued 0\n/track/2/slot/0/stopQueued 0\n/track/2/slot/1/exists 1\n/track/2/slot/1/hasContent 0\n/track/2/slot/1/name \n/track/2/slot/1/color 0 0 0\n/track/2/slot/1/selected 0\n/track/2/slot/1/playing 0\n/track/2/slot/1/recording 0\n/track/2/slot/1/playQueued 0\n/track/2/slot/1/recQueued 0\n/track/2/slot/1/stopQueued 0\n/track/2/slot/2/exists 1\n/track/2/slot/2/hasContent 0\n/track/2/slot/2/name \n/track/2/slot/2/color 0 0 0\n/track/2/slot/2/selected 0\n/track/2/slot/2/playing 0\n/track/2/slot/2/recording 0\n/track/2/slot/2/playQueued 0\n/track/2/slot/2/recQueued 0\n/track/2/slot/2/stopQueued 0\n/track/2/slot/3/exists 1\n/track/2/slot/3/hasContent 0\n/track/2/slot/3/name \n/track/2/slot/3/color 0 0 0\n/track/2/slot/3/selected 0\n/track/2/slot/3/playing 0\n/track/2/slot/3/recording 0\n/track/2/slot/3/playQueued 0\n/track/2/slot/3/recQueued 0\n/track/2/slot/3/stopQueued 0\n/track/2/slot/4/exists 1\n/track/2/slot/4/hasContent 0\n/track/2/slot/4/name \n/track/2/slot/4/color 0 0 0\n/track/2/slot/4/selected 0\n/track/2/slot/4/playing 0\n/track/2/slot/4/recording 0\n/track/2/slot/4/playQueued 0\n/track/2/slot/4/recQueued 0\n/track/2/slot/4/stopQueued 0\n/track/2/slot/5/exists 1\n/track/2/slot/5/hasContent 0\n/track/2/slot/5/name \n/track/2/slot/5/color 0 0 0\n/track/2/slot/5/selected 0\n/track/2/slot/5/playing 0\n/track/2/slot/5/recording 0\n/track/2/slot/5/playQueued 0\n/track/2/slot/5/recQueued 0\n/track/2/slot/5/stopQueued 0\n/track/2/slot/6/exists 1\n/track/2/slot/6/hasContent 0\n/track/2/slot/6/name \n/track/2/slot/6/color 0 0 0\n/track/2/slot/6/selected 0\n/track/2/slot/6/playing 0\n/track/2/slot/6/recording 0\n/track/2/slot/6/playQueued 0\n/track/2/slot/6/recQueued 0\n/track/2/slot/6/stopQueued 0\n/track/2/slot/7/exists 1\n/track/2/slot/7/hasContent 0\n/track/2/slot/7/name \n/track/2/slot/7/color 0 0 0\n/track/2/slot/7/selected 0\n/track/2/slot/7/playing 0\n/track/2/slot/7/recording 0\n/track/2/slot/7/playQueued 0\n/track/2/slot/7/recQueued 0\n/track/2/slot/7/stopQueued 0\n/track/3/exists 1\n/track/3/number 3\n/track/3/type AUDIO\n/track/3/isGroupExpanded 0\n/track/3/select 0\n/track/3/recarm 0\n/track/3/monitor 0\n/track/3/autoMonitor 1\n/track/3/vuleft 0.000000\n/track/3/vuright 0.000000\n/track/3/vu 0.000000\n/track/3/name EQ\n/track/3/color 217 46 36\n/track/3/mute 0\n/track/3/solo 0\n/track/3/volume 0.540742\n/track/3/volume/str -10.0 dB\n/track/3/pan 0.500000\n/track/3/pan/str 0.00 %\n/track/3/send/0/name FX 1\n/track/3/send/0/volume 0.000000\n/track/3/send/0/volume/str -Inf dB\n/track/3/send/0/active 0\n/track/3/send/1/name FX 2\n/track/3/send/1/volume 0.000000\n/track/3/send/1/volume/str -Inf dB\n/track/3/send/1/active 0\n/track/3/send/count 2\n/track/3/isStopped 0\n/track/3/slot/count 8\n/track/3/slot/0/exists 1\n/track/3/slot/0/hasContent 0\n/track/3/slot/0/name \n/track/3/slot/0/color 0 0 0\n/track/3/slot/0/selected 0\n/track/3/slot/0/playing 0\n/track/3/slot/0/recording 0\n/track/3/slot/0/playQueued 0\n/track/3/slot/0/recQueued 0\n/track/3/slot/0/stopQueued 0\n/track/3/slot/1/exists 1\n/track/3/slot/1/hasContent 0\n/track/3/slot/1/name \n/track/3/slot/1/color 0 0 0\n/track/3/slot/1/selected 0\n/track/3/slot/1/playing 0\n/track/3/slot/1/recording 0\n/track/3/slot/1/playQueued 0\n/track/3/slot/1/recQueued 0\n/track/3/slot/1/stopQueued 0\n/track/3/slot/2/exists 1\n/track/3/slot/2/hasContent 0\n/track/3/slot/2/name \n/track/3/slot/2/color 0 0 0\n/track/3/slot/2/selected 0\n/track/3/slot/2/playing 0\n/track/3/slot/2/recording 0\n/track/3/slot/2/playQueued 0\n/track/3/slot/2/recQueued 0\n/track/3/slot/2/stopQueued 0\n/track/3/slot/3/exists 1\n/track/3/slot/3/hasContent 0\n/track/3/slot/3/name \n/track/3/slot/3/color 0 0 0\n/track/3/slot/3/selected 0\n/track/3/slot/3/playing 0\n/track/3/slot/3/recording 0\n/track/3/slot/3/playQueued 0\n/track/3/slot/3/recQueued 0\n/track/3/slot/3/stopQueued 0\n/track/3/slot/4/exists 1\n/track/3/slot/4/hasContent 0\n/track/3/slot/4/name \n/track/3/slot/4/color 0 0 0\n/track/3/slot/4/selected 0\n/track/3/slot/4/playing 0\n/track/3/slot/4/recording 0\n/track/3/slot/4/playQueued 0\n/track/3/slot/4/recQueued 0\n/track/3/slot/4/stopQueued 0\n/track/3/slot/5/exists 1\n/track/3/slot/5/hasContent 0\n/track/3/slot/5/name \n/track/3/slot/5/color 0 0 0\n/track/3/slot/5/selected 0\n/track/3/slot/5/playing 0\n/track/3/slot/5/recording 0\n/track/3/slot/5/playQueued 0\n/track/3/slot/5/recQueued 0\n/track/3/slot/5/stopQueued 0\n/track/3/slot/6/exists 1\n/track/3/slot/6/hasContent 0\n/track/3/slot/6/name \n/track/3/slot/6/color 0 0 0\n/track/3/slot/6/selected 0\n/track/3/slot/6/playing 0\n/track/3/slot/6/recording 0\n/track/3/slot/6/playQueued 0\n/track/3/slot/6/recQueued 0\n/track/3/slot/6/stopQueued 0\n/track/3/slot/7/exists 1\n/track/3/slot/7/hasContent 0\n/track/3/slot/7/name \n/track/3/slot/7/color 0 0 0\n/track/3/slot/7/selected 0\n/track/3/slot/7/playing 0\n/track/3/slot/7/recording 0\n/track/3/slot/7/playQueued 0\n/track/3/slot/7/recQueued 0\n/track/3/slot/7/stopQueued 0\n/track/4/exists 1\n/track/4/number 4\n/track/4/type AUDIO\n/track/4/isGroupExpanded 0\n/track/4/select 0\n/track/4/recarm 0\n/track/4/monitor 0\n/track/4/autoMonitor 1\n/track/4/vuleft 0.000000\n/track/4/vuright 0.000000\n/track/4/vu 0.000000\n/track/4/name Audio 5\n/track/4/color 255 87 6\n/track/4/mute 0\n/track/4/solo 0\n/track/4/volume 0.540742\n/track/4/volume/str -10.0 dB\n/track/4/pan 0.500000\n/track/4/pan/str 0.00 %\n/track/4/send/0/name FX 1\n/track/4/send/0/volume 0.000000\n/track/4/send/0/volume/str -Inf dB\n/track/4/send/0/active 0\n/track/4/send/1/name FX 2\n/track/4/send/1/volume 0.000000\n/track/4/send/1/volume/str -Inf dB\n/track/4/send/1/active 0\n/track/4/send/count 2\n/track/4/isStopped 0\n/track/4/slot/count 8\n/track/4/slot/0/exists 1\n/track/4/slot/0/hasContent 0\n/track/4/slot/0/name \n/track/4/slot/0/color 0 0 0\n/track/4/slot/0/selected 0\n/track/4/slot/0/playing 0\n/track/4/slot/0/recording 0\n/track/4/slot/0/playQueued 0\n/track/4/slot/0/recQueued 0\n/track/4/slot/0/stopQueued 0\n/track/4/slot/1/exists 1\n/track/4/slot/1/hasContent 0\n/track/4/slot/1/name \n/track/4/slot/1/color 0 0 0\n/track/4/slot/1/selected 0\n/track/4/slot/1/playing 0\n/track/4/slot/1/recording 0\n/track/4/slot/1/playQueued 0\n/track/4/slot/1/recQueued 0\n/track/4/slot/1/stopQueued 0\n/track/4/slot/2/exists 1\n/track/4/slot/2/hasContent 0\n/track/4/slot/2/name \n/track/4/slot/2/color 0 0 0\n/track/4/slot/2/selected 0\n/track/4/slot/2/playing 0\n/track/4/slot/2/recording 0\n/track/4/slot/2/playQueued 0\n/track/4/slot/2/recQueued 0\n/track/4/slot/2/stopQueued 0\n/track/4/slot/3/exists 1\n/track/4/slot/3/hasContent 0\n/track/4/slot/3/name \n/track/4/slot/3/color 0 0 0\n/track/4/slot/3/selected 0\n/track/4/slot/3/playing 0\n/track/4/slot/3/recording 0\n/track/4/slot/3/playQueued 0\n/track/4/slot/3/recQueued 0\n/track/4/slot/3/stopQueued 0\n/track/4/slot/4/exists 1\n/track/4/slot/4/hasContent 0\n/track/4/slot/4/name \n/track/4/slot/4/color 0 0 0\n/track/4/slot/4/selected 0\n/track/4/slot/4/playing 0\n/track/4/slot/4/recording 0\n/track/4/slot/4/playQueued 0\n/track/4/slot/4/recQueued 0\n/track/4/slot/4/stopQueued 0\n/track/4/slot/5/exists 1\n/track/4/slot/5/hasContent 0\n/track/4/slot/5/name \n/track/4/slot/5/color 0 0 0\n/track/4/slot/5/selected 0\n/track/4/slot/5/playing 0\n/track/4/slot/5/recording 0\n/track/4/slot/5/playQueued 0\n/track/4/slot/5/recQueued 0\n/track/4/slot/5/stopQueued 0\n/track/4/slot/6/exists 1\n/track/4/slot/6/hasContent 0\n/track/4/slot/6/name \n/track/4/slot/6/color 0 0 0\n/track/4/slot/6/selected 0\n/track/4/slot/6/playing 0\n/track/4/slot/6/recording 0\n/track/4/slot/6/playQueued 0\n/track/4/slot/6/recQueued 0\n/track/4/slot/6/stopQueued 0\n/track/4/slot/7/exists 1\n/track/4/slot/7/hasContent 0\n/track/4/slot/7/name \n/track/4/slot/7/color 0 0 0\n/track/4/slot/7/selected 0\n/track/4/slot/7/playing 0\n/track/4/slot/7/recording 0\n/track/4/slot/7/playQueued 0\n/track/4/slot/7/recQueued 0\n/track/4/slot/7/stopQueued 0\n/track/5/exists 1\n/track/5/number 5\n/track/5/type AUDIO\n/track/5/isGroupExpanded 0\n/track/5/select 0\n/track/5/recarm 0\n/track/5/monitor 0\n/track/5/autoMonitor 1\n/track/5/vuleft 0.000000\n/track/5/vuright 0.000000\n/track/5/vu 0.000000\n/track/5/name Audio 6\n/track/5/color 217 157 16\n/track/5/mute 0\n/track/5/solo 0\n/track/5/volume 0.540742\n/track/5/volume/str -10.0 dB\n/track/5/pan 0.500000\n/track/5/pan/str 0.00 %\n/track/5/send/0/name FX 1\n/track/5/send/0/volume 0.000000\n/track/5/send/0/volume/str -Inf dB\n/track/5/send/0/active 0\n/track/5/send/1/name FX 2\n/track/5/send/1/volume 0.000000\n/track/5/send/1/volume/str -Inf dB\n/track/5/send/1/active 0\n/track/5/send/count 2\n/track/5/isStopped 0\n/track/5/slot/count 8\n/track/5/slot/0/exists 1\n/track/5/slot/0/hasContent 0\n/track/5/slot/0/name \n/track/5/slot/0/color 0 0 0\n/track/5/slot/0/selected 0\n/track/5/slot/0/playing 0\n/track/5/slot/0/recording 0\n/track/5/slot/0/playQueued 0\n/track/5/slot/0/recQueued 0\n/track/5/slot/0/stopQueued 0\n/track/5/slot/1/exists 1\n/track/5/slot/1/hasContent 0\n/track/5/slot/1/name \n/track/5/slot/1/color 0 0 0\n/track/5/slot/1/selected 0\n/track/5/slot/1/playing 0\n/track/5/slot/1/recording 0\n/track/5/slot/1/playQueued 0\n/track/5/slot/1/recQueued 0\n/track/5/slot/1/stopQueued 0\n/track/5/slot/2/exists 1\n/track/5/slot/2/hasContent 0\n/track/5/slot/2/name \n/track/5/slot/2/color 0 0 0\n/track/5/slot/2/selected 0\n/track/5/slot/2/playing 0\n/track/5/slot/2/recording 0\n/track/5/slot/2/playQueued 0\n/track/5/slot/2/recQueued 0\n/track/5/slot/2/stopQueued 0\n/track/5/slot/3/exists 1\n/track/5/slot/3/hasContent 0\n/track/5/slot/3/name \n/track/5/slot/3/color 0 0 0\n/track/5/slot/3/selected 0\n/track/5/slot/3/playing 0\n/track/5/slot/3/recording 0\n/track/5/slot/3/playQueued 0\n/track/5/slot/3/recQueued 0\n/track/5/slot/3/stopQueued 0\n/track/5/slot/4/exists 1\n/track/5/slot/4/hasContent 0\n/track/5/slot/4/name \n/track/5/slot/4/color 0 0 0\n/track/5/slot/4/selected 0\n/track/5/slot/4/playing 0\n/track/5/slot/4/recording 0\n/track/5/slot/4/playQueued 0\n/track/5/slot/4/recQueued 0\n/track/5/slot/4/stopQueued 0\n/track/5/slot/5/exists 1\n/track/5/slot/5/hasContent 0\n/track/5/slot/5/name \n/track/5/slot/5/color 0 0 0\n/track/5/slot/5/selected 0\n/track/5/slot/5/playing 0\n/track/5/slot/5/recording 0\n/track/5/slot/5/playQueued 0\n/track/5/slot/5/recQueued 0\n/track/5/slot/5/stopQueued 0\n/track/5/slot/6/exists 1\n/track/5/slot/6/hasContent 0\n/track/5/slot/6/name \n/track/5/slot/6/color 0 0 0\n/track/5/slot/6/selected 0\n/track/5/slot/6/playing 0\n/track/5/slot/6/recording 0\n/track/5/slot/6/playQueued 0\n/track/5/slot/6/recQueued 0\n/track/5/slot/6/stopQueued 0\n/track/5/slot/7/exists 1\n/track/5/slot/7/hasContent 0\n/track/5/slot/7/name \n/track/5/slot/7/color 0 0 0\n/track/5/slot/7/selected 0\n/track/5/slot/7/playing 0\n/track/5/slot/7/recording 0\n/track/5/slot/7/playQueued 0\n/track/5/slot/7/recQueued 0\n/track/5/slot/7/stopQueued 0\n/track/6/exists 1\n/track/6/number 6\n/track/6/type AUDIO\n/track/6/isGroupExpanded 0\n/track/6/select 0\n/track/6/recarm 0\n/track/6/monitor 0\n/track/6/autoMonitor 1\n/track/6/vuleft 0.000000\n/track/6/vuright 0.000000\n/track/6/vu 0.000000\n/track/6/name Audio 7\n/track/6/color 67 210 185\n/track/6/mute 0\n/track/6/solo 0\n/track/6/volume 0.540742\n/track/6/volume/str -10.0 dB\n/track/6/pan 0.500000\n/track/6/pan/str 0.00 %\n/track/6/send/0/name FX 1\n/track/6/send/0/volume 0.000000\n/track/6/send/0/volume/str -Inf dB\n/track/6/send/0/active 0\n/track/6/send/1/name FX 2\n/track/6/send/1/volume 0.000000\n/track/6/send/1/volume/str -Inf dB\n/track/6/send/1/active 0\n/track/6/send/count 2\n/track/6/isStopped 0\n/track/6/slot/count 8\n/track/6/slot/0/exists 1\n/track/6/slot/0/hasContent 0\n/track/6/slot/0/name \n/track/6/slot/0/color 0 0 0\n/track/6/slot/0/selected 0\n/track/6/slot/0/playing 0\n/track/6/slot/0/recording 0\n/track/6/slot/0/playQueued 0\n/track/6/slot/0/recQueued 0\n/track/6/slot/0/stopQueued 0\n/track/6/slot/1/exists 1\n/track/6/slot/1/hasContent 0\n/track/6/slot/1/name \n/track/6/slot/1/color 0 0 0\n/track/6/slot/1/selected 0\n/track/6/slot/1/playing 0\n/track/6/slot/1/recording 0\n/track/6/slot/1/playQueued 0\n/track/6/slot/1/recQueued 0\n/track/6/slot/1/stopQueued 0\n/track/6/slot/2/exists 1\n/track/6/slot/2/hasContent 0\n/track/6/slot/2/name \n/track/6/slot/2/color 0 0 0\n/track/6/slot/2/selected 0\n/track/6/slot/2/playing 0\n/track/6/slot/2/recording 0\n/track/6/slot/2/playQueued 0\n/track/6/slot/2/recQueued 0\n/track/6/slot/2/stopQueued 0\n/track/6/slot/3/exists 1\n/track/6/slot/3/hasContent 0\n/track/6/slot/3/name \n/track/6/slot/3/color 0 0 0\n/track/6/slot/3/selected 0\n/track/6/slot/3/playing 0\n/track/6/slot/3/recording 0\n/track/6/slot/3/playQueued 0\n/track/6/slot/3/recQueued 0\n/track/6/slot/3/stopQueued 0\n/track/6/slot/4/exists 1\n/track/6/slot/4/hasContent 0\n/track/6/slot/4/name \n/track/6/slot/4/color 0 0 0\n/track/6/slot/4/selected 0\n/track/6/slot/4/playing 0\n/track/6/slot/4/recording 0\n/track/6/slot/4/playQueued 0\n/track/6/slot/4/recQueued 0\n/track/6/slot/4/stopQueued 0\n/track/6/slot/5/exists 1\n/track/6/slot/5/hasContent 0\n/track/6/slot/5/name \n/track/6/slot/5/color 0 0 0\n/track/6/slot/5/selected 0\n/track/6/slot/5/playing 0\n/track/6/slot/5/recording 0\n/track/6/slot/5/playQueued 0\n/track/6/slot/5/recQueued 0\n/track/6/slot/5/stopQueued 0\n/track/6/slot/6/exists 1\n/track/6/slot/6/hasContent 0\n/track/6/slot/6/name \n/track/6/slot/6/color 0 0 0\n/track/6/slot/6/selected 0\n/track/6/slot/6/playing 0\n/track/6/slot/6/recording 0\n/track/6/slot/6/playQueued 0\n/track/6/slot/6/recQueued 0\n/track/6/slot/6/stopQueued 0\n/track/6/slot/7/exists 1\n/track/6/slot/7/hasContent 0\n/track/6/slot/7/name \n/track/6/slot/7/color 0 0 0\n/track/6/slot/7/selected 0\n/track/6/slot/7/playing 0\n/track/6/slot/7/recording 0\n/track/6/slot/7/playQueued 0\n/track/6/slot/7/recQueued 0\n/track/6/slot/7/stopQueued 0\n/track/7/exists 1\n/track/7/number 7\n/track/7/type AUDIO\n/track/7/isGroupExpanded 0\n/track/7/select 0\n/track/7/recarm 0\n/track/7/monitor 0\n/track/7/autoMonitor 1\n/track/7/vuleft 0.000000\n/track/7/vuright 0.000000\n/track/7/vu 0.000000\n/track/7/name Audio 8\n/track/7/color 115 152 20\n/track/7/mute 0\n/track/7/solo 0\n/track/7/volume 0.540742\n/track/7/volume/str -10.0 dB\n/track/7/pan 0.500000\n/track/7/pan/str 0.00 %\n/track/7/send/0/name FX 1\n/track/7/send/0/volume 0.000000\n/track/7/send/0/volume/str -Inf dB\n/track/7/send/0/active 0\n/track/7/send/1/name FX 2\n/track/7/send/1/volume 0.000000\n/track/7/send/1/volume/str -Inf dB\n/track/7/send/1/active 0\n/track/7/send/count 2\n/track/7/isStopped 0\n/track/7/slot/count 8\n/track/7/slot/0/exists 1\n/track/7/slot/0/hasContent 0\n/track/7/slot/0/name \n/track/7/slot/0/color 0 0 0\n/track/7/slot/0/selected 0\n/track/7/slot/0/playing 0\n/track/7/slot/0/recording 0\n/track/7/slot/0/playQueued 0\n/track/7/slot/0/recQueued 0\n/track/7/slot/0/stopQueued 0\n/track/7/slot/1/exists 1\n/track/7/slot/1/hasContent 0\n/track/7/slot/1/name \n/track/7/slot/1/color 0 0 0\n/track/7/slot/1/selected 0\n/track/7/slot/1/playing 0\n/track/7/slot/1/recording 0\n/track/7/slot/1/playQueued 0\n/track/7/slot/1/recQueued 0\n/track/7/slot/1/stopQueued 0\n/track/7/slot/2/exists 1\n/track/7/slot/2/hasContent 0\n/track/7/slot/2/name \n/track/7/slot/2/color 0 0 0\n/track/7/slot/2/selected 0\n/track/7/slot/2/playing 0\n/track/7/slot/2/recording 0\n/track/7/slot/2/playQueued 0\n/track/7/slot/2/recQueued 0\n/track/7/slot/2/stopQueued 0\n/track/7/slot/3/exists 1\n/track/7/slot/3/hasContent 0\n/track/7/slot/3/name \n/track/7/slot/3/color 0 0 0\n/track/7/slot/3/selected 0\n/track/7/slot/3/playing 0\n/track/7/slot/3/recording 0\n/track/7/slot/3/playQueued 0\n/track/7/slot/3/recQueued 0\n/track/7/slot/3/stopQueued 0\n/track/7/slot/4/exists 1\n/track/7/slot/4/hasContent 0\n/track/7/slot/4/name \n/track/7/slot/4/color 0 0 0\n/track/7/slot/4/selected 0\n/track/7/slot/4/playing 0\n/track/7/slot/4/recording 0\n/track/7/slot/4/playQueued 0\n/track/7/slot/4/recQueued 0\n/track/7/slot/4/stopQueued 0\n/track/7/slot/5/exists 1\n/track/7/slot/5/hasContent 0\n/track/7/slot/5/name \n/track/7/slot/5/color 0 0 0\n/track/7/slot/5/selected 0\n/track/7/slot/5/playing 0\n/track/7/slot/5/recording 0\n/track/7/slot/5/playQueued 0\n/track/7/slot/5/recQueued 0\n/track/7/slot/5/stopQueued 0\n/track/7/slot/6/exists 1\n/track/7/slot/6/hasContent 0\n/track/7/slot/6/name \n/track/7/slot/6/color 0 0 0\n/track/7/slot/6/selected 0\n/track/7/slot/6/playing 0\n/track/7/slot/6/recording 0\n/track/7/slot/6/playQueued 0\n/track/7/slot/6/recQueued 0\n/track/7/slot/6/stopQueued 0\n/track/7/slot/7/exists 1\n/track/7/slot/7/hasContent 0\n/track/7/slot/7/name \n/track/7/slot/7/color 0 0 0\n/track/7/slot/7/selected 0\n/track/7/slot/7/playing 0\n/track/7/slot/7/recording 0\n/track/7/slot/7/playQueued 0\n/track/7/slot/7/recQueued 0\n/track/7/slot/7/stopQueued 0\n/track/count 10\n/track/0/select 1\n/scene/offset 0\n/scene/0/exists 1\n/scene/0/number 0\n/scene/0/name Scene 1\n/scene/0/color 80 80 80\n/scene/0/select 0\n/scene/1/exists 1\n/scene/1/number 1\n/scene/1/name Scene 2\n/scene/1/color 80 80 80\n/scene/1/select 0\n/scene/2/exists 1\n/scene/2/number 2\n/scene/2/name Scene 3\n/scene/2/color 80 80 80\n/scene/2/select 0\n/scene/3/exists 1\n/scene/3/number 3\n/scene/3/name Scene 4\n/scene/3/color 80 80 80\n/scene/3/select 0\n/scene/4/exists 1\n/scene/4/number 4\n/scene/4/name Scene 5\n/scene/4/color 80 80 80\n/scene/4/select 0\n/scene/5/exists 1\n/scene/5/number 5\n/scene/5/name Scene 6\n/scene/5/color 80 80 80\n/scene/5/select 0\n/scene/6/exists 1\n/scene/6/number 6\n/scene/6/name Scene 7\n/scene/6/color 80 80 80\n/scene/6/select 0\n/scene/7/exists 1\n/scene/7/number 7\n/scene/7/name Scene 8\n/scene/7/color 80 80 80\n/scene/7/select 0\n/scene/count 8\n/master/select 0\n/master/vuleft 0.000000\n/master/vuright 0.000000\n/master/vu 0.000000\n/master/name Master\n/master/color 127 127 127\n/master/mute 0\n/master/solo 0\n/master/volume 0.793701\n/master/volume/str 0.0 dB\n/master/pan 0.500000\n/master/pan/str 0.00 %\n/device/count 1\n/device/exists 1\n/device/position 0\n/device/name Polysynth\n/device/bypass 0\n/device/window 0\n/device/expand 1\n/device/sibling/1/name Polysynth\n/device/sibling/1/bypass 0\n/device/sibling/1/position 0\n/device/sibling/1/selected 1\n/device/sibling/2/name \n/device/sibling/2/bypass 0\n/device/sibling/2/position -1\n/device/sibling/2/selected 0\n/device/sibling/3/name \n/device/sibling/3/bypass 0\n/device/sibling/3/position -1\n/device/sibling/3/selected 0\n/device/sibling/4/name \n/device/sibling/4/bypass 0\n/device/sibling/4/position -1\n/device/sibling/4/selected 0\n/device/sibling/5/name \n/device/sibling/5/bypass 0\n/device/sibling/5/position -1\n/device/sibling/5/selected 0\n/device/sibling/6/name \n/device/sibling/6/bypass 0\n/device/sibling/6/position -1\n/device/sibling/6/selected 0\n/device/sibling/7/name \n/device/sibling/7/bypass 0\n/device/sibling/7/position -1\n/device/sibling/7/selected 0\n/device/sibling/8/name \n/device/sibling/8/bypass 0\n/device/sibling/8/position -1\n/device/sibling/8/selected 0\n/device/param/0/name Osc1Pitch\n/device/param/0/value 0.500000\n/device/param/0/value/str 0.00 st\n/device/param/0/steps -1\n/device/param/0/modulated 0.500000\n/device/param/1/name Sync1\n/device/param/1/value 0.000000\n/device/param/1/value/str 0.00\n/device/param/1/steps -1\n/device/param/1/modulated 0.000000\n/device/param/2/name Uni1\n/device/param/2/value 0.109533\n/device/param/2/value/str 11 cents\n/device/param/2/steps -1\n/device/param/2/modulated 0.109533\n/device/param/3/name Osc1 Pan\n/device/param/3/value 0.500000\n/device/param/3/value/str 0.00 %\n/device/param/3/steps -1\n/device/param/3/modulated 0.500000\n/device/param/4/name Shape1\n/device/param/4/value 0.500000\n/device/param/4/value/str 0.00 %\n/device/param/4/steps -1\n/device/param/4/modulated 0.500000\n/device/param/5/name PW1\n/device/param/5/value 0.500000\n/device/param/5/value/str 50.0 %\n/device/param/5/steps -1\n/device/param/5/modulated 0.500000\n/device/param/6/name Sub1\n/device/param/6/value 0.000000\n/device/param/6/value/str 0.00 %\n/device/param/6/steps -1\n/device/param/6/modulated 0.000000\n/device/param/7/name Sub PW1\n/device/param/7/value 0.500000\n/device/param/7/value/str 50.0 %\n/device/param/7/steps -1\n/device/param/7/modulated 0.500000\n/device/param/8/name Osc2Pitch\n/device/param/8/value 0.500000\n/device/param/8/value/str 0.00 st\n/device/param/8/steps -1\n/device/param/8/modulated 0.500000\n/device/param/9/name Sync2\n/device/param/9/value 0.000000\n/device/param/9/value/str 0.00\n/device/param/9/steps -1\n/device/param/9/modulated 0.000000\n/device/param/10/name Uni2\n/device/param/10/value 0.056000\n/device/param/10/value/str 6 cents\n/device/param/10/steps -1\n/device/param/10/modulated 0.056000\n/device/param/11/name Osc2Pan\n/device/param/11/value 0.500000\n/device/param/11/value/str 0.00 %\n/device/param/11/steps -1\n/device/param/11/modulated 0.500000\n/device/param/12/name Shape2\n/device/param/12/value 0.000000\n/device/param/12/value/str -100 %\n/device/param/12/steps -1\n/device/param/12/modulated 0.000000\n/device/param/13/name PW2\n/device/param/13/value 0.480000\n/device/param/13/value/str 48.0 %\n/device/param/13/steps -1\n/device/param/13/modulated 0.480000\n/device/param/14/name Sub2\n/device/param/14/value 0.000000\n/device/param/14/value/str 0.00 %\n/device/param/14/steps -1\n/device/param/14/modulated 0.000000\n/device/param/15/name Sub PW2\n/device/param/15/value 0.500000\n/device/param/15/value/str 50.0 %\n/device/param/15/steps -1\n/device/param/15/modulated 0.500000\n/device/param/16/name 1/2 Mix\n/device/param/16/value 0.000000\n/device/param/16/value/str 0.00 %\n/device/param/16/steps -1\n/device/param/16/modulated 0.000000\n/device/param/17/name Noise\n/device/param/17/value 0.000000\n/device/param/17/value/str 0.00 %\n/device/param/17/steps -1\n/device/param/17/modulated 0.000000\n/device/param/18/name Pitch\n/device/param/18/value 0.500000\n/device/param/18/value/str 0.00 st\n/device/param/18/steps -1\n/device/param/18/modulated 0.500000\n/device/param/19/name Glide time\n/device/param/19/value 0.000000\n/device/param/19/value/str 0.00 ms\n/device/param/19/steps -1\n/device/param/19/modulated 0.000000\n/device/param/20/name HPF Freq\n/device/param/20/value 0.369345\n/device/param/20/value/str 50.0 Hz\n/device/param/20/steps -1\n/device/param/20/modulated 0.369345\n/device/param/21/name HPF Reso\n/device/param/21/value 0.000000\n/device/param/21/value/str 0.00 %\n/device/param/21/steps -1\n/device/param/21/modulated 0.000000\n/device/param/22/name Drive\n/device/param/22/value 0.500000\n/device/param/22/value/str 0.0 dB\n/device/param/22/steps -1\n/device/param/22/modulated 0.500000\n/device/param/23/name FB\n/device/param/23/value 0.000000\n/device/param/23/value/str 0.00 %\n/device/param/23/steps -1\n/device/param/23/modulated 0.000000\n/device/param/24/name Filt Freq\n/device/param/24/value 0.692913\n/device/param/24/value/str 2.59 kHz\n/device/param/24/steps -1\n/device/param/24/modulated 0.692913\n/device/param/25/name Reso\n/device/param/25/value 0.394762\n/device/param/25/value/str 39.5 %\n/device/param/25/steps -1\n/device/param/25/modulated 0.394762\n/device/param/26/name Shaper%\n/device/param/26/value 0.000000\n/device/param/26/value/str 0.00 %\n/device/param/26/steps -1\n/device/param/26/modulated 0.000000\n/device/param/27/name Filt FM\n/device/param/27/value 0.500000\n/device/param/27/value/str 0.00 st\n/device/param/27/steps -1\n/device/param/27/modulated 0.500000\n/device/param/28/name Keytrack\n/device/param/28/value 0.500000\n/device/param/28/value/str 50.0 %\n/device/param/28/steps -1\n/device/param/28/modulated 0.500000\n/device/param/29/name FEG D\n/device/param/29/value 0.825000\n/device/param/29/value/str 82.5 %\n/device/param/29/steps -1\n/device/param/29/modulated 0.825000\n/device/param/30/name FEG Curve\n/device/param/30/value 0.500000\n/device/param/30/value/str 0.00\n/device/param/30/steps -1\n/device/param/30/modulated 0.500000\n/device/param/31/name FEG Amount\n/device/param/31/value 0.500000\n/device/param/31/value/str 0.00 st\n/device/param/31/steps -1\n/device/param/31/modulated 0.500000\n/device/param/32/name Filt Freq\n/device/param/32/value 0.692913\n/device/param/32/value/str 2.59 kHz\n/device/param/32/steps -1\n/device/param/32/modulated 0.692913\n/device/param/33/name Reso\n/device/param/33/value 0.394762\n/device/param/33/value/str 39.5 %\n/device/param/33/steps -1\n/device/param/33/modulated 0.394762\n/device/param/34/name FEG Amt\n/device/param/34/value 0.500000\n/device/param/34/value/str 0.00 st\n/device/param/34/steps -1\n/device/param/34/modulated 0.500000\n/device/param/35/name FEG Curve\n/device/param/35/value 0.500000\n/device/param/35/value/str 0.00\n/device/param/35/steps -1\n/device/param/35/modulated 0.500000\n/device/param/36/name FEG A\n/device/param/36/value 0.000000\n/device/param/36/value/str 0.00 %\n/device/param/36/steps -1\n/device/param/36/modulated 0.000000\n/device/param/37/name FEG D\n/device/param/37/value 0.825000\n/device/param/37/value/str 82.5 %\n/device/param/37/steps -1\n/device/param/37/modulated 0.825000\n/device/param/38/name FEG S\n/device/param/38/value 0.000000\n/device/param/38/value/str 0.00 %\n/device/param/38/steps -1\n/device/param/38/modulated 0.000000\n/device/param/39/name FEG R\n/device/param/39/value 0.000000\n/device/param/39/value/str 0.00 %\n/device/param/39/steps -1\n/device/param/39/modulated 0.000000\n/device/param/40/name Gain\n/device/param/40/value 1.000000\n/device/param/40/value/str 0.0 dB\n/device/param/40/steps -1\n/device/param/40/modulated 1.000000\n/device/param/41/name Vel Sens.\n/device/param/41/value 0.500000\n/device/param/41/value/str +15.0 dB\n/device/param/41/steps -1\n/device/param/41/modulated 0.500000\n/device/param/42/name Pan\n/device/param/42/value 0.500000\n/device/param/42/value/str 0.00 %\n/device/param/42/steps -1\n/device/param/42/modulated 0.500000\n/device/param/43/name Output\n/device/param/43/value 0.684000\n/device/param/43/value/str -3.9 dB\n/device/param/43/steps -1\n/device/param/43/modulated 0.684000\n/device/param/44/name AEG A\n/device/param/44/value 0.065000\n/device/param/44/value/str 6.50 %\n/device/param/44/steps -1\n/device/param/44/modulated 0.065000\n/device/param/45/name AEG D\n/device/param/45/value 0.500000\n/device/param/45/value/str 50.0 %\n/device/param/45/steps -1\n/device/param/45/modulated 0.500000\n/device/param/46/name AEG S\n/device/param/46/value 0.950000\n/device/param/46/value/str 95.0 %\n/device/param/46/steps -1\n/device/param/46/modulated 0.950000\n/device/param/47/name AEG R\n/device/param/47/value 0.300000\n/device/param/47/value/str 30.0 %\n/device/param/47/steps -1\n/device/param/47/modulated 0.300000\n/device/param/48/name FEG A\n/device/param/48/value 0.000000\n/device/param/48/value/str 0.00 %\n/device/param/48/steps -1\n/device/param/48/modulated 0.000000\n/device/param/49/name FEG D\n/device/param/49/value 0.825000\n/device/param/49/value/str 82.5 %\n/device/param/49/steps -1\n/device/param/49/modulated 0.825000\n/device/param/50/name FEG S\n/device/param/50/value 0.000000\n/device/param/50/value/str 0.00 %\n/device/param/50/steps -1\n/device/param/50/modulated 0.000000\n/device/param/51/name FEG R\n/device/param/51/value 0.000000\n/device/param/51/value/str 0.00 %\n/device/param/51/steps -1\n/device/param/51/modulated 0.000000\n/device/param/52/name AEG A\n/device/param/52/value 0.065000\n/device/param/52/value/str 6.50 %\n/device/param/52/steps -1\n/device/param/52/modulated 0.065000\n/device/param/53/name AEG D\n/device/param/53/value 0.500000\n/device/param/53/value/str 50.0 %\n/device/param/53/steps -1\n/device/param/53/modulated 0.500000\n/device/param/54/name AEG S\n/device/param/54/value 0.950000\n/device/param/54/value/str 95.0 %\n/device/param/54/steps -1\n/device/param/54/modulated 0.950000\n/device/param/55/name AEG R\n/device/param/55/value 0.300000\n/device/param/55/value/str 30.0 %\n/device/param/55/steps -1\n/device/param/55/modulated 0.300000\n/device/param/56/name Filt Freq\n/device/param/56/value 0.692913\n/device/param/56/value/str 2.59 kHz\n/device/param/56/steps -1\n/device/param/56/modulated 0.692913\n/device/param/57/name Reso\n/device/param/57/value 0.394762\n/device/param/57/value/str 39.5 %\n/device/param/57/steps -1\n/device/param/57/modulated 0.394762\n/device/param/58/name FEG Amt\n/device/param/58/value 0.500000\n/device/param/58/value/str 0.00 st\n/device/param/58/steps -1\n/device/param/58/modulated 0.500000\n/device/param/59/name Filt FM\n/device/param/59/value 0.500000\n/device/param/59/value/str 0.00 st\n/device/param/59/steps -1\n/device/param/59/modulated 0.500000\n/device/param/60/name 1/2 Mix\n/device/param/60/value 0.000000\n/device/param/60/value/str 0.00 %\n/device/param/60/steps -1\n/device/param/60/modulated 0.000000\n/device/param/61/name Noise\n/device/param/61/value 0.000000\n/device/param/61/value/str 0.00 %\n/device/param/61/steps -1\n/device/param/61/modulated 0.000000\n/device/param/62/name Drive\n/device/param/62/value 0.500000\n/device/param/62/value/str 0.0 dB\n/device/param/62/steps -1\n/device/param/62/modulated 0.500000\n/device/param/63/name Output\n/device/param/63/value 0.684000\n/device/param/63/value/str -3.9 dB\n/device/param/63/steps -1\n/device/param/63/modulated 0.684000\n/device/param/count 64\n/device/page/0/name OSC1\n/device/page/1/name OSC2\n/device/page/2/name MIX\n/device/page/3/name FILTER\n/device/page/4/name FILTER/EG\n/device/page/5/name AMP\n/device/page/6/name Envelope\n/device/page/7/name Common\n/device/page/count 8\n/device/page/selected 0\n/noterepeat/active 0\n/noterepeat/period 4.000000\n/noterepeat/notelength 0.500000\n/noterepeat/mode 1\n/noterepeat/velocity 1\n/drum/exists 0\n/drum/name \n/drum/bypass 0\n/drum/window 0\n/drum/expand 0\n/drum/hasDrumPads 0\n/drum/hasLayers 0\n/drum/hasMutedPads 0\n/drum/hasSoloedPads 0\n/drum/pad/0/exists 0\n/drum/pad/0/select 0\n/drum/pad/0/active 1\n/drum/pad/0/name \n/drum/pad/0/color 0 0 0\n/drum/pad/0/mute 0\n/drum/pad/0/solo 0\n/drum/pad/0/volume 0.000000\n/drum/pad/0/volume/str \n/drum/pad/0/pan 0.000000\n/drum/pad/0/pan/str \n/drum/pad/1/exists 0\n/drum/pad/1/select 0\n/drum/pad/1/active 1\n/drum/pad/1/name \n/drum/pad/1/color 0 0 0\n/drum/pad/1/mute 0\n/drum/pad/1/solo 0\n/drum/pad/1/volume 0.000000\n/drum/pad/1/volume/str \n/drum/pad/1/pan 0.000000\n/drum/pad/1/pan/str \n/drum/pad/2/exists 0\n/drum/pad/2/select 0\n/drum/pad/2/active 1\n/drum/pad/2/name \n/drum/pad/2/color 0 0 0\n/drum/pad/2/mute 0\n/drum/pad/2/solo 0\n/drum/pad/2/volume 0.000000\n/drum/pad/2/volume/str \n/drum/pad/2/pan 0.000000\n/drum/pad/2/pan/str \n/drum/pad/3/exists 0\n/drum/pad/3/select 0\n/drum/pad/3/active 1\n/drum/pad/3/name \n/drum/pad/3/color 0 0 0\n/drum/pad/3/mute 0\n/drum/pad/3/solo 0\n/drum/pad/3/volume 0.000000\n/drum/pad/3/volume/str \n/drum/pad/3/pan 0.000000\n/drum/pad/3/pan/str \n/drum/pad/4/exists 0\n/drum/pad/4/select 0\n/drum/pad/4/active 1\n/drum/pad/4/name \n/drum/pad/4/color 0 0 0\n/drum/pad/4/mute 0\n/drum/pad/4/solo 0\n/drum/pad/4/volume 0.000000\n/drum/pad/4/volume/str \n/drum/pad/4/pan 0.000000\n/drum/pad/4/pan/str \n/drum/pad/5/exists 0\n/drum/pad/5/select 0\n/drum/pad/5/active 1\n/drum/pad/5/name \n/drum/pad/5/color 0 0 0\n/drum/pad/5/mute 0\n/drum/pad/5/solo 0\n/drum/pad/5/volume 0.000000\n/drum/pad/5/volume/str \n/drum/pad/5/pan 0.000000\n/drum/pad/5/pan/str \n/drum/pad/6/exists 0\n/drum/pad/6/select 0\n/drum/pad/6/active 1\n/drum/pad/6/name \n/drum/pad/6/color 0 0 0\n/drum/pad/6/mute 0\n/drum/pad/6/solo 0\n/drum/pad/6/volume 0.000000\n/drum/pad/6/volume/str \n/drum/pad/6/pan 0.000000\n/drum/pad/6/pan/str \n/drum/pad/7/exists 0\n/drum/pad/7/select 0\n/drum/pad/7/active 1\n/drum/pad/7/name \n/drum/pad/7/color 0 0 0\n/drum/pad/7/mute 0\n/drum/pad/7/solo 0\n/drum/pad/7/volume 0.000000\n/drum/pad/7/volume/str \n/drum/pad/7/pan 0.000000\n/drum/pad/7/pan/str \n/drum/pad/8/exists 0\n/drum/pad/8/select 0\n/drum/pad/8/active 1\n/drum/pad/8/name \n/drum/pad/8/color 0 0 0\n/drum/pad/8/mute 0\n/drum/pad/8/solo 0\n/drum/pad/8/volume 0.000000\n/drum/pad/8/volume/str \n/drum/pad/8/pan 0.000000\n/drum/pad/8/pan/str \n/drum/pad/9/exists 0\n/drum/pad/9/select 0\n/drum/pad/9/active 1\n/drum/pad/9/name \n/drum/pad/9/color 0 0 0\n/drum/pad/9/mute 0\n/drum/pad/9/solo 0\n/drum/pad/9/volume 0.000000\n/drum/pad/9/volume/str \n/drum/pad/9/pan 0.000000\n/drum/pad/9/pan/str \n/drum/pad/10/exists 0\n/drum/pad/10/select 0\n/drum/pad/10/active 1\n/drum/pad/10/name \n/drum/pad/10/color 0 0 0\n/drum/pad/10/mute 0\n/drum/pad/10/solo 0\n/drum/pad/10/volume 0.000000\n/drum/pad/10/volume/str \n/drum/pad/10/pan 0.000000\n/drum/pad/10/pan/str \n/drum/pad/11/exists 0\n/drum/pad/11/select 0\n/drum/pad/11/active 1\n/drum/pad/11/name \n/drum/pad/11/color 0 0 0\n/drum/pad/11/mute 0\n/drum/pad/11/solo 0\n/drum/pad/11/volume 0.000000\n/drum/pad/11/volume/str \n/drum/pad/11/pan 0.000000\n/drum/pad/11/pan/str \n/drum/pad/12/exists 0\n/drum/pad/12/select 0\n/drum/pad/12/active 1\n/drum/pad/12/name \n/drum/pad/12/color 0 0 0\n/drum/pad/12/mute 0\n/drum/pad/12/solo 0\n/drum/pad/12/volume 0.000000\n/drum/pad/12/volume/str \n/drum/pad/12/pan 0.000000\n/drum/pad/12/pan/str \n/drum/pad/13/exists 0\n/drum/pad/13/select 0\n/drum/pad/13/active 1\n/drum/pad/13/name \n/drum/pad/13/color 0 0 0\n/drum/pad/13/mute 0\n/drum/pad/13/solo 0\n/drum/pad/13/volume 0.000000\n/drum/pad/13/volume/str \n/drum/pad/13/pan 0.000000\n/drum/pad/13/pan/str \n/drum/pad/14/exists 0\n/drum/pad/14/select 0\n/drum/pad/14/active 1\n/drum/pad/14/name \n/drum/pad/14/color 0 0 0\n/drum/pad/14/mute 0\n/drum/pad/14/solo 0\n/drum/pad/14/volume 0.000000\n/drum/pad/14/volume/str \n/drum/pad/14/pan 0.000000\n/drum/pad/14/pan/str \n/drum/pad/15/exists 0\n/drum/pad/15/select 0\n/drum/pad/15/active 1\n/drum/pad/15/name \n/drum/pad/15/color 0 0 0\n/drum/pad/15/mute 0\n/drum/pad/15/solo 0\n/drum/pad/15/volume 0.000000\n/drum/pad/15/volume/str \n/drum/pad/15/pan 0.000000\n/drum/pad/15/pan/str \n/drum/pad/16/exists 0\n/drum/pad/16/select 0\n/drum/pad/16/active 1\n/drum/pad/16/name \n/drum/pad/16/color 0 0 0\n/drum/pad/16/mute 0\n/drum/pad/16/solo 0\n/drum/pad/16/volume 0.000000\n/drum/pad/16/volume/str \n/drum/pad/16/pan 0.000000\n/drum/pad/16/pan/str \n/drum/pad/17/exists 0\n/drum/pad/17/select 0\n/drum/pad/17/active 1\n/drum/pad/17/name \n/drum/pad/17/color 0 0 0\n/drum/pad/17/mute 0\n/drum/pad/17/solo 0\n/drum/pad/17/volume 0.000000\n/drum/pad/17/volume/str \n/drum/pad/17/pan 0.000000\n/drum/pad/17/pan/str \n/drum/pad/18/exists 0\n/drum/pad/18/select 0\n/drum/pad/18/active 1\n/drum/pad/18/name \n/drum/pad/18/color 0 0 0\n/drum/pad/18/mute 0\n/drum/pad/18/solo 0\n/drum/pad/18/volume 0.000000\n/drum/pad/18/volume/str \n/drum/pad/18/pan 0.000000\n/drum/pad/18/pan/str \n/drum/pad/19/exists 0\n/drum/pad/19/select 0\n/drum/pad/19/active 1\n/drum/pad/19/name \n/drum/pad/19/color 0 0 0\n/drum/pad/19/mute 0\n/drum/pad/19/solo 0\n/drum/pad/19/volume 0.000000\n/drum/pad/19/volume/str \n/drum/pad/19/pan 0.000000\n/drum/pad/19/pan/str \n/drum/pad/20/exists 0\n/drum/pad/20/select 0\n/drum/pad/20/active 1\n/drum/pad/20/name \n/drum/pad/20/color 0 0 0\n/drum/pad/20/mute 0\n/drum/pad/20/solo 0\n/drum/pad/20/volume 0.000000\n/drum/pad/20/volume/str \n/drum/pad/20/pan 0.000000\n/drum/pad/20/pan/str \n/drum/pad/21/exists 0\n/drum/pad/21/select 0\n/drum/pad/21/active 1\n/drum/pad/21/name \n/drum/pad/21/color 0 0 0\n/drum/pad/21/mute 0\n/drum/pad/21/solo 0\n/drum/pad/21/volume 0.000000\n/drum/pad/21/volume/str \n/drum/pad/21/pan 0.000000\n/drum/pad/21/pan/str \n/drum/pad/22/exists 0\n/drum/pad/22/select 0\n/drum/pad/22/active 1\n/drum/pad/22/name \n/drum/pad/22/color 0 0 0\n/drum/pad/22/mute 0\n/drum/pad/22/solo 0\n/drum/pad/22/volume 0.000000\n/drum/pad/22/volume/str \n/drum/pad/22/pan 0.000000\n/drum/pad/22/pan/str \n/drum/pad/23/exists 0\n/drum/pad/23/select 0\n/drum/pad/23/active 1\n/drum/pad/23/name \n/drum/pad/23/color 0 0 0\n/drum/pad/23/mute 0\n/drum/pad/23/solo 0\n/drum/pad/23/volume 0.000000\n/drum/pad/23/volume/str \n/drum/pad/23/pan 0.000000\n/drum/pad/23/pan/str \n/drum/pad/24/exists 0\n/drum/pad/24/select 0\n/drum/pad/24/active 1\n/drum/pad/24/name \n/drum/pad/24/color 0 0 0\n/drum/pad/24/mute 0\n/drum/pad/24/solo 0\n/drum/pad/24/volume 0.000000\n/drum/pad/24/volume/str \n/drum/pad/24/pan 0.000000\n/drum/pad/24/pan/str \n/drum/pad/25/exists 0\n/drum/pad/25/select 0\n/drum/pad/25/active 1\n/drum/pad/25/name \n/drum/pad/25/color 0 0 0\n/drum/pad/25/mute 0\n/drum/pad/25/solo 0\n/drum/pad/25/volume 0.000000\n/drum/pad/25/volume/str \n/drum/pad/25/pan 0.000000\n/drum/pad/25/pan/str \n/drum/pad/26/exists 0\n/drum/pad/26/select 0\n/drum/pad/26/active 1\n/drum/pad/26/name \n/drum/pad/26/color 0 0 0\n/drum/pad/26/mute 0\n/drum/pad/26/solo 0\n/drum/pad/26/volume 0.000000\n/drum/pad/26/volume/str \n/drum/pad/26/pan 0.000000\n/drum/pad/26/pan/str \n/drum/pad/27/exists 0\n/drum/pad/27/select 0\n/drum/pad/27/active 1\n/drum/pad/27/name \n/drum/pad/27/color 0 0 0\n/drum/pad/27/mute 0\n/drum/pad/27/solo 0\n/drum/pad/27/volume 0.000000\n/drum/pad/27/volume/str \n/drum/pad/27/pan 0.000000\n/drum/pad/27/pan/str \n/drum/pad/28/exists 0\n/drum/pad/28/select 0\n/drum/pad/28/active 1\n/drum/pad/28/name \n/drum/pad/28/color 0 0 0\n/drum/pad/28/mute 0\n/drum/pad/28/solo 0\n/drum/pad/28/volume 0.000000\n/drum/pad/28/volume/str \n/drum/pad/28/pan 0.000000\n/drum/pad/28/pan/str \n/drum/pad/29/exists 0\n/drum/pad/29/select 0\n/drum/pad/29/active 1\n/drum/pad/29/name \n/drum/pad/29/color 0 0 0\n/drum/pad/29/mute 0\n/drum/pad/29/solo 0\n/drum/pad/29/volume 0.000000\n/drum/pad/29/volume/str \n/drum/pad/29/pan 0.000000\n/drum/pad/29/pan/str \n/drum/pad/30/exists 0\n/drum/pad/30/select 0\n/drum/pad/30/active 1\n/drum/pad/30/name \n/drum/pad/30/color 0 0 0\n/drum/pad/30/mute 0\n/drum/pad/30/solo 0\n/drum/pad/30/volume 0.000000\n/drum/pad/30/volume/str \n/drum/pad/30/pan 0.000000\n/drum/pad/30/pan/str \n/drum/pad/31/exists 0\n/drum/pad/31/select 0\n/drum/pad/31/active 1\n/drum/pad/31/name \n/drum/pad/31/color 0 0 0\n/drum/pad/31/mute 0\n/drum/pad/31/solo 0\n/drum/pad/31/volume 0.000000\n/drum/pad/31/volume/str \n/drum/pad/31/pan 0.000000\n/drum/pad/31/pan/str \n/drum/pad/32/exists 0\n/drum/pad/32/select 0\n/drum/pad/32/active 1\n/drum/pad/32/name \n/drum/pad/32/color 0 0 0\n/drum/pad/32/mute 0\n/drum/pad/32/solo 0\n/drum/pad/32/volume 0.000000\n/drum/pad/32/volume/str \n/drum/pad/32/pan 0.000000\n/drum/pad/32/pan/str \n/drum/pad/33/exists 0\n/drum/pad/33/select 0\n/drum/pad/33/active 1\n/drum/pad/33/name \n/drum/pad/33/color 0 0 0\n/drum/pad/33/mute 0\n/drum/pad/33/solo 0\n/drum/pad/33/volume 0.000000\n/drum/pad/33/volume/str \n/drum/pad/33/pan 0.000000\n/drum/pad/33/pan/str \n/drum/pad/34/exists 0\n/drum/pad/34/select 0\n/drum/pad/34/active 1\n/drum/pad/34/name \n/drum/pad/34/color 0 0 0\n/drum/pad/34/mute 0\n/drum/pad/34/solo 0\n/drum/pad/34/volume 0.000000\n/drum/pad/34/volume/str \n/drum/pad/34/pan 0.000000\n/drum/pad/34/pan/str \n/drum/pad/35/exists 0\n/drum/pad/35/select 0\n/drum/pad/35/active 1\n/drum/pad/35/name \n/drum/pad/35/color 0 0 0\n/drum/pad/35/mute 0\n/drum/pad/35/solo 0\n/drum/pad/35/volume 0.000000\n/drum/pad/35/volume/str \n/drum/pad/35/pan 0.000000\n/drum/pad/35/pan/str \n/drum/pad/36/exists 0\n/drum/pad/36/select 0\n/drum/pad/36/active 1\n/drum/pad/36/name \n/drum/pad/36/color 0 0 0\n/drum/pad/36/mute 0\n/drum/pad/36/solo 0\n/drum/pad/36/volume 0.000000\n/drum/pad/36/volume/str \n/drum/pad/36/pan 0.000000\n/drum/pad/36/pan/str \n/drum/pad/37/exists 0\n/drum/pad/37/select 0\n/drum/pad/37/active 1\n/drum/pad/37/name \n/drum/pad/37/color 0 0 0\n/drum/pad/37/mute 0\n/drum/pad/37/solo 0\n/drum/pad/37/volume 0.000000\n/drum/pad/37/volume/str \n/drum/pad/37/pan 0.000000\n/drum/pad/37/pan/str \n/drum/pad/38/exists 0\n/drum/pad/38/select 0\n/drum/pad/38/active 1\n/drum/pad/38/name \n/drum/pad/38/color 0 0 0\n/drum/pad/38/mute 0\n/drum/pad/38/solo 0\n/drum/pad/38/volume 0.000000\n/drum/pad/38/volume/str \n/drum/pad/38/pan 0.000000\n/drum/pad/38/pan/str \n/drum/pad/39/exists 0\n/drum/pad/39/select 0\n/drum/pad/39/active 1\n/drum/pad/39/name \n/drum/pad/39/color 0 0 0\n/drum/pad/39/mute 0\n/drum/pad/39/solo 0\n/drum/pad/39/volume 0.000000\n/drum/pad/39/volume/str \n/drum/pad/39/pan 0.000000\n/drum/pad/39/pan/str \n/drum/pad/40/exists 0\n/drum/pad/40/select 0\n/drum/pad/40/active 1\n/drum/pad/40/name \n/drum/pad/40/color 0 0 0\n/drum/pad/40/mute 0\n/drum/pad/40/solo 0\n/drum/pad/40/volume 0.000000\n/drum/pad/40/volume/str \n/drum/pad/40/pan 0.000000\n/drum/pad/40/pan/str \n/drum/pad/41/exists 0\n/drum/pad/41/select 0\n/drum/pad/41/active 1\n/drum/pad/41/name \n/drum/pad/41/color 0 0 0\n/drum/pad/41/mute 0\n/drum/pad/41/solo 0\n/drum/pad/41/volume 0.000000\n/drum/pad/41/volume/str \n/drum/pad/41/pan 0.000000\n/drum/pad/41/pan/str \n/drum/pad/42/exists 0\n/drum/pad/42/select 0\n/drum/pad/42/active 1\n/drum/pad/42/name \n/drum/pad/42/color 0 0 0\n/drum/pad/42/mute 0\n/drum/pad/42/solo 0\n/drum/pad/42/volume 0.000000\n/drum/pad/42/volume/str \n/drum/pad/42/pan 0.000000\n/drum/pad/42/pan/str \n/drum/pad/43/exists 0\n/drum/pad/43/select 0\n/drum/pad/43/active 1\n/drum/pad/43/name \n/drum/pad/43/color 0 0 0\n/drum/pad/43/mute 0\n/drum/pad/43/solo 0\n/drum/pad/43/volume 0.000000\n/drum/pad/43/volume/str \n/drum/pad/43/pan 0.000000\n/drum/pad/43/pan/str \n/drum/pad/44/exists 0\n/drum/pad/44/select 0\n/drum/pad/44/active 1\n/drum/pad/44/name \n/drum/pad/44/color 0 0 0\n/drum/pad/44/mute 0\n/drum/pad/44/solo 0\n/drum/pad/44/volume 0.000000\n/drum/pad/44/volume/str \n/drum/pad/44/pan 0.000000\n/drum/pad/44/pan/str \n/drum/pad/45/exists 0\n/drum/pad/45/select 0\n/drum/pad/45/active 1\n/drum/pad/45/name \n/drum/pad/45/color 0 0 0\n/drum/pad/45/mute 0\n/drum/pad/45/solo 0\n/drum/pad/45/volume 0.000000\n/drum/pad/45/volume/str \n/drum/pad/45/pan 0.000000\n/drum/pad/45/pan/str \n/drum/pad/46/exists 0\n/drum/pad/46/select 0\n/drum/pad/46/active 1\n/drum/pad/46/name \n/drum/pad/46/color 0 0 0\n/drum/pad/46/mute 0\n/drum/pad/46/solo 0\n/drum/pad/46/volume 0.000000\n/drum/pad/46/volume/str \n/drum/pad/46/pan 0.000000\n/drum/pad/46/pan/str \n/drum/pad/47/exists 0\n/drum/pad/47/select 0\n/drum/pad/47/active 1\n/drum/pad/47/name \n/drum/pad/47/color 0 0 0\n/drum/pad/47/mute 0\n/drum/pad/47/solo 0\n/drum/pad/47/volume 0.000000\n/drum/pad/47/volume/str \n/drum/pad/47/pan 0.000000\n/drum/pad/47/pan/str \n/drum/pad/48/exists 0\n/drum/pad/48/select 0\n/drum/pad/48/active 1\n/drum/pad/48/name \n/drum/pad/48/color 0 0 0\n/drum/pad/48/mute 0\n/drum/pad/48/solo 0\n/drum/pad/48/volume 0.000000\n/drum/pad/48/volume/str \n/drum/pad/48/pan 0.000000\n/drum/pad/48/pan/str \n/drum/pad/49/exists 0\n/drum/pad/49/select 0\n/drum/pad/49/active 1\n/drum/pad/49/name \n/drum/pad/49/color 0 0 0\n/drum/pad/49/mute 0\n/drum/pad/49/solo 0\n/drum/pad/49/volume 0.000000\n/drum/pad/49/volume/str \n/drum/pad/49/pan 0.000000\n/drum/pad/49/pan/str \n/drum/pad/50/exists 0\n/drum/pad/50/select 0\n/drum/pad/50/active 1\n/drum/pad/50/name \n/drum/pad/50/color 0 0 0\n/drum/pad/50/mute 0\n/drum/pad/50/solo 0\n/drum/pad/50/volume 0.000000\n/drum/pad/50/volume/str \n/drum/pad/50/pan 0.000000\n/drum/pad/50/pan/str \n/drum/pad/51/exists 0\n/drum/pad/51/select 0\n/drum/pad/51/active 1\n/drum/pad/51/name \n/drum/pad/51/color 0 0 0\n/drum/pad/51/mute 0\n/drum/pad/51/solo 0\n/drum/pad/51/volume 0.000000\n/drum/pad/51/volume/str \n/drum/pad/51/pan 0.000000\n/drum/pad/51/pan/str \n/drum/pad/52/exists 0\n/drum/pad/52/select 0\n/drum/pad/52/active 1\n/drum/pad/52/name \n/drum/pad/52/color 0 0 0\n/drum/pad/52/mute 0\n/drum/pad/52/solo 0\n/drum/pad/52/volume 0.000000\n/drum/pad/52/volume/str \n/drum/pad/52/pan 0.000000\n/drum/pad/52/pan/str \n/drum/pad/53/exists 0\n/drum/pad/53/select 0\n/drum/pad/53/active 1\n/drum/pad/53/name \n/drum/pad/53/color 0 0 0\n/drum/pad/53/mute 0\n/drum/pad/53/solo 0\n/drum/pad/53/volume 0.000000\n/drum/pad/53/volume/str \n/drum/pad/53/pan 0.000000\n/drum/pad/53/pan/str \n/drum/pad/54/exists 0\n/drum/pad/54/select 0\n/drum/pad/54/active 1\n/drum/pad/54/name \n/drum/pad/54/color 0 0 0\n/drum/pad/54/mute 0\n/drum/pad/54/solo 0\n/drum/pad/54/volume 0.000000\n/drum/pad/54/volume/str \n/drum/pad/54/pan 0.000000\n/drum/pad/54/pan/str \n/drum/pad/55/exists 0\n/drum/pad/55/select 0\n/drum/pad/55/active 1\n/drum/pad/55/name \n/drum/pad/55/color 0 0 0\n/drum/pad/55/mute 0\n/drum/pad/55/solo 0\n/drum/pad/55/volume 0.000000\n/drum/pad/55/volume/str \n/drum/pad/55/pan 0.000000\n/drum/pad/55/pan/str \n/drum/pad/56/exists 0\n/drum/pad/56/select 0\n/drum/pad/56/active 1\n/drum/pad/56/name \n/drum/pad/56/color 0 0 0\n/drum/pad/56/mute 0\n/drum/pad/56/solo 0\n/drum/pad/56/volume 0.000000\n/drum/pad/56/volume/str \n/drum/pad/56/pan 0.000000\n/drum/pad/56/pan/str \n/drum/pad/57/exists 0\n/drum/pad/57/select 0\n/drum/pad/57/active 1\n/drum/pad/57/name \n/drum/pad/57/color 0 0 0\n/drum/pad/57/mute 0\n/drum/pad/57/solo 0\n/drum/pad/57/volume 0.000000\n/drum/pad/57/volume/str \n/drum/pad/57/pan 0.000000\n/drum/pad/57/pan/str \n/drum/pad/58/exists 0\n/drum/pad/58/select 0\n/drum/pad/58/active 1\n/drum/pad/58/name \n/drum/pad/58/color 0 0 0\n/drum/pad/58/mute 0\n/drum/pad/58/solo 0\n/drum/pad/58/volume 0.000000\n/drum/pad/58/volume/str \n/drum/pad/58/pan 0.000000\n/drum/pad/58/pan/str \n/drum/pad/59/exists 0\n/drum/pad/59/select 0\n/drum/pad/59/active 1\n/drum/pad/59/name \n/drum/pad/59/color 0 0 0\n/drum/pad/59/mute 0\n/drum/pad/59/solo 0\n/drum/pad/59/volume 0.000000\n/drum/pad/59/volume/str \n/drum/pad/59/pan 0.000000\n/drum/pad/59/pan/str \n/drum/pad/60/exists 0\n/drum/pad/60/select 0\n/drum/pad/60/active 1\n/drum/pad/60/name \n/drum/pad/60/color 0 0 0\n/drum/pad/60/mute 0\n/drum/pad/60/solo 0\n/drum/pad/60/volume 0.000000\n/drum/pad/60/volume/str \n/drum/pad/60/pan 0.000000\n/drum/pad/60/pan/str \n/drum/pad/61/exists 0\n/drum/pad/61/select 0\n/drum/pad/61/active 1\n/drum/pad/61/name \n/drum/pad/61/color 0 0 0\n/drum/pad/61/mute 0\n/drum/pad/61/solo 0\n/drum/pad/61/volume 0.000000\n/drum/pad/61/volume/str \n/drum/pad/61/pan 0.000000\n/drum/pad/61/pan/str \n/drum/pad/62/exists 0\n/drum/pad/62/select 0\n/drum/pad/62/active 1\n/drum/pad/62/name \n/drum/pad/62/color 0 0 0\n/drum/pad/62/mute 0\n/drum/pad/62/solo 0\n/drum/pad/62/volume 0.000000\n/drum/pad/62/volume/str \n/drum/pad/62/pan 0.000000\n/drum/pad/62/pan/str \n/drum/pad/63/exists 0\n/drum/pad/63/select 0\n/drum/pad/63/active 1\n/drum/pad/63/name \n/drum/pad/63/color 0 0 0\n/drum/pad/63/mute 0\n/drum/pad/63/solo 0\n/drum/pad/63/volume 0.000000\n/drum/pad/63/volume/str \n/drum/pad/63/pan 0.000000\n/drum/pad/63/pan/str \n/drum/pad/64/exists 0\n/drum/pad/64/select 0\n/drum/pad/64/active 1\n/drum/pad/64/name \n/drum/pad/64/color 0 0 0\n/drum/pad/64/mute 0\n/drum/pad/64/solo 0\n/drum/pad/64/volume 0.000000\n/drum/pad/64/volume/str \n/drum/pad/64/pan 0.000000\n/drum/pad/64/pan/str \n/drum/pad/65/exists 0\n/drum/pad/65/select 0\n/drum/pad/65/active 1\n/drum/pad/65/name \n/drum/pad/65/color 0 0 0\n/drum/pad/65/mute 0\n/drum/pad/65/solo 0\n/drum/pad/65/volume 0.000000\n/drum/pad/65/volume/str \n/drum/pad/65/pan 0.000000\n/drum/pad/65/pan/str \n/drum/pad/66/exists 0\n/drum/pad/66/select 0\n/drum/pad/66/active 1\n/drum/pad/66/name \n/drum/pad/66/color 0 0 0\n/drum/pad/66/mute 0\n/drum/pad/66/solo 0\n/drum/pad/66/volume 0.000000\n/drum/pad/66/volume/str \n/drum/pad/66/pan 0.000000\n/drum/pad/66/pan/str \n/drum/pad/67/exists 0\n/drum/pad/67/select 0\n/drum/pad/67/active 1\n/drum/pad/67/name \n/drum/pad/67/color 0 0 0\n/drum/pad/67/mute 0\n/drum/pad/67/solo 0\n/drum/pad/67/volume 0.000000\n/drum/pad/67/volume/str \n/drum/pad/67/pan 0.000000\n/drum/pad/67/pan/str \n/drum/pad/68/exists 0\n/drum/pad/68/select 0\n/drum/pad/68/active 1\n/drum/pad/68/name \n/drum/pad/68/color 0 0 0\n/drum/pad/68/mute 0\n/drum/pad/68/solo 0\n/drum/pad/68/volume 0.000000\n/drum/pad/68/volume/str \n/drum/pad/68/pan 0.000000\n/drum/pad/68/pan/str \n/drum/pad/69/exists 0\n/drum/pad/69/select 0\n/drum/pad/69/active 1\n/drum/pad/69/name \n/drum/pad/69/color 0 0 0\n/drum/pad/69/mute 0\n/drum/pad/69/solo 0\n/drum/pad/69/volume 0.000000\n/drum/pad/69/volume/str \n/drum/pad/69/pan 0.000000\n/drum/pad/69/pan/str \n/drum/pad/70/exists 0\n/drum/pad/70/select 0\n/drum/pad/70/active 1\n/drum/pad/70/name \n/drum/pad/70/color 0 0 0\n/drum/pad/70/mute 0\n/drum/pad/70/solo 0\n/drum/pad/70/volume 0.000000\n/drum/pad/70/volume/str \n/drum/pad/70/pan 0.000000\n/drum/pad/70/pan/str \n/drum/pad/71/exists 0\n/drum/pad/71/select 0\n/drum/pad/71/active 1\n/drum/pad/71/name \n/drum/pad/71/color 0 0 0\n/drum/pad/71/mute 0\n/drum/pad/71/solo 0\n/drum/pad/71/volume 0.000000\n/drum/pad/71/volume/str \n/drum/pad/71/pan 0.000000\n/drum/pad/71/pan/str \n/drum/pad/72/exists 0\n/drum/pad/72/select 0\n/drum/pad/72/active 1\n/drum/pad/72/name \n/drum/pad/72/color 0 0 0\n/drum/pad/72/mute 0\n/drum/pad/72/solo 0\n/drum/pad/72/volume 0.000000\n/drum/pad/72/volume/str \n/drum/pad/72/pan 0.000000\n/drum/pad/72/pan/str \n/drum/pad/73/exists 0\n/drum/pad/73/select 0\n/drum/pad/73/active 1\n/drum/pad/73/name \n/drum/pad/73/color 0 0 0\n/drum/pad/73/mute 0\n/drum/pad/73/solo 0\n/drum/pad/73/volume 0.000000\n/drum/pad/73/volume/str \n/drum/pad/73/pan 0.000000\n/drum/pad/73/pan/str \n/drum/pad/74/exists 0\n/drum/pad/74/select 0\n/drum/pad/74/active 1\n/drum/pad/74/name \n/drum/pad/74/color 0 0 0\n/drum/pad/74/mute 0\n/drum/pad/74/solo 0\n/drum/pad/74/volume 0.000000\n/drum/pad/74/volume/str \n/drum/pad/74/pan 0.000000\n/drum/pad/74/pan/str \n/drum/pad/75/exists 0\n/drum/pad/75/select 0\n/drum/pad/75/active 1\n/drum/pad/75/name \n/drum/pad/75/color 0 0 0\n/drum/pad/75/mute 0\n/drum/pad/75/solo 0\n/drum/pad/75/volume 0.000000\n/drum/pad/75/volume/str \n/drum/pad/75/pan 0.000000\n/drum/pad/75/pan/str \n/drum/pad/76/exists 0\n/drum/pad/76/select 0\n/drum/pad/76/active 1\n/drum/pad/76/name \n/drum/pad/76/color 0 0 0\n/drum/pad/76/mute 0\n/drum/pad/76/solo 0\n/drum/pad/76/volume 0.000000\n/drum/pad/76/volume/str \n/drum/pad/76/pan 0.000000\n/drum/pad/76/pan/str \n/drum/pad/77/exists 0\n/drum/pad/77/select 0\n/drum/pad/77/active 1\n/drum/pad/77/name \n/drum/pad/77/color 0 0 0\n/drum/pad/77/mute 0\n/drum/pad/77/solo 0\n/drum/pad/77/volume 0.000000\n/drum/pad/77/volume/str \n/drum/pad/77/pan 0.000000\n/drum/pad/77/pan/str \n/drum/pad/78/exists 0\n/drum/pad/78/select 0\n/drum/pad/78/active 1\n/drum/pad/78/name \n/drum/pad/78/color 0 0 0\n/drum/pad/78/mute 0\n/drum/pad/78/solo 0\n/drum/pad/78/volume 0.000000\n/drum/pad/78/volume/str \n/drum/pad/78/pan 0.000000\n/drum/pad/78/pan/str \n/drum/pad/79/exists 0\n/drum/pad/79/select 0\n/drum/pad/79/active 1\n/drum/pad/79/name \n/drum/pad/79/color 0 0 0\n/drum/pad/79/mute 0\n/drum/pad/79/solo 0\n/drum/pad/79/volume 0.000000\n/drum/pad/79/volume/str \n/drum/pad/79/pan 0.000000\n/drum/pad/79/pan/str \n/drum/pad/80/exists 0\n/drum/pad/80/select 0\n/drum/pad/80/active 1\n/drum/pad/80/name \n/drum/pad/80/color 0 0 0\n/drum/pad/80/mute 0\n/drum/pad/80/solo 0\n/drum/pad/80/volume 0.000000\n/drum/pad/80/volume/str \n/drum/pad/80/pan 0.000000\n/drum/pad/80/pan/str \n/drum/pad/81/exists 0\n/drum/pad/81/select 0\n/drum/pad/81/active 1\n/drum/pad/81/name \n/drum/pad/81/color 0 0 0\n/drum/pad/81/mute 0\n/drum/pad/81/solo 0\n/drum/pad/81/volume 0.000000\n/drum/pad/81/volume/str \n/drum/pad/81/pan 0.000000\n/drum/pad/81/pan/str \n/drum/pad/82/exists 0\n/drum/pad/82/select 0\n/drum/pad/82/active 1\n/drum/pad/82/name \n/drum/pad/82/color 0 0 0\n/drum/pad/82/mute 0\n/drum/pad/82/solo 0\n/drum/pad/82/volume 0.000000\n/drum/pad/82/volume/str \n/drum/pad/82/pan 0.000000\n/drum/pad/82/pan/str \n/drum/pad/83/exists 0\n/drum/pad/83/select 0\n/drum/pad/83/active 1\n/drum/pad/83/name \n/drum/pad/83/color 0 0 0\n/drum/pad/83/mute 0\n/drum/pad/83/solo 0\n/drum/pad/83/volume 0.000000\n/drum/pad/83/volume/str \n/drum/pad/83/pan 0.000000\n/drum/pad/83/pan/str \n/drum/pad/84/exists 0\n/drum/pad/84/select 0\n/drum/pad/84/active 1\n/drum/pad/84/name \n/drum/pad/84/color 0 0 0\n/drum/pad/84/mute 0\n/drum/pad/84/solo 0\n/drum/pad/84/volume 0.000000\n/drum/pad/84/volume/str \n/drum/pad/84/pan 0.000000\n/drum/pad/84/pan/str \n/drum/pad/85/exists 0\n/drum/pad/85/select 0\n/drum/pad/85/active 1\n/drum/pad/85/name \n/drum/pad/85/color 0 0 0\n/drum/pad/85/mute 0\n/drum/pad/85/solo 0\n/drum/pad/85/volume 0.000000\n/drum/pad/85/volume/str \n/drum/pad/85/pan 0.000000\n/drum/pad/85/pan/str \n/drum/pad/86/exists 0\n/drum/pad/86/select 0\n/drum/pad/86/active 1\n/drum/pad/86/name \n/drum/pad/86/color 0 0 0\n/drum/pad/86/mute 0\n/drum/pad/86/solo 0\n/drum/pad/86/volume 0.000000\n/drum/pad/86/volume/str \n/drum/pad/86/pan 0.000000\n/drum/pad/86/pan/str \n/drum/pad/87/exists 0\n/drum/pad/87/select 0\n/drum/pad/87/active 1\n/drum/pad/87/name \n/drum/pad/87/color 0 0 0\n/drum/pad/87/mute 0\n/drum/pad/87/solo 0\n/drum/pad/87/volume 0.000000\n/drum/pad/87/volume/str \n/drum/pad/87/pan 0.000000\n/drum/pad/87/pan/str \n/drum/pad/88/exists 0\n/drum/pad/88/select 0\n/drum/pad/88/active 1\n/drum/pad/88/name \n/drum/pad/88/color 0 0 0\n/drum/pad/88/mute 0\n/drum/pad/88/solo 0\n/drum/pad/88/volume 0.000000\n/drum/pad/88/volume/str \n/drum/pad/88/pan 0.000000\n/drum/pad/88/pan/str \n/drum/pad/89/exists 0\n/drum/pad/89/select 0\n/drum/pad/89/active 1\n/drum/pad/89/name \n/drum/pad/89/color 0 0 0\n/drum/pad/89/mute 0\n/drum/pad/89/solo 0\n/drum/pad/89/volume 0.000000\n/drum/pad/89/volume/str \n/drum/pad/89/pan 0.000000\n/drum/pad/89/pan/str \n/drum/pad/90/exists 0\n/drum/pad/90/select 0\n/drum/pad/90/active 1\n/drum/pad/90/name \n/drum/pad/90/color 0 0 0\n/drum/pad/90/mute 0\n/drum/pad/90/solo 0\n/drum/pad/90/volume 0.000000\n/drum/pad/90/volume/str \n/drum/pad/90/pan 0.000000\n/drum/pad/90/pan/str \n/drum/pad/91/exists 0\n/drum/pad/91/select 0\n/drum/pad/91/active 1\n/drum/pad/91/name \n/drum/pad/91/color 0 0 0\n/drum/pad/91/mute 0\n/drum/pad/91/solo 0\n/drum/pad/91/volume 0.000000\n/drum/pad/91/volume/str \n/drum/pad/91/pan 0.000000\n/drum/pad/91/pan/str \n/drum/pad/92/exists 0\n/drum/pad/92/select 0\n/drum/pad/92/active 1\n/drum/pad/92/name \n/drum/pad/92/color 0 0 0\n/drum/pad/92/mute 0\n/drum/pad/92/solo 0\n/drum/pad/92/volume 0.000000\n/drum/pad/92/volume/str \n/drum/pad/92/pan 0.000000\n/drum/pad/92/pan/str \n/drum/pad/93/exists 0\n/drum/pad/93/select 0\n/drum/pad/93/active 1\n/drum/pad/93/name \n/drum/pad/93/color 0 0 0\n/drum/pad/93/mute 0\n/drum/pad/93/solo 0\n/drum/pad/93/volume 0.000000\n/drum/pad/93/volume/str \n/drum/pad/93/pan 0.000000\n/drum/pad/93/pan/str \n/drum/pad/94/exists 0\n/drum/pad/94/select 0\n/drum/pad/94/active 1\n/drum/pad/94/name \n/drum/pad/94/color 0 0 0\n/drum/pad/94/mute 0\n/drum/pad/94/solo 0\n/drum/pad/94/volume 0.000000\n/drum/pad/94/volume/str \n/drum/pad/94/pan 0.000000\n/drum/pad/94/pan/str \n/drum/pad/95/exists 0\n/drum/pad/95/select 0\n/drum/pad/95/active 1\n/drum/pad/95/name \n/drum/pad/95/color 0 0 0\n/drum/pad/95/mute 0\n/drum/pad/95/solo 0\n/drum/pad/95/volume 0.000000\n/drum/pad/95/volume/str \n/drum/pad/95/pan 0.000000\n/drum/pad/95/pan/str \n/drum/pad/96/exists 0\n/drum/pad/96/select 0\n/drum/pad/96/active 1\n/drum/pad/96/name \n/drum/pad/96/color 0 0 0\n/drum/pad/96/mute 0\n/drum/pad/96/solo 0\n/drum/pad/96/volume 0.000000\n/drum/pad/96/volume/str \n/drum/pad/96/pan 0.000000\n/drum/pad/96/pan/str \n/drum/pad/97/exists 0\n/drum/pad/97/select 0\n/drum/pad/97/active 1\n/drum/pad/97/name \n/drum/pad/97/color 0 0 0\n/drum/pad/97/mute 0\n/drum/pad/97/solo 0\n/drum/pad/97/volume 0.000000\n/drum/pad/97/volume/str \n/drum/pad/97/pan 0.000000\n/drum/pad/97/pan/str \n/drum/pad/98/exists 0\n/drum/pad/98/select 0\n/drum/pad/98/active 1\n/drum/pad/98/name \n/drum/pad/98/color 0 0 0\n/drum/pad/98/mute 0\n/drum/pad/98/solo 0\n/drum/pad/98/volume 0.000000\n/drum/pad/98/volume/str \n/drum/pad/98/pan 0.000000\n/drum/pad/98/pan/str \n/drum/pad/99/exists 0\n/drum/pad/99/select 0\n/drum/pad/99/active 1\n/drum/pad/99/name \n/drum/pad/99/color 0 0 0\n/drum/pad/99/mute 0\n/drum/pad/99/solo 0\n/drum/pad/99/volume 0.000000\n/drum/pad/99/volume/str \n/drum/pad/99/pan 0.000000\n/drum/pad/99/pan/str \n/drum/pad/100/exists 0\n/drum/pad/100/select 0\n/drum/pad/100/active 1\n/drum/pad/100/name \n/drum/pad/100/color 0 0 0\n/drum/pad/100/mute 0\n/drum/pad/100/solo 0\n/drum/pad/100/volume 0.000000\n/drum/pad/100/volume/str \n/drum/pad/100/pan 0.000000\n/drum/pad/100/pan/str \n/drum/pad/101/exists 0\n/drum/pad/101/select 0\n/drum/pad/101/active 1\n/drum/pad/101/name \n/drum/pad/101/color 0 0 0\n/drum/pad/101/mute 0\n/drum/pad/101/solo 0\n/drum/pad/101/volume 0.000000\n/drum/pad/101/volume/str \n/drum/pad/101/pan 0.000000\n/drum/pad/101/pan/str \n/drum/pad/102/exists 0\n/drum/pad/102/select 0\n/drum/pad/102/active 1\n/drum/pad/102/name \n/drum/pad/102/color 0 0 0\n/drum/pad/102/mute 0\n/drum/pad/102/solo 0\n/drum/pad/102/volume 0.000000\n/drum/pad/102/volume/str \n/drum/pad/102/pan 0.000000\n/drum/pad/102/pan/str \n/drum/pad/103/exists 0\n/drum/pad/103/select 0\n/drum/pad/103/active 1\n/drum/pad/103/name \n/drum/pad/103/color 0 0 0\n/drum/pad/103/mute 0\n/drum/pad/103/solo 0\n/drum/pad/103/volume 0.000000\n/drum/pad/103/volume/str \n/drum/pad/103/pan 0.000000\n/drum/pad/103/pan/str \n/drum/pad/104/exists 0\n/drum/pad/104/select 0\n/drum/pad/104/active 1\n/drum/pad/104/name \n/drum/pad/104/color 0 0 0\n/drum/pad/104/mute 0\n/drum/pad/104/solo 0\n/drum/pad/104/volume 0.000000\n/drum/pad/104/volume/str \n/drum/pad/104/pan 0.000000\n/drum/pad/104/pan/str \n/drum/pad/105/exists 0\n/drum/pad/105/select 0\n/drum/pad/105/active 1\n/drum/pad/105/name \n/drum/pad/105/color 0 0 0\n/drum/pad/105/mute 0\n/drum/pad/105/solo 0\n/drum/pad/105/volume 0.000000\n/drum/pad/105/volume/str \n/drum/pad/105/pan 0.000000\n/drum/pad/105/pan/str \n/drum/pad/106/exists 0\n/drum/pad/106/select 0\n/drum/pad/106/active 1\n/drum/pad/106/name \n/drum/pad/106/color 0 0 0\n/drum/pad/106/mute 0\n/drum/pad/106/solo 0\n/drum/pad/106/volume 0.000000\n/drum/pad/106/volume/str \n/drum/pad/106/pan 0.000000\n/drum/pad/106/pan/str \n/drum/pad/107/exists 0\n/drum/pad/107/select 0\n/drum/pad/107/active 1\n/drum/pad/107/name \n/drum/pad/107/color 0 0 0\n/drum/pad/107/mute 0\n/drum/pad/107/solo 0\n/drum/pad/107/volume 0.000000\n/drum/pad/107/volume/str \n/drum/pad/107/pan 0.000000\n/drum/pad/107/pan/str \n/drum/pad/108/exists 0\n/drum/pad/108/select 0\n/drum/pad/108/active 1\n/drum/pad/108/name \n/drum/pad/108/color 0 0 0\n/drum/pad/108/mute 0\n/drum/pad/108/solo 0\n/drum/pad/108/volume 0.000000\n/drum/pad/108/volume/str \n/drum/pad/108/pan 0.000000\n/drum/pad/108/pan/str \n/drum/pad/109/exists 0\n/drum/pad/109/select 0\n/drum/pad/109/active 1\n/drum/pad/109/name \n/drum/pad/109/color 0 0 0\n/drum/pad/109/mute 0\n/drum/pad/109/solo 0\n/drum/pad/109/volume 0.000000\n/drum/pad/109/volume/str \n/drum/pad/109/pan 0.000000\n/drum/pad/109/pan/str \n/drum/pad/110/exists 0\n/drum/pad/110/select 0\n/drum/pad/110/active 1\n/drum/pad/110/name \n/drum/pad/110/color 0 0 0\n/drum/pad/110/mute 0\n/drum/pad/110/solo 0\n/drum/pad/110/volume 0.000000\n/drum/pad/110/volume/str \n/drum/pad/110/pan 0.000000\n/drum/pad/110/pan/str \n/drum/pad/111/exists 0\n/drum/pad/111/select 0\n/drum/pad/111/active 1\n/drum/pad/111/name \n/drum/pad/111/color 0 0 0\n/drum/pad/111/mute 0\n/drum/pad/111/solo 0\n/drum/pad/111/volume 0.000000\n/drum/pad/111/volume/str \n/drum/pad/111/pan 0.000000\n/drum/pad/111/pan/str \n/drum/pad/112/exists 0\n/drum/pad/112/select 0\n/drum/pad/112/active 1\n/drum/pad/112/name \n/drum/pad/112/color 0 0 0\n/drum/pad/112/mute 0\n/drum/pad/112/solo 0\n/drum/pad/112/volume 0.000000\n/drum/pad/112/volume/str \n/drum/pad/112/pan 0.000000\n/drum/pad/112/pan/str \n/drum/pad/113/exists 0\n/drum/pad/113/select 0\n/drum/pad/113/active 1\n/drum/pad/113/name \n/drum/pad/113/color 0 0 0\n/drum/pad/113/mute 0\n/drum/pad/113/solo 0\n/drum/pad/113/volume 0.000000\n/drum/pad/113/volume/str \n/drum/pad/113/pan 0.000000\n/drum/pad/113/pan/str \n/drum/pad/114/exists 0\n/drum/pad/114/select 0\n/drum/pad/114/active 1\n/drum/pad/114/name \n/drum/pad/114/color 0 0 0\n/drum/pad/114/mute 0\n/drum/pad/114/solo 0\n/drum/pad/114/volume 0.000000\n/drum/pad/114/volume/str \n/drum/pad/114/pan 0.000000\n/drum/pad/114/pan/str \n/drum/pad/115/exists 0\n/drum/pad/115/select 0\n/drum/pad/115/active 1\n/drum/pad/115/name \n/drum/pad/115/color 0 0 0\n/drum/pad/115/mute 0\n/drum/pad/115/solo 0\n/drum/pad/115/volume 0.000000\n/drum/pad/115/volume/str \n/drum/pad/115/pan 0.000000\n/drum/pad/115/pan/str \n/drum/pad/116/exists 0\n/drum/pad/116/select 0\n/drum/pad/116/active 1\n/drum/pad/116/name \n/drum/pad/116/color 0 0 0\n/drum/pad/116/mute 0\n/drum/pad/116/solo 0\n/drum/pad/116/volume 0.000000\n/drum/pad/116/volume/str \n/drum/pad/116/pan 0.000000\n/drum/pad/116/pan/str \n/drum/pad/117/exists 0\n/drum/pad/117/select 0\n/drum/pad/117/active 1\n/drum/pad/117/name \n/drum/pad/117/color 0 0 0\n/drum/pad/117/mute 0\n/drum/pad/117/solo 0\n/drum/pad/117/volume 0.000000\n/drum/pad/117/volume/str \n/drum/pad/117/pan 0.000000\n/drum/pad/117/pan/str \n/drum/pad/118/exists 0\n/drum/pad/118/select 0\n/drum/pad/118/active 1\n/drum/pad/118/name \n/drum/pad/118/color 0 0 0\n/drum/pad/118/mute 0\n/drum/pad/118/solo 0\n/drum/pad/118/volume 0.000000\n/drum/pad/118/volume/str \n/drum/pad/118/pan 0.000000\n/drum/pad/118/pan/str \n/drum/pad/119/exists 0\n/drum/pad/119/select 0\n/drum/pad/119/active 1\n/drum/pad/119/name \n/drum/pad/119/color 0 0 0\n/drum/pad/119/mute 0\n/drum/pad/119/solo 0\n/drum/pad/119/volume 0.000000\n/drum/pad/119/volume/str \n/drum/pad/119/pan 0.000000\n/drum/pad/119/pan/str \n/drum/pad/120/exists 0\n/drum/pad/120/select 0\n/drum/pad/120/active 1\n/drum/pad/120/name \n/drum/pad/120/color 0 0 0\n/drum/pad/120/mute 0\n/drum/pad/120/solo 0\n/drum/pad/120/volume 0.000000\n/drum/pad/120/volume/str \n/drum/pad/120/pan 0.000000\n/drum/pad/120/pan/str \n/drum/pad/121/exists 0\n/drum/pad/121/select 0\n/drum/pad/121/active 1\n/drum/pad/121/name \n/drum/pad/121/color 0 0 0\n/drum/pad/121/mute 0\n/drum/pad/121/solo 0\n/drum/pad/121/volume 0.000000\n/drum/pad/121/volume/str \n/drum/pad/121/pan 0.000000\n/drum/pad/121/pan/str \n/drum/pad/122/exists 0\n/drum/pad/122/select 0\n/drum/pad/122/active 1\n/drum/pad/122/name \n/drum/pad/122/color 0 0 0\n/drum/pad/122/mute 0\n/drum/pad/122/solo 0\n/drum/pad/122/volume 0.000000\n/drum/pad/122/volume/str \n/drum/pad/122/pan 0.000000\n/drum/pad/122/pan/str \n/drum/pad/123/exists 0\n/drum/pad/123/select 0\n/drum/pad/123/active 1\n/drum/pad/123/name \n/drum/pad/123/color 0 0 0\n/drum/pad/123/mute 0\n/drum/pad/123/solo 0\n/drum/pad/123/volume 0.000000\n/drum/pad/123/volume/str \n/drum/pad/123/pan 0.000000\n/drum/pad/123/pan/str \n/drum/pad/124/exists 0\n/drum/pad/124/select 0\n/drum/pad/124/active 1\n/drum/pad/124/name \n/drum/pad/124/color 0 0 0\n/drum/pad/124/mute 0\n/drum/pad/124/solo 0\n/drum/pad/124/volume 0.000000\n/drum/pad/124/volume/str \n/drum/pad/124/pan 0.000000\n/drum/pad/124/pan/str \n/drum/pad/125/exists 0\n/drum/pad/125/select 0\n/drum/pad/125/active 1\n/drum/pad/125/name \n/drum/pad/125/color 0 0 0\n/drum/pad/125/mute 0\n/drum/pad/125/solo 0\n/drum/pad/125/volume 0.000000\n/drum/pad/125/volume/str \n/drum/pad/125/pan 0.000000\n/drum/pad/125/pan/str \n/drum/pad/126/exists 0\n/drum/pad/126/select 0\n/drum/pad/126/active 1\n/drum/pad/126/name \n/drum/pad/126/color 0 0 0\n/drum/pad/126/mute 0\n/drum/pad/126/solo 0\n/drum/pad/126/volume 0.000000\n/drum/pad/126/volume/str \n/drum/pad/126/pan 0.000000\n/drum/pad/126/pan/str \n/drum/pad/127/exists 0\n/drum/pad/127/select 0\n/drum/pad/127/active 1\n/drum/pad/127/name \n/drum/pad/127/color 0 0 0\n/drum/pad/127/mute 0\n/drum/pad/127/solo 0\n/drum/pad/127/volume 0.000000\n/drum/pad/127/volume/str \n/drum/pad/127/pan 0.000000\n/drum/pad/127/pan/str \n/browser/exists 0\n/clip/exists 1\n/clip/start 0.000000\n/clip/end 4.000000\n/clip/loop 1\n/clip/loopStart 0.000000\n/clip/loopLength 4.000000\n/clip/shuffle 1\n/clip/accent 0.500000\n/clip/pinned 0\n/clip/color 87 97 198\n/clip/grid/8x128/playingStep -1\n/clip/grid/8x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/8x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/playingStep -1\n/clip/grid/32x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/playingStep -1\n/clip/grid/16x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/playingStep -1\n/clip/grid/1536x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+61	int	bank	track	0
+65	int	bank	scene	0
+73	tick
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+74	double	noterepeat	rate	4.0
+74	double	noterepeat	notelength	0.25
+74	int	noterepeat	mode	1
+74	int	noterepeat	velocity	1
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	velocities	0	0	1	2	3	4	5	6	7	8	9	10	11	12	13	14	15	16	17	18	19	20	21	22	23	24	25	26	27	28	29	30	31	32	33	34	35	36	37	38	39	40	41	42	43	44	45	46	47	48	49	50	51	52	53	54	55	56	57	58	59	60	61	62	63	64	65	66	67	68	69	70	71	72	73	74	75	76	77	78	79	80	81	82	83	84	85	86	87	88	89	90	91	92	93	94	95	96	97	98	99	100	101	102	103	104	105	106	107	108	109	110	111	112	113	114	115	116	117	118	119	120	121	122	123	124	125	126	127
+74	out	B0 32 00
+74	out	B0 21 00
+74	out	B0 22 00
+74	out	B0 5A 00
+74	out	B0 5B 00
+74	out	B0 5C 00
+74	out	B0 5D 00
+74	out	B0 60 00
+74	out	B0 61 00
+74	out	B0 23 00
+74	out	B0 24 00
+74	out	B0 25 00
+74	out	B0 26 00
+74	out	B0 27 00
+74	out	B0 28 00
+74	out	B0 46 2D
+75	out	B0 47 35
+75	out	B0 48 3D
+75	out	B0 49 05
+75	out	B0 4A 0D
+75	out	B0 4B 15
+75	out	B0 4C 25
+75	out	B0 4D 1D
+75	out	B0 1E 00
+75	out	B0 1F 00
+75	out	B0 20 7F
+75	out	B0 50 4D
+75	out	B0 51 4D
+75	out	B0 52 4D
+75	out	B0 53 4D
+75	out	B0 54 4D
+75	out	B0 55 4D
+75	out	B0 56 4D
+75	out	B0 57 4D
+75	out	B0 2B 00
+75	out	B0 2C 7F
+75	out	B0 29 7F
+75	out	B0 2A 7F
+75	out	B0 38 00
+75	out	B0 03 00
+75	out	B0 04 00
+75	out	B0 3E 7F
+75	out	B0 3F 00
+75	out	B0 3C 00
+75	out	B0 3D 00
+75	out	B0 3A 00
+75	out	B0 3B 00
+75	out	B0 5E 00
+75	out	B0 33 00
+75	out	B0 5F 00
+75	out	B0 37 00
+75	out	B0 36 00
+75	out	B0 35 00
+75	out	B0 34 00
+75	out	90 24 2D
+75	out	90 25 4E
+75	out	90 26 4E
+75	out	90 27 4E
+75	out	90 28 4E
+75	out	90 29 4E
+75	out	90 2A 4E
+75	out	90 2B 2D
+75	out	90 2C 4E
+75	out	90 2D 4E
+75	out	90 2E 4E
+75	out	90 2F 4E
+75	out	90 30 2D
+75	out	90 31 4E
+75	out	90 32 4E
+75	out	90 33 4E
+75	out	90 34 4E
+75	out	90 35 2D
+75	out	90 36 4E
+75	out	90 37 4E
+75	out	90 38 4E
+75	out	90 39 4E
+75	out	90 3A 4E
+75	out	90 3B 4E
+75	out	90 3C 4E
+75	out	90 3D 4E
+75	out	90 3E 4E
+75	out	90 3F 4E
+75	out	90 40 4E
+75	out	90 41 2D
+75	out	90 42 4E
+75	out	90 43 4E
+75	out	90 44 4E
+75	out	90 45 4E
+75	out	90 46 2D
+75	out	90 47 4E
+75	out	90 48 4E
+75	out	90 49 4E
+75	out	90 4A 4E
+75	out	90 4B 4E
+75	out	90 4C 4E
+75	out	90 4D 4E
+75	out	90 4E 4E
+75	out	90 4F 4E
+75	out	90 50 4E
+75	out	90 51 4E
+75	out	90 52 2D
+75	out	90 53 4E
+75	out	90 54 4E
+75	out	90 55 4E
+75	out	90 56 4E
+75	out	90 57 2D
+75	out	90 58 4E
+75	out	90 59 4E
+75	out	90 5A 4E
+75	out	90 5B 4E
+75	out	90 5C 2D
+75	out	90 5D 4E
+75	out	90 5E 4E
+75	out	90 5F 4E
+75	out	90 60 4E
+75	out	90 61 4E
+75	out	90 62 4E
+75	out	90 63 2D
+75	out	B0 40 00
+75	out	B0 41 00
+122	model	/noterepeat/notelength 0.250000\n
+122	tick
+123	out	B0 40 00
+123	out	B0 41 00
+166	tick
+166	out	B0 40 00
+166	out	B0 41 00
+208	tick
+208	out	B0 40 00
+208	out	B0 41 00
+250	tick
+251	out	B0 40 00
+251	out	B0 41 00
+294	tick
+295	out	B0 40 00
+295	out	B0 41 00
+336	tick
+336	out	B0 40 00
+337	out	B0 41 00
+380	tick
+380	out	B0 40 00
+380	out	B0 41 00
+422	tick
+422	out	B0 40 00
+422	out	B0 41 00
+464	tick
+464	out	B0 40 00
+464	out	B0 41 00
+507	tick
+507	out	B0 40 00
+507	out	B0 41 00
+549	tick
+549	out	B0 40 00
+549	out	B0 41 00
+592	tick
+592	out	B0 40 00
+592	out	B0 41 00
+634	tick
+634	out	B0 40 00
+634	out	B0 41 00
+676	tick
+676	out	B0 40 00
+676	out	B0 41 00
+718	tick
+719	out	B0 40 00
+719	out	B0 41 00
+760	tick
+760	out	B0 40 00
+760	out	B0 41 00
+803	tick
+803	out	B0 40 00
+803	out	B0 41 00
+845	tick
+845	out	B0 40 00
+845	out	B0 41 00
+887	tick
+887	out	B0 40 00
+887	out	B0 41 00
+930	tick
+931	out	B0 40 00
+931	out	B0 41 00
+972	tick
+973	out	B0 40 00
+973	out	B0 41 00
+1016	tick
+1016	out	B0 25 7F
+1016	out	B0 08 45
+1016	out	B0 09 45
+1016	out	B0 0A 45
+1016	out	B0 0B 45
+1016	out	B0 0C 45
+1016	out	B0 0D 45
+1016	out	B0 0E 45
+1016	out	B0 0F 45
+1016	out	F0 00 21 09 15 00 4D 50 00 01 05 00 2D 00 32 00 3E 00 06 00 0A 00 16 00 21 00 1A F7
+1016	out	B0 40 00
+1016	out	B0 41 00
+1058	tick
+1058	out	B0 40 00
+1058	out	B0 41 00
+1100	tick
+1100	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+1100	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	36	38	40	41	43	45	47	48	41	43	45	47	48	50	52	53	47	48	50	52	53	55	57	59	52	53	55	57	59	60	62	64	57	59	60	62	64	65	67	69	62	64	65	67	69	71	72	74	67	69	71	72	74	76	77	79	72	74	76	77	79	81	83	84	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+1100	out	B0 40 00
+1100	out	B0 41 00
+1143	tick
+1143	out	B0 40 00
+1143	out	B0 41 00
+1185	tick
+1185	out	B0 40 00
+1185	out	B0 41 00
+1228	tick
+1228	out	B0 40 00
+1229	out	B0 41 00
+1270	tick
+1270	out	B0 40 00
+1270	out	B0 41 00
+1312	tick
+1312	out	B0 40 00
+1312	out	B0 41 00
+1355	tick
+1355	out	B0 40 00
+1355	out	B0 41 00
+1397	tick
+1397	out	B0 40 00
+1397	out	B0 41 00
+1440	tick
+1440	out	B0 40 00
+1440	out	B0 41 00
+1482	tick
+1483	out	B0 40 00
+1483	out	B0 41 00
+1524	tick
+1525	out	B0 40 00
+1525	out	B0 41 00
+1568	tick
+1568	out	B0 40 00
+1568	out	B0 41 00
+1609	tick
+1609	out	B0 40 00
+1609	out	B0 41 00
+1653	tick
+1653	out	B0 40 00
+1653	out	B0 41 00
+1695	tick
+1695	out	B0 40 00
+1695	out	B0 41 00
+1737	tick
+1737	out	B0 40 00
+1737	out	B0 41 00
+1780	tick
+1780	out	B0 40 00
+1781	out	B0 41 00
+1823	tick
+1823	out	B0 40 00
+1823	out	B0 41 00
+1867	tick
+1868	out	B0 40 00
+1868	out	B0 41 00
+1910	tick
+1910	out	B0 40 00
+1910	out	B0 41 00
+1952	tick
+1952	out	B0 40 00
+1952	out	B0 41 00
+1995	tick
+1995	out	B0 40 00
+1995	out	B0 41 00
+2036	tick
+2037	out	B0 40 00
+2037	out	B0 41 00
+2080	tick
+2080	out	B0 40 00
+2080	out	B0 41 00
+2121	tick
+2122	out	B0 40 00
+2122	out	B0 41 00
+2163	tick
+2164	out	B0 40 00
+2164	out	B0 41 00
+2206	tick
+2207	out	B0 40 00
+2207	out	B0 41 00
+2249	tick
+2249	out	B0 40 00
+2249	out	B0 41 00
+2293	tick
+2293	out	B0 40 00
+2293	out	B0 41 00
+2335	tick
+2335	out	B0 40 00
+2335	out	B0 41 00
+2377	tick
+2377	out	B0 40 00
+2377	out	B0 41 00
+2421	tick
+2421	out	B0 40 00
+2421	out	B0 41 00
+2463	tick
+2463	out	B0 40 00
+2463	out	B0 41 00
+2507	tick
+2507	out	B0 40 00
+2507	out	B0 41 00
+2549	tick
+2549	out	B0 40 00
+2549	out	B0 41 00
+2591	tick
+2592	out	B0 40 00
+2592	out	B0 41 00
+2635	tick
+2636	out	B0 40 00
+2636	out	B0 41 00
+2678	tick
+2678	out	B0 40 00
+2678	out	B0 41 00
+2722	tick
+2722	out	B0 40 00
+2722	out	B0 41 00
+2765	tick
+2765	out	B0 40 00
+2765	out	B0 41 00
+2808	tick
+2808	out	B0 40 00
+2808	out	B0 41 00
+2851	tick
+2851	out	B0 40 00
+2852	out	B0 41 00
+2894	tick
+2894	out	B0 40 00
+2894	out	B0 41 00
+2938	tick
+2938	out	B0 40 00
+2938	out	B0 41 00
+2982	tick
+2982	out	B0 40 00
+2982	out	B0 41 00
+3024	tick
+3025	out	B0 40 00
+3025	out	B0 41 00
+3068	tick
+3069	out	B0 40 00
+3069	out	B0 41 00
+3111	tick
+3111	out	B0 40 00
+3111	out	B0 41 00
+3153	tick
+3154	out	B0 40 00
+3154	out	B0 41 00
+3197	tick
+3198	out	B0 40 00
+3198	out	B0 41 00
+3240	tick
+3241	out	B0 40 00
+3241	out	B0 41 00
+3284	tick
+3285	out	B0 40 00
+3285	out	B0 41 00
+3328	model	/project/canUndo 0\n/track/0/slot/0/selected 0\n/track/1/slot/0/selected 1\n/device/page/count 0\n/device/page/selected -1\n/noterepeat/notelength 0.500000\n/clip/grid/8x128/step/0/2/48 0\n/clip/grid/8x128/step/0/1/38 0\n/clip/grid/32x128/step/0/2/48 0\n/clip/grid/32x128/step/0/8/36 0\n/clip/grid/32x128/step/0/1/38 0\n/clip/grid/16x128/step/0/2/48 0\n/clip/grid/16x128/step/0/8/36 0\n/clip/grid/16x128/step/0/1/38 0\n/clip/grid/1536x128/step/0/2/48 0\n/clip/grid/1536x128/step/0/8/36 0\n/clip/grid/1536x128/step/0/1/38 0\n
+3328	tick
+3329	out	B0 40 00
+3329	out	B0 41 00
+3373	tick
+3373	out	B0 40 00
+3373	out	B0 41 00
+3413	tick
+3414	out	B0 40 00
+3414	out	B0 41 00
+3456	tick
+3457	out	B0 40 00
+3457	out	B0 41 00
+3500	tick
+3501	out	B0 40 00
+3501	out	B0 41 00
+3543	tick
+3543	out	B0 40 00
+3543	out	B0 41 00
+3585	tick
+3585	out	B0 40 00
+3586	out	B0 41 00
+3630	tick
+3630	out	B0 40 00
+3630	out	B0 41 00
+3672	tick
+3673	out	B0 40 00
+3673	out	B0 41 00
+3716	tick
+3716	out	B0 40 00
+3716	out	B0 41 00
+3760	model	/device/page/count 8\n/device/page/selected 0\n
+3760	tick
+3760	out	B0 40 00
+3761	out	B0 41 00
+3802	tick
+3802	out	B0 40 00
+3802	out	B0 41 00
+3845	tick
+3845	out	B0 40 00
+3845	out	B0 41 00
+3886	tick
+3887	out	B0 40 00
+3887	out	B0 41 00
+3929	tick
+3929	out	B0 40 00
+3929	out	B0 41 00
+3971	tick
+3971	out	B0 40 00
+3971	out	B0 41 00
+4012	tick
+4012	out	B0 40 00
+4012	out	B0 41 00
+4055	tick
+4055	out	B0 40 00
+4055	out	B0 41 00
+4097	tick
+4097	out	B0 40 00
+4097	out	B0 41 00
+4140	tick
+4140	out	B0 40 00
+4140	out	B0 41 00
+4182	tick
+4182	out	B0 40 00
+4182	out	B0 41 00
+4224	tick
+4224	out	B0 40 00
+4224	out	B0 41 00
+4267	tick
+4268	out	B0 40 00
+4268	out	B0 41 00
+4310	tick
+4310	out	B0 40 00
+4310	out	B0 41 00
+4353	tick
+4354	out	B0 40 00
+4354	out	B0 41 00
+4395	tick
+4395	out	B0 40 00
+4395	out	B0 41 00
+4437	tick
+4437	out	B0 40 00
+4437	out	B0 41 00
+4480	tick
+4481	out	B0 40 00
+4481	out	B0 41 00
+4522	tick
+4523	out	B0 40 00
+4523	out	B0 41 00
+4566	tick
+4566	out	B0 40 00
+4566	out	B0 41 00
+4607	tick
+4608	out	B0 40 00
+4608	out	B0 41 00
+4649	tick
+4649	out	B0 40 00
+4650	out	B0 41 00
+4693	tick
+4693	out	B0 40 00
+4693	out	B0 41 00
+4735	tick
+4735	out	B0 40 00
+4735	out	B0 41 00
+4778	tick
+4778	out	B0 40 00
+4778	out	B0 41 00
+4819	tick
+4819	out	B0 40 00
+4819	out	B0 41 00
+4861	tick
+4861	out	B0 40 00
+4861	out	B0 41 00
+4903	tick
+4904	out	B0 40 00
+4904	out	B0 41 00
+4945	tick
+4945	out	B0 40 00
+4945	out	B0 41 00
+4987	tick
+4988	out	B0 40 00
+4988	out	B0 41 00
+5029	tick
+5029	out	B0 40 00
+5029	out	B0 41 00
+5070	tick
+5070	out	B0 40 00
+5070	out	B0 41 00
+5113	tick
+5113	out	B0 40 00
+5113	out	B0 41 00
+5155	tick
+5155	out	B0 40 00
+5155	out	B0 41 00
+5198	tick
+5198	out	B0 40 00
+5198	out	B0 41 00
+5239	tick
+5240	out	B0 40 00
+5240	out	B0 41 00
+5281	tick
+5282	out	B0 40 00
+5282	out	B0 41 00
+5325	tick
+5325	out	B0 40 00
+5325	out	B0 41 00
+5367	tick
+5367	out	B0 40 00
+5367	out	B0 41 00
+5409	tick
+5410	out	B0 40 00
+5410	out	B0 41 00
+5452	tick
+5452	out	B0 40 00
+5452	out	B0 41 00
+5494	tick
+5495	out	B0 40 00
+5495	out	B0 41 00
+5538	tick
+5538	out	B0 40 00
+5538	out	B0 41 00
+5579	tick
+5580	out	B0 40 00
+5580	out	B0 41 00
+5622	tick
+5623	out	B0 40 00
+5623	out	B0 41 00
+5665	tick
+5665	out	B0 40 00
+5665	out	B0 41 00
+5707	tick
+5707	out	B0 40 00
+5707	out	B0 41 00
+5750	tick
+5750	out	B0 40 00
+5750	out	B0 41 00
+5791	tick
+5792	out	B0 40 00
+5792	out	B0 41 00
+5834	tick
+5835	out	B0 40 00
+5835	out	B0 41 00
+5876	tick
+5876	out	B0 40 00
+5876	out	B0 41 00
+5917	tick
+5918	out	B0 40 00
+5918	out	B0 41 00
+5960	tick
+5961	out	B0 40 00
+5961	out	B0 41 00
+6002	tick
+6002	out	B0 40 00
+6002	out	B0 41 00
+6045	tick
+6045	out	B0 40 00
+6045	out	B0 41 00
+6087	tick
+6087	out	B0 40 00
+6087	out	B0 41 00
+6128	tick
+6129	out	B0 40 00
+6129	out	B0 41 00
+6171	tick
+6171	out	B0 40 00
+6171	out	B0 41 00
+6213	tick
+6213	out	B0 40 00
+6213	out	B0 41 00
+6256	tick
+6256	out	B0 40 00
+6256	out	B0 41 00
+6297	tick
+6297	out	B0 40 00
+6297	out	B0 41 00
+6339	tick
+6339	out	B0 40 00
+6339	out	B0 41 00
+6382	tick
+6382	out	B0 40 00
+6382	out	B0 41 00
+6424	tick
+6424	out	B0 40 00
+6424	out	B0 41 00
+6467	tick
+6468	out	B0 40 00
+6468	out	B0 41 00
+6509	tick
+6509	out	B0 40 00
+6509	out	B0 41 00
+6550	tick
+6551	out	B0 40 00
+6551	out	B0 41 00
+6594	tick
+6594	out	B0 40 00
+6594	out	B0 41 00
+6636	tick
+6636	out	B0 40 00
+6636	out	B0 41 00
+6679	tick
+6680	out	B0 40 00
+6680	out	B0 41 00
+6721	tick
+6721	out	B0 40 00
+6721	out	B0 41 00
+6762	tick
+6763	out	B0 40 00
+6763	out	B0 41 00
+6805	tick
+6805	out	B0 40 00
+6805	out	B0 41 00
+6847	tick
+6847	out	B0 40 00
+6847	out	B0 41 00
+6889	tick
+6889	out	B0 40 00
+6889	out	B0 41 00
+6931	tick
+6931	out	B0 40 00
+6931	out	B0 41 00
+6973	tick
+6973	out	B0 40 00
+6973	out	B0 41 00
+7016	tick
+7017	out	B0 40 00
+7017	out	B0 41 00
+7058	tick
+7059	out	B0 40 00
+7059	out	B0 41 00
+7102	tick
+7102	out	B0 40 00
+7102	out	B0 41 00
+7144	tick
+7144	out	B0 40 00
+7144	out	B0 41 00
+7185	tick
+7186	out	B0 40 00
+7186	out	B0 41 00
+7229	tick
+7229	out	B0 40 00
+7229	out	B0 41 00
+7270	tick
+7271	out	B0 40 00
+7271	out	B0 41 00
+7313	tick
+7313	out	B0 40 00
+7313	out	B0 41 00
+7355	tick
+7355	out	B0 40 00
+7355	out	B0 41 00
+7397	tick
+7397	out	B0 40 00
+7397	out	B0 41 00
+7440	tick
+7440	out	B0 40 00
+7440	out	B0 41 00
+7482	tick
+7482	out	B0 40 00
+7482	out	B0 41 00
+7525	tick
+7525	out	B0 40 00
+7525	out	B0 41 00
+7567	tick
+7567	out	B0 40 00
+7567	out	B0 41 00
+7609	tick
+7609	out	B0 40 00
+7609	out	B0 41 00
+7652	tick
+7653	out	B0 40 00
+7653	out	B0 41 00
+7694	tick
+7695	out	B0 40 00
+7695	out	B0 41 00
+7737	tick
+7737	out	B0 40 00
+7737	out	B0 41 00
+7779	tick
+7779	out	B0 40 00
+7779	out	B0 41 00
+7820	tick
+7821	out	B0 40 00
+7821	out	B0 41 00
+7863	tick
+7864	out	B0 40 00
+7864	out	B0 41 00
+7905	tick
+7905	out	B0 40 00
+7905	out	B0 41 00
+7948	tick
+7948	out	B0 40 00
+7948	out	B0 41 00
+7989	tick
+7990	out	B0 40 00
+7990	out	B0 41 00
+8031	tick
+8031	out	B0 40 00
+8031	out	B0 41 00
+8074	tick
+8074	out	B0 40 00
+8074	out	B0 41 00
+8116	tick
+8116	out	B0 40 00
+8116	out	B0 41 00
+8159	tick
+8160	out	B0 40 00
+8160	out	B0 41 00
+8201	tick
+8201	out	B0 40 00
+8201	out	B0 41 00
+8243	tick
+8244	out	B0 40 00
+8244	out	B0 41 00
+8287	tick
+8287	out	B0 40 00
+8287	out	B0 41 00
+8329	tick
+8329	out	B0 40 00
+8329	out	B0 41 00
+8372	tick
+8372	out	B0 40 00
+8372	out	B0 41 00
+8414	tick
+8414	out	B0 40 00
+8414	out	B0 41 00
+8456	tick
+8456	out	B0 40 00
+8456	out	B0 41 00
+8499	tick
+8500	out	B0 40 00
+8500	out	B0 41 00
+8541	tick
+8542	out	B0 40 00
+8542	out	B0 41 00
+8585	tick
+8586	out	B0 40 00
+8586	out	B0 41 00
+8627	tick
+8628	out	B0 40 00
+8628	out	B0 41 00
+8669	tick
+8669	out	B0 40 00
+8669	out	B0 41 00
+8712	tick
+8712	out	B0 40 00
+8712	out	B0 41 00
+8754	tick
+8754	out	B0 40 00
+8754	out	B0 41 00
+8797	tick
+8797	out	B0 40 00
+8797	out	B0 41 00
+8838	tick
+8839	out	B0 40 00
+8839	out	B0 41 00
+8880	tick
+8880	out	B0 40 00
+8880	out	B0 41 00
+8923	tick
+8923	out	B0 40 00
+8923	out	B0 41 00
+8965	tick
+8965	out	B0 40 00
+8965	out	B0 41 00
+9008	tick
+9008	out	B0 40 00
+9008	out	B0 41 00
+9049	tick
+9050	out	B0 40 00
+9050	out	B0 41 00
+9091	tick
+9091	out	B0 40 00
+9091	out	B0 41 00
+9134	tick
+9135	out	B0 40 00
+9135	out	B0 41 00
+9176	tick
+9177	out	B0 40 00
+9177	out	B0 41 00
+9220	tick
+9220	out	B0 40 00
+9220	out	B0 41 00
+9262	tick
+9262	out	B0 40 00
+9262	out	B0 41 00
+9303	tick
+9303	out	B0 40 00
+9303	out	B0 41 00
+9346	tick
+9347	out	B0 40 00
+9347	out	B0 41 00
+9388	tick
+9388	out	B0 40 00
+9388	out	B0 41 00
+9431	tick
+9431	out	B0 40 00
+9431	out	B0 41 00
+9473	tick
+9473	out	B0 40 00
+9473	out	B0 41 00
+9515	tick
+9515	out	B0 40 00
+9516	out	B0 41 00
+9559	tick
+9559	out	B0 40 00
+9559	out	B0 41 00
+9601	tick
+9601	out	B0 40 00
+9601	out	B0 41 00
+9644	tick
+9644	out	B0 40 00
+9644	out	B0 41 00
+9686	tick
+9686	out	B0 40 00
+9686	out	B0 41 00
+9727	tick
+9728	out	B0 40 00
+9728	out	B0 41 00
+9770	tick
+9771	out	B0 40 00
+9771	out	B0 41 00
+9812	tick
+9812	out	B0 40 00
+9812	out	B0 41 00
+9855	tick
+9855	out	B0 40 00
+9855	out	B0 41 00
+9897	tick
+9897	out	B0 40 00
+9897	out	B0 41 00
+9939	tick
+9939	out	B0 40 00
+9939	out	B0 41 00
+9981	tick
+9981	out	B0 40 00
+9981	out	B0 41 00
+10023	tick
+10023	out	B0 40 00
+10023	out	B0 41 00
+10066	tick
+10066	out	B0 40 00
+10066	out	B0 41 00
+10108	tick
+10108	out	B0 40 00
+10108	out	B0 41 00
+10150	tick
+10150	out	B0 40 00
+10151	out	B0 41 00
+10194	tick
+10194	out	B0 40 00
+10194	out	B0 41 00
+10236	tick
+10236	out	B0 40 00
+10236	out	B0 41 00
+10279	tick
+10280	out	B0 40 00
+10280	out	B0 41 00
+10321	tick
+10321	out	B0 40 00
+10321	out	B0 41 00
+10363	tick
+10363	out	B0 40 00
+10363	out	B0 41 00
+10406	tick
+10407	out	B0 40 00
+10407	out	B0 41 00
+10448	tick
+10449	out	B0 40 00
+10449	out	B0 41 00
+10492	tick
+10492	out	B0 40 00
+10492	out	B0 41 00
+10534	tick
+10535	out	B0 40 00
+10535	out	B0 41 00
+10576	tick
+10576	out	B0 40 00
+10576	out	B0 41 00
+10618	tick
+10619	out	B0 40 00
+10619	out	B0 41 00
+10660	tick
+10660	out	B0 40 00
+10660	out	B0 41 00
+10702	tick
+10702	out	B0 40 00
+10702	out	B0 41 00
+10743	tick
+10743	out	B0 40 00
+10743	out	B0 41 00
+10785	tick
+10785	out	B0 40 00
+10785	out	B0 41 00
+10827	tick
+10828	out	B0 40 00
+10828	out	B0 41 00
+10869	tick
+10870	out	B0 40 00
+10870	out	B0 41 00
+10913	tick
+10913	out	B0 40 00
+10913	out	B0 41 00
+10954	tick
+10955	out	B0 40 00
+10955	out	B0 41 00
+10960	mark	begin	native_instruments_maschine_jam-note_sequencer-rust
+10996	tick
+10996	out	B0 40 00
+10996	out	B0 41 00
+11039	tick
+11040	out	B0 40 00
+11040	out	B0 41 00
+11081	tick
+11081	out	B0 40 00
+11081	out	B0 41 00
+11125	tick
+11125	out	B0 40 00
+11125	out	B0 41 00
+11167	tick
+11167	out	B0 40 00
+11167	out	B0 41 00
+11208	tick
+11209	out	B0 40 00
+11209	out	B0 41 00
+11252	tick
+11252	out	B0 40 00
+11252	out	B0 41 00
+11293	tick
+11294	out	B0 40 00
+11294	out	B0 41 00
+11336	tick
+11336	out	B0 40 00
+11336	out	B0 41 00
+11378	tick
+11378	out	B0 40 00
+11378	out	B0 41 00
+11420	tick
+11420	out	B0 40 00
+11420	out	B0 41 00
+11463	tick
+11464	out	B0 40 00
+11464	out	B0 41 00
+11506	tick
+11506	out	B0 40 00
+11506	out	B0 41 00
+11549	tick
+11549	out	B0 40 00
+11549	out	B0 41 00
+11590	tick
+11591	out	B0 40 00
+11591	out	B0 41 00
+11632	tick
+11632	out	B0 40 00
+11632	out	B0 41 00
+11675	tick
+11675	out	B0 40 00
+11675	out	B0 41 00
+11717	tick
+11717	out	B0 40 00
+11717	out	B0 41 00
+11760	tick
+11761	out	B0 40 00
+11761	out	B0 41 00
+11802	tick
+11803	out	B0 40 00
+11803	out	B0 41 00
+11844	tick
+11845	out	B0 40 00
+11845	out	B0 41 00
+11887	tick
+11888	out	B0 40 00
+11888	out	B0 41 00
+11929	tick
+11929	out	B0 40 00
+11929	out	B0 41 00
+11973	tick
+11974	out	B0 40 00
+11974	out	B0 41 00
+12017	tick
+12017	out	B0 40 00
+12017	out	B0 41 00
+12064	tick
+12064	out	B0 40 00
+12064	out	B0 41 00
+12107	model	/track/0/slot/0/selected 1\n/track/1/slot/0/selected 0\n
+12107	tick
+12107	out	B0 40 00
+12107	out	B0 41 00
+12148	tick
+12149	out	B0 40 00
+12149	out	B0 41 00
+12192	tick
+12192	out	B0 40 00
+12192	out	B0 41 00
+12234	tick
+12234	out	B0 40 00
+12234	out	B0 41 00
+12276	tick
+12276	out	B0 40 00
+12276	out	B0 41 00
+12319	tick
+12319	out	B0 40 00
+12319	out	B0 41 00
+12361	tick
+12361	out	B0 40 00
+12361	out	B0 41 00
+12404	tick
+12405	out	B0 40 00
+12405	out	B0 41 00
+12447	tick
+12447	out	B0 40 00
+12447	out	B0 41 00
+12489	tick
+12489	out	B0 40 00
+12489	out	B0 41 00
+12516	in	F0 00 21 09 15 00 4D 50 00 01 46 01 F7
+12533	tick
+12533	out	B0 32 00
+12533	out	B0 21 00
+12533	out	B0 22 00
+12533	out	B0 5A 00
+12533	out	B0 5B 00
+12533	out	B0 5C 00
+12533	out	B0 5D 00
+12533	out	B0 60 00
+12533	out	B0 61 00
+12533	out	B0 23 00
+12533	out	B0 24 00
+12533	out	B0 25 7F
+12533	out	B0 26 00
+12533	out	B0 27 00
+12533	out	B0 28 00
+12533	out	B0 46 2D
+12533	out	B0 47 35
+12533	out	B0 48 3D
+12533	out	B0 49 05
+12533	out	B0 4A 0D
+12533	out	B0 4B 15
+12533	out	B0 4C 25
+12533	out	B0 4D 1D
+12533	out	B0 1E 00
+12533	out	B0 1F 00
+12533	out	B0 20 7F
+12533	out	B0 50 4D
+12533	out	B0 51 4D
+12533	out	B0 52 4D
+12533	out	B0 53 4D
+12533	out	B0 54 4D
+12533	out	B0 55 4D
+12533	out	B0 56 4D
+12533	out	B0 57 4D
+12533	out	B0 2B 00
+12533	out	B0 2C 7F
+12533	out	B0 29 7F
+12533	out	B0 2A 7F
+12533	out	B0 38 00
+12533	out	B0 03 00
+12533	out	B0 04 00
+12533	out	B0 3E 7F
+12533	out	B0 3F 00
+12533	out	B0 3C 00
+12533	out	B0 3D 00
+12533	out	B0 3A 00
+12533	out	B0 3B 00
+12533	out	B0 5E 00
+12533	out	B0 33 00
+12533	out	B0 5F 00
+12533	out	B0 37 00
+12533	out	B0 36 00
+12533	out	B0 35 00
+12533	out	B0 34 00
+12533	out	90 24 2D
+12533	out	90 25 4E
+12533	out	90 26 4E
+12533	out	90 27 4E
+12533	out	90 28 4E
+12533	out	90 29 4E
+12534	out	90 2A 4E
+12534	out	90 2B 2D
+12534	out	90 2C 4E
+12534	out	90 2D 4E
+12534	out	90 2E 4E
+12534	out	90 2F 4E
+12534	out	90 30 2D
+12534	out	90 31 4E
+12534	out	90 32 4E
+12534	out	90 33 4E
+12534	out	90 34 4E
+12534	out	90 35 2D
+12534	out	90 36 4E
+12534	out	90 37 4E
+12534	out	90 38 4E
+12534	out	90 39 4E
+12534	out	90 3A 4E
+12534	out	90 3B 4E
+12534	out	90 3C 4E
+12534	out	90 3D 4E
+12534	out	90 3E 4E
+12534	out	90 3F 4E
+12534	out	90 40 4E
+12534	out	90 41 2D
+12534	out	90 42 4E
+12534	out	90 43 4E
+12534	out	90 44 4E
+12534	out	90 45 4E
+12534	out	90 46 2D
+12534	out	90 47 4E
+12534	out	90 48 4E
+12534	out	90 49 4E
+12534	out	90 4A 4E
+12534	out	90 4B 4E
+12534	out	90 4C 4E
+12534	out	90 4D 4E
+12534	out	90 4E 4E
+12534	out	90 4F 4E
+12534	out	90 50 4E
+12534	out	90 51 4E
+12534	out	90 52 2D
+12534	out	90 53 4E
+12534	out	90 54 4E
+12534	out	90 55 4E
+12534	out	90 56 4E
+12534	out	90 57 2D
+12534	out	90 58 4E
+12534	out	90 59 4E
+12534	out	90 5A 4E
+12534	out	90 5B 4E
+12534	out	90 5C 2D
+12534	out	90 5D 4E
+12534	out	90 5E 4E
+12534	out	90 5F 4E
+12534	out	90 60 4E
+12534	out	90 61 4E
+12534	out	90 62 4E
+12534	out	90 63 2D
+12534	out	B0 40 00
+12534	out	B0 41 00
+12575	tick
+12576	out	B0 40 00
+12576	out	B0 41 00
+12619	tick
+12619	out	B0 40 00
+12619	out	B0 41 00
+12661	tick
+12661	out	B0 40 00
+12661	out	B0 41 00
+12703	tick
+12703	out	B0 40 00
+12703	out	B0 41 00
+12746	tick
+12746	out	B0 40 00
+12746	out	B0 41 00
+12788	tick
+12788	out	B0 40 00
+12788	out	B0 41 00
+12831	tick
+12831	out	B0 40 00
+12831	out	B0 41 00
+12873	tick
+12873	out	B0 40 00
+12873	out	B0 41 00
+12909	in	B0 1F 7F
+12915	tick
+12915	out	B0 56 00
+12915	out	B0 57 00
+12915	out	B0 40 00
+12915	out	B0 41 00
+12958	tick
+12959	out	B0 40 00
+12959	out	B0 41 00
+13000	tick
+13001	out	B0 40 00
+13001	out	B0 41 00
+13044	tick
+13044	out	B0 40 00
+13044	out	B0 41 00
+13086	tick
+13086	out	B0 40 00
+13086	out	B0 41 00
+13128	tick
+13128	out	B0 40 00
+13128	out	B0 41 00
+13171	tick
+13171	out	B0 40 00
+13171	out	B0 41 00
+13213	tick
+13213	out	B0 40 00
+13213	out	B0 41 00
+13256	tick
+13256	out	B0 40 00
+13256	out	B0 41 00
+13298	tick
+13299	out	B0 40 00
+13299	out	B0 41 00
+13314	in	B0 50 7F
+13314	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+13314	keys	0	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1	-1
+13314	in	B0 50 00
+13341	tick
+13341	out	B0 1F 7F
+13341	out	B0 20 00
+13341	out	B0 50 1E
+13341	out	90 25 2D
+13341	out	90 26 2D
+13341	out	90 27 2D
+13341	out	90 28 2D
+13342	out	90 29 2D
+13342	out	90 2A 2D
+13342	out	90 30 4E
+13342	out	90 35 4E
+13342	out	90 41 4E
+13342	out	90 46 4E
+13342	out	90 52 4E
+13342	out	90 57 4E
+13342	out	90 5C 1E
+13342	out	90 5D 4D
+13342	out	90 5E 00
+13342	out	90 5F 00
+13342	out	90 60 00
+13342	out	90 61 00
+13342	out	90 62 00
+13342	out	90 63 00
+13342	out	B0 40 00
+13342	out	B0 41 00
+13385	tick
+13385	out	B0 40 00
+13385	out	B0 41 00
+13427	tick
+13428	out	B0 40 00
+13428	out	B0 41 00
+13471	tick
+13471	out	B0 40 00
+13471	out	B0 41 00
+13512	tick
+13513	out	B0 40 00
+13513	out	B0 41 00
+13554	tick
+13555	out	B0 40 00
+13555	out	B0 41 00
+13598	tick
+13598	out	B0 40 00
+13598	out	B0 41 00
+13640	tick
+13640	out	B0 40 00
+13640	out	B0 41 00
+13683	tick
+13683	out	B0 40 00
+13683	out	B0 41 00
+13709	in	B0 1F 00
+13725	tick
+13725	out	B0 50 4D
+13725	out	B0 56 4D
+13725	out	B0 57 4D
+13725	out	B0 40 00
+13725	out	B0 41 00
+13767	tick
+13767	out	B0 40 00
+13767	out	B0 41 00
+13810	tick
+13810	out	B0 40 00
+13810	out	B0 41 00
+13852	tick
+13852	out	B0 40 00
+13852	out	B0 41 00
+13895	tick
+13895	out	B0 40 00
+13895	out	B0 41 00
+13936	tick
+13937	out	B0 40 00
+13937	out	B0 41 00
+13978	tick
+13979	out	B0 40 00
+13979	out	B0 41 00
+14021	tick
+14022	out	B0 40 00
+14022	out	B0 41 00
+14063	tick
+14064	out	B0 40 00
+14064	out	B0 41 00
+14384	tick
+14384	out	B0 40 00
+14384	out	B0 41 00
+14426	tick
+14427	out	B0 40 00
+14427	out	B0 41 00
+14468	tick
+14469	out	B0 40 00
+14469	out	B0 41 00
+14785	tick
+14786	out	B0 40 00
+14786	out	B0 41 00
+14827	tick
+14827	out	B0 40 00
+14827	out	B0 41 00
+14869	tick
+14870	out	B0 40 00
+14870	out	B0 41 00
+14912	in	90 24 7F
+14913	tick
+14913	out	B0 40 00
+14913	out	B0 41 00
+14955	tick
+14955	out	B0 40 00
+14955	out	B0 41 00
+14998	tick
+14998	out	B0 40 00
+14998	out	B0 41 00
+15040	tick
+15040	out	B0 40 00
+15040	out	B0 41 00
+15082	tick
+15082	out	B0 40 00
+15082	out	B0 41 00
+15125	tick
+15125	out	B0 40 00
+15125	out	B0 41 00
+15167	tick
+15167	out	B0 40 00
+15167	out	B0 41 00
+15210	tick
+15210	out	B0 40 00
+15210	out	B0 41 00
+15252	tick
+15253	out	B0 40 00
+15253	out	B0 41 00
+15295	tick
+15295	out	B0 40 00
+15295	out	B0 41 00
+15322	in	90 24 00
+15322	int	clip	grid/8x128/step/0/0/36/toggle	127
+15340	model	/project/canUndo 1\n/clip/grid/8x128/step/0/0/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/0/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/0/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/0/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+15340	tick
+15340	out	90 24 2A
+15340	out	B0 40 00
+15340	out	B0 41 00
+15382	tick
+15382	out	B0 40 00
+15382	out	B0 41 00
+15425	tick
+15426	out	B0 40 00
+15426	out	B0 41 00
+15468	tick
+15468	out	B0 40 00
+15468	out	B0 41 00
+15510	tick
+15510	out	B0 40 00
+15510	out	B0 41 00
+15553	tick
+15553	out	B0 40 00
+15553	out	B0 41 00
+15595	tick
+15595	out	B0 40 00
+15595	out	B0 41 00
+15638	tick
+15639	out	B0 40 00
+15639	out	B0 41 00
+15680	tick
+15680	out	B0 40 00
+15680	out	B0 41 00
+15987	tick
+15987	out	B0 40 00
+15987	out	B0 41 00
+16030	tick
+16031	out	B0 40 00
+16031	out	B0 41 00
+16073	tick
+16073	out	B0 40 00
+16073	out	B0 41 00
+16115	tick
+16115	out	B0 40 00
+16115	out	B0 41 00
+16120	in	90 2D 7F
+16158	tick
+16159	out	B0 40 00
+16159	out	B0 41 00
+16201	tick
+16201	out	B0 40 00
+16201	out	B0 41 00
+16244	tick
+16245	out	B0 40 00
+16245	out	B0 41 00
+16286	tick
+16286	out	B0 40 00
+16286	out	B0 41 00
+16328	tick
+16329	out	B0 40 00
+16329	out	B0 41 00
+16372	tick
+16372	out	B0 40 00
+16372	out	B0 41 00
+16413	tick
+16414	out	B0 40 00
+16414	out	B0 41 00
+16457	tick
+16458	out	B0 40 00
+16458	out	B0 41 00
+16499	tick
+16500	out	B0 40 00
+16500	out	B0 41 00
+16515	in	90 2D 00
+16515	int	clip	grid/8x128/step/0/1/38/toggle	127
+16543	model	/clip/grid/8x128/step/0/0/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/8x128/step/0/1/38 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/0/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/1/38 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/0/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/1/38 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/0/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/1/38 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+16544	tick
+16544	out	90 2D 2A
+16544	out	B0 40 00
+16544	out	B0 41 00
+16588	tick
+16588	out	B0 40 00
+16588	out	B0 41 00
+16629	tick
+16630	out	B0 40 00
+16630	out	B0 41 00
+16673	tick
+16673	out	B0 40 00
+16673	out	B0 41 00
+16715	tick
+16715	out	B0 40 00
+16715	out	B0 41 00
+16757	tick
+16757	out	B0 40 00
+16757	out	B0 41 00
+16800	tick
+16801	out	B0 40 00
+16801	out	B0 41 00
+16842	tick
+16842	out	B0 40 00
+16842	out	B0 41 00
+16885	tick
+16886	out	B0 40 00
+16886	out	B0 41 00
+17210	tick
+17210	out	B0 40 00
+17210	out	B0 41 00
+17251	tick
+17252	out	B0 40 00
+17252	out	B0 41 00
+17295	tick
+17295	out	B0 40 00
+17295	out	B0 41 00
+17321	in	B0 61 7F
+17337	tick
+17337	out	B0 61 7F
+17337	out	B0 46 4C
+17337	out	B0 47 4C
+17337	out	B0 48 4C
+17337	out	B0 49 4C
+17337	out	B0 4A 4C
+17337	out	B0 4B 4C
+17337	out	B0 4C 4C
+17337	out	B0 4D 4C
+17337	out	B0 40 00
+17337	out	B0 41 00
+17381	tick
+17381	out	B0 40 00
+17381	out	B0 41 00
+17423	tick
+17423	out	B0 40 00
+17423	out	B0 41 00
+17465	tick
+17465	out	B0 40 00
+17465	out	B0 41 00
+17509	tick
+17509	out	B0 40 00
+17509	out	B0 41 00
+17551	tick
+17551	out	B0 40 00
+17551	out	B0 41 00
+17594	tick
+17594	out	B0 40 00
+17594	out	B0 41 00
+17636	tick
+17636	out	B0 40 00
+17636	out	B0 41 00
+17678	tick
+17678	out	B0 40 00
+17678	out	B0 41 00
+17721	tick
+17721	out	B0 40 00
+17721	out	B0 41 00
+17726	in	90 24 7F
+17763	tick
+17763	out	B0 40 00
+17763	out	B0 41 00
+17806	tick
+17807	out	B0 40 00
+17807	out	B0 41 00
+17848	tick
+17848	out	B0 40 00
+17848	out	B0 41 00
+17890	tick
+17890	out	B0 40 00
+17890	out	B0 41 00
+17933	tick
+17933	out	B0 40 00
+17933	out	B0 41 00
+17975	tick
+17975	out	B0 40 00
+17975	out	B0 41 00
+18018	tick
+18018	out	B0 40 00
+18018	out	B0 41 00
+18060	tick
+18060	out	B0 40 00
+18060	out	B0 41 00
+18102	tick
+18102	out	B0 40 00
+18102	out	B0 41 00
+18113	in	90 24 00
+18113	string	clip	grid/8x128/step/0/0/36/update	1 0 1 0.25 1 0 1 0 0 0 0 0 1 1 1 0 1 1 1 1 0 0 0 0
+18147	model	/clip/grid/8x128/step/0/0/36 1 0 1 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/0/36 1 0 1 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/0/36 1 0 1 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/0/36 1 0 1 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+18147	tick
+18147	out	90 24 4C
+18147	out	B0 40 00
+18147	out	B0 41 00
+18189	tick
+18189	out	B0 40 00
+18189	out	B0 41 00
+18233	tick
+18233	out	B0 40 00
+18233	out	B0 41 00
+18275	tick
+18275	out	B0 40 00
+18275	out	B0 41 00
+18316	tick
+18317	out	B0 40 00
+18317	out	B0 41 00
+18360	tick
+18360	out	B0 40 00
+18360	out	B0 41 00
+18402	tick
+18402	out	B0 40 00
+18402	out	B0 41 00
+18445	tick
+18445	out	B0 40 00
+18445	out	B0 41 00
+18487	tick
+18488	out	B0 40 00
+18488	out	B0 41 00
+18518	in	B0 61 00
+18529	tick
+18530	out	B0 61 00
+18530	out	B0 46 2D
+18530	out	B0 47 35
+18530	out	B0 48 3D
+18530	out	B0 49 05
+18530	out	B0 4A 0D
+18530	out	B0 4B 15
+18530	out	B0 4C 25
+18530	out	B0 4D 1D
+18530	out	B0 40 00
+18530	out	B0 41 00
+18573	tick
+18573	out	B0 40 00
+18573	out	B0 41 00
+18615	tick
+18615	out	B0 40 00
+18615	out	B0 41 00
+18658	tick
+18658	out	B0 40 00
+18658	out	B0 41 00
+18700	tick
+18700	out	B0 40 00
+18701	out	B0 41 00
+18742	tick
+18742	out	B0 40 00
+18742	out	B0 41 00
+18786	tick
+18786	out	B0 40 00
+18786	out	B0 41 00
+18828	tick
+18828	out	B0 40 00
+18828	out	B0 41 00
+18871	tick
+18872	out	B0 40 00
+18872	out	B0 41 00
+19193	tick
+19193	out	B0 40 00
+19193	out	B0 41 00
+19235	tick
+19235	out	B0 40 00
+19235	out	B0 41 00
+19278	tick
+19278	out	B0 40 00
+19278	out	B0 41 00
+19320	tick
+19320	out	B0 40 00
+19320	out	B0 41 00
+19325	in	B0 29 7F
+19363	tick
+19364	out	90 24 2D
+19364	out	90 2D 4E
+19364	out	B0 40 00
+19364	out	B0 41 00
+19406	tick
+19406	out	B0 40 00
+19406	out	B0 41 00
+19448	tick
+19448	out	B0 40 00
+19448	out	B0 41 00
+19491	tick
+19492	out	B0 40 00
+19492	out	B0 41 00
+19533	tick
+19533	out	B0 40 00
+19533	out	B0 41 00
+19577	tick
+19577	out	B0 40 00
+19577	out	B0 41 00
+19618	tick
+19619	out	B0 40 00
+19619	out	B0 41 00
+19661	tick
+19661	out	B0 40 00
+19661	out	B0 41 00
+19704	tick
+19704	out	B0 40 00
+19704	out	B0 41 00
+19730	in	B0 29 00
+19746	tick
+19747	out	B0 40 00
+19747	out	B0 41 00
+19790	tick
+19790	out	B0 40 00
+19790	out	B0 41 00
+19832	tick
+19832	out	B0 40 00
+19832	out	B0 41 00
+19873	tick
+19873	out	B0 40 00
+19873	out	B0 41 00
+19917	tick
+19917	out	B0 40 00
+19917	out	B0 41 00
+19958	tick
+19958	out	B0 40 00
+19958	out	B0 41 00
+20002	tick
+20002	out	B0 40 00
+20002	out	B0 41 00
+20044	tick
+20044	out	B0 40 00
+20044	out	B0 41 00
+20086	tick
+20086	out	B0 40 00
+20086	out	B0 41 00
+20414	tick
+20414	out	B0 40 00
+20414	out	B0 41 00
+20456	tick
+20456	out	B0 40 00
+20456	out	B0 41 00
+20500	tick
+20500	out	B0 40 00
+20500	out	B0 41 00
+20525	in	90 26 7F
+20542	tick
+20542	out	B0 40 00
+20542	out	B0 41 00
+20584	tick
+20584	out	B0 40 00
+20584	out	B0 41 00
+20627	tick
+20627	out	B0 40 00
+20627	out	B0 41 00
+20669	tick
+20669	out	B0 40 00
+20669	out	B0 41 00
+20712	tick
+20712	out	B0 40 00
+20713	out	B0 41 00
+20754	tick
+20754	out	B0 40 00
+20754	out	B0 41 00
+20796	tick
+20796	out	B0 40 00
+20796	out	B0 41 00
+20839	tick
+20840	out	B0 40 00
+20840	out	B0 41 00
+20881	tick
+20882	out	B0 40 00
+20882	out	B0 41 00
+20925	tick
+20925	out	B0 40 00
+20925	out	B0 41 00
+20930	in	90 26 00
+20930	int	clip	grid/8x128/step/0/2/48/toggle	127
+20968	model	/clip/grid/8x128/step/0/2/48 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/8x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/2/48 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/2/48 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/2/48 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+20969	tick
+20969	out	90 26 2A
+20969	out	B0 40 00
+20969	out	B0 41 00
+21011	tick
+21011	out	B0 40 00
+21011	out	B0 41 00
+21054	tick
+21055	out	B0 40 00
+21055	out	B0 41 00
+21096	tick
+21097	out	B0 40 00
+21097	out	B0 41 00
+21140	tick
+21140	out	B0 40 00
+21140	out	B0 41 00
+21182	tick
+21182	out	B0 40 00
+21182	out	B0 41 00
+21223	tick
+21223	out	B0 40 00
+21223	out	B0 41 00
+21266	tick
+21267	out	B0 40 00
+21267	out	B0 41 00
+21308	tick
+21309	out	B0 40 00
+21309	out	B0 41 00
+21334	in	B0 2A 7F
+21352	tick
+21352	out	90 24 4C
+21352	out	90 26 2D
+21352	out	90 2D 2A
+21352	out	B0 40 00
+21352	out	B0 41 00
+21394	tick
+21394	out	B0 40 00
+21394	out	B0 41 00
+21436	tick
+21436	out	B0 40 00
+21436	out	B0 41 00
+21479	tick
+21479	out	B0 40 00
+21479	out	B0 41 00
+21521	tick
+21521	out	B0 40 00
+21521	out	B0 41 00
+21564	tick
+21564	out	B0 40 00
+21564	out	B0 41 00
+21606	tick
+21606	out	B0 40 00
+21606	out	B0 41 00
+21648	tick
+21648	out	B0 40 00
+21648	out	B0 41 00
+21691	tick
+21691	out	B0 40 00
+21691	out	B0 41 00
+21716	in	B0 2A 00
+21733	tick
+21733	out	B0 40 00
+21733	out	B0 41 00
+21776	tick
+21776	out	B0 40 00
+21776	out	B0 41 00
+21818	tick
+21818	out	B0 40 00
+21818	out	B0 41 00
+21859	tick
+21859	out	B0 40 00
+21859	out	B0 41 00
+21902	tick
+21903	out	B0 40 00
+21903	out	B0 41 00
+21944	tick
+21945	out	B0 40 00
+21945	out	B0 41 00
+21988	tick
+21988	out	B0 40 00
+21988	out	B0 41 00
+22030	tick
+22030	out	B0 40 00
+22030	out	B0 41 00
+22072	tick
+22072	out	B0 40 00
+22072	out	B0 41 00
+22116	tick
+22116	out	B0 40 00
+22116	out	B0 41 00
+22438	tick
+22438	out	B0 40 00
+22438	out	B0 41 00
+22481	tick
+22482	out	B0 40 00
+22482	out	B0 41 00
+22524	tick
+22524	out	B0 40 00
+22524	out	B0 41 00
+22529	in	90 5D 7F
+22566	tick
+22566	out	B0 40 00
+22566	out	B0 41 00
+22610	tick
+22610	out	B0 40 00
+22610	out	B0 41 00
+22652	tick
+22652	out	B0 40 00
+22652	out	B0 41 00
+22695	tick
+22696	out	B0 40 00
+22696	out	B0 41 00
+22737	tick
+22738	out	B0 40 00
+22738	out	B0 41 00
+22780	tick
+22780	out	B0 40 00
+22780	out	B0 41 00
+22823	tick
+22823	out	B0 40 00
+22823	out	B0 41 00
+22865	tick
+22865	out	B0 40 00
+22865	out	B0 41 00
+22908	tick
+22908	out	B0 40 00
+22908	out	B0 41 00
+22934	in	90 5D 00
+22934	int	clip	grid/8x128/scroll	8
+22951	model	/clip/grid/8x128/step/0/2/48 0\n/clip/grid/8x128/step/0/0/36 0\n/clip/grid/8x128/step/0/1/38 0\n
+22951	tick
+22951	out	B0 2B 7F
+22951	out	90 24 2D
+22951	out	90 2D 4E
+22951	out	90 5D 2A
+22951	out	B0 40 00
+22951	out	B0 41 00
+22993	tick
+22993	out	B0 40 00
+22993	out	B0 41 00
+23036	tick
+23036	out	B0 40 00
+23036	out	B0 41 00
+23078	tick
+23078	out	B0 40 00
+23078	out	B0 41 00
+23121	tick
+23121	out	B0 40 00
+23121	out	B0 41 00
+23163	tick
+23163	out	B0 40 00
+23163	out	B0 41 00
+23204	tick
+23205	out	B0 40 00
+23205	out	B0 41 00
+23248	tick
+23248	out	B0 40 00
+23248	out	B0 41 00
+23290	tick
+23290	out	B0 40 00
+23290	out	B0 41 00
+23333	tick
+23333	out	B0 40 00
+23333	out	B0 41 00
+23339	in	90 24 7F
+23375	tick
+23376	out	B0 40 00
+23376	out	B0 41 00
+23417	tick
+23418	out	B0 40 00
+23418	out	B0 41 00
+23461	tick
+23461	out	B0 40 00
+23461	out	B0 41 00
+23503	tick
+23503	out	B0 40 00
+23503	out	B0 41 00
+23546	tick
+23546	out	B0 40 00
+23546	out	B0 41 00
+23588	tick
+23588	out	B0 40 00
+23588	out	B0 41 00
+23631	tick
+23631	out	B0 40 00
+23631	out	B0 41 00
+23674	tick
+23674	out	B0 40 00
+23674	out	B0 41 00
+23716	tick
+23716	out	B0 40 00
+23716	out	B0 41 00
+23726	in	90 24 00
+23726	int	clip	grid/8x128/step/0/0/36/toggle	127
+23760	model	/clip/grid/8x128/step/0/0/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/32x128/step/0/8/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/8/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/8/36 1 1 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+23760	tick
+23760	out	90 24 2A
+23760	out	B0 40 00
+23760	out	B0 41 00
+23801	tick
+23801	out	B0 40 00
+23801	out	B0 41 00
+23843	tick
+23843	out	B0 40 00
+23843	out	B0 41 00
+23885	tick
+23885	out	B0 40 00
+23885	out	B0 41 00
+23927	tick
+23927	out	B0 40 00
+23927	out	B0 41 00
+23970	tick
+23970	out	B0 40 00
+23970	out	B0 41 00
+24011	tick
+24011	out	B0 40 00
+24011	out	B0 41 00
+24053	tick
+24053	out	B0 40 00
+24053	out	B0 41 00
+24095	tick
+24095	out	B0 40 00
+24095	out	B0 41 00
+24131	in	90 5C 7F
+24137	tick
+24137	out	B0 40 00
+24137	out	B0 41 00
+24179	tick
+24179	out	B0 40 00
+24179	out	B0 41 00
+24221	tick
+24221	out	B0 40 00
+24221	out	B0 41 00
+24262	tick
+24262	out	B0 40 00
+24262	out	B0 41 00
+24305	tick
+24305	out	B0 40 00
+24305	out	B0 41 00
+24347	tick
+24347	out	B0 40 00
+24347	out	B0 41 00
+24389	tick
+24390	out	B0 40 00
+24390	out	B0 41 00
+24431	tick
+24431	out	B0 40 00
+24431	out	B0 41 00
+24472	tick
+24473	out	B0 40 00
+24473	out	B0 41 00
+24515	tick
+24515	out	B0 40 00
+24515	out	B0 41 00
+24536	in	90 5C 00
+24536	int	clip	grid/8x128/scroll	0
+24557	model	/clip/grid/8x128/step/0/2/48 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/8x128/step/0/0/36 1 0 1 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/8x128/step/0/1/38 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+24557	tick
+24557	out	B0 2B 00
+24557	out	90 24 4C
+24557	out	90 2D 2A
+24557	out	90 5D 4D
+24557	out	B0 40 00
+24557	out	B0 41 00
+24600	tick
+24600	out	B0 40 00
+24600	out	B0 41 00
+24642	tick
+24642	out	B0 40 00
+24642	out	B0 41 00
+24683	tick
+24683	out	B0 40 00
+24683	out	B0 41 00
+24726	tick
+24726	out	B0 40 00
+24726	out	B0 41 00
+24767	tick
+24767	out	B0 40 00
+24767	out	B0 41 00
+24810	tick
+24810	out	B0 40 00
+24810	out	B0 41 00
+24852	tick
+24852	out	B0 40 00
+24852	out	B0 41 00
+24893	tick
+24893	out	B0 40 00
+24893	out	B0 41 00
+25220	tick
+25220	out	B0 40 00
+25220	out	B0 41 00
+25262	tick
+25262	out	B0 40 00
+25262	out	B0 41 00
+25305	tick
+25305	out	B0 40 00
+25305	out	B0 41 00
+25325	in	90 24 7F
+25346	tick
+25347	out	B0 40 00
+25347	out	B0 41 00
+25388	tick
+25389	out	B0 40 00
+25389	out	B0 41 00
+25432	tick
+25432	out	B0 40 00
+25432	out	B0 41 00
+25474	tick
+25474	out	B0 40 00
+25474	out	B0 41 00
+25517	tick
+25518	out	B0 40 00
+25518	out	B0 41 00
+25559	tick
+25559	out	B0 40 00
+25559	out	B0 41 00
+25601	tick
+25601	out	B0 40 00
+25601	out	B0 41 00
+25644	tick
+25644	out	B0 40 00
+25644	out	B0 41 00
+25686	tick
+25686	out	B0 40 00
+25686	out	B0 41 00
+25729	tick
+25729	out	B0 40 00
+25729	out	B0 41 00
+25734	in	90 24 00
+25735	int	clip	grid/8x128/step/0/0/36/toggle	127
+25773	model	/clip/grid/8x128/step/0/0/36 0\n/clip/grid/32x128/step/0/0/36 0\n/clip/grid/32x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/16x128/step/0/0/36 0\n/clip/grid/16x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n/clip/grid/1536x128/step/0/0/36 0\n/clip/grid/1536x128/step/0/8/36 1 0 0 0.25 1.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n
+25773	tick
+25773	out	90 24 2D
+25773	out	B0 40 00
+25773	out	B0 41 00
+25815	tick
+25815	out	B0 40 00
+25815	out	B0 41 00
+25858	tick
+25859	out	B0 40 00
+25859	out	B0 41 00
+25900	tick
+25901	out	B0 40 00
+25901	out	B0 41 00
+25944	tick
+25944	out	B0 40 00
+25944	out	B0 41 00
+25985	tick
+25986	out	B0 40 00
+25986	out	B0 41 00
+26027	tick
+26027	out	B0 40 00
+26027	out	B0 41 00
+26070	tick
+26070	out	B0 40 00
+26070	out	B0 41 00
+26112	tick
+26112	out	B0 40 00
+26112	out	B0 41 00
+26138	mark	end	native_instruments_maschine_jam-note_sequencer-rust
