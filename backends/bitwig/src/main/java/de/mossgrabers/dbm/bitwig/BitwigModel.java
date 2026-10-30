@@ -261,6 +261,7 @@ public final class BitwigModel
         this.trackBank.scrollPosition ().markInterested ();
         this.cursorTrack.position ().markInterested ();
         this.selectionTrack.position ().markInterested ();
+        this.cursorTrack.exists ().markInterested ();
         // CursorTrackImpl: isPinned (), hasPrevious (), hasNext ()
         this.cursorTrack.isPinned ().markInterested ();
         this.cursorTrack.hasPrevious ().markInterested ();

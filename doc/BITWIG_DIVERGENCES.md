@@ -286,6 +286,14 @@ the extension reports `/recordQuantization <OFF|1/32|1/16|1/8|1/4>` (`recordQuan
 (`application recordQuantization <grid>`, `application recordQuantization/noteLength/toggle`). Before,
 per track as Reaper (`inQuantResolution`), unhandled, and the note length toggle did nothing.
 
+**Add track (core port P2, 2026-10-30).** `track addTrack <type> <name> <color> <devices…>` (string
+arguments) is handled now, as `AbstractTrackBankImpl.addChannel`: `createInstrumentTrack (-1)`,
+`createEffectTrack (-1)` or `createAudioTrack (-1)`, then 300 ms later the name and color of the new
+(cursor) track. Differences: the devices are Reaper creation names which Bitwig does not know, they
+are dropped (logged as not handled); the track bank is not scrolled to the new track
+(`scrollIntoView`), the core pages the bank itself. Before, `DbmExtension.processStringArgs` only logged
+the command.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

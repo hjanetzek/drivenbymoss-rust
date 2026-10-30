@@ -190,6 +190,47 @@ public final class CommandHandler
 
 
     /**
+     * Execute a command with several text values: "track addTrack &lt;type&gt; &lt;name&gt;
+     * &lt;color&gt; &lt;devices…&gt;", as AbstractTrackBankImpl.addChannel of the Java version.
+     *
+     * @param processor The processor
+     * @param command The command
+     * @param values The values
+     * @return False if the command is not handled
+     */
+    public boolean handle (final String processor, final String command, final String [] values)
+    {
+        if (!"track".equals (processor) || !"addTrack".equals (command) || values.length < 1)
+            return false;
+        // AbstractTrackBankImpl.addTrack
+        switch (values[0])
+        {
+            case "INSTRUMENT" -> this.model.application.createInstrumentTrack (-1);
+            case "EFFECT" -> this.model.application.createEffectTrack (-1);
+            default -> this.model.application.createAudioTrack (-1);
+        }
+        final String name = values.length > 1 && !values[1].isEmpty () ? values[1] : null;
+        final String color = values.length > 2 && !values[2].isEmpty () ? values[2] : null;
+        // The devices are creation names of Reaper, which Bitwig does not know
+        for (int i = 3; i < values.length; i++)
+            this.unhandled.accept ("addTrack device " + values[i]);
+        if (name == null && color == null)
+            return true;
+        // Name and color of the new track (the cursor track) 300 ms later, as the Java version;
+        // the core pages the track bank itself (no scrollIntoView)
+        this.model.host.scheduleTask ( () -> {
+            if (!this.model.cursorTrack.exists ().get ())
+                return;
+            if (name != null)
+                this.model.cursorTrack.name ().set (name);
+            if (color != null)
+                setColor (color, this.model.cursorTrack.color ()::set);
+        }, 300);
+        return true;
+    }
+
+
+    /**
      * Note repeat commands, mapped to the arpeggiator of the default note input.
      */
     private void handleNoteRepeat (final String command, final double value)

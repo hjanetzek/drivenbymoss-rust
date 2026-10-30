@@ -2078,6 +2078,22 @@ mod tests {
         );
     }
 
+    /// AbstractTrackBankImpl.addChannel: the extension creates the track from the string
+    /// arguments (type, name, color, devices) and sets name and color 300 ms later.
+    #[test]
+    fn add_track_command() {
+        let (mut model, _, backend, _) = create(ModelSetup::default());
+        model.application_mut().add_instrument_track();
+        model.application_mut().add_channel(ChannelType::Effect, Some("FX"), Some(ColorEx::RED), &["ReaEQ"]);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["INSTRUMENT".into(), "".into(), "".into()]),
+                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["EFFECT".into(), "FX".into(), "RGB(255,0,0)".into(), "ReaEQ".into()]),
+            ]
+        );
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());
