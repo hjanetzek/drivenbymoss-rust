@@ -236,6 +236,8 @@ public final class BitwigModel
         // ApplicationImpl, ProjectImpl, ArrangerImpl, MixerImpl of the Java version
         this.application.hasActiveEngine ().markInterested ();
         this.application.panelLayout ().markInterested ();
+        this.application.recordQuantizationGrid ().markInterested ();
+        this.application.recordQuantizeNoteLength ().markInterested ();
         this.project.hasSoloedTracks ().markInterested ();
         this.project.hasMutedTracks ().markInterested ();
         for (final Parameter parameter: this.grooveParameters)
@@ -513,6 +515,8 @@ public final class BitwigModel
     {
         reporter.put ("/project/engine", this.application.hasActiveEngine ().get ());
         reporter.put ("/layout", this.application.panelLayout ().get ());
+        reporter.put ("/recordQuantization", this.application.recordQuantizationGrid ().get ());
+        reporter.put ("/recordQuantization/noteLength", this.application.recordQuantizeNoteLength ().get ());
         reporter.put ("/project/hasSolo", this.project.hasSoloedTracks ().get ());
         reporter.put ("/project/hasMute", this.project.hasMutedTracks ().get ());
         reporter.put ("/project/cueVolume", this.project.cueVolume ().value ().get ());

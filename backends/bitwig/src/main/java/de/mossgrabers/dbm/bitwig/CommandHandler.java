@@ -232,6 +232,14 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
+            // ApplicationImpl.setRecordQuantizationGrid
+            case "application" ->
+            {
+                if ("recordQuantization".equals (command) && value != null)
+                    this.model.application.recordQuantizationGrid ().set (value.trim ());
+                else
+                    this.unhandled.accept (processor + " " + command);
+            }
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 0, value);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
             case "eq" -> this.handleEqualizer (command, 0, value);
@@ -701,6 +709,8 @@ public final class CommandHandler
                     this.model.application.setPanelLayout (PANEL_LAYOUTS[index]);
             }
             // ApplicationImpl.previousPanelLayout / nextPanelLayout
+            // ApplicationImpl.toggleRecordQuantizationNoteLength
+            case "recordQuantization/noteLength/toggle" -> this.model.application.recordQuantizeNoteLength ().toggle ();
             case "layout/-" -> this.model.application.previousPanelLayout ();
             case "layout/+" -> this.model.application.nextPanelLayout ();
             case "toggleNoteEditor" -> this.model.application.toggleNoteEditor ();

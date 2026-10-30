@@ -280,6 +280,12 @@ the sibling window did not follow the cursor device and a page change did not se
 `selectPrevious` at the first device of a page ends on the first device of the previous page (as in
 the Java version).
 
+**Record quantization (core port P2, 2026-10-30).** Global as in `ApplicationImpl` (`TrackImpl` delegates):
+the extension reports `/recordQuantization <OFF|1/32|1/16|1/8|1/4>` (`recordQuantizationGrid ()`) and
+`/recordQuantization/noteLength` (`recordQuantizeNoteLength ()`); the tracks show and change these
+(`application recordQuantization <grid>`, `application recordQuantization/noteLength/toggle`). Before,
+per track as Reaper (`inQuantResolution`), unhandled, and the note length toggle did nothing.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

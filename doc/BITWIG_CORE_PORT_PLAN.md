@@ -285,6 +285,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   Bitwig). Nothing to change in the Reaper backend.
 - **P2 device siblings:** behind the host check; Reaper's sibling window follows the cursor device
   in its backend. Nothing to change.
+- **P2 record quantization:** only once the host reports the global values; Reaper keeps the per
+  track input quantization (`track <p>/inQuantResolution`). Nothing to change.
 
 ## Replays to record again
 

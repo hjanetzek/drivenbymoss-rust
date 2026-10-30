@@ -12,6 +12,7 @@ use crate::backend::{Processor, Sender};
 use crate::framework::value_changer::ValueChanger;
 use crate::host::{Host, Scheduler};
 
+use super::constants::RecordQuantization;
 use super::model::Model;
 use super::events::ModelEvent;
 
@@ -31,6 +32,9 @@ struct Shared {
     events: RefCell<Vec<ModelEvent>>,
     /// The host pages the banks (Bitwig, protocol v2 host paging).
     host_paging: Cell<bool>,
+    /// The global record quantization of the host (Bitwig: note length, grid), None if the host
+    /// has it per track (Reaper).
+    host_record_quantization: Cell<Option<(bool, RecordQuantization)>>,
 }
 
 /// Cheap to clone context which every model item holds to send commands to the backend.
@@ -69,6 +73,7 @@ impl DawContext {
                 tasks: RefCell::new(Scheduler::default()),
                 events: RefCell::new(Vec::new()),
                 host_paging: Cell::new(false),
+                host_record_quantization: Cell::new(None),
             }),
             muted: false,
         }
@@ -83,6 +88,17 @@ impl DawContext {
 
     pub(crate) fn set_host_paging(&self) {
         self.shared.host_paging.set(true);
+    }
+
+    /// The global record quantization of the host (note length, grid), if it has one (Bitwig:
+    /// ApplicationImpl `recordQuantizeNoteLength ()`, `recordQuantizationGrid ()`).
+    pub fn host_record_quantization(&self) -> Option<(bool, RecordQuantization)> {
+        self.shared.host_record_quantization.get()
+    }
+
+    pub(crate) fn update_host_record_quantization(&self, note_length: Option<bool>, grid: Option<RecordQuantization>) {
+        let (old_length, old_grid) = self.shared.host_record_quantization.get().unwrap_or_default();
+        self.shared.host_record_quantization.set(Some((note_length.unwrap_or(old_length), grid.unwrap_or(old_grid))));
     }
 
     /// A copy of the context which does not send anything to the backend, does not schedule

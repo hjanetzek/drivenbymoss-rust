@@ -266,32 +266,54 @@ impl Track {
         self.is_stopped = is_stopped;
     }
 
+    /// TrackImpl.isRecordQuantizationNoteLength: the global setting of the application on
+    /// Bitwig (`recordQuantizeNoteLength ()`), per track on Reaper.
     pub fn is_record_quantization_note_length(&self) -> bool {
-        self.record_quantization_note_length
+        match self.channel.ctx.host_record_quantization() {
+            Some((note_length, _)) => note_length,
+            None => self.record_quantization_note_length,
+        }
     }
 
-    /// Not supported.
-    pub fn toggle_record_quantization_note_length(&mut self) {}
+    /// TrackImpl.toggleRecordQuantizationNoteLength: `recordQuantizeNoteLength ().toggle ()` on
+    /// Bitwig; not supported by Reaper.
+    pub fn toggle_record_quantization_note_length(&mut self) {
+        if self.channel.ctx.host_record_quantization().is_some() {
+            self.channel.ctx.send(Processor::Application, "recordQuantization/noteLength/toggle");
+        }
+    }
 
+    /// TrackImpl.getRecordQuantizationGrid: the global grid of the application on Bitwig.
     pub fn record_quantization_grid(&self) -> RecordQuantization {
-        self.record_quantization
+        match self.channel.ctx.host_record_quantization() {
+            Some((_, grid)) => grid,
+            None => self.record_quantization,
+        }
     }
 
+    /// TrackImpl.setRecordQuantizationGrid: `recordQuantizationGrid ().set (value)` on Bitwig
+    /// (`application recordQuantization <OFF|1/32|1/16|1/8|1/4>`).
     pub fn set_record_quantization_grid(&mut self, rq: RecordQuantization) {
+        if self.channel.ctx.host_record_quantization().is_some() {
+            self.channel.ctx.send_str(Processor::Application, "recordQuantization", rq.value());
+            return;
+        }
         self.record_quantization = rq;
         self.channel.send_double("inQuantResolution", rq.beats());
     }
 
     pub fn previous_record_quantization(&mut self) {
         let all = RecordQuantization::ALL;
-        let pos = all.iter().position(|r| *r == self.record_quantization).unwrap_or(0);
+        let current = self.record_quantization_grid();
+        let pos = all.iter().position(|r| *r == current).unwrap_or(0);
         let pos = if pos == 0 { all.len() - 1 } else { pos - 1 };
         self.set_record_quantization_grid(all[pos]);
     }
 
     pub fn next_record_quantization(&mut self) {
         let all = RecordQuantization::ALL;
-        let pos = all.iter().position(|r| *r == self.record_quantization).unwrap_or(0) + 1;
+        let current = self.record_quantization_grid();
+        let pos = all.iter().position(|r| *r == current).unwrap_or(0) + 1;
         self.set_record_quantization_grid(all[if pos >= all.len() { 0 } else { pos }]);
     }
 

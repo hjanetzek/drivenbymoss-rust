@@ -11,7 +11,7 @@
 
 use crate::daw::clip::{Note, StepInfo};
 use crate::daw::color::ColorEx;
-use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId};
+use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId, RecordQuantization};
 use crate::daw::device::SpecificDevice;
 use crate::daw::model::Model;
 use crate::daw::parameter_bank::ParameterBank;
@@ -208,6 +208,12 @@ impl Parser {
             // Bitwig: application.panelLayout (), the visibility flags of the arranger and the
             // mixer (ArrangerImpl, MixerImpl)
             "layout" => model.application_mut().set_internal_panel_layout(value),
+            // Bitwig (ApplicationImpl): the global record quantization grid and note length
+            "recordQuantization" => match parts.poll() {
+                None => model.ctx().update_host_record_quantization(None, Some(RecordQuantization::lookup(value.trim()))),
+                Some("noteLength") => model.ctx().update_host_record_quantization(Some(parse_flag(value)), None),
+                Some(other) => Self::error(model, &format!("Unhandled record quantization parameter: {other}")),
+            },
             "arranger" => {
                 let flag = parts.poll().unwrap_or("");
                 model.arranger_mut().set_flag_state(flag, parse_flag(value));
@@ -2048,6 +2054,28 @@ mod tests {
         );
         model.run_all_tasks();
         assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("device".into(), "sibling/1/select".into())]);
+    }
+
+    /// ApplicationImpl: the record quantization is global on Bitwig (TrackImpl delegates).
+    #[test]
+    fn host_record_quantization() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/1/select 1", "/recordQuantization 1/16", "/recordQuantization/noteLength 1"]);
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let track = model.track_bank().item(0);
+        assert_eq!(track.record_quantization_grid(), RecordQuantization::Res1_16);
+        assert!(track.is_record_quantization_note_length());
+        backend.take_calls();
+        let track = model.cursor_track_mut();
+        track.next_record_quantization();
+        track.toggle_record_quantization_note_length();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::StringArg("application".into(), "recordQuantization".into(), "1/8".into()),
+                BackendCall::NoArg("application".into(), "recordQuantization/noteLength/toggle".into()),
+            ]
+        );
     }
 
     #[test]
