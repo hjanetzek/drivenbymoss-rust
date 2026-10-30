@@ -299,9 +299,17 @@ impl TrackBank {
         self.set_bank_offset(self.bank_offset as i64 + 1);
     }
 
-    /// Scroll the DAW to the given position (sends `<pos>/scrollto`, the DAW then updates the
-    /// selection).
+    /// Scroll the DAW to the given position. With host paging (Bitwig) as
+    /// AbstractItemBankImpl.scrollTo: the window starts exactly at the position (`adjust_page` is
+    /// ignored), nothing is selected. Reaper: sends `<pos>/scrollto`, the DAW then updates the
+    /// selection.
     pub fn scroll_to(&mut self, position: usize, adjust_page: bool) {
+        if self.host_paged {
+            if position < self.item_count() {
+                self.set_bank_offset(position as i64);
+            }
+            return;
+        }
         if self.has_flat_track_list && self.has_full_flat_track_list && self.view.get(position) == Some(&Entry::Master) {
             self.master.select();
             return;

@@ -1845,6 +1845,12 @@ mod tests {
         assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 0)]);
         model.run_all_tasks();
         assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "7/select".into(), 1)]);
+
+        // AbstractItemBankImpl.scrollTo: exactly to the position, without a selection
+        model.track_bank_mut().scroll_to(13, true);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 13)]);
+        assert_eq!(model.track_bank().scroll_position(), 13);
     }
 
     /// With host paging the banks can scroll back from any offset > 0, as Bitwig's banks.

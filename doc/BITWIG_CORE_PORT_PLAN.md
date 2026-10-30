@@ -219,3 +219,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
   a place in the model) now selects 75 ms after the page change, as the Java version for Reaper
   (`AbstractPagedBankImpl`) does too; the previous item of a track or scene bank at the first item
   selects the last item of the previous page on both hosts. Nothing to change.
+- **P1 3, track bank `scroll_to`:** kept the Reaper path behind the host check (the test
+  `parser::tests::track_paging` encodes `<pos>/scrollto`, and the Reaper backend has no `bank
+  track` command): Reaper still gets the page-aligned `<pos>/scrollto`, which selects there. To
+  replace it, the Reaper backend would need a scroll-only command (its track bank is paged by the
+  core, so it would be `set_bank_offset` alone without a command).

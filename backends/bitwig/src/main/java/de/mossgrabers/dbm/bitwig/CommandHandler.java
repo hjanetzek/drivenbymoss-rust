@@ -753,11 +753,13 @@ public final class CommandHandler
         final String subCommand = command.substring (slash + 1);
         switch (subCommand)
         {
-            case "select", "scrollto" ->
+            case "select" ->
             {
                 if (value > 0)
                     selectChannel (track);
             }
+            // AbstractItemBankImpl.scrollTo: only scrolls (the core pages with "bank track" now)
+            case "scrollto" -> this.model.trackBank.scrollPosition ().set (index);
             case "recarm" -> track.arm ().set (value > 0);
             case "monitor" -> track.monitorMode ().set (value > 0 ? "ON" : "OFF");
             case "autoMonitor" -> track.monitorMode ().set (value > 0 ? "AUTO" : "OFF");
