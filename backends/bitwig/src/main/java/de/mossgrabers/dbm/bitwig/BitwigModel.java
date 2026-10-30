@@ -84,6 +84,10 @@ public final class BitwigModel
     /** The size of the scene window. */
     final int                numScenes;
     final Project            project;
+    /** The project's remote controls (ProjectImpl: on the root track group), empty if not needed. */
+    final CursorRemoteControlsPage [] projectPages;
+    /** Follows the project page selected in Bitwig, null if there are no project pages. */
+    final CursorRemoteControlsPage projectRemoteControls;
     final CursorTrack        cursorTrack;
     /** Follows the selection, also while the cursor track is pinned (for the selection reports). */
     final CursorTrack        selectionTrack;
@@ -156,6 +160,13 @@ public final class BitwigModel
         this.largeTrackBank = host.createTrackBank (NUM_LARGE_TRACKS, 0, 0, true);
         this.sceneBank = this.trackBank.sceneBank ();
         this.project = host.getProject ();
+        // As ProjectImpl: the remote controls of the root track group, in pages as for devices
+        final int numProjectPages = getInt (modelSetup, "numParams", 8) > 0 ? numParamPages : 0;
+        final Track rootTrackGroup = this.project.getRootTrackGroup ();
+        this.projectPages = new CursorRemoteControlsPage [numProjectPages];
+        for (int i = 0; i < numProjectPages; i++)
+            this.projectPages[i] = rootTrackGroup.createCursorRemoteControlsPage ("DBM project page " + (i + 1), PARAMS_PER_PAGE, "");
+        this.projectRemoteControls = numProjectPages > 0 ? rootTrackGroup.createCursorRemoteControlsPage (PARAMS_PER_PAGE) : null;
         this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, this.numScenes, true);
         this.selectionTrack = host.createCursorTrack ("DBM_SELECTION_TRACK", "Selected track", 0, 0, true);
         this.masterTrack = host.createMasterTrack (0);
@@ -357,6 +368,14 @@ public final class BitwigModel
 
         for (final CursorRemoteControlsPage page: this.pages)
             markPage (page);
+        for (final CursorRemoteControlsPage page: this.projectPages)
+            markPage (page);
+        if (this.projectRemoteControls != null)
+        {
+            this.projectRemoteControls.pageCount ().markInterested ();
+            this.projectRemoteControls.pageNames ().markInterested ();
+            this.projectRemoteControls.selectedPageIndex ().markInterested ();
+        }
     }
 
 
@@ -536,6 +555,16 @@ public final class BitwigModel
         reporter.put ("/mixer/ioSection", this.mixer.isIoSectionVisible ().get ());
         reporter.put ("/mixer/meterSection", this.mixer.isMeterSectionVisible ().get ());
         reporter.put ("/mixer/sendSection", this.mixer.isSendSectionVisible ().get ());
+        if (this.projectRemoteControls != null)
+        {
+            collectPages (reporter, "/project", this.projectPages);
+            final String [] pageNames = this.projectRemoteControls.pageNames ().get ();
+            final int namedPages = Math.min (pageNames.length, this.projectPages.length);
+            for (int p = 0; p < namedPages; p++)
+                reporter.put ("/project/page/" + p + "/name", pageNames[p]);
+            reporter.put ("/project/page/count", namedPages);
+            reporter.put ("/project/page/selected", this.projectRemoteControls.selectedPageIndex ().get ());
+        }
         for (int i = 0; i < GROOVE_PARAMETERS.length; i++)
         {
             final Parameter parameter = this.grooveParameters[i];

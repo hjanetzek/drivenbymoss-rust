@@ -294,6 +294,14 @@ are dropped (logged as not handled); the track bank is not scrolled to the new t
 (`scrollIntoView`), the core pages the bank itself. Before, `DbmExtension.processStringArgs` only logged
 the command.
 
+**Project remote controls (core port P2, 2026-10-30).** As `ProjectImpl`: the remote controls of the
+root track group (`rootTrackGroup.createCursorRemoteControlsPage`), with fixed page cursors as for
+the devices (`numParamPages`), reported as `/project/param/<i>/…`, `/project/param/count`,
+`/project/page/<p>/name`, `/project/page/count`, `/project/page/selected`; commands
+`project param/<i>/value|touch|indicate` (with `/inc`, `/reset`) and `project parameterPage <page>`. Before,
+the core used a bank on the master FX (Reaper), whose `master param/…` commands the extension did not
+handle. The extension creates them if the model setup has `numParams` > 0.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 

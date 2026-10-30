@@ -288,6 +288,8 @@ in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specifica
 - **P2 record quantization:** only once the host reports the global values; Reaper keeps the per
   track input quantization (`track <p>/inQuantResolution`). Nothing to change.
 - **P2 add track:** the core's command is unchanged (Reaper handles it). Nothing to change.
+- **P2 project remote controls:** the bank on the master FX stays for Reaper until the host reports
+  `/project/param/…`. Nothing to change.
 
 ## Replays to record again
 

@@ -194,6 +194,46 @@ impl Parser {
                             model.project_mut().set_dirty(v > 0);
                         }
                     }
+                    // Bitwig (ProjectImpl): the project's remote controls (page cursors on the
+                    // root track group, as the parameters of a device)
+                    TAG_PARAM => {
+                        let host = model.host().clone();
+                        let param_cmd = parts.poll().unwrap_or("");
+                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
+                            match parse_index(param_cmd) {
+                                Some(param_no) => Self::parse_device_param_value(&host, param_no, bank, &mut parts, value),
+                                None if param_cmd == TAG_COUNT => {
+                                    if let Some(count) = parse_int(value) {
+                                        bank.set_item_count(count.max(0) as usize);
+                                        self.rebind_knobs();
+                                    }
+                                }
+                                None => host.error(&format!("Unhandled project parameter: {param_cmd}")),
+                            }
+                        }
+                    }
+                    "page" => {
+                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
+                            match (parts.poll(), parts.poll()) {
+                                (Some(TAG_COUNT), None) => {
+                                    if let Some(v) = parse_int(value) {
+                                        bank.set_page_count(v.max(0) as usize);
+                                    }
+                                }
+                                (Some("selected"), None) => {
+                                    if let Some(v) = parse_int(value).filter(|v| *v >= 0) {
+                                        bank.set_selected_page_from_host(v as usize);
+                                    }
+                                }
+                                (Some(index), Some(TAG_NAME)) => {
+                                    if let Some(page) = parse_index(index) {
+                                        bank.set_page_name(page, value);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     // Bitwig (ProjectImpl): solo and mute of all tracks, cue volume and mix
                     "hasSolo" => model.track_bank_mut().set_host_project_solo(parse_flag(value)),
                     "hasMute" => model.track_bank_mut().set_host_project_mute(parse_flag(value)),
@@ -2091,6 +2131,32 @@ mod tests {
                 BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["INSTRUMENT".into(), "".into(), "".into()]),
                 BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["EFFECT".into(), "FX".into(), "RGB(255,0,0)".into(), "ReaEQ".into()]),
             ]
+        );
+    }
+
+    /// ProjectImpl: the project's remote controls (root track group) with their own commands.
+    #[test]
+    fn host_project_remote_controls() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/offset 0", "/project/param/count 16", "/project/param/9/name Macro", "/project/param/9/value 0.5", "/project/param/9/value/str 50 %", "/project/page/count 2", "/project/page/1/name Mix", "/project/page/selected 1"],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let bank = model.project().parameter_bank().unwrap();
+        assert_eq!(bank.scroll_position(), 8);
+        assert_eq!(bank.item(1).name(), "Macro");
+        assert_eq!(bank.item(1).displayed_value(), "50 %");
+        assert_eq!(bank.page_bank().selected_item(), "Mix");
+        backend.take_calls();
+        let bank = model.project_mut().parameter_bank_mut().unwrap();
+        bank.item_mut(1).change_value(1);
+        bank.select_previous_item();
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::DoubleArg("project".into(), "param/9/value/inc".into(), change), BackendCall::IntArg("project".into(), "parameterPage".into(), 0)]
         );
     }
 

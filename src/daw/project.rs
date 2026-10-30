@@ -23,6 +23,7 @@ pub struct Project {
     /// once the host reports them.
     cue_volume: Parameter,
     cue_mix: Parameter,
+    num_params: usize,
 }
 
 impl Project {
@@ -31,7 +32,7 @@ impl Project {
             if num_params > 0 { Some(ParameterBank::new(ctx.clone(), ParameterBankId::Project, Processor::Master, num_params, false)) } else { None };
         let cue_volume = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueVolume"), 0, 0.0);
         let cue_mix = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueMix"), 0, 0.0);
-        Project { ctx, name: "None".into(), is_dirty: false, parameter_bank, cue_volume, cue_mix }
+        Project { ctx, name: "None".into(), is_dirty: false, parameter_bank, cue_volume, cue_mix, num_params }
     }
 
     pub fn enable_observers(&self, enable: bool) {
@@ -85,6 +86,20 @@ impl Project {
     }
 
     pub fn parameter_bank_mut(&mut self) -> Option<&mut ParameterBank> {
+        self.parameter_bank.as_mut()
+    }
+
+    /// The project's remote controls of the host, for the parser (Bitwig: ProjectImpl,
+    /// `rootTrackGroup.createCursorRemoteControlsPage`, reported as `/project/param/…` and
+    /// `/project/page/…`). The first report replaces the bank on the master FX (Reaper) with one
+    /// whose commands go to the project (`project param/<i>/value`, `project parameterPage`).
+    pub fn host_parameter_bank_mut(&mut self) -> Option<&mut ParameterBank> {
+        if self.num_params == 0 {
+            return None;
+        }
+        if self.parameter_bank.as_ref().is_none_or(|b| b.processor() != Processor::Project) {
+            self.parameter_bank = Some(ParameterBank::new(self.ctx.clone(), ParameterBankId::Project, Processor::Project, self.num_params, false));
+        }
         self.parameter_bank.as_mut()
     }
 

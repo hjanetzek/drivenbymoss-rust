@@ -66,6 +66,11 @@ impl ParameterBank {
     }
 
     /// The ID of the bank which is used in events.
+    /// The processor of the parameter commands.
+    pub fn processor(&self) -> Processor {
+        self.processor
+    }
+
     pub fn id(&self) -> ParameterBankId {
         self.id
     }
@@ -104,7 +109,7 @@ impl ParameterBank {
         if position >= 0 && (position as usize) < self.bank.item_count() {
             let ps = self.bank.page_size().max(1) as i64;
             self.set_bank_offset(if adjust_page { position / ps * ps } else { position });
-            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) {
+            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) || self.processor == Processor::Project {
                 let page = self.bank.bank_offset as i64 / ps;
                 self.bank.ctx.send_int(self.processor, "parameterPage", page as i32);
             }

@@ -590,7 +590,7 @@ public final class CommandHandler
                 if (parseIndex (parts[0]) >= 0)
                     this.reporter.forgetLater ("/track/" + parts[0] + "/", REPORT_AGAIN_DELAY);
             }
-            case "device", "primary", "drum", "eq" ->
+            case "device", "primary", "drum", "eq", "project" ->
             {
                 if (parts.length >= 2 && ("param".equals (parts[0]) || "pad".equals (parts[0]) || "layer".equals (parts[0])))
                     this.reporter.forgetLater ("/" + processor + "/" + parts[0] + "/" + parts[1] + "/", REPORT_AGAIN_DELAY);
@@ -829,6 +829,16 @@ public final class CommandHandler
             // ProjectImpl: the cue volume and mix parameters
             case "cueVolume" -> this.setValue (this.model.project.cueVolume (), value);
             case "cueMix" -> this.setValue (this.model.project.cueMix (), value);
+            // ProjectImpl: the remote controls of the root track group
+            case "parameterPage" ->
+            {
+                if (this.model.projectRemoteControls != null)
+                {
+                    final int count = this.model.projectRemoteControls.pageCount ().get ();
+                    if (count > 0)
+                        this.model.projectRemoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
+                }
+            }
             case "cueVolume/touch" -> this.model.project.cueVolume ().touch (value > 0);
             case "cueMix/touch" -> this.model.project.cueMix ().touch (value > 0);
             case "createScene" -> this.model.project.createScene ();
@@ -837,7 +847,12 @@ public final class CommandHandler
             case "next" -> this.model.application.nextProject ();
             case "save" -> this.invokeAction ("Save");
             case "load" -> this.invokeAction ("Open");
-            default -> this.unhandled.accept ("project " + command);
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                if (parts.length != 3 || !"param".equals (parts[0]) || !this.handleParameter (this.model.projectPages, parts, value))
+                    this.unhandled.accept ("project " + command);
+            }
         }
     }
 
