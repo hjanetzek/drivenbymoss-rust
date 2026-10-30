@@ -23,7 +23,7 @@ bullet = "Send A knobs: Sets the equalizer type. Center is Bell (green)."
 steps = [
   { midi = "B9 0D 40", note = "Send A knob 1 to the center" },
 ]
-expect.bitwig = { "/eq/type/1" = "bell" }
+expect.bitwig = { "/eq/type/1/value" = "bell" }
 
 [[scenario]]
 id = "lcxl.eq.q-frequency-gain"

@@ -9,10 +9,12 @@ Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
   difference); after that Java and Rust were the same in all scenarios of the Note Sequencer.
 - Step 2: the time of the core from the host (`Host::now`), the recorder in the extension and
   the replay test (§5); the first replay is `tests/conformance/launchcontrol_xl/replay/`.
-- Step 3: the fixture project (`tests/conformance/FIXTURE.md`) and scenarios for all five
-  templates of the Launch Control XL (`tests/conformance/launchcontrol_xl/*.toml`, 27
-  scenarios). Next: build the fixture project in Bitwig, run `pair` on all files, triage the
-  differences, record the replays; then the JAM, the Mk2/Mk3 and the Launchpad.
+- Step 3: the fixture project (`tests/conformance/FIXTURE.md`, also the default template for
+  `--fresh-project`) and scenarios for all five templates of the Launch Control XL
+  (`tests/conformance/launchcontrol_xl/*.toml`, 27 scenarios). The first full pair run found
+  several Rust bugs; the state per controller is in `tests/conformance/<controller>/CONFORMANCE.md`
+  (coverage, open and known differences, fixes). Next: fix the Launch Control XL differences,
+  record the replays; then the JAM, the Mk2/Mk3 and the Launchpad.
 
 Setup for a run (Linux):
 
@@ -28,7 +30,12 @@ Setup for a run (Linux):
    not use it), optionally the "Conformance Probe (Rust)" controller (Bitwig version), and the
    controllers under test, the Java and the Rust one, each with its own VirMIDI port as input
    and output. Restart both before a run, so that they start from the same state (§4).
-3. The fixture project (`tests/conformance/FIXTURE.md`) is open.
+3. The fixture project (`tests/conformance/FIXTURE.md`) is open, or better: it is saved as a
+   template ("Save as Template…") and set as the default template for new projects. Then
+   `--fresh-project <seconds>` starts each recording with a new project from it (Bitwig action
+   `New` via `/conformance/action`, no dialog), a clean copy for every run. The used copies stay
+   open (Bitwig switches their audio engine off); close them now and then, each asks once
+   whether to save.
 4. `cd backends/bitwig/tools && ./conformance_runner.py pair
    ../../../tests/conformance/launchcontrol_xl/*.toml --java-port "VirMIDI 5-2" --rust-port
    "VirMIDI 5-3"` records the Java and the Rust controller for each scenario file and compares
@@ -110,6 +117,11 @@ must be created during init):
   became empty.
 - `/track/{1-8}/playingNotes`: the notes playing on the track, `note:velocity` separated by
   spaces.
+- `/conformance/primary/layer/{1-8}/…`, `/conformance/primary/drumpad/{1-16}/…` (`exists`,
+  `name`, `selected`, `mute`, `solo`, `volume`, `pan`, and `…/offset`): the layers and drum
+  pads of the primary device (OSC has them only for the cursor device).
+- Further values and commands of the other agent (actions, device slots): see
+  `CONFORMANCE-OSC.md` in the Java repository.
 - `/conformance/device/slots`: the slots of the cursor device (e.g. `FX|Note`), `|`-separated.
 - `/conformance/action {id}` (command): invokes a Bitwig action; it acts on the GUI focus.
 - `/conformance/actions {text}` (command): reports `/conformance/actions`, the matching actions as
@@ -278,10 +290,10 @@ sections where differences were found by hand.
 
 ## 9. Open questions
 
-1. **Resetting Bitwig between scenarios:** partly solved: the scenario files reset what they
-   change via OSC (`setup`, `before`) and leave the clips empty. Content which OSC cannot reset
-   (e.g. a device which was added) still needs the fixture project to be reopened; maybe an
-   action ID or undo back to a marker.
+1. **Resetting Bitwig between scenarios:** solved per run with a new project from the fixture
+   template (`--fresh-project`); within a run the scenario files reset what they change via OSC
+   (`setup`, `before`). No action reopens or reverts a project file ("Open…" and "Save as…"
+   show dialogs, "Close" asks for a modified project), so the used copies stay open.
 2. **Switching between the Java and the Rust extension:** solved: both are active at the same
    time, each on its own virtual port; the runner drives one at a time (`pair`).
 3. **Bitwig versions:** traces recorded with Bitwig 5.3 (the current test setup) and 6.1 (the

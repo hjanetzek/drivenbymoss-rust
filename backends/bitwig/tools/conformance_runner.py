@@ -218,6 +218,11 @@ def record(args, listener=None):
     # The Rust extension records the protocol of the run for the replay test (§5 of the plan)
     marker = (lambda kind: port.send([0xF0, 0x7D, 0x44, 0x42, 0x4D, kind] + list(name.encode("ascii")) + [0xF7])) if args.label == "rust" else (lambda kind: None)
     try:
+        if getattr(args, "fresh_project", 0):
+            # A new project from the default template (the fixture): a clean copy for this run
+            print(f"New project from the default template, waiting {args.fresh_project} s")
+            send_osc("/conformance/action New")
+            time.sleep(args.fresh_project)
         marker(1)
         time.sleep(1.0)
         led_state(port.take(), leds)
@@ -247,6 +252,8 @@ def record(args, listener=None):
                 run_step(port, step, settle)
             led_state(port.take(), leds)
             state = listener.snapshot()
+            # The state the steps start from: the comparison uses absolute values
+            entry["start"] = state
             for step in scenario.get("steps", []):
                 run_step(port, step, settle)
                 led_state(port.take(), leds)
@@ -334,18 +341,28 @@ def compare(args):
             failures += 1
             continue
         differences = []
+        # Bitwig: the absolute values after each step of the keys which changed in one of the
+        # runs (the runs can start from different states, e.g. the Rust run from the end of the
+        # Java run); LEDs: the state after each step
+        state_a = dict(scenario.get("start", {}))
+        state_b = dict(other.get("start", {}))
         for index, (a, b) in enumerate(zip(scenario["steps"], other["steps"])):
             label = a["input"].get("note", a["input"].get("midi", ""))
+            state_a.update(a["bitwig"])
+            state_b.update(b["bitwig"])
+            values = {"bitwig": (state_a, state_b), "leds": (a["leds"], b["leds"])}
             for kind in ("bitwig", "leds"):
-                for key in sorted(set(a[kind]) | set(b[kind])):
+                keys = set(a[kind]) | set(b[kind])
+                for key in sorted(keys):
                     if kind == "bitwig" and ignored(key, ignore):
                         continue
-                    if not same_value(a[kind].get(key), b[kind].get(key)):
+                    value_a, value_b = values[kind][0].get(key), values[kind][1].get(key)
+                    if not same_value(value_a, value_b):
                         rule = next((k for k in known if fnmatch.fnmatchcase(f"{kind} {key}", k["match"])), None)
                         if rule is not None:
                             known_seen[rule["match"]] = rule.get("reason", "")
                             continue
-                        differences.append(f"step {index + 1} ({label}) {kind} {key}: {a[kind].get(key)} | {b[kind].get(key)}")
+                        differences.append(f"step {index + 1} ({label}) {kind} {key}: {value_a} | {value_b}")
         if len(scenario["steps"]) != len(other["steps"]):
             differences.append(f"different number of steps: {len(scenario['steps'])} | {len(other['steps'])}")
         failures += bool(differences)
@@ -376,7 +393,7 @@ def pair(args):
         config = tomllib.loads(Path(scenarios).read_text())
         for label, port in (("java", args.java_port), ("rust", args.rust_port)):
             print(f"--- {Path(scenarios).stem}: {label} on {port}")
-            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out), listener)
+            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project), listener)
             if result == 2:
                 return result
             paths.append(Path(args.out) / (run_name(config, scenarios) + f"-{label}.json"))
@@ -402,12 +419,14 @@ def main():
     rec.add_argument("--label", required=True, help="java or rust")
     rec.add_argument("--port", required=True, help="part of the name of the virtual MIDI port")
     rec.add_argument("--out", default="target/conformance")
+    rec.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start with a new project from the default template (the fixture) and wait SECONDS for it")
     rec.set_defaults(func=record)
     both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
     both.add_argument("scenarios", nargs="+")
     both.add_argument("--java-port", required=True)
     both.add_argument("--rust-port", required=True)
     both.add_argument("--out", default="target/conformance")
+    both.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start each recording with a new project from the default template (the fixture) and wait SECONDS for it")
     both.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
     both.set_defaults(func=pair)
     cmp = commands.add_parser("compare", help="compare the trace of the port with the oracle")

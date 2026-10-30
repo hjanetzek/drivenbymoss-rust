@@ -26,7 +26,7 @@ steps = [
   { midi = "9A 2A 7F", note = "Track Focus 2" },
   { midi = "8A 2A 00" },
 ]
-expect.bitwig = { "/primary/layer/2/selected" = "1" }
+expect.bitwig = { "/conformance/primary/layer/2/selected" = "1" }
 
 [[scenario]]
 id = "lcxl.layer.mute"
@@ -40,7 +40,7 @@ steps = [
   { midi = "9A 49 7F", note = "Track Control 1 again" },
   { midi = "8A 49 00" },
 ]
-expect.bitwig = { "/primary/layer/1/mute" = "0" }
+expect.bitwig = { "/conformance/primary/layer/1/mute" = "0" }
 
 [[scenario]]
 id = "lcxl.layer.volume-pan"
