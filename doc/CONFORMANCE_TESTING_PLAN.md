@@ -110,6 +110,7 @@ must be created during init):
   became empty.
 - `/track/{1-8}/playingNotes`: the notes playing on the track, `note:velocity` separated by
   spaces.
+- `/conformance/device/slots`: the slots of the cursor device (e.g. `FX|Note`), `|`-separated.
 - `/conformance/action {id}` (command): invokes a Bitwig action; it acts on the GUI focus.
 - `/conformance/actions {text}` (command): reports `/conformance/actions`, the matching actions as
   `identifier|name` lines.
