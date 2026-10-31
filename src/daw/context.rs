@@ -32,6 +32,11 @@ struct Shared {
     events: RefCell<Vec<ModelEvent>>,
     /// The host pages the banks (Bitwig, protocol v2 host paging).
     host_paging: Cell<bool>,
+    /// The command forms the host reported with `/host/features` (bit set of [`HostFeature`]),
+    /// None if it did not report them.
+    host_features: Cell<Option<u32>>,
+    /// The host reports the VU hold values (Reaper: `vuholdleft|vuholdright` in dB).
+    host_vu_hold: Cell<bool>,
     /// The global record quantization of the host (Bitwig: note length, grid), None if the host
     /// has it per track (Reaper).
     host_record_quantization: Cell<Option<(bool, RecordQuantization)>>,
@@ -55,6 +60,71 @@ pub(crate) struct TransportSnapshot {
     pub position: f64,
 }
 
+/// A command form which the host understands in addition to the basic (Reaper) commands. The
+/// host reports them with `/host/features <names>` (see HOST_BRIDGE_GUIDE.md). Features which the
+/// core detects from the host's own reports (host paging from `/track/offset`, the automation and
+/// overdub switches, the pinned track, ...) are no host features.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostFeature {
+    /// Relative value changes `<value command>/inc <normalized delta>` (Bitwig
+    /// `SettableRangedValue.inc`); the host's values are also shown while a value is touched.
+    ValueInc,
+    /// `<value command>/reset`: the host's default value (Bitwig `parameter.reset ()`).
+    ValueReset,
+    /// `<value command>/immediately <value>`: set a value without the host's takeover mode.
+    Immediately,
+    /// `<value command>/indicate` for volume, panorama and sends, and `track indicate`.
+    Indication,
+    /// `track|master <p>/solo/toggle` (the host's exclusive solo preference).
+    SoloToggle,
+    /// `transport play|stop|restart|stopAndRewind|togglePunchIn|togglePunchOut|toggleFill|
+    /// toggleMetronomeTicks`, `transport punchIn|punchOut|fill|metronomeTicks <0|1>`,
+    /// `transport metronomeVolume[/inc]`.
+    TransportCommands,
+    /// Commands to the device itself instead of `device <index>/…`: `device|primary|drum|eq
+    /// window/toggle|expand/toggle|…`, `device sibling/<i>/…`, `drum|primary pad/<p>/select`.
+    DeviceCommands,
+    /// `application layout/-|+` (previous/next panel layout of the host).
+    LayoutStep,
+}
+
+impl HostFeature {
+    /// All features.
+    pub const ALL: [HostFeature; 8] = [
+        HostFeature::ValueInc,
+        HostFeature::ValueReset,
+        HostFeature::Immediately,
+        HostFeature::Indication,
+        HostFeature::SoloToggle,
+        HostFeature::TransportCommands,
+        HostFeature::DeviceCommands,
+        HostFeature::LayoutStep,
+    ];
+
+    /// The name of the feature in `/host/features`.
+    pub fn name(self) -> &'static str {
+        match self {
+            HostFeature::ValueInc => "valueInc",
+            HostFeature::ValueReset => "valueReset",
+            HostFeature::Immediately => "immediately",
+            HostFeature::Indication => "indication",
+            HostFeature::SoloToggle => "soloToggle",
+            HostFeature::TransportCommands => "transportCommands",
+            HostFeature::DeviceCommands => "deviceCommands",
+            HostFeature::LayoutStep => "layoutStep",
+        }
+    }
+
+    /// The feature with the given name, None if unknown.
+    pub fn lookup(name: &str) -> Option<HostFeature> {
+        HostFeature::ALL.into_iter().find(|f| f.name() == name)
+    }
+
+    fn bit(self) -> u32 {
+        1 << (self as u32)
+    }
+}
+
 /// Marks the master track in places where a track position is stored.
 pub(crate) const MASTER_POSITION: i32 = i32::MIN;
 
@@ -73,6 +143,8 @@ impl DawContext {
                 tasks: RefCell::new(Scheduler::default()),
                 events: RefCell::new(Vec::new()),
                 host_paging: Cell::new(false),
+                host_features: Cell::new(None),
+                host_vu_hold: Cell::new(false),
                 host_record_quantization: Cell::new(None),
             }),
             muted: false,
@@ -88,6 +160,34 @@ impl DawContext {
 
     pub(crate) fn set_host_paging(&self) {
         self.shared.host_paging.set(true);
+    }
+
+    /// True if the host understands the command form of the feature. A host which reported
+    /// `/host/features` supports exactly the listed ones. For compatibility a host which pages
+    /// (`/track/offset`) but never reported its features supports all of them (the Bitwig
+    /// extension before `/host/features`); Reaper reports neither and supports none.
+    pub fn host_supports(&self, feature: HostFeature) -> bool {
+        match self.shared.host_features.get() {
+            Some(features) => features & feature.bit() != 0,
+            None => self.is_host_paging(),
+        }
+    }
+
+    /// The host reported its features (`/host/features <space separated names>`); unknown names
+    /// are ignored. Replaces earlier reports.
+    pub(crate) fn set_host_features(&self, names: &str) {
+        let features = names.split_whitespace().filter_map(HostFeature::lookup).fold(0, |set, f| set | f.bit());
+        self.shared.host_features.set(Some(features));
+    }
+
+    /// True if the host reports the VU hold values (Reaper): the clip state of a channel is then
+    /// its hold value above 0 dB, otherwise its VU above the clip border (Bitwig).
+    pub fn host_reports_vu_hold(&self) -> bool {
+        self.shared.host_vu_hold.get()
+    }
+
+    pub(crate) fn set_host_reports_vu_hold(&self) {
+        self.shared.host_vu_hold.set(true);
     }
 
     /// The global record quantization of the host (note length, grid), if it has one (Bitwig:

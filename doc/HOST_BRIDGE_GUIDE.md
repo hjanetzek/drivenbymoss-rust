@@ -164,17 +164,18 @@ feature stays on.
 
 | Report | Feature in the core | What the bridge must then handle |
 | --- | --- | --- |
-| `/track/offset <any>` | **Host paging** (`ctx.is_host_paging`). Also the global switch for the *Bitwig command dialect*, see below | `bank track <offset>`; scroll the track window there. The value of `/track/offset` is ignored, the core keeps its own offset |
+| `/track/offset <any>` | **Host paging** (`ctx.is_host_paging`): bank offsets kept for the host, scrolling without selecting, the first item of the previous page is selected, scrolling back from any offset > 0, delayed selections after page changes (also of the device siblings). Without `/host/features` also all host features, see below | `bank track <offset>`; scroll the track window there. The value of `/track/offset` is ignored, the core keeps its own offset |
+| `/host/features <names>` | The command forms the host understands (`ctx.host_supports`), see below | the listed command forms |
 | `/scene/offset <any>` | Host paging of scenes (and the slots) | `bank scene <offset>` |
 | `/automode/arranger`, `/automode/launcher` | Bitwig's two automation write switches + modes Read/Touch/Write/Latch instead of Reaper's modes | `automation toggleArranger\|toggleLauncher\|resetOverrides`, `automation <mode index>` |
 | `/overdub/arranger`, `/overdub/launcher` | Arranger and launcher overdub switches (instead of the track's `overdub`) | `transport overdub/arranger\|overdub/launcher <0\|1>` |
-| `/punchIn`, `/punchOut`, `/fill`, `/click/ticks` | Independent punch in/out, fill mode, metronome ticks | `transport punchIn\|punchOut\|fill\|metronomeTicks <0\|1>`, `toggle*` (with host paging) |
+| `/punchIn`, `/punchOut`, `/fill`, `/click/ticks` | Independent punch in/out, fill mode, metronome ticks | – (the commands come with the feature `transportCommands`) |
 | `/recordQuantization`, `/recordQuantization/noteLength` | Global record quantization (instead of per track `inQuantResolution`) | `application recordQuantization <grid>`, `…/noteLength/toggle` |
-| `/track/pinned <p or -1>` | The cursor track is the pinned track of the host | `track pinned <0\|1>`, `track pinned/toggle` (with host paging) |
-| `/track/hasPrevious`, `/track/hasNext` | Cursor track navigation availability from the host | `track selectPrevious\|selectNext` (with host paging) |
+| `/track/pinned <p or -1>` | The cursor track is the pinned track of the host | `track pinned <0\|1>`, `track pinned/toggle` |
+| `/track/hasPrevious`, `/track/hasNext` | Cursor track navigation availability from the host | `track selectPrevious\|selectNext` |
 | `/track/<p>/canHoldNotes`, `canHoldAudio` | Track capabilities (default: true) | – |
 | `/track/<p>/playingnotes` | Playing notes of the cursor track light the pads | – |
-| `/project/hasSolo`, `/project/hasMute` | Project-wide solo/mute state | `project unsoloAll\|unmuteAll` (with host paging) |
+| `/project/hasSolo`, `/project/hasMute` | Project-wide solo/mute state | `project unsoloAll` (with `hasSolo`), `project unmuteAll` (with `hasMute`) |
 | `/project/param/…`, `/project/page/…` | Project remote controls (instead of a bank on the master FX) | `project param/<i>/…`, `project parameterPage <page>` |
 | `/project/cueVolume`, `/project/cueMix` | The cue parameters exist | `project cueVolume\|cueMix` (+ `/inc`, `/reset`, `/touch`) |
 | `/groove/<name>` (six names) | Bitwig's six groove parameters (instead of `groove active\|amount`, −1..1) | `groove <name>` (+ suffixes) |
@@ -184,30 +185,40 @@ feature stays on.
 | `/browser/exists` | The host's browser (content types, filter columns, results) | `browser …` (§4.9) |
 | any of `/clip/loopStart\|loopLength\|shuffle\|accent\|pinned` | **Host step grid** of the note clips (instead of Reaper's note list) | `clip grid/<id>/…`, `clip start\|end\|loopStart\|loopLength/inc` |
 | `/device/pinned` | Pinnable cursor device (Reaper: always pinned) | `device pinned <0\|1>` |
-| `/track/<p>/active`, `/master/active` | Activation state from the host (also makes `set_skip_disabled_items` work) | `track <p>/active`, `master active` |
+| `/track/<p>/active`, `/master/active` | Activation state from the host (also makes `set_skip_disabled_items` work); `/master/active` lets the core (de)activate the master | `track <p>/active`, `master active` |
+| `/track/<p>/vuholdleft\|vuholdright` | The VU clip state is the hold value above 0 dB (Reaper); without them it is `vuleft\|vuright >= 16241/16384` (Bitwig) | – |
 
-**Host paging = the Bitwig dialect.** Reporting `/track/offset` changes far more than paging. With
-it the core (see BITWIG_DIVERGENCES.md §6 and "Reaper backend follow-ups" in
-BITWIG_CORE_PORT_PLAN.md):
+### Host features (`/host/features`)
 
-- changes values relatively: `<value command>/inc <normalized delta>` instead of absolute values
-  (except the Reaper groove); resets with `<value command>/reset` (no value, the DAW's default);
-  sets pad-like values with `<value command>/immediately`; sends `…/indicate` for volume, pan and
-  sends; touch only sends `touch` and shows the host's values while touched;
-- sends `solo/toggle` instead of `solo <value>`; `transport play|stop|restart|stopAndRewind`
-  instead of the `play`/`stop`/`record` processors; `transport togglePunchIn|togglePunchOut|
-  toggleFill|toggleMetronomeTicks`, `transport metronomeVolume[/inc]` instead of `metro_vol`;
-  `application layout/-|+`; `project unsoloAll|unmuteAll`; `track pinned`, `track
-  selectPrevious|selectNext`, `track indicate`;
-- sends the device commands to the device itself (`device|primary|drum|eq
-  window/toggle|expand/toggle|bypass|remove|duplicate|select`, `device sibling/<i+1>/…`) instead of
-  `device <index+1>/…`; moves the sibling page at the first/last sibling and selects 75 ms later;
-- scrolls without selecting (`bank track <pos>` instead of `<pos>/scrollto`), selects the first
-  item of the previous page, allows scrolling back from any offset > 0, computes the VU clip state
-  from `vuleft >= 16241/16384`, allows (de)activating the master.
+Command forms which cannot be detected from a report are switched on by one line which lists the
+features the host understands (space separated, unknown names are ignored, a new line replaces
+the earlier list; `HostFeature` in `src/daw/context.rs`):
 
-So a new host should report `/track/offset` only once it implements these command forms (or
-accept that the unimplemented ones are no-ops). There is no finer switch today.
+```
+/host/features valueInc valueReset immediately indication soloToggle transportCommands deviceCommands layoutStep
+```
+
+Report it with the first report and with every dump (the Bitwig bridge does). Without a feature
+the core sends the basic (Reaper) form of the command or nothing. **Compatibility:** a host which
+reports `/track/offset` but never `/host/features` supports all features (the Bitwig extension
+before it reported its features); a host which reports neither (Reaper) none. So a new host which
+pages should report `/host/features`, even an empty list.
+
+| Name | What it enables in the core | Commands (instead of) |
+| --- | --- | --- |
+| `valueInc` | Relative value changes (knobs, `inc`); the core does not change the value itself and shows the host's values also while a control is touched (Reaper: held back until released). Not for the Reaper groove (`groove active\|amount`) | `<value command>/inc <normalized delta>` (absolute `<value command> <0..1>`) |
+| `valueReset` | Resets to the DAW's default (track/master/layer/pad volume and pan, sends, device and project parameters, cue, groove) | `<value command>/reset`, no value (the core's default as absolute value) |
+| `immediately` | Values without the host's takeover mode (pads, buttons) | `<value command>/immediately <0..1>` (`<value command> <0..1>`) |
+| `indication` | Indication of volume, panorama and sends, and of the clip launcher of the track bank (device parameters are always indicated) | `track <p>/volume\|pan/indicate`, `master volume\|pan/indicate`, `track <p>/send/<s>/volume/indicate`, `track indicate <0\|1>` (nothing) |
+| `soloToggle` | Solo toggles with the host's exclusive solo preference | `track <p>/solo/toggle`, `master solo/toggle` (`solo <0\|1>`) |
+| `transportCommands` | Bitwig's transport commands, the metronome volume of the transport | `transport play\|stop\|restart\|stopAndRewind` (the `play`/`stop`/`record` processors, `time 0`), `transport togglePunchIn\|togglePunchOut\|toggleFill\|toggleMetronomeTicks`, `transport punchIn\|punchOut <0\|1>` without the Reaper punch mode, `transport fill\|metronomeTicks <0\|1>` (nothing), `transport metronomeVolume[/inc]` with the default 0.8 (`metro_vol`, `metro_vol +\|-`) |
+| `deviceCommands` | Commands to the device itself instead of the sibling index | `device\|primary\|drum\|eq window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select`, `device sibling/<i+1>/bypass\|remove\|duplicate\|select` (`device <index+1>/…`, `device window <0\|1>`), `drum\|primary pad/<p>/select` (nothing) |
+| `layoutStep` | Previous/next panel layout of the host | `application layout/-\|+` (`application layout <index>`) |
+
+Features detected from their own reports need no name (table above): paging, the automation and
+overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
+mute, playing notes, the host step grid, shortened texts, activation, VU hold.
+
 
 ## 3. Address reference (host → core)
 
@@ -254,6 +265,7 @@ Bitwig bridge (Reaper only, or nobody).
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
 | `/project/canUndo`, `/project/canRedo` | flag | `application.canUndo/canRedo` | Rec |
+| `/host/features` | space separated feature names (§2 "Host features") | all features, constant | Rec with host paging |
 | `/project/engine` | flag | `hasActiveEngine` | O |
 | `/project/name` | text (also schedules a note mapping update) | – | O |
 | `/project/isDirty` | flag | – | O |
@@ -416,7 +428,7 @@ command is the path without leading `/`, its parts separated by `/`. The Bitwig 
 int and double the same (`handle(processor, command, double)`), and turns a no-arg command
 ending in `/reset` into the value path.
 
-### 4.1 Value command suffixes (host paging only)
+### 4.1 Value command suffixes (host features)
 
 | Suffix | Arg | Meaning | Bitwig |
 | --- | --- | --- | --- |
@@ -431,8 +443,9 @@ They apply to the "value commands": `track <p>/volume|pan`, `master volume|pan`,
 <p>/send/<s*>/volume`, `device|primary|eq|project param/<i>/value`, `drum|primary pad|layer/<i>/
 volume|pan`, `project cueVolume|cueMix`, `groove <name>`, `transport metronomeVolume`
 (`set`/`inc`), `clip accent` (`/immediately`). Clip positions: `clip start|end|loopStart|
-loopLength/inc <beats>` (beats, not normalized). Without host paging Reaper gets absolute values
-and the core's defaults.
+loopLength/inc <beats>` (beats, not normalized). `/inc` needs the feature `valueInc`, `/reset`
+`valueReset`, `/immediately` `immediately`, `/indicate` (volume, pan, sends) `indication`
+(§2 "Host features"); without them the core sends absolute values and its own defaults.
 
 ### 4.2 Transport
 
@@ -450,7 +463,7 @@ and the core's defaults.
 | `time signature` | int `num + den*100` | set time signature | **unhandled** |
 | `beats position`, `beats position/nosnap` | double quarters | set position | `playStartPosition.set`, `jumpToPlayStartPosition` if playing |
 | `beats loop/start`, `beats loop/length` | double quarters | set loop | `arrangerLoopStart/Duration.set` |
-| `transport play\|stop\|restart` | none (host paging) | | `play()`, `stop()`, `restart()` |
+| `transport play\|stop\|restart` | none (`transportCommands`) | | `play()`, `stop()`, `restart()` |
 | `transport stopAndRewind` | none | | `stop()`, `setPosition(0)` 100 ms later |
 | `transport end` | none | to the end of the arrangement | action `jump_to_end_of_arrangement` |
 | `transport metronome` / `toggleMetronome` | int / none | | `isMetronomeEnabled.set/toggle` |
@@ -463,7 +476,7 @@ and the core's defaults.
 | `transport tapTempo` | none | | `tapTempo` |
 | `automation <index>` | int | set mode (0..5 as `/automode`) | ≤ Read: both switches off; else both on and `automationWriteMode` = touch/write/latch |
 | `automation toggleArranger\|toggleLauncher\|resetOverrides` | none | | `toggleWriteArrangerAutomation` etc. |
-| `metro_vol`, `metro_vol +\|-` | int 0..127 / none | Reaper path | unhandled (not sent with host paging) |
+| `metro_vol`, `metro_vol +\|-` | int 0..127 / none | Reaper path | unhandled (not sent with `transportCommands`) |
 | `quantize` | double 0..1 | quantize the cursor clip | `cursorClip.quantize(v)` if 0 < v ≤ 1 |
 | `noterepeat active\|velocity` | int 0/1 | | arpeggiator `isEnabled`, `usePressureToVelocity` |
 | `noterepeat rate` | double = 1 / period | | `rate.set(1 / value)` |
@@ -512,7 +525,7 @@ resolves `<p>` in the window, else in the 400-track bank; sends and slots only i
 | `…/volume/touch`, `…/pan/touch` | int | `touch` |
 | `…/volume/indicate`, `…/pan/indicate` | int | `setIndication` |
 | `track <p>/mute\|solo\|active`, `master …` | int 0/1 | `mute/solo/isActivated.set` |
-| `track <p>/solo/toggle`, `master solo/toggle` | none (host paging) | `solo.toggleUsingPreferences(false)` (exclusive solo preference applies). **The master variant is unhandled**, see §6.8 |
+| `track <p>/solo/toggle`, `master solo/toggle` | none (`soloToggle`) | `solo.toggleUsingPreferences(false)` (exclusive solo preference applies). **The master variant is unhandled**, see §6.8 |
 | `track <p>/recarm` | int | `arm.set` |
 | `track <p>/monitor` | int | `monitorMode` ON / OFF |
 | `track <p>/autoMonitor` | int | `monitorMode` AUTO / OFF |
@@ -554,8 +567,8 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 | `device +` / `device -` | none | `cursorDevice.selectNext/Previous` |
 | `device page/+` / `page/-` | none | sibling bank page |
 | `device selected` | int, 1-based index in the sibling window | `siblings.getItemAt(i-1).selectInEditor` |
-| `device sibling/<i+1>/bypass\|remove\|duplicate\|select` | none (host paging) | on the sibling of the window |
-| `<dev> window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select` | none (host paging) | on the device itself (`duplicate` = `afterDeviceInsertionPoint.copyDevices`) |
+| `device sibling/<i+1>/bypass\|remove\|duplicate\|select` | none (`deviceCommands`) | on the sibling of the window |
+| `<dev> window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select` | none (`deviceCommands`) | on the device itself (`duplicate` = `afterDeviceInsertionPoint.copyDevices`) |
 | `<dev> window`, `<dev> expand` | int | `isWindowOpen/isExpanded.set` |
 | `device pinned` | int | `cursorDevice.isPinned.set` |
 | `device <i+1>/bypass\|remove\|duplicate` | int / none (Reaper path) | the sibling whose chain position is `i` (bypass toggles) |
@@ -565,7 +578,7 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 | `eq add` | none | `insertBitwigDevice(EQ+)` at the end of the cursor track's chain |
 | `drum\|primary clearMute\|clearSolo` | none | `drumPadBank.clearMutedPads/clearSoloedPads` |
 | `drum\|primary indicate` | int | `drumPadBank.setIndication` |
-| `drum\|primary pad/<i>/select` | none (host paging) | `selectInEditor` only |
+| `drum\|primary pad/<i>/select` | none (`deviceCommands`) | `selectInEditor` only |
 | `primary layer/<i>/select` | none | as channel select |
 | `drum\|primary pad\|layer/<i>/mute\|solo\|active\|volume\|pan\|…` | as channel commands | on the pad/layer channel |
 | `device preset`, `device add/0`, `device <i+1>/movePrev\|moveNext` | | Reaper, unhandled |
@@ -721,11 +734,12 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
 Without `/track/offset` the core pages the tracks itself and sends Reaper-style commands
 (absolute values, `<p>/scrollto`, `<index+1>/bypass`): simplest to start with.
 
-**Step 2: the Bitwig dialect.** Report `/track/offset` and `/scene/offset`, implement `bank`,
-the suffixes `/inc`, `/reset`, `/immediately`, `/touch`, `/indicate`, `solo/toggle`, `transport
-play|stop|restart|stopAndRewind|toggle*`, the device commands without index, `track
-pinned|selectPrevious|selectNext` with `/track/pinned|hasPrevious|hasNext`, and the re-report
-after value commands (§6.1).
+**Step 2: host paging.** Report `/track/offset` and `/scene/offset` and implement `bank`. Report
+`/host/features` at the same time (an empty list at first), otherwise the core assumes all
+features. Then add the features one by one (§2 "Host features"): `valueInc` (with the re-report
+after value commands, §6.1), `valueReset`, `immediately`, `indication`, `soloToggle`,
+`transportCommands`, `deviceCommands`, `layoutStep`. `track pinned|selectPrevious|selectNext` come
+with the reports `/track/pinned|hasPrevious|hasNext`.
 
 **Step 3: features, each independent** (report the address, handle its commands, §2 table):
 sends; slots and scenes; named parameter pages; shortened texts; automation and overdub switches;

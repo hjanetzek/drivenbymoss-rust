@@ -282,6 +282,12 @@ impl Parser {
             "noterepeat" => self.parse_note_repeat(model, &mut parts, value),
             "groove" => Self::parse_groove(model, &mut parts, value),
             "drum" => Self::parse_drum(model, &mut parts, value),
+            // The command forms the host understands (HostFeature), e.g. `/host/features
+            // valueInc valueReset`
+            "host" => match parts.poll() {
+                Some("features") => model.ctx().set_host_features(value),
+                _ => Self::error(model, &format!("Unhandled host parameter: {osc}")),
+            },
             _ => Self::error(model, &format!("Unhandled OSC address: {osc} {value}")),
         }
     }
@@ -1408,6 +1414,7 @@ mod tests {
     use crate::daw::clip::{NotePosition, StepState};
     use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
     use crate::daw::constants::GrooveParameterId;
+    use crate::daw::context::HostFeature;
     use crate::daw::events::ModelEvent;
     use crate::daw::model_setup::ModelSetup;
     use crate::framework::value_changer::ValueChanger;
@@ -2644,7 +2651,7 @@ mod tests {
         feed(
             &mut model,
             &mut parser,
-            &["/track/offset 0", "/track/count 3", "/track/0/exists 1", "/track/1/exists 1", "/track/2/exists 1", "/track/0/select 1", "/track/hasPrevious 0", "/track/hasNext 1"],
+            &["/track/offset 0", "/track/count 3", "/track/0/exists 1", "/track/1/exists 1", "/track/2/exists 1", "/track/0/select 1", "/track/pinned -1", "/track/hasPrevious 0", "/track/hasNext 1"],
         );
         assert!(!model.cursor_track_can_select_previous() && model.cursor_track_can_select_next());
         backend.take_calls();
@@ -2670,6 +2677,55 @@ mod tests {
         assert!(!model.is_cursor_track_pinned());
         assert_eq!(model.cursor_track().position(), 1);
         assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+    }
+
+    /// `/host/features`: a host which pages but did not report its features supports all of
+    /// them (compatibility), a host which reported them exactly the listed ones (unknown names
+    /// are ignored), a host which reports neither (Reaper) none.
+    #[test]
+    fn host_features() {
+        let (model, _, _, _) = create(ModelSetup::default());
+        assert!(HostFeature::ALL.iter().all(|f| !model.ctx().host_supports(*f)));
+
+        let (mut model, mut parser, _, log) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/offset 0"]);
+        assert!(HostFeature::ALL.iter().all(|f| model.ctx().host_supports(*f)));
+        feed(&mut model, &mut parser, &["/host/features valueInc bogus soloToggle"]);
+        let supported: Vec<HostFeature> = HostFeature::ALL.into_iter().filter(|f| model.ctx().host_supports(*f)).collect();
+        assert_eq!(supported, vec![HostFeature::ValueInc, HostFeature::SoloToggle]);
+        assert!(model.ctx().is_host_paging());
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+
+        // Features without paging
+        let (mut model, mut parser, _, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/host/features transportCommands"]);
+        assert!(!model.ctx().is_host_paging());
+        assert!(model.ctx().host_supports(HostFeature::TransportCommands) && !model.ctx().host_supports(HostFeature::ValueInc));
+    }
+
+    /// A paging host without the feature `valueInc` gets absolute values (and without
+    /// `valueReset` and `soloToggle` the core's reset and solo values).
+    #[test]
+    fn host_paging_without_value_inc_sends_absolute_values() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/offset 0", "/host/features paging", "/track/count 1", "/track/0/exists 1", "/track/0/volume 0.5"]);
+        backend.take_calls();
+        let track = model.track_bank_mut().item_mut(0);
+        track.change_volume(1);
+        track.reset_volume();
+        track.toggle_solo();
+        let calls = backend.take_calls();
+        assert_eq!(calls.len(), 3, "{calls:?}");
+        assert!(matches!(&calls[0], BackendCall::DoubleArg(p, c, v) if p == "track" && c == "0/volume" && *v > 0.5), "{calls:?}");
+        assert!(matches!(&calls[1], BackendCall::DoubleArg(p, c, v) if p == "track" && c == "0/volume" && (*v - 0.716).abs() < 0.01), "{calls:?}");
+        assert_eq!(calls[2], BackendCall::IntArg("track".into(), "0/solo".into(), 1));
+
+        // The same host with valueInc
+        feed(&mut model, &mut parser, &["/host/features valueInc"]);
+        backend.take_calls();
+        model.track_bank_mut().item_mut(0).change_volume(1);
+        let calls = backend.take_calls();
+        assert!(matches!(&calls[..], [BackendCall::DoubleArg(p, c, _)] if p == "track" && c == "0/volume/inc"), "{calls:?}");
     }
 
     #[test]

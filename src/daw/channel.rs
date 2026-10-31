@@ -13,7 +13,7 @@ use crate::backend::Processor;
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
 use super::constants::ChannelType;
-use super::context::DawContext;
+use super::context::{DawContext, HostFeature};
 use super::events::ModelEvent;
 use super::parameter::{Parameter, ParameterKind, Send};
 use super::util;
@@ -101,6 +101,8 @@ pub struct Channel {
     is_mute: bool,
     is_solo: bool,
     is_activated: bool,
+    /// The host reported the activation state (Bitwig, also for the master).
+    activation_reported: bool,
     color: Option<ColorEx>,
     color_override: Option<ColorEx>,
     volume: Parameter,
@@ -144,6 +146,7 @@ impl Channel {
             is_mute: false,
             is_solo: false,
             is_activated: true,
+            activation_reported: false,
             color: None,
             color_override: None,
             volume,
@@ -266,7 +269,7 @@ impl Channel {
 
     /// ChannelImpl.resetVolume: the volume parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_volume(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::ValueReset) {
             self.volume.reset_value();
             return;
         }
@@ -325,7 +328,7 @@ impl Channel {
 
     /// ChannelImpl.resetPan: the panorama parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_pan(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::ValueReset) {
             self.pan.reset_value();
             return;
         }
@@ -390,7 +393,7 @@ impl Channel {
     /// ChannelImpl.toggleSolo: `solo ().toggleUsingPreferences (false)` on Bitwig (exclusive
     /// solo as set in Bitwig's preferences): `solo/toggle`.
     pub fn toggle_solo(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::SoloToggle) {
             self.send_cmd("solo/toggle");
             return;
         }
@@ -445,16 +448,16 @@ impl Channel {
     }
 
     /// ChannelImpl.getVuLeftClipState: `vuLeft >= CLIP_BORDER` (16241 of 16384) on Bitwig;
-    /// Reaper: the hold value above 0 dB.
+    /// Reaper (a host which reports the VU hold values): the hold value above 0 dB.
     pub fn vu_left_clip_state(&self) -> bool {
-        if self.ctx.is_host_paging() {
+        if !self.ctx.host_reports_vu_hold() {
             return self.vu_left >= VU_CLIP_BORDER;
         }
         self.vu_hold_db_left > 0.0
     }
 
     pub fn vu_right_clip_state(&self) -> bool {
-        if self.ctx.is_host_paging() {
+        if !self.ctx.host_reports_vu_hold() {
             return self.vu_right >= VU_CLIP_BORDER;
         }
         self.vu_hold_db_right > 0.0
@@ -463,9 +466,10 @@ impl Channel {
     // ----------------------------------------------------------------------------------------
     // Other commands
 
-    /// ChannelImpl.setIsActivated: `isActivated ().set (value)`, also for the master on Bitwig.
+    /// ChannelImpl.setIsActivated: `isActivated ().set (value)`, also for the master on a host
+    /// which reports its activation state (Bitwig; Reaper can not deactivate its master).
     pub fn set_is_activated(&mut self, enable: bool) {
-        if self.kind == ChannelKind::Master && !self.ctx.is_host_paging() {
+        if self.kind == ChannelKind::Master && !self.activation_reported {
             return;
         }
         self.is_activated = enable;
@@ -616,10 +620,12 @@ impl Channel {
     }
 
     pub fn set_vu_hold_left(&mut self, vu: f64) {
+        self.ctx.set_host_reports_vu_hold();
         self.vu_hold_db_left = vu;
     }
 
     pub fn set_vu_hold_right(&mut self, vu: f64) {
+        self.ctx.set_host_reports_vu_hold();
         self.vu_hold_db_right = vu;
     }
 
@@ -632,6 +638,7 @@ impl Channel {
     }
 
     pub fn set_internal_is_activated(&mut self, is_activated: bool) {
+        self.activation_reported = true;
         self.is_activated = is_activated;
     }
 

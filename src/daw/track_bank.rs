@@ -18,7 +18,7 @@ use super::bank::BankItem;
 use super::clip::Note;
 use super::color::{ColorEx, DawColor};
 use super::constants::ChannelType;
-use super::context::DawContext;
+use super::context::{DawContext, HostFeature};
 use super::events::ModelEvent;
 use super::scene::SceneBank;
 use super::track::Track;
@@ -535,10 +535,10 @@ impl TrackBank {
         self.tracks.iter().any(|t| t.is_mute())
     }
 
-    /// ProjectImpl.clearSolo: `project.unsoloAll ()` on Bitwig (all tracks, not only the known
-    /// ones).
+    /// ProjectImpl.clearSolo: `project.unsoloAll ()` on a host which reports the project's solo
+    /// state (Bitwig: all tracks, not only the known ones).
     pub fn clear_solo(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.host_project_solo.is_some() {
             self.ctx.send(Processor::Project, "unsoloAll");
             return;
         }
@@ -547,9 +547,10 @@ impl TrackBank {
         }
     }
 
-    /// ProjectImpl.clearMute: `project.unmuteAll ()` on Bitwig.
+    /// ProjectImpl.clearMute: `project.unmuteAll ()` on a host which reports the project's mute
+    /// state (Bitwig).
     pub fn clear_mute(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.host_project_mute.is_some() {
             self.ctx.send(Processor::Project, "unmuteAll");
             return;
         }
@@ -581,7 +582,7 @@ impl TrackBank {
     /// AbstractTrackBankImpl.setIndication: `trackBank.setShouldShowClipLauncherFeedback` on
     /// Bitwig (`track indicate <0|1>`).
     pub fn set_indication(&mut self, enable: bool) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::Indication) {
             self.ctx.send_bool(Processor::Track, "indicate", enable);
         }
     }

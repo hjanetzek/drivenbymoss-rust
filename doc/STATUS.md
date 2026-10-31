@@ -188,10 +188,13 @@ investigate:
   `process_no_arg`, whose handler in the Bitwig extension had no `master` case, so it was dropped.
   Fixed 2026-10-31; no ported controller toggles the master's solo (they toggle tracks of the
   bank), so it did not show yet.
-- [ ] The report of `/track/offset` (host paging) switches on all Bitwig command forms (`/inc`,
+- [x] The report of `/track/offset` (host paging) switched on all Bitwig command forms (`/inc`,
   `/reset`, `/immediately`, `solo/toggle`, `transport play|stop|restart`, device commands
-  without index, …). A new host has to handle all of them at once; consider finer capability
-  switches (e.g. a host capability set in the model setup).
+  without index, …). Done 2026-10-31: the host reports its command forms with `/host/features`
+  (`HostFeature`: valueInc, valueReset, immediately, indication, soloToggle, transportCommands,
+  deviceCommands, layoutStep; HOST_BRIDGE_GUIDE.md §2); pinning, cursor track navigation, project
+  unsolo/unmute, master activation and the VU clip state follow their own reports; a paging host
+  without `/host/features` gets all features.
 - [ ] Commands the core sends which the Bitwig extension does not handle: `clip clear`, `time
   signature`, `time loop/start|length` (Reaper form), `track <p>/movePrev|moveNext|toggleMultiSelect`,
   `device <i>/movePrev|moveNext`, `device preset`, `device add/0`, `marker add`, `marker <i>/…`,

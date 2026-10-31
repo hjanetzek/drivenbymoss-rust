@@ -9,7 +9,7 @@ use crate::backend::Processor;
 
 use super::color::ColorEx;
 use super::constants::ChannelType;
-use super::context::DawContext;
+use super::context::{DawContext, HostFeature};
 use super::track_bank::add_channel;
 
 pub const PANEL_LAYOUT_ARRANGE: &str = "ARRANGE";
@@ -65,7 +65,7 @@ impl Application {
 
     /// ApplicationImpl.previousPanelLayout: `application.previousPanelLayout ()` on Bitwig.
     pub fn previous_panel_layout(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::LayoutStep) {
             self.ctx.send(Processor::Application, "layout/-");
             return;
         }
@@ -74,7 +74,7 @@ impl Application {
 
     /// ApplicationImpl.nextPanelLayout: `application.nextPanelLayout ()` on Bitwig.
     pub fn next_panel_layout(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::LayoutStep) {
             self.ctx.send(Processor::Application, "layout/+");
             return;
         }

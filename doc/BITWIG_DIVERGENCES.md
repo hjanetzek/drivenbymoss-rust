@@ -149,15 +149,15 @@ extension calls `inc (delta)`; the core does not change its value, Bitwig report
 core sent its value plus the increment with `set`, which the takeover mode (catch) could swallow,
 and fractional increments were cut. The clip's play start and end, loop start and length change
 with `clip start|end|loopStart|loopLength/inc <beats>` (`getPlayStart ().inc (frac)` etc.; before:
-absolute, the loop length could become ≤ 0). Not yet for the groove. Only with host paging;
-Reaper gets the absolute values.
+absolute, the loop length could become ≤ 0). Not yet for the groove. Only with the host feature
+`valueInc` (see "Host features" below); Reaper gets the absolute values.
 
 **Reset (core port P1 6, 2026-10-30).** As `ParameterImpl.resetValue` (`parameter.reset ()`):
 resetting a device parameter, the volume or panorama of a track, the master, a drum pad or layer,
 a send or an EQ parameter sends `<value command>/reset` without a value (e.g. `track 3/volume/reset`,
 `eq param/4/value/reset`, `master pan/reset`), and Bitwig sets its own default. Before, the core
 set Reaper's defaults (0 for device parameters and sends, 0.716 = Reaper's 0 dB for the volume).
-Only with host paging; Reaper keeps the core's defaults.
+Only with the host feature `valueReset`; Reaper keeps the core's defaults.
 
 **Device commands (core port P1 7, 2026-10-30).** As `SpecificDeviceImpl` and `DeviceImpl`: the
 cursor device, the first instrument, the drum device and the EQ act on themselves with
@@ -168,7 +168,19 @@ siblings with `device sibling/<index + 1>/bypass|remove|duplicate|select` by the
 sibling window. Before, window and expand of all kinds went to the cursor device, and the bypass,
 remove and duplicate of the specific devices were sent as `<index+1>/…` with index −1 or the
 window index, which the extension matched against the position in the chain (wrong from position
-8 on). Only with host paging; Reaper keeps its commands.
+8 on). Only with the host feature `deviceCommands`; Reaper keeps its commands.
+
+**Host features (2026-10-31).** The Java version has one implementation per DAW; the core has
+one for both and switched the Bitwig command forms with the host paging (`/track/offset`). Now the
+extension reports the command forms it handles with `/host/features valueInc valueReset
+immediately indication soloToggle transportCommands deviceCommands layoutStep` (first report and
+every dump), and the core checks the feature per command (`DawContext::host_supports`);
+`is_host_paging` only rules the paging itself. A paging host without `/host/features` gets all
+features (compatibility with the recordings). Some switches now come from their own reports: the
+pin commands with `/track/pinned`, `track selectPrevious|selectNext` with `/track/hasPrevious|hasNext`,
+`project unsoloAll|unmuteAll` with `/project/hasSolo|hasMute`, (de)activating the master with
+`/master/active`, and the VU clip state from the VU (Bitwig) unless the host reports the VU hold
+values (Reaper). See HOST_BRIDGE_GUIDE.md §2.
 
 **Step attributes (core port P1 8, 2026-10-30).** As `CursorClipImpl.updateStep*`: outside of
 an edit, changing one attribute of a step writes only that attribute,
@@ -205,7 +217,7 @@ position was set at once), the metronome ticks (`/click/ticks`, `transport metro
 `transport togglePunchIn|togglePunchOut`; before, one punch state in which in and out excluded each
 other), the metronome volume (`transport metronomeVolume <value>` and `metronomeVolume/inc <delta>`
 as `set`/`inc (…, upperBound)`, reset to 0.8, the text `displayedValue ().getLimited (6) + " dB"`;
-before, `metro_vol` was not handled). Only with host paging; Reaper keeps its commands. Note: the
+before, `metro_vol` was not handled). Only with the host feature `transportCommands`; Reaper keeps its commands. Note: the
 Pause behaviour of the play button calls `play`, which in Bitwig starts but does not pause (as in
 the Java version).
 
@@ -265,9 +277,10 @@ offset as the Java version for Reaper); after a device change the parameter page
 Bitwig reported last (`remoteControls.selectedPageIndex ()`, Bitwig remembers the page per device;
 before: the page the core remembered for the device name); `ParameterPageBankImpl.canScrollPageForwards`
 asks for a next page *of pages* (before: a next parameter page); touching a parameter only sends
-`touch` (`ParameterImpl.touchValue`), the host's values are shown while touched (before: held back
-until released, as Reaper); selecting a drum pad selects it only in the editor
-(`DrumPadImpl.select`: `selectInEditor ()`; before: also in the mixer and made visible) and the
+`touch` (`ParameterImpl.touchValue`), the host's values are shown while touched (host feature
+`valueInc`; before: held back until released, as Reaper); selecting a drum pad selects it only in the editor
+(`DrumPadImpl.select`: `selectInEditor ()`, host feature `deviceCommands`; before: also in the
+mixer and made visible) and the
 generic bank selections (`select_next_item` etc.) work on pads (before: no-ops); the layer bank
 scrolls exactly to a position (`scrollTo`, `adjustPage` ignored; before: page aligned). Selecting
 the master selects it in the editor and the mixer and makes it visible (`ChannelImpl.select`).
@@ -312,7 +325,7 @@ track volume and sends did not change in the fixture project, even from OSC. The
 uses `set` for knobs and faders (so does the Rust core, as on Reaper), and `setImmediately`
 (`setValueImmediatly`) where the control has no position, e.g. the pads of the Launchpad Mix,
 Device, User and Note Edit views. The Rust core sends these with the suffix `/immediately`
-(`Parameter::set_value_immediatly`, only with host paging, i.e. Bitwig), and the extension calls
+(`Parameter::set_value_immediatly`, only with the host feature `immediately`, i.e. Bitwig), and the extension calls
 `setImmediately`. The core sets a value it sends locally right away, as for Reaper, and the
 extension reports only changes, so a value which Bitwig ignored stayed on the controller; the
 Java version always shows Bitwig's value. The extension now forgets the reported values of the

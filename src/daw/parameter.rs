@@ -14,7 +14,7 @@ use crate::framework::value_changer::ValueChanger;
 use super::bank::BankItem;
 use super::color::ColorEx;
 use super::constants::GrooveParameterId;
-use super::context::{DawContext, MASTER_POSITION};
+use super::context::{DawContext, HostFeature, MASTER_POSITION};
 use super::util;
 
 /// Defines how a parameter sends its value to the DAW.
@@ -210,10 +210,16 @@ impl Parameter {
         self.number_of_steps
     }
 
+    /// True if the host understands the command form of the feature for this parameter's value
+    /// command (not the Reaper groove, which has no such suffixes).
+    fn host_value_command(&self, feature: HostFeature) -> bool {
+        self.ctx.host_supports(feature) && !matches!(self.kind, ParameterKind::Groove(_) | ParameterKind::Empty)
+    }
+
     /// True if the host changes the value relatively (Bitwig: `…/inc`, as `RangedValueImpl.inc`
     /// of the Java version for Bitwig). Reaper gets absolute values (its backend has no `/inc`).
     fn host_increments(&self) -> bool {
-        self.ctx.is_host_paging() && !matches!(self.kind, ParameterKind::Groove(_) | ParameterKind::Empty)
+        self.host_value_command(HostFeature::ValueInc)
     }
 
     /// Increase/decrease the value by the given amount (in the range of the value changer).
@@ -295,11 +301,11 @@ impl Parameter {
         self.send_value();
     }
 
-    /// Reset the value to its default. With host paging (Bitwig) as ParameterImpl.resetValue:
-    /// `parameter.reset ()`, Bitwig's own default (`<value command>/reset`). Reaper: the default
-    /// of the core (the Reaper backend has no reset).
+    /// Reset the value to its default. With [`HostFeature::ValueReset`] (Bitwig) as
+    /// ParameterImpl.resetValue: `parameter.reset ()`, Bitwig's own default (`<value
+    /// command>/reset`). Reaper: the default of the core (the Reaper backend has no reset).
     pub fn reset_value(&mut self) {
-        if self.ctx.is_host_paging() && self.host_increments() {
+        if self.host_value_command(HostFeature::ValueReset) {
             if let Some((processor, cmd)) = self.value_address() {
                 self.ctx.send(processor, &format!("{cmd}/reset"));
             }
@@ -343,7 +349,7 @@ impl Parameter {
         }
         // ParameterImpl.setIndication of the Java version for Bitwig: also the volume, panorama
         // and sends (`<value command>/indicate`)
-        if !self.host_increments() {
+        if !self.host_value_command(HostFeature::Indication) {
             return;
         }
         if let Some((processor, cmd)) = self.value_address() {
@@ -405,9 +411,8 @@ impl Parameter {
             ParameterKind::Groove(_) => self.value * 2.0 - 1.0,
             _ => self.value,
         };
-        // The extension for Bitwig (the host which pages the banks) knows the commands to set a
-        // value immediately
-        let suffix = if self.immediately && self.ctx.is_host_paging() { "/immediately" } else { "" };
+        // The host knows the commands to set a value immediately (Bitwig)
+        let suffix = if self.immediately && self.ctx.host_supports(HostFeature::Immediately) { "/immediately" } else { "" };
         self.ctx.send_double(processor, &format!("{cmd}{suffix}"), value);
     }
 
@@ -428,8 +433,9 @@ impl Parameter {
             _ => value,
         };
         // ParameterImpl.touchValue of the Java version for Bitwig only calls parameter.touch (b):
-        // the values of the host are shown while touched (Reaper: held back until released)
-        if self.is_being_touched && !self.ctx.is_host_paging() {
+        // the values of the host are shown while touched (Reaper: held back until released). A
+        // host which changes the values relatively has to: the core does not change them itself
+        if self.is_being_touched && !self.ctx.host_supports(HostFeature::ValueInc) {
             self.last_received_value = value;
         } else {
             self.value = value;

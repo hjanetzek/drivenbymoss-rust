@@ -62,6 +62,9 @@ pub struct Model {
     pinned_track: Option<TrackRef>,
     /// `cursorTrack.hasPrevious ()`, `hasNext ()` reported by the host (Bitwig).
     host_cursor_track_neighbours: Option<(bool, bool)>,
+    /// The host reports its pinned cursor track (`/track/pinned`, Bitwig) and handles the pin
+    /// commands.
+    host_pins_track: bool,
     cursor_device: SpecificDevice,
     first_instrument: Option<SpecificDevice>,
     eq_device: Option<SpecificDevice>,
@@ -132,6 +135,7 @@ impl Model {
             track_bank,
             pinned_track: None,
             host_cursor_track_neighbours: None,
+            host_pins_track: false,
             first_instrument,
             eq_device,
             drum_device,
@@ -430,8 +434,9 @@ impl Model {
     }
 
     pub fn toggle_cursor_track_pinned(&mut self) {
-        // CursorTrackImpl.togglePinned: isPinned ().toggle () on Bitwig
-        if self.ctx.is_host_paging() {
+        // CursorTrackImpl.togglePinned: isPinned ().toggle () on a host which reports the pinned
+        // track (Bitwig)
+        if self.host_pins_track {
             self.ctx.send(Processor::Track, "pinned/toggle");
             return;
         }
@@ -443,6 +448,7 @@ impl Model {
     /// (Bitwig: `cursorTrack.isPinned ()`; the cursor track then stays on that track, also for the
     /// cursor device and the remote controls).
     pub fn set_host_pinned_track(&mut self, position: i32) {
+        self.host_pins_track = true;
         let pinned = (position >= 0).then_some(TrackRef::Position(position as usize));
         if pinned == self.pinned_track {
             return;
@@ -461,7 +467,7 @@ impl Model {
     /// Pin the currently selected track (or unpin it). Bitwig: CursorTrackImpl.setPinned,
     /// `cursorTrack.isPinned ().set (pinned)`; the host reports the pinned track.
     pub fn set_cursor_track_pinned(&mut self, pinned: bool) {
-        if self.ctx.is_host_paging() {
+        if self.host_pins_track {
             self.ctx.send_bool(Processor::Track, "pinned", pinned);
             return;
         }
@@ -505,9 +511,10 @@ impl Model {
         }
     }
 
-    /// CursorTrackImpl.selectPrevious: `cursorTrack.selectPrevious ()` (Bitwig).
+    /// CursorTrackImpl.selectPrevious: `cursorTrack.selectPrevious ()` on a host which reports
+    /// the neighbours of its cursor track (Bitwig).
     pub fn cursor_track_select_previous(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.host_cursor_track_neighbours.is_some() {
             self.ctx.send(Processor::Track, "selectPrevious");
             return;
         }
@@ -516,7 +523,7 @@ impl Model {
 
     /// CursorTrackImpl.selectNext: `cursorTrack.selectNext ()` (Bitwig).
     pub fn cursor_track_select_next(&mut self) {
-        if self.ctx.is_host_paging() {
+        if self.host_cursor_track_neighbours.is_some() {
             self.ctx.send(Processor::Track, "selectNext");
             return;
         }

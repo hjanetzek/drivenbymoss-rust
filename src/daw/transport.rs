@@ -13,7 +13,7 @@ use crate::backend::Processor;
 use crate::framework::value_changer::ValueChanger;
 
 use super::constants::{transport_constants, AutomationMode, LaunchQuantization, PostRecordingAction};
-use super::context::DawContext;
+use super::context::{DawContext, HostFeature};
 
 const ZOOM_RESOLUTIONS: [(f64, f64); 15] = [
     (8.8, 1.0),
@@ -151,7 +151,7 @@ impl MetronomeVolumeParameter {
 
     /// Bitwig: `metronomeVolume ().set (value, upperBound)` (`transport metronomeVolume`).
     pub fn set_normalized_value(&mut self, value: f64) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             self.ctx.send_double(Processor::Transport, "metronomeVolume", value);
             return;
         }
@@ -161,7 +161,7 @@ impl MetronomeVolumeParameter {
 
     /// Bitwig: RangedValueImpl.changeValue, `inc (calcKnobChange (control))`.
     pub fn change_value(&mut self, control: i32) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             let change = self.ctx.value_changer().calc_knob_change(control);
             self.inc(change);
             return;
@@ -172,14 +172,14 @@ impl MetronomeVolumeParameter {
 
     /// MetronomeVolumeParameterImpl.resetValue: 0.8 on Bitwig.
     pub fn reset_value(&mut self) {
-        let default = if self.ctx.is_host_paging() { HOST_DEFAULT_METRONOME_VOLUME } else { DEFAULT_METRONOME_VOLUME };
+        let default = if self.ctx.host_supports(HostFeature::TransportCommands) { HOST_DEFAULT_METRONOME_VOLUME } else { DEFAULT_METRONOME_VOLUME };
         self.set_normalized_value(default);
     }
 
     /// Bitwig: RangedValueImpl.inc, `metronomeVolume ().inc (increment, upperBound)`
     /// (`transport metronomeVolume/inc <normalized delta>`).
     pub fn inc(&mut self, increment: f64) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             let upper = self.ctx.value_changer().upper_bound() as f64;
             self.ctx.send_double(Processor::Transport, "metronomeVolume/inc", increment / upper);
             return;
@@ -296,11 +296,11 @@ impl Transport {
     // ----------------------------------------------------------------------------------------
     // Play / record
 
-    /// With host paging (Bitwig) the commands of TransportImpl for Bitwig: `transport.play ()`,
-    /// `stop ()`, `restart ()`, and stop and rewind (`stop ()`, `setPosition (0)` 100 ms later);
-    /// record is not touched. Returns false without host paging.
+    /// With [`HostFeature::TransportCommands`] (Bitwig) the commands of TransportImpl for
+    /// Bitwig: `transport.play ()`, `stop ()`, `restart ()`, and stop and rewind (`stop ()`,
+    /// `setPosition (0)` 100 ms later); record is not touched. Returns false without the feature.
     fn send_host(&self, command: &str) -> bool {
-        if !self.ctx.is_host_paging() {
+        if !self.ctx.host_supports(HostFeature::TransportCommands) {
             return false;
         }
         self.ctx.send(Processor::Transport, command);
@@ -383,7 +383,7 @@ impl Transport {
     }
 
     pub fn set_metronome_ticks(&mut self, on: bool) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             self.ctx.send_bool(Processor::Transport, "metronomeTicks", on);
         }
     }
@@ -401,7 +401,7 @@ impl Transport {
     }
 
     pub fn change_metronome_volume(&mut self, control: i32) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             // TransportImpl.changeMetronomeVolume: inc (calcKnobChange (control), upperBound)
             self.metronome_volume.change_value(control);
             return;
@@ -723,7 +723,7 @@ impl Transport {
 
     pub fn set_punch_in(&mut self, enable: bool) {
         self.ctx.send_bool(Processor::Transport, "punchIn", enable);
-        if !self.ctx.is_host_paging() {
+        if !self.ctx.host_supports(HostFeature::TransportCommands) {
             self.punch_mode = if enable { PUNCH_LOOP } else { PUNCH_OFF };
         }
     }
@@ -745,7 +745,7 @@ impl Transport {
 
     pub fn set_punch_out(&mut self, enable: bool) {
         self.ctx.send_bool(Processor::Transport, "punchOut", enable);
-        if !self.ctx.is_host_paging() {
+        if !self.ctx.host_supports(HostFeature::TransportCommands) {
             self.punch_mode = if enable { PUNCH_ITEMS } else { PUNCH_OFF };
         }
     }
@@ -875,7 +875,7 @@ impl Transport {
     }
 
     pub fn set_fill_mode_active(&mut self, active: bool) {
-        if self.ctx.is_host_paging() {
+        if self.ctx.host_supports(HostFeature::TransportCommands) {
             self.ctx.send_bool(Processor::Transport, "fill", active);
         }
     }

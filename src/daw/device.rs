@@ -16,7 +16,7 @@ use crate::backend::Processor;
 use super::bank::{BankItem, PagedBank};
 use super::channel::{Channel, ChannelKind};
 use super::color::{ColorEx, DawColor};
-use super::context::DawContext;
+use super::context::{DawContext, HostFeature};
 use super::events::ParameterBankId;
 use super::parameter_bank::ParameterBank;
 use super::util;
@@ -56,10 +56,11 @@ impl Device {
         self.is_enabled
     }
 
-    /// With host paging (Bitwig) the command acts on the sibling itself (DeviceImpl), addressed
-    /// by its index in the sibling window: `sibling/<index + 1>/<command>`.
+    /// With [`HostFeature::DeviceCommands`] (Bitwig) the command acts on the sibling itself
+    /// (DeviceImpl), addressed by its index in the sibling window: `sibling/<index +
+    /// 1>/<command>`.
     fn send_sibling(&self, command: &str) -> bool {
-        if !self.ctx.is_host_paging() {
+        if !self.ctx.host_supports(HostFeature::DeviceCommands) {
             return false;
         }
         if self.index >= 0 {
@@ -282,7 +283,7 @@ impl BankItem for DrumPad {
     /// a host which reports the pads; Reaper's pads are virtual), so that the generic bank
     /// selections (`select_next_item` etc.) work on pads.
     fn select(&mut self) {
-        if self.channel.ctx.is_host_paging() && self.channel.exists {
+        if self.channel.ctx.host_supports(HostFeature::DeviceCommands) && self.channel.exists {
             self.channel.send_cmd("select");
         }
     }
@@ -831,9 +832,10 @@ impl SpecificDevice {
         }
     }
 
-    /// With host paging (Bitwig) send a command to the device itself; false otherwise.
+    /// With [`HostFeature::DeviceCommands`] (Bitwig) send a command to the device itself; false
+    /// otherwise.
     fn send_own(&self, command: &str) -> bool {
-        if !self.ctx.is_host_paging() {
+        if !self.ctx.host_supports(HostFeature::DeviceCommands) {
             return false;
         }
         self.ctx.send(self.own_processor(), command);

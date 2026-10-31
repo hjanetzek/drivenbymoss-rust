@@ -70,6 +70,8 @@ public final class BitwigModel
     final Parameter []       grooveParameters;
     /** The names of the groove parameters for the core. */
     static final String []   GROOVE_PARAMETERS = { "enabled", "shuffleAmount", "shuffleRate", "accentAmount", "accentRate", "accentPhase" };
+    /** All command forms of the core's HostFeature (see HOST_BRIDGE_GUIDE.md §2). */
+    private static final String HOST_FEATURES = "valueInc valueReset immediately indication soloToggle transportCommands deviceCommands layoutStep";
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
@@ -419,6 +421,9 @@ public final class BitwigModel
     public void collect (final ModelReporter reporter)
     {
         reporter.applyPendingForgets ();
+        // The command forms this extension handles (HostFeature of the core); reported once and
+        // with every dump
+        reporter.put ("/host/features", HOST_FEATURES);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         this.collectScenes (reporter);
