@@ -111,6 +111,8 @@ public final class BitwigModel
     final CueMarkerBank      markerBank;
     /** The remote controls of the cursor track (CursorTrackImpl.getParameterBank), empty if not needed. */
     final CursorRemoteControlsPage [] trackPages;
+    /** The remote controls of the cursor track which follow the page selected in Bitwig. */
+    final CursorRemoteControlsPage trackRemoteControls;
     final CursorRemoteControlsPage [] pages;
     /** Follows the page selected in Bitwig (as the remote controls page of the Java version). */
     final CursorRemoteControlsPage remoteControls;
@@ -195,6 +197,7 @@ public final class BitwigModel
         this.trackPages = new CursorRemoteControlsPage [numProjectPages];
         for (int i = 0; i < numProjectPages; i++)
             this.trackPages[i] = this.cursorTrack.createCursorRemoteControlsPage ("DBM track page " + (i + 1), PARAMS_PER_PAGE, "");
+        this.trackRemoteControls = numProjectPages > 0 ? this.cursorTrack.createCursorRemoteControlsPage (PARAMS_PER_PAGE) : null;
         // MarkerBankImpl: the cue markers of the arranger, if the controller uses markers
         this.markerBank = getInt (modelSetup, "numMarkers", 0) > 0 ? this.arranger.createCueMarkerBank (NUM_MARKERS) : null;
 
@@ -420,6 +423,27 @@ public final class BitwigModel
             this.projectRemoteControls.pageNames ().markInterested ();
             this.projectRemoteControls.selectedPageIndex ().markInterested ();
         }
+        if (this.trackRemoteControls != null)
+        {
+            this.trackRemoteControls.pageCount ().markInterested ();
+            this.trackRemoteControls.pageNames ().markInterested ();
+            this.trackRemoteControls.selectedPageIndex ().markInterested ();
+        }
+    }
+
+
+    /**
+     * The names of the pages (as many as there are fixed page cursors) and the page selected in
+     * Bitwig, from the cursor which follows Bitwig's selection.
+     */
+    private static void collectPageNames (final ModelReporter reporter, final String prefix, final CursorRemoteControlsPage remoteControls, final int numPages)
+    {
+        final String [] pageNames = remoteControls.pageNames ().get ();
+        final int namedPages = Math.min (pageNames.length, numPages);
+        for (int p = 0; p < namedPages; p++)
+            reporter.put (prefix + "/page/" + p + "/name", pageNames[p]);
+        reporter.put (prefix + "/page/count", namedPages);
+        reporter.put (prefix + "/page/selected", remoteControls.selectedPageIndex ().get ());
     }
 
 
@@ -469,7 +493,10 @@ public final class BitwigModel
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         if (this.trackPages.length > 0)
+        {
             collectPages (reporter, "/track/fx", this.trackPages);
+            collectPageNames (reporter, "/track/fx", this.trackRemoteControls, this.trackPages.length);
+        }
         this.collectMarkers (reporter);
         this.collectScenes (reporter);
         this.collectMaster (reporter);
@@ -618,12 +645,7 @@ public final class BitwigModel
         if (this.projectRemoteControls != null)
         {
             collectPages (reporter, "/project", this.projectPages);
-            final String [] pageNames = this.projectRemoteControls.pageNames ().get ();
-            final int namedPages = Math.min (pageNames.length, this.projectPages.length);
-            for (int p = 0; p < namedPages; p++)
-                reporter.put ("/project/page/" + p + "/name", pageNames[p]);
-            reporter.put ("/project/page/count", namedPages);
-            reporter.put ("/project/page/selected", this.projectRemoteControls.selectedPageIndex ().get ());
+            collectPageNames (reporter, "/project", this.projectRemoteControls, this.projectPages.length);
         }
         for (int i = 0; i < GROOVE_PARAMETERS.length; i++)
         {

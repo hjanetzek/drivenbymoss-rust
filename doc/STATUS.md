@@ -208,10 +208,12 @@ investigate:
   Java), `device preset`, `device add/0` (Reaper only). The core does not send `device indicate`
   (the drum views use `drum indicate`). Also fixed: the parser read every marker value as a color
   and logged errors (Reaper too).
-- [ ] The cursor track's remote controls have no page names and do not follow the page selected
+- [x] The cursor track's remote controls have no page names and do not follow the page selected
   in Bitwig (the project and device remote controls do); previous/next marker use
-  `jumpToPrevious/NextCueMarker` instead of Java's search in the marker bank. No ported controller
-  uses markers yet, so the marker bank is untested in Bitwig.
+  `jumpToPrevious/NextCueMarker` instead of Java's search in the marker bank. Now the extension
+  reports `/track/fx/page/…` and handles `track parameterPage`, and previous/next marker search
+  the marker bank as `MarkerBankImpl.findAndSelect`. No ported controller uses markers yet, so
+  the marker bank is untested in Bitwig.
 - [x] Commands whose value the extension ignores: `track <p>/send/<s>/active` and
   `device <i>/bypass` toggle; `track <p>/select 0` is ignored. `send active` is a toggle in
   Reaper too (its value is the send volume), and the core only sends `select 1`; Reaper also

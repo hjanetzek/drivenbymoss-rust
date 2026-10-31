@@ -108,7 +108,7 @@ ignore most of it, but the numbers tell you what the controller will address.
 | `numFxTracks` | -1 | nothing: **effect track banks are not supported yet** |
 | `wantsDrumDevice`, `additionalDrumDevices`, `numDrumPadLayers` | true, [], 16 | one drum machine (Bitwig Drum Machine matcher) with all 128 pads; the core pages over them for every drum device |
 | `numDevicesInBank` | 8 | ignored: always 8 siblings |
-| `numParamPages`, `numParams` | 8, 8 | `numParamPages` remote-control page cursors of 8, each fixed to its page (flat list of `numParamPages*8`), plus one cursor that follows the page selected in the DAW; project remote controls the same way and the cursor track's remote controls (fixed page cursors only) if `numParams > 0` |
+| `numParamPages`, `numParams` | 8, 8 | `numParamPages` remote-control page cursors of 8, each fixed to its page (flat list of `numParamPages*8`), plus one cursor that follows the page selected in the DAW; project remote controls and the cursor track's remote controls the same way if `numParams > 0` |
 | `numDeviceLayers` | 8 | ignored: 32 layers of the first instrument |
 | `deviceIds` | [] | `"FIRST_INSTRUMENT"` → `/primary` (instrument matcher, params, 128 pads, 32 layers); `"EQ"` → `/eq` (first EQ+); `"NI_KOMPLETE"` not handled |
 | `numFilterColumnEntries`, `numResults` | 16, 16 | popup browser with 7 filter columns (no smart collections), if `numResults > 0` |
@@ -320,7 +320,8 @@ Track addresses are `/track/<p>/<field>` with the absolute position. Bitwig repo
 | `/track/<p>/send/<s>/volume` (+ `/str`, `/str/6\|8`) | 0..1 | `send.value`, `displayedValue` | Rec |
 | `/track/<p>/send/<s>/active` | flag | `isEnabled` | O |
 | `/track/<p>/send/<s>/color` | `r g b` | `sendChannelColor` | O |
-| `/track/fx/param/<i>/…`, `/track/fx/param/count` | params of the selected track's FX (Reaper), of the cursor track if the host pins it (`/track/pinned`); fields as `/device/param` | remote controls of the cursor track (fixed page cursors as for the device, no page names) | O |
+| `/track/fx/param/<i>/…`, `/track/fx/param/count` | params of the selected track's FX (Reaper), of the cursor track if the host pins it (`/track/pinned`); fields as `/device/param` | remote controls of the cursor track (fixed page cursors as for the device) | O |
+| `/track/fx/page/count`, `/track/fx/page/selected`, `/track/fx/page/<i>/name` | (feature) the named pages of the cursor track's remote controls; the page selected in the host is shown | `pageNames`, `selectedPageIndex` of the following cursor of the cursor track | O |
 | `/master/<field>` | same fields as a track (`name`, `color`, `select`, `volume`, `pan` + texts, `mute`, `solo`, `active`, `vu*`) | `createMasterTrack(0)` | Rec |
 | `/master/fx/param/<i>/…`, `/master/fx/param/count` | master FX (also the crossfader from param 0, unless `/crossfade` is reported) | – (Reaper) | O |
 
@@ -511,6 +512,7 @@ loopLength/inc <beats>` (beats, not normalized). `/inc` needs the feature `value
 | `project cueVolume\|cueMix` (+ suffixes) | double | `project.cueVolume/cueMix` |
 | `project param/<i>/value\|touch\|indicate` | | project remote controls (flat index, 8 per page) |
 | `project parameterPage` | int page | `selectedPageIndex.set` (clamped) |
+| `track parameterPage` | int page (only after `/track/fx/page/selected`) | `selectedPageIndex.set` of the cursor track's remote controls (clamped) |
 | `project createScene` | int (length in beats, ignored by Bitwig) | `createScene` |
 | `project createSceneFromPlayingLauncherClips` | none | same name |
 | `project previous\|next` | none | `application.previous/nextProject` |
@@ -624,7 +626,7 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 
 | Command | Arg | Bitwig |
 | --- | --- | --- |
-| `marker previous\|next` | none | `jumpToPrevious/NextCueMarker` |
+| `marker previous\|next` | none | the play start position to the closest marker before/after the play position (`MarkerBankImpl.findAndSelect`); without a marker bank `jumpToPrevious/NextCueMarker` |
 | `marker add` | none | `addCueMarkerAtPlaybackPosition` |
 | `marker <i>/launch\|select\|remove` | none | the marker at the absolute position: `launch(true)`, play start position = marker position (jump if playing), `deleteObject` |
 

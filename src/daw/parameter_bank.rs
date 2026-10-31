@@ -104,12 +104,15 @@ impl ParameterBank {
 
     /// Scroll to the given parameter position. The host is told the selected page of the cursor
     /// device and the first instrument (protocol v2, Bitwig then shows the same remote control
-    /// page).
+    /// page), of the project, and of the cursor track if the host reports its pages.
     pub fn scroll_to(&mut self, position: i64, adjust_page: bool) {
         if position >= 0 && (position as usize) < self.bank.item_count() {
             let ps = self.bank.page_size().max(1) as i64;
             self.set_bank_offset(if adjust_page { position / ps * ps } else { position });
-            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) || self.processor == Processor::Project {
+            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument)
+                || self.processor == Processor::Project
+                || (self.id == ParameterBankId::CursorTrack && self.host_page.is_some())
+            {
                 let page = self.bank.bank_offset as i64 / ps;
                 self.bank.ctx.send_int(self.processor, "parameterPage", page as i32);
             }

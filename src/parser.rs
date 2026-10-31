@@ -1051,6 +1051,31 @@ impl Parser {
 
     fn parse_track_fx_parameter(&mut self, model: &mut Model, value: &str, parts: &mut Parts) {
         let type_part = parts.poll().unwrap_or("");
+        // Bitwig: the named pages of the cursor track's remote controls and the page selected
+        // in Bitwig (CursorTrackImpl.getParameterBank of the Java version)
+        if type_part == "page" {
+            if let Some(bank) = model.cursor_track_parameter_bank_mut() {
+                match (parts.poll(), parts.poll()) {
+                    (Some(TAG_COUNT), None) => {
+                        if let Some(v) = parse_int(value) {
+                            bank.set_page_count(v.max(0) as usize);
+                        }
+                    }
+                    (Some("selected"), None) => {
+                        if let Some(v) = parse_int(value).filter(|v| *v >= 0) {
+                            bank.set_selected_page_from_host(v as usize);
+                        }
+                    }
+                    (Some(index), Some(TAG_NAME)) => {
+                        if let Some(page) = parse_index(index) {
+                            bank.set_page_name(page, value);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
         if type_part != TAG_PARAM {
             Self::error(model, &format!("Unhandled Track FX parameter: {type_part}"));
             return;
@@ -2816,10 +2841,13 @@ mod tests {
                 "/track/2/exists 1",
                 "/track/0/select 1",
                 "/track/pinned 2",
-                "/track/fx/param/count 8",
+                "/track/fx/param/count 16",
                 "/track/fx/param/0/name Gain",
                 "/track/fx/param/0/value 0.5",
                 "/track/fx/param/0/value/str 0 dB",
+                "/track/fx/page/count 2",
+                "/track/fx/page/0/name Mix",
+                "/track/fx/page/1/name Sends",
             ],
         );
         assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
@@ -2832,6 +2860,16 @@ mod tests {
         backend.take_calls();
         model.cursor_track_parameter_bank_mut().unwrap().item_mut(0).set_value(127);
         assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/param/0/value".into(), 1.0)]);
+
+        // The page names and the page selected in Bitwig, the page is sent back
+        assert_eq!(model.cursor_track_parameter_bank().unwrap().page_bank().selected_item(), "Mix");
+        feed(&mut model, &mut parser, &["/track/fx/page/selected 1"]);
+        let bank = model.cursor_track_parameter_bank().unwrap();
+        assert_eq!(bank.scroll_position(), 8);
+        assert_eq!(bank.page_bank().selected_item(), "Sends");
+        backend.take_calls();
+        model.cursor_track_parameter_bank_mut().unwrap().select_previous_item();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "parameterPage".into(), 0)]);
 
         // Reaper: the selected track
         let (mut model, mut parser, _, _) = create(ModelSetup::default());

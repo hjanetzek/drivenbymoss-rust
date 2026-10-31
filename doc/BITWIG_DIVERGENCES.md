@@ -37,7 +37,7 @@ These do not change what a controller does, but explain the other differences.
 | Note clips | `getNoteClip (cols, rows)` creates a launcher cursor clip per size when a view asks for it | Same, but the sizes must be known before the extension creates its objects: the core collects the sizes of the sequencer views created during the setup of the controller (plus 8x128 for the Drum 64 views) and lists them in the model setup. A size first requested later has no grid in Bitwig. The clip properties come from the first grid; `pinned` is set on all grids |
 | Effect tracks | Created from the ModelSetup | Not created yet |
 | Markers | `MarkerBankImpl`: a cue marker bank of `numMarkers`, scrolled by Bitwig, plus a bank of 100 for previous/next | One cue marker bank of 100 (if `numMarkers` > 0), reported completely (`/marker/<i>/…`), the core pages over it |
-| Track remote controls | `CursorTrackImpl.getParameterBank`: a remote-control page cursor on the cursor track | As the project remote controls: `numParamPages` page cursors on the cursor track, each fixed to its page, reported as `/track/fx/param/…` (the Reaper address of the selected track's FX); no page names, Bitwig's page selection is not followed |
+| Track remote controls | `CursorTrackImpl.getParameterBank`: a remote-control page cursor on the cursor track | As the project remote controls: `numParamPages` page cursors on the cursor track, each fixed to its page, reported as `/track/fx/param/…` (the Reaper address of the selected track's FX); the page names and Bitwig's selected page from one more cursor that follows Bitwig (`/track/fx/page/…`), `track parameterPage` shows the page in Bitwig |
 | Bank paging | `canScrollPageBackwards` of the banks is Bitwig's `canScrollBackwards`: true for any position > 0 | Same with host paging (the Java version for Reaper requires a full page); found 2026-10-30 (Maschine JAM session, Shift + arrow scrolls by 1 track) |
 | Selection after a page change | `AbstractItemBankImpl`: the previous item at the first item of a page scrolls back and selects the *last* item, the previous page selects the *first* item, the next page the first item, `selectItemAtPosition` scrolls and selects; all selections 75 ms after the page change | Same for tracks and scenes (core port P1 2 and 4, 2026-10-30; before, the previous item selected the first item of the previous page, and the scene selections were sent at once, while the extension still had the old window, so they were lost). Banks without a place in the model (slot banks of the tracks) still select at once |
 | Track bank `scrollTo` | `scrollPosition ().set (position)`, exact (`adjustPage` ignored), selects nothing | Same with host paging (`bank track <position>`; core port P1 3, 2026-10-30; before, `<pos>/scrollto` selected the track). Reaper keeps `<pos>/scrollto` (the Reaper backend selects and scrolls to the track) |
@@ -339,9 +339,10 @@ not handled:
 - Markers (`MarkerBankImpl`, `MarkerImpl`): `marker add` → `addCueMarkerAtPlaybackPosition ()`,
   `marker <i>/launch` → `launch (true)` (all controllers of the Java version launch quantized),
   `marker <i>/select` → the play start position at the marker (`TransportImpl.setPosition`),
-  `marker <i>/remove` → `deleteObject ()`. Previous/next marker stay `jumpToPrevious|NextCueMarker ()`;
-  Java searches the closest marker before/after the play position in its large marker bank
-  (`findAndSelect`) and does nothing without a marker bank.
+  `marker <i>/remove` → `deleteObject ()`. Previous/next marker: as Java's `findAndSelect`, the play
+  start position goes to the closest marker before/after the play position, searched in the
+  marker bank of 100. Without a marker bank (the controller uses no markers, Java then does
+  nothing) Bitwig's `jumpToPrevious|NextCueMarker ()`.
 - `inifile reaper/prerollmeas <bars>`: the pre-roll length (see §3); other keys are logged.
 - `action <id>`: `application.getAction (id).invoke ()` as `ApplicationImpl.invokeAction`; IDs which
   Bitwig does not know (Reaper's numbers) are ignored silently, as in Java.

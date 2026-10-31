@@ -913,8 +913,8 @@ public final class CommandHandler
         switch (command)
         {
             case "add" -> this.model.transport.addCueMarkerAtPlaybackPosition ();
-            case "previous" -> this.model.transport.jumpToPreviousCueMarker ();
-            case "next" -> this.model.transport.jumpToNextCueMarker ();
+            case "previous" -> this.findAndSelectMarker (false);
+            case "next" -> this.findAndSelectMarker (true);
             default ->
             {
                 final String [] parts = command.split ("/");
@@ -935,6 +935,43 @@ public final class CommandHandler
                 }
             }
         }
+    }
+
+
+    /**
+     * Move the play position to the closest marker before or after it, as
+     * MarkerBankImpl.findAndSelect of the Java version. Without a marker bank (the controller
+     * uses no markers) Bitwig's jump to the previous or next cue marker.
+     */
+    private void findAndSelectMarker (final boolean isForward)
+    {
+        if (this.model.markerBank == null)
+        {
+            if (isForward)
+                this.model.transport.jumpToNextCueMarker ();
+            else
+                this.model.transport.jumpToPreviousCueMarker ();
+            return;
+        }
+
+        final double playPosition = this.model.transport.getPosition ().get ();
+        double closest = -1;
+        double distance = 0;
+        for (int i = 0; i < BitwigModel.NUM_MARKERS; i++)
+        {
+            final CueMarker marker = this.model.markerBank.getItemAt (i);
+            if (!marker.exists ().get ())
+                continue;
+            final double pos = marker.position ().get ();
+            final double dist = isForward ? pos - playPosition : playPosition - pos;
+            if (dist > 0 && (distance == 0 || dist < distance))
+            {
+                distance = dist;
+                closest = pos;
+            }
+        }
+        if (closest >= 0)
+            this.setPosition (closest);
     }
 
 
@@ -1043,6 +1080,19 @@ public final class CommandHandler
             case "selectNext" ->
             {
                 this.model.cursorTrack.selectNext ();
+                return;
+            }
+            // Show the page of the cursor track's remote controls in Bitwig as well
+            // (ParameterPageBankImpl.scrollTo)
+            case "parameterPage" ->
+            {
+                final CursorRemoteControlsPage remoteControls = this.model.trackRemoteControls;
+                if (remoteControls != null)
+                {
+                    final int count = remoteControls.pageCount ().get ();
+                    if (count > 0)
+                        remoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
+                }
                 return;
             }
             default ->
