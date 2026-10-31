@@ -46,7 +46,12 @@ final class BitwigNoteClip
     /** The ID of the grid: "&lt;steps&gt;x&lt;rows&gt;". */
     final String                        id;
     /** The last state of each step which is not empty or still has to be reported as empty. */
-    private final Map<Long, NoteStep>   steps = new HashMap<> ();
+    /**
+     * The changed steps, formatted when Bitwig reports them (as StepInfoImpl.updateData of the
+     * Java version): a NoteStep object changes locally with a setter (setGain in its own scale)
+     * before Bitwig confirms the value, so it must not be read later.
+     */
+    private final Map<Long, String []>  steps = new HashMap<> ();
 
 
     /**
@@ -64,7 +69,11 @@ final class BitwigNoteClip
         this.numRows = numRows;
         this.id = numSteps + "x" + numRows;
         this.clip = cursorTrack.createLauncherCursorClip (numSteps, numRows);
-        this.clip.addNoteStepObserver (step -> this.steps.put (Long.valueOf (key (step.channel (), step.x (), step.y ())), step));
+        this.clip.addNoteStepObserver (step -> this.steps.put (Long.valueOf (key (step.channel (), step.x (), step.y ())), new String []
+        {
+            step.channel () + "/" + step.x () + "/" + step.y (),
+            step.state () == NoteStep.State.Empty ? null : format (step)
+        }));
         this.clip.exists ().markInterested ();
         this.clip.playingStep ().markInterested ();
         this.clip.getPlayStart ().markInterested ();
@@ -116,18 +125,18 @@ final class BitwigNoteClip
     {
         final String prefix = "/clip/grid/" + this.id + "/";
         reporter.put (prefix + "playingStep", this.clip.playingStep ().get ());
-        final Iterator<NoteStep> iterator = this.steps.values ().iterator ();
+        final Iterator<String []> iterator = this.steps.values ().iterator ();
         while (iterator.hasNext ())
         {
-            final NoteStep step = iterator.next ();
-            final String address = prefix + "step/" + step.channel () + "/" + step.x () + "/" + step.y ();
-            if (step.state () == NoteStep.State.Empty)
+            final String [] step = iterator.next ();
+            final String address = prefix + "step/" + step[0];
+            if (step[1] == null)
             {
                 reporter.put (address, "0");
                 iterator.remove ();
             }
             else
-                reporter.put (address, format (step));
+                reporter.put (address, step[1]);
         }
     }
 

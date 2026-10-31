@@ -169,7 +169,12 @@ Notes:
 - **Confidence:** high. A bug.
 - **Ready:** yes, after a short check in Bitwig.
 
-#### E. The step gain may be halved on every edit
+#### E. The step gain may be halved on every edit (checked: not a bug)
+
+- **Result (2026-10-31):** checked on Bitwig with the Java Mk2. A 0 dB note shows as 50 %, a
+  knob step up gives 60 % = +5 dB, 40 % is -14 dB. `gain ()` returns twice the scale of
+  `setGain` (0.5 = 0 dB), so the `/ 2.0` makes them match. The javadoc is out of date. No PR.
+
 
 - **Where:** `StepInfoImpl.java:72` reads `stepInfo.gain () / 2.0`.
   `CursorClipImpl.java:704-711` (`updateStepGain`) and `:1247` (`sendClipData`) write
@@ -378,7 +383,7 @@ not contain test scaffolding.
 | 3. Bitwig: `setMonitor (false)` switches monitoring off | A | ready |
 | 4. Bitwig: previous device at the first device of a page | B | after a Bitwig check |
 | 5. Shift release after a Shift combination resets the slow knobs | C | after a JAM check |
-| 6. Bitwig: note step velocity spread (and gain) | D, E if confirmed | D ready; E after the check |
+| 6. Bitwig: note step velocity spread | D | ready (E, the gain, is not a bug) |
 | 7. Push clip mode: channel of the next/previous note | F | after a Push check |
 | 8. Maschine Mk2/JAM on Linux with dbm-nihost | J | after Part 2 |
 | 9. Chords which share notes: keep them until all are released | K | ready (the Rust fix checked on the JAM and Mk2) |
@@ -554,7 +559,7 @@ Options:
 | B | previous device at a page edge ends on item 0 | `CursorDeviceImpl.java:109` | bug | high | Bitwig check |
 | C | consumed Shift leaves knobs slow (JAM tempo 0.01 BPM) | `AbstractHwButton.java:113`, `ToggleShiftViewCommand.java:70` | bug | high | JAM check |
 | D | velocity spread never read, reset by note edits | `StepInfoImpl.java:66` | bug | high | ready (short check) |
-| E | step gain halved on edit | `StepInfoImpl.java:72`, `CursorClipImpl.java:704` | unclear | low–medium | Bitwig check |
+| E | step gain halved on edit | `StepInfoImpl.java:72`, `CursorClipImpl.java:704` | not a bug (checked on Bitwig) | – | no PR |
 | F | next/previous note returns the start channel | `CursorClipImpl.java:1183, 1209` | bug | high | Push check |
 | G | XL sequencer modes deactivated twice | `LaunchControlXLControllerSetup.java:168, 193`, `XLAbstractMainMode.java:211` | bug | high | device check |
 | H | XL EQ+ not added on activation | `XLEqMode.java:155` | bug | high | ready |

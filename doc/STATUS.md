@@ -177,7 +177,9 @@ Open issues:
 - [ ] No parameter renaming or mapping (DeviceManager), and no device layers (Reaper has none).
 - [ ] The knob sensitivity setting is not supported (affects slow knobs with Shift on the
   Maschine Mk3).
-- [ ] Note attributes are limited to what Reaper supports (pitch, duration, mute, velocity).
+- [ ] Note attributes are limited to what Reaper supports (pitch, duration, mute, velocity). With
+  the step grid of the host (Bitwig) the Launch Control XL, Maschine and Launchpad note editors
+  support all attributes.
 - [ ] Small duplications to clean up: `ArpeggiatorMode` and the scale name lists exist in both
   `config/` and `scale/`.
 
@@ -230,8 +232,12 @@ investigate:
   marks them as Reaper-only.
 - [x] Docs lag the code: BITWIG_DIVERGENCES.md §3 (automation) and the "Protocol additions" of
   BITWIG_CORE_PORT_PLAN.md (now split into implemented and planned) are updated (2026-10-31).
-- [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)`. This is
+- [x] The step gain is reported as `gain () / 2` but written with `setGain (value)`. This is
   the same as in Java (`StepInfoImpl.updateData`, `CursorClipImpl.updateStepGain`, clamped to
-  0..1). The API jar has no javadoc, so the range needs a check on Bitwig. Set a step's gain
-  in the inspector, note the value the controller shows, then change it once by encoder. If the
-  gain halves or doubles, Java has the bug too (an upstream candidate, UPSTREAM_CANDIDATES.md).
+  0..1). Checked on Bitwig with the Java Mk2 (2026-10-31): a 0 dB note shows 50 %, 60 % is
+  +5 dB, 40 % is -14 dB, and a knob step changes the gain a little. So Bitwig's `gain ()`
+  returns twice the scale of `setGain` (0.5 = 0 dB), and the halving is right. No bug. But
+  right after a setter the NoteStep object returns the set value in the setter's scale, and the
+  extension read the live objects: with fast knob turns the core got half the gain. The
+  extension now formats the steps when Bitwig's observer reports them (as
+  `StepInfoImpl.updateData`).
