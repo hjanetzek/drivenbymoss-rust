@@ -163,21 +163,33 @@ the Reaper constants (note repeat options, MPE, layers, slot chains, …). Model
 
 ## Protocol additions (summary)
 
-Report (`BitwigModel`): `/punchIn`, `/punchOut`, `/fill`, `/click/ticks`, `/click/prerollMeasures`,
-`/click/volumeStr` (limited + " dB"), `/project/engine`, `/project/name`, `/project/isDirty`,
-`/project/hasSolo`, `/project/hasMute`, `/project/cueVolume…`, `/project/cueMix…`,
-`/project/param/…`, `/layout`, `/arranger/<flag>`, `/mixer/<flag>`, `/groove/<param>/…`,
-`/track/pinned`, `/track/<p>/active`, `/track/<p>/monitoring`, `/track/<p>/canHoldNotes|Audio`,
-`/track/<p>/send/<s>/color`, `/master/active`, the global record quantization, `/marker/…`,
-`/device/nested|plugin|preset|slots|onMaster`, names `…/name/6|8`, `/crossfade`.
+The complete and checked reference of all addresses and commands is
+[HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) (2026-10-31); this is the summary of the port.
 
-Execute (`CommandHandler`): `…/value/inc`, `…/reset`, `…/indicate` for all parameters, volume, pan
-and sends; `solo/toggle`; `transport restart|stopAndRewind|returnToArrangement|fill|metronomeTicks|preRoll`;
-`time signature`; `metro_vol`; `groove …`; `project engine|unsoloAll|unmuteAll|param/…`;
-`application layout/+|-`; `track addTrack` (string args); `track pinned`, `track <p>/enter`,
-`movePrev|moveNext`; `track indicate`; `primary|drum|eq bypass|remove|duplicate` without index;
-`device movePrev|moveNext`; `step/…/<attribute>` per attribute; clip `start|end|loopStart|loopLength/inc`;
-`marker …`.
+Implemented (reported by `BitwigModel`): `/punchIn`, `/punchOut`, `/fill`, `/click/ticks`,
+`/click/volumeStr` (limited + " dB"), `/project/engine`, `/project/hasSolo`, `/project/hasMute`,
+`/project/cueVolume…`, `/project/cueMix…`, `/project/param/…`, `/project/page/…`, `/layout`,
+`/arranger/<flag>`, `/mixer/<flag>`, `/groove/<param>/…`, `/track/pinned`,
+`/track/hasPrevious|hasNext`, `/track/<p>/active`, `/track/<p>/monitor` (from `isMonitoring`),
+`/track/<p>/canHoldNotes|canHoldAudio`, `/track/<p>/send/<s>/color`, `/master/active`,
+`/recordQuantization`, `/recordQuantization/noteLength`.
+
+Implemented (executed by `CommandHandler`): `<value command>/inc` and `<value command>/reset` for
+parameters, volume, pan, sends, pads, layers, EQ and groove; `…/indicate` for volume, pan, sends
+and the track bank (`track indicate`); `solo/toggle`; `transport
+play|stop|restart|stopAndRewind|togglePunchIn|togglePunchOut|fill|toggleFill|metronomeTicks|toggleMetronomeTicks|metronomeVolume`;
+`groove …`; `project engine|unsoloAll|unmuteAll|cueVolume|cueMix|param/…|parameterPage`;
+`application layout/+|-`, `application recordQuantization …`; `track addTrack` (string args);
+`track pinned`, `track selectPrevious|selectNext`; device commands without index for
+`device|primary|drum|eq` and `device sibling/<i>/…`; `clip grid/<id>/step/…/<attribute>` per
+attribute; `clip start|end|loopStart|loopLength/inc`; `clip accent/immediately`.
+
+Planned, not implemented (P3): `/project/name`, `/project/isDirty`, `/click/prerollMeasures` and
+the pre-roll command, `/marker/…` and the marker commands, `/device/nested|plugin|preset|slots|onMaster`,
+names `…/name/6|8`, `/crossfade`, `time signature`, `transport returnToArrangement`,
+`track <p>/enter`, `track|device …/movePrev|moveNext`. The other open items (commands the core
+sends which the extension does not handle, addresses the parser accepts which are not reported)
+are listed in STATUS.md ("Host bridge findings").
 
 Each new address: parser test in `rust/src/parser.rs`; each new command: a unit test of the core
 type which sends it (as `parser::tests::host_automation_switches`).

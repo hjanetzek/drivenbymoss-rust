@@ -55,7 +55,7 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | --- | --- | --- |
 | Changing the loop start and length | Step from the zoom resolution, rounded to it (`calcScrollFraction`) | Fixed step of 4 quarters, 1 quarter with Shift/slow, not rounded (as Java for Reaper, `INC_FRACTION_TIME`) |
 | Play position in seconds | Not used | Derived at the current tempo, only used by the core for Reaper's slot states |
-| Automation write mode | `isArrangerAutomationWriteEnabled` / `isClipLauncherAutomationWriteEnabled`, `automationWriteMode` | Not handled yet; the core sends Reaper's override numbering |
+| Automation write mode | `isArrangerAutomationWriteEnabled` / `isClipLauncherAutomationWriteEnabled`, `automationWriteMode` | Same switches and modes (see "Automation" in §6) |
 | Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Only the metronome during pre-roll; the pre-roll length is not handled yet |
 
 ## 4. Clip launcher

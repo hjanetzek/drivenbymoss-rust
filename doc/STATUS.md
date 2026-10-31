@@ -203,11 +203,7 @@ investigate:
   `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/*`,
   `/scene/<s>/position|endPosition`, `/track/fx/…`, `/master/fx/…`, the Reaper browser and groove
   addresses.
-- [ ] Docs lag the code: BITWIG_DIVERGENCES.md §3 still lists the automation write mode as not
-  handled; the "Protocol additions" of BITWIG_CORE_PORT_PLAN.md list reports and commands which
-  were not implemented (`/project/name`, `/project/isDirty`, `/marker/…`,
-  `/device/nested|plugin|preset|slots|onMaster`, `…/name/6|8`, `/crossfade`,
-  `/track/<p>/monitoring` (the extension reports `monitor`), `time signature`, `metro_vol`, the
-  move commands).
+- [x] Docs lag the code: BITWIG_DIVERGENCES.md §3 (automation) and the "Protocol additions" of
+  BITWIG_CORE_PORT_PLAN.md (now split into implemented and planned) are updated (2026-10-31).
 - [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)` (as the Java
   version); check the range against the Bitwig API.
