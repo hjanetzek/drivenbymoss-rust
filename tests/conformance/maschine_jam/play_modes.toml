@@ -16,6 +16,9 @@ require = { "/track/1/name" = "Synth", "/track/1/playingNotes" = "" }
 
 setup = [
   { osc = "/track/bank/page/- | /track/1/select 1", note = "track Synth" },
+  # The monitoring is set to On (not Auto) and stays so in the project of the run: the track then
+  # plays its live input also when it is not selected. To do: a scenario with Auto monitoring
+  # (only armed), which is enough since the runner switches the audio engine on.
   { osc = "/track/1/recarm 1 | /track/1/monitor 1", note = "armed and monitored: the track plays its live input" },
   { midi = "F0 00 21 09 15 00 4D 50 00 01 46 01 F7", note = "return from the host (MIDI mode): full redraw" },
   { midi = "B0 20 7F", note = "PAD MODE down" },
