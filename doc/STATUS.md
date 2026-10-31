@@ -184,9 +184,10 @@ Open issues:
 Host bridge findings (2026-10-31, from writing [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md)), to
 investigate:
 
-- [ ] Probable bug: `master solo/toggle` and other master commands without a value arrive through
-  `process_no_arg`, whose handler in the Bitwig extension (`CommandHandler.handle (processor,
-  command)`) has no `master` case, so they are dropped as "not handled".
+- [x] Bug: `master solo/toggle` (master commands without a value) arrived through
+  `process_no_arg`, whose handler in the Bitwig extension had no `master` case, so it was dropped.
+  Fixed 2026-10-31; no ported controller toggles the master's solo (they toggle tracks of the
+  bank), so it did not show yet.
 - [ ] The report of `/track/offset` (host paging) switches on all Bitwig command forms (`/inc`,
   `/reset`, `/immediately`, `solo/toggle`, `transport play|stop|restart`, device commands
   without index, …). A new host has to handle all of them at once; consider finer capability

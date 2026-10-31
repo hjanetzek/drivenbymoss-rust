@@ -103,6 +103,7 @@ public final class CommandHandler
             case "redo" -> this.model.application.redo ();
             case "tempo" -> this.changeTempo (command);
             case "track" -> this.handleTrack (command, 1, null);
+            case "master" -> this.handleChannel (this.model.masterTrack, command, 1, null);
             case "device" -> this.handleDevice (command, 1);
             default -> this.unhandled.accept (processor + " " + command);
         }
