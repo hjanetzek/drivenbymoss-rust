@@ -108,12 +108,13 @@ ignore most of it, but the numbers tell you what the controller will address.
 | `numFxTracks` | -1 | nothing: **effect track banks are not supported yet** |
 | `wantsDrumDevice`, `additionalDrumDevices`, `numDrumPadLayers` | true, [], 16 | one drum machine (Bitwig Drum Machine matcher) with all 128 pads; the core pages over them for every drum device |
 | `numDevicesInBank` | 8 | ignored: always 8 siblings |
-| `numParamPages`, `numParams` | 8, 8 | `numParamPages` remote-control page cursors of 8, each fixed to its page (flat list of `numParamPages*8`), plus one cursor that follows the page selected in the DAW; project remote controls the same way if `numParams > 0` |
+| `numParamPages`, `numParams` | 8, 8 | `numParamPages` remote-control page cursors of 8, each fixed to its page (flat list of `numParamPages*8`), plus one cursor that follows the page selected in the DAW; project remote controls the same way and the cursor track's remote controls (fixed page cursors only) if `numParams > 0` |
 | `numDeviceLayers` | 8 | ignored: 32 layers of the first instrument |
 | `deviceIds` | [] | `"FIRST_INSTRUMENT"` → `/primary` (instrument matcher, params, 128 pads, 32 layers); `"EQ"` → `/eq` (first EQ+); `"NI_KOMPLETE"` not handled |
 | `numFilterColumnEntries`, `numResults` | 16, 16 | popup browser with 7 filter columns (no smart collections), if `numResults > 0` |
 | `noteClips` | [] | `[[steps, rows], …]`: one launcher cursor clip with a step grid per size, id `"<steps>x<rows>"` (only the sizes the views requested during setup; a later size has no grid) |
-| `numMarkers`, `numListParams`, `wantsCursorLayer`, `wantsFocusedParameter`, `wantsClipLauncherNavigator` | 0, 0, false, false, false | not used yet |
+| `numMarkers` | 0 | if > 0: one cue marker bank of 100 markers (reported completely, the core pages over them) |
+| `numListParams`, `wantsCursorLayer`, `wantsFocusedParameter`, `wantsClipLauncherNavigator` | 0, false, false, false | not used yet |
 
 ## 2. The reporting protocol (host → core)
 
@@ -171,13 +172,14 @@ feature stays on.
 | `/overdub/arranger`, `/overdub/launcher` | Arranger and launcher overdub switches (instead of the track's `overdub`) | `transport overdub/arranger\|overdub/launcher <0\|1>` |
 | `/punchIn`, `/punchOut`, `/fill`, `/click/ticks` | Independent punch in/out, fill mode, metronome ticks | – (the commands come with the feature `transportCommands`) |
 | `/recordQuantization`, `/recordQuantization/noteLength` | Global record quantization (instead of per track `inQuantResolution`) | `application recordQuantization <grid>`, `…/noteLength/toggle` |
-| `/track/pinned <p or -1>` | The cursor track is the pinned track of the host | `track pinned <0\|1>`, `track pinned/toggle` |
+| `/track/pinned <p or -1>` | The cursor track is the pinned track of the host; `/track/fx/param/…` are the parameters of that (cursor) track instead of the selected track's | `track pinned <0\|1>`, `track pinned/toggle` |
 | `/track/hasPrevious`, `/track/hasNext` | Cursor track navigation availability from the host | `track selectPrevious\|selectNext` |
 | `/track/<p>/canHoldNotes`, `canHoldAudio` | Track capabilities (default: true) | – |
 | `/track/<p>/playingnotes` | Playing notes of the cursor track light the pads | – |
 | `/project/hasSolo`, `/project/hasMute` | Project-wide solo/mute state | `project unsoloAll` (with `hasSolo`), `project unmuteAll` (with `hasMute`) |
 | `/project/param/…`, `/project/page/…` | Project remote controls (instead of a bank on the master FX) | `project param/<i>/…`, `project parameterPage <page>` |
 | `/project/cueVolume`, `/project/cueMix` | The cue parameters exist | `project cueVolume\|cueMix` (+ `/inc`, `/reset`, `/touch`) |
+| `/crossfade` | The crossfader is the host's transport crossfader (instead of the master FX parameter 0) | `transport crossfade` (+ `/inc`, `/reset`, `/immediately`, `/touch`, `/indicate`) instead of `master user/param/0/value` |
 | `/groove/<name>` (six names) | Bitwig's six groove parameters (instead of `groove active\|amount`, −1..1) | `groove <name>` (+ suffixes) |
 | `<…>/str/6`, `<…>/str/8` | Host-shortened texts for these lengths (other lengths: the core cuts) | – |
 | `/device/page/selected`, `…/page/count`, `…/page/<i>/name` | Named pages; the page selected in the host is shown, also after a device change | `device\|primary\|project parameterPage <page>` |
@@ -217,7 +219,7 @@ pages should report `/host/features`, even an empty list.
 
 Features detected from their own reports need no name (table above): paging, the automation and
 overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
-mute, playing notes, the host step grid, shortened texts, activation, VU hold.
+mute, playing notes, the host step grid, shortened texts, activation, VU hold, the crossfader.
 
 
 ## 3. Address reference (host → core)
@@ -248,7 +250,8 @@ Bitwig bridge (Reaper only, or nobody).
 | `/beat` | beat text | – (Reaper) | O |
 | `/click` | flag | `isMetronomeEnabled` | Rec |
 | `/click/preroll` | bit field, 2 = metronome during pre-roll | `isMetronomeAudibleDuringPreRoll ? 2 : 0` | O |
-| `/click/prerollMeasures` | int | – | O |
+| `/click/prerollMeasures` | int (bars) | `preRoll`: none 0, one_bar 1, two_bars 2, four_bars 4 | O |
+| `/crossfade` (+ `/str`, `/str/6\|8`, `/name`) | 0..1 (feature) | `transport.crossfade()` | O |
 | `/click/volume` | 0..1 | `metronomeVolume().get()` | O |
 | `/click/volumeStr` | text | `displayedValue().getLimited(6) + " dB"` | O |
 | `/click/ticks` | flag (feature) | `isMetronomeTickPlaybackEnabled` | O |
@@ -317,9 +320,9 @@ Track addresses are `/track/<p>/<field>` with the absolute position. Bitwig repo
 | `/track/<p>/send/<s>/volume` (+ `/str`, `/str/6\|8`) | 0..1 | `send.value`, `displayedValue` | Rec |
 | `/track/<p>/send/<s>/active` | flag | `isEnabled` | O |
 | `/track/<p>/send/<s>/color` | `r g b` | `sendChannelColor` | O |
-| `/track/fx/param/<i>/…`, `/track/fx/param/count` | params of the selected track's FX | – (Reaper) | O |
+| `/track/fx/param/<i>/…`, `/track/fx/param/count` | params of the selected track's FX (Reaper), of the cursor track if the host pins it (`/track/pinned`); fields as `/device/param` | remote controls of the cursor track (fixed page cursors as for the device, no page names) | O |
 | `/master/<field>` | same fields as a track (`name`, `color`, `select`, `volume`, `pan` + texts, `mute`, `solo`, `active`, `vu*`) | `createMasterTrack(0)` | Rec |
-| `/master/fx/param/<i>/…`, `/master/fx/param/count` | master FX (also the crossfader from param 0) | – (Reaper) | O |
+| `/master/fx/param/<i>/…`, `/master/fx/param/count` | master FX (also the crossfader from param 0, unless `/crossfade` is reported) | – (Reaper) | O |
 
 ### 3.4 Clip launcher: slots and scenes
 
@@ -417,8 +420,12 @@ Reported only while the browser is open (`/browser/exists 0` otherwise).
 
 ### 3.9 Markers
 
-`/marker/count`, `/marker/<i>/exists`, `number`, `name`, `color` (`position`, `endPosition` are
-accepted and ignored). Not reported by the Bitwig bridge (no marker bank); Reaper reports them.
+`/marker/count`, `/marker/<i>/exists`, `number`, `name` (empty: the core shows `Marker <i+1>`),
+`color` (`position`, `endPosition` are accepted and ignored). `<i>` is the absolute position, the
+core pages over all reported markers. Reaper reports its project markers (position in seconds).
+Bitwig: a cue marker bank of 100 (`arranger.createCueMarkerBank`, only if `numMarkers > 0`):
+`exists` for all 100, the other fields for existing markers (`position` in beats), `count` =
+`itemCount` (at most 100).
 
 ## 4. Command reference (core → host)
 
@@ -459,8 +466,8 @@ loopLength/inc <beats>` (beats, not normalized). `/inc` needs the feature `value
 | `tempo +`, `-`, `++`, `--` | none | change by ±0.01 (Bitwig; Reaper 0.1) / ±1 BPM | `setRaw(tempo ± d)` |
 | `time` / `time nosnap` | double seconds | set position | converted to beats at the tempo, `playStartPosition.set`, jump if playing |
 | `time` | int 0 | rewind (Reaper path of stop and rewind) | as above |
-| `time loop/start`, `time loop/length` | double seconds | Reaper path | unhandled |
-| `time signature` | int `num + den*100` | set time signature | **unhandled** |
+| `time loop/start`, `time loop/length` | double seconds | Reaper path (the core sends `beats loop/…`) | converted to beats at the tempo, `arrangerLoopStart/Duration.set` |
+| `time signature` | int `num + den*100` | set time signature | `timeSignature.numerator/denominator.set` |
 | `beats position`, `beats position/nosnap` | double quarters | set position | `playStartPosition.set`, `jumpToPlayStartPosition` if playing |
 | `beats loop/start`, `beats loop/length` | double quarters | set loop | `arrangerLoopStart/Duration.set` |
 | `transport play\|stop\|restart` | none (`transportCommands`) | | `play()`, `stop()`, `restart()` |
@@ -470,6 +477,7 @@ loopLength/inc <beats>` (beats, not normalized). `/inc` needs the feature `value
 | `transport togglePrerollMetronome` | none | | `isMetronomeAudibleDuringPreRoll.toggle` |
 | `transport metronomeTicks <0\|1>`, `toggleMetronomeTicks` | | | `isMetronomeTickPlaybackEnabled` |
 | `transport metronomeVolume[/inc]` | double | | `metronomeVolume` set/inc |
+| `transport crossfade` (+ §4.1 suffixes), `crossfade/touch`, `crossfade/indicate` | double / int (with `/crossfade`) | crossfader | `transport.crossfade()` |
 | `transport punchIn\|punchOut <0\|1>`, `togglePunchIn\|togglePunchOut` | | | `isPunchIn/OutEnabled` |
 | `transport fill <0\|1>`, `toggleFill` | | | `isFillModeActive` |
 | `transport overdub/arranger\|overdub/launcher <0\|1>` | | | `isArranger/ClipLauncherOverdubEnabled.set` |
@@ -525,7 +533,7 @@ resolves `<p>` in the window, else in the 400-track bank; sends and slots only i
 | `…/volume/touch`, `…/pan/touch` | int | `touch` |
 | `…/volume/indicate`, `…/pan/indicate` | int | `setIndication` |
 | `track <p>/mute\|solo\|active`, `master …` | int 0/1 | `mute/solo/isActivated.set` |
-| `track <p>/solo/toggle`, `master solo/toggle` | none (`soloToggle`) | `solo.toggleUsingPreferences(false)` (exclusive solo preference applies). **The master variant is unhandled**, see §6.8 |
+| `track <p>/solo/toggle`, `master solo/toggle` | none (`soloToggle`) | `solo.toggleUsingPreferences(false)` (exclusive solo preference applies) |
 | `track <p>/recarm` | int | `arm.set` |
 | `track <p>/monitor` | int | `monitorMode` ON / OFF |
 | `track <p>/autoMonitor` | int | `monitorMode` AUTO / OFF |
@@ -542,8 +550,11 @@ resolves `<p>` in the window, else in the 400-track bank; sends and slots only i
 | `track pinned` / `track pinned/toggle` | int / none | `cursorTrack.isPinned.set/toggle` |
 | `track selectPrevious\|selectNext` | none | `cursorTrack.selectPrevious/Next` |
 | `track addTrack` | strings: type (`INSTRUMENT`, `EFFECT`, else audio), name, `RGB(…)` color, Reaper device names… | `createInstrument/Effect/AudioTrack(-1)`; name and color set on the cursor track 300 ms later; devices dropped |
-| `track <p>/pin <pos>`, `toggleMultiSelect`, `movePrev\|moveNext`, `recordClip`, `overdub`, `inQuantResolution`, `param/<i>/value` (track FX), `clearAutomation` | | Reaper commands, unhandled in Bitwig (most are not sent with the matching host feature) |
-| `master user/param/0/value` | double | crossfader (Reaper master FX), unhandled |
+| `track <p>/movePrev\|moveNext` | none | move the track up/down: the neighbour (400-track bank) is moved behind/before it (`after/beforeTrackInsertionPoint.moveTracks`) and selected in the editor |
+| `track <p>/toggleMultiSelect` | int 1 | ignored (no multi-selection in the Bitwig API, as the Java version) |
+| `track [<p>/]param/<i>/value` (+ §4.1), `param/<i>/touch\|indicate` | | the parameters of the cursor track (Reaper: track FX; Bitwig: the cursor track's remote controls, the position is not needed) |
+| `track <p>/pin <pos>`, `recordClip`, `overdub`, `inQuantResolution`, `clearAutomation` | | Reaper commands, unhandled in Bitwig (most are not sent with the matching host feature) |
+| `master user/param/0/value` | double | crossfader (Reaper master FX); not sent once the host reports `/crossfade` |
 
 ### 4.5 Slots and scenes
 
@@ -581,7 +592,9 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 | `drum\|primary pad/<i>/select` | none (`deviceCommands`) | `selectInEditor` only |
 | `primary layer/<i>/select` | none | as channel select |
 | `drum\|primary pad\|layer/<i>/mute\|solo\|active\|volume\|pan\|…` | as channel commands | on the pad/layer channel |
-| `device preset`, `device add/0`, `device <i+1>/movePrev\|moveNext` | | Reaper, unhandled |
+| `device <i+1>/movePrev\|moveNext` | none | move the cursor device: the neighbour of a 100-device bank of the chain is moved behind/before it (`after/beforeDeviceInsertionPoint.moveDevices`) and selected |
+| `device preset` | int | Reaper preset browser (only without a host browser); ignored |
+| `device add/0` | string Reaper creation name | ignored (Bitwig has no creation names) |
 
 ### 4.7 Cursor clip and step grid
 
@@ -593,7 +606,7 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 | `clip accent`, `clip accent/immediately` | double 0..1 | `getAccent` set / setImmediately |
 | `clip duplicate\|duplicateContent` | none | same names |
 | `clip transpose` | int semitones | `transpose` (only on note tracks) |
-| `clip clear` | none | **unhandled** in Bitwig |
+| `clip clear` | none (without host step grid) | `clearSteps` |
 | `clip grid/<id>/stepSize` | double | `setStepSize` |
 | `clip grid/<id>/scroll` | int step | `scrollToStep` |
 | `clip grid/<id>/page/+\|-` | none | `scrollStepsPageForward/Backwards` |
@@ -609,8 +622,11 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 
 ### 4.8 Markers
 
-`marker previous|next` → `jumpToPrevious/NextCueMarker`. `marker add` and `marker <i>/<cmd>`
-are sent by the core but unhandled in Bitwig (no marker bank).
+| Command | Arg | Bitwig |
+| --- | --- | --- |
+| `marker previous\|next` | none | `jumpToPrevious/NextCueMarker` |
+| `marker add` | none | `addCueMarkerAtPlaybackPosition` |
+| `marker <i>/launch\|select\|remove` | none | the marker at the absolute position: `launch(true)`, play start position = marker position (jump if playing), `deleteObject` |
 
 ### 4.9 Browser
 
@@ -631,8 +647,11 @@ Opening cancels a running browser and browses 100 ms later.
 
 ### 4.10 Not executed by the Bitwig bridge
 
-Logged once as `Not handled yet: …`: `inifile` (pre-roll measures), `action` (Reaper action
-IDs), `cursor`, and the Reaper-only commands listed in the tables above.
+Logged once as `Not handled yet: …`: `cursor`, `inifile` keys other than `reaper/prerollmeas`
+(the pre-roll length 0, 1, 2 or 4 bars → `preRoll`; other lengths are logged), and the Reaper-only
+commands listed in the tables above. `action <id>` (string) invokes the Bitwig action with that
+ID (`getAction(id).invoke()`); unknown IDs (e.g. Reaper's) are ignored silently, as the Java
+version.
 
 ### 4.11 `delay_updates` / `enable_updates`
 
@@ -708,9 +727,8 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
    one tick late (Bitwig shows them after the tick).
 8. **Known gaps of the reference bridge** (useful when a new host does better): effect track
    banks, hierarchical track lists, extra scene/slot banks, a slot bank of the cursor track (scene
-   navigation), the cursor layer, markers, sends and devices of pads/layers, pre-roll length,
-   `time signature`, `clip clear`, device/track move, `master solo/toggle` (sent without value,
-   the bridge's no-arg handler has no `master` case).
+   navigation), the cursor layer, sends and devices of pads/layers, the page names of the cursor
+   track's remote controls.
 
 ## 7. Minimal bridge checklist, then progressive features
 

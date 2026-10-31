@@ -36,6 +36,8 @@ These do not change what a controller does, but explain the other differences.
 | Browser | `PopupBrowser` with 7 filter columns (no smart collections) of `numFilterColumnEntries` items, `numResults` results; observers only while used | Same columns and pages, reported only while the browser is open. Slots outside of the track and scene window cannot be browsed |
 | Note clips | `getNoteClip (cols, rows)` creates a launcher cursor clip per size when a view asks for it | Same, but the sizes must be known before the extension creates its objects: the core collects the sizes of the sequencer views created during the setup of the controller (plus 8x128 for the Drum 64 views) and lists them in the model setup. A size first requested later has no grid in Bitwig. The clip properties come from the first grid; `pinned` is set on all grids |
 | Effect tracks | Created from the ModelSetup | Not created yet |
+| Markers | `MarkerBankImpl`: a cue marker bank of `numMarkers`, scrolled by Bitwig, plus a bank of 100 for previous/next | One cue marker bank of 100 (if `numMarkers` > 0), reported completely (`/marker/<i>/…`), the core pages over it |
+| Track remote controls | `CursorTrackImpl.getParameterBank`: a remote-control page cursor on the cursor track | As the project remote controls: `numParamPages` page cursors on the cursor track, each fixed to its page, reported as `/track/fx/param/…` (the Reaper address of the selected track's FX); no page names, Bitwig's page selection is not followed |
 | Bank paging | `canScrollPageBackwards` of the banks is Bitwig's `canScrollBackwards`: true for any position > 0 | Same with host paging (the Java version for Reaper requires a full page); found 2026-10-30 (Maschine JAM session, Shift + arrow scrolls by 1 track) |
 | Selection after a page change | `AbstractItemBankImpl`: the previous item at the first item of a page scrolls back and selects the *last* item, the previous page selects the *first* item, the next page the first item, `selectItemAtPosition` scrolls and selects; all selections 75 ms after the page change | Same for tracks and scenes (core port P1 2 and 4, 2026-10-30; before, the previous item selected the first item of the previous page, and the scene selections were sent at once, while the extension still had the old window, so they were lost). Banks without a place in the model (slot banks of the tracks) still select at once |
 | Track bank `scrollTo` | `scrollPosition ().set (position)`, exact (`adjustPage` ignored), selects nothing | Same with host paging (`bank track <position>`; core port P1 3, 2026-10-30; before, `<pos>/scrollto` selected the track). Reaper keeps `<pos>/scrollto` (the Reaper backend selects and scrolls to the track) |
@@ -56,7 +58,7 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | Changing the loop start and length | Step from the zoom resolution, rounded to it (`calcScrollFraction`) | Fixed step of 4 quarters, 1 quarter with Shift/slow, not rounded (as Java for Reaper, `INC_FRACTION_TIME`) |
 | Play position in seconds | Not used | Derived at the current tempo, only used by the core for Reaper's slot states |
 | Automation write mode | `isArrangerAutomationWriteEnabled` / `isClipLauncherAutomationWriteEnabled`, `automationWriteMode` | Same switches and modes (see "Automation" in §6) |
-| Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Only the metronome during pre-roll; the pre-roll length is not handled yet |
+| Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Same; the length is reported as `/click/prerollMeasures` and set with Reaper's command `inifile reaper/prerollmeas <bars>` (other lengths are logged, Java logs an error) |
 
 ## 4. Clip launcher
 
@@ -315,6 +317,44 @@ the devices (`numParamPages`), reported as `/project/param/<i>/…`, `/project/p
 the core used a bank on the master FX (Reaper), whose `master param/…` commands the extension did not
 handle. The extension creates them if the model setup has `numParams` > 0.
 
+**Commands the extension did not handle (2026-10-31).** These were sent by the core but logged as
+not handled:
+- `clip clear` (the cursor clip without a host step grid): `clearSteps ()` as `CursorClipImpl.clearAll`.
+- `time signature <numerator + denominator * 100>`: `timeSignature ().numerator ().set` and
+  `denominator ().set` as `TransportImpl.setTimeSignature`.
+- `time loop/start|length <seconds>` (Reaper form): converted to beats at the tempo,
+  `arrangerLoopStart|arrangerLoopDuration ().set` (the core sends `beats loop/…` itself).
+- `track <p>/movePrev|moveNext`: as `CursorTrackImpl.swapWithPrevious|swapWithNext` (the neighbour
+  from the 400-track bank is moved with `afterTrackInsertionPoint|beforeTrackInsertionPoint ().moveTracks`
+  and selected in the editor), but on the track of the command instead of Bitwig's cursor track
+  (the core sends it for its cursor track or a track of the bank).
+- `track <p>/toggleMultiSelect`: ignored, as `ChannelImpl.toggleMultiSelect` (no multi-selection in
+  the API).
+- `device <i>/movePrev|moveNext`: as `CursorDeviceImpl.swapWithPrevious|swapWithNext` on the cursor
+  device (a bank of 100 devices of the cursor device's chain, `moveDevices`, the neighbour is
+  selected); the index of the core is not needed.
+- `device preset <index>` (Reaper's own preset browser, only without a host browser) and
+  `device add/0 <creation name>` (Reaper's device creation names; `ChannelImpl.addDevice` uses
+  Bitwig's device metadata, which the core does not have): ignored.
+- Markers (`MarkerBankImpl`, `MarkerImpl`): `marker add` → `addCueMarkerAtPlaybackPosition ()`,
+  `marker <i>/launch` → `launch (true)` (all controllers of the Java version launch quantized),
+  `marker <i>/select` → the play start position at the marker (`TransportImpl.setPosition`),
+  `marker <i>/remove` → `deleteObject ()`. Previous/next marker stay `jumpToPrevious|NextCueMarker ()`;
+  Java searches the closest marker before/after the play position in its large marker bank
+  (`findAndSelect`) and does nothing without a marker bank.
+- `inifile reaper/prerollmeas <bars>`: the pre-roll length (see §3); other keys are logged.
+- `action <id>`: `application.getAction (id).invoke ()` as `ApplicationImpl.invokeAction`; IDs which
+  Bitwig does not know (Reaper's numbers) are ignored silently, as in Java.
+- The crossfader (`TransportImpl.getCrossfadeParameter`, a `ParameterImpl` on `transport.crossfade ()`):
+  the extension reports `/crossfade` (+ `/str`, `/str/6|8`, `/name`); the core then sends
+  `transport crossfade` with the value suffixes, `crossfade/touch` and `crossfade/indicate` instead of
+  Reaper's master FX parameter `master user/param/0/value`.
+- The track parameters (`track <p>/param/<i>/value|touch|indicate`, e.g. the Launchpad User view):
+  the remote controls of the cursor track (see §2), reported as `/track/fx/param/…`; with Bitwig's
+  pinning the core puts them on its cursor (pinned) track instead of the selected track.
+- `device indicate` (the pad bank of the cursor device) is not sent by the core: the drum views
+  indicate the pads of the drum devices (`drum indicate`).
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 
@@ -337,8 +377,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `inifile` (pre-roll measures), `cursor`,
-  user-configured Reaper actions (`action` with a string).
+- `cursor`, `inifile` keys other than the pre-roll length.
 
 ## 8. Known issues
 

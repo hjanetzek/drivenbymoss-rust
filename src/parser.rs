@@ -14,6 +14,7 @@ use crate::daw::color::ColorEx;
 use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId, RecordQuantization};
 use crate::daw::device::SpecificDevice;
 use crate::daw::model::Model;
+use crate::daw::parameter::ParameterKind;
 use crate::daw::parameter_bank::ParameterBank;
 use crate::daw::track::Track;
 use crate::daw::track_bank::TrackRef;
@@ -281,6 +282,16 @@ impl Parser {
             }
             "noterepeat" => self.parse_note_repeat(model, &mut parts, value),
             "groove" => Self::parse_groove(model, &mut parts, value),
+            // Bitwig (TransportImpl.getCrossfadeParameter): the crossfader of the transport;
+            // the master crossfader then sends `transport crossfade`
+            "crossfade" => {
+                if let Some(param) = model.crossfade_parameter_mut() {
+                    if param.kind() != ParameterKind::HostCrossfade {
+                        param.set_kind(ParameterKind::HostCrossfade);
+                    }
+                    Self::parse_host_parameter(param, &mut parts, value);
+                }
+            }
             "drum" => Self::parse_drum(model, &mut parts, value),
             // The command forms the host understands (HostFeature), e.g. `/host/features
             // valueInc valueReset`
@@ -1045,11 +1056,19 @@ impl Parser {
             return;
         }
         let host = model.host().clone();
-        let Some(selected) = model.track_bank_mut().selected_item_mut() else {
-            return;
-        };
         let cmd = parts.poll().unwrap_or("");
-        let Some(bank) = selected.parameter_bank_mut() else {
+        // A host which pins its cursor track (Bitwig) reports the remote controls of that track
+        // (CursorTrackImpl.getParameterBank of the Java version), Reaper those of the selected
+        // track
+        let bank = if model.host_pins_track() {
+            model.cursor_track_parameter_bank_mut()
+        } else {
+            match model.track_bank_mut().selected_item_mut() {
+                Some(selected) => selected.parameter_bank_mut(),
+                None => None,
+            }
+        };
+        let Some(bank) = bank else {
             return;
         };
         match parse_index(cmd) {
@@ -1184,7 +1203,8 @@ impl Parser {
 
     fn parse_marker(model: &mut Model, parts: &mut Parts, value: &str) {
         let part = parts.poll().unwrap_or("");
-        let color = model.parse_color(value);
+        // Only the value of the color is a color (the other values logged color errors)
+        let color = if parts.peek() == Some(TAG_COLOR) { model.parse_color(value) } else { None };
         let host = model.host().clone();
         let bank = model.marker_bank_mut();
         match parse_index(part) {
@@ -2733,5 +2753,135 @@ mod tests {
         let (mut model, mut parser, _, log) = create(ModelSetup::default());
         feed(&mut model, &mut parser, &["/foo/bar 1", "/track/abc/name x", "/track/0/volume notanumber"]);
         assert_eq!(log.lines.borrow().len(), 2);
+    }
+
+    /// TransportImpl.getCrossfadeParameter of the Java version for Bitwig: the host reports the
+    /// crossfader of its transport (`/crossfade`), the master crossfader then sends
+    /// `transport crossfade` with the suffixes of the host features. Without the report
+    /// (Reaper) it stays the master FX parameter.
+    #[test]
+    fn host_crossfade() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/offset 0", "/host/features valueInc valueReset indication", "/crossfade 0.25", "/crossfade/str A 50 %", "/crossfade/str/6 A 50%", "/crossfade/name Crossfade"],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        backend.take_calls();
+        let param = model.crossfade_parameter_mut().unwrap();
+        assert!(param.does_exist());
+        assert_eq!(param.name(), "Crossfade");
+        assert_eq!(param.value(), 32);
+        assert_eq!(param.displayed_value(), "A 50 %");
+        assert_eq!(param.displayed_value_limited(6), "A 50%");
+        param.set_value(127);
+        param.inc(1.0);
+        param.reset_value();
+        param.touch_value(true);
+        param.set_indication(true);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("transport".into(), "crossfade".into(), 1.0),
+                BackendCall::DoubleArg("transport".into(), "crossfade/inc".into(), 1.0 / 128.0),
+                BackendCall::NoArg("transport".into(), "crossfade/reset".into()),
+                BackendCall::IntArg("transport".into(), "crossfade/touch".into(), 1),
+                BackendCall::IntArg("transport".into(), "crossfade/indicate".into(), 1),
+            ]
+        );
+
+        // Reaper: the master FX parameter 0
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/master/fx/param/count 1", "/master/fx/param/0/name Crossfade", "/master/fx/param/0/value 0.5"]);
+        backend.take_calls();
+        model.crossfade_parameter_mut().unwrap().set_value(127);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("master".into(), "user/param/0/value".into(), 1.0)]);
+    }
+
+    /// CursorTrackImpl.getParameterBank of the Java version for Bitwig: a host which pins its
+    /// cursor track reports the remote controls of that (pinned) track as `/track/fx/param/…`;
+    /// Reaper reports the FX parameters of the selected track.
+    #[test]
+    fn host_track_remote_controls() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/track/count 3",
+                "/track/0/exists 1",
+                "/track/1/exists 1",
+                "/track/2/exists 1",
+                "/track/0/select 1",
+                "/track/pinned 2",
+                "/track/fx/param/count 8",
+                "/track/fx/param/0/name Gain",
+                "/track/fx/param/0/value 0.5",
+                "/track/fx/param/0/value/str 0 dB",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        assert_eq!(model.cursor_track().position(), 2);
+        let bank = model.cursor_track_parameter_bank().unwrap();
+        assert_eq!(bank.item(0).name(), "Gain");
+        assert_eq!(bank.item(0).value(), 64);
+        assert_eq!(bank.item(0).displayed_value(), "0 dB");
+        assert!(!model.track_bank().item(0).parameter_bank().unwrap().item(0).does_exist());
+        backend.take_calls();
+        model.cursor_track_parameter_bank_mut().unwrap().item_mut(0).set_value(127);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/param/0/value".into(), 1.0)]);
+
+        // Reaper: the selected track
+        let (mut model, mut parser, _, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/1/select 1", "/track/fx/param/count 8", "/track/fx/param/0/name Gain"]);
+        assert_eq!(model.track_bank().item(1).parameter_bank().unwrap().item(0).name(), "Gain");
+    }
+
+    /// The markers of Bitwig's cue marker bank (MarkerImpl of the Java version): exists, number,
+    /// name, color and position (ignored); the commands address the reported position.
+    #[test]
+    fn host_markers() {
+        let mut setup = ModelSetup::default();
+        setup.set_num_markers(8);
+        let (mut model, mut parser, backend, log) = create(setup);
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/marker/0/exists 1",
+                "/marker/0/number 0",
+                "/marker/0/name Intro",
+                "/marker/0/color 255 0 0",
+                "/marker/0/position 4.000000",
+                "/marker/1/exists 1",
+                "/marker/1/number 1",
+                "/marker/1/name ",
+                "/marker/2/exists 0",
+                "/marker/count 2",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let bank = model.marker_bank_mut();
+        assert_eq!(bank.item_count(), 2);
+        assert_eq!(bank.item(0).name(), "Intro");
+        assert_eq!(bank.item(0).color(), ColorEx::RED);
+        assert_eq!(bank.item(1).name(), "Marker 2");
+        assert!(!bank.item(2).does_exist());
+        backend.take_calls();
+        bank.item_mut(1).launch(true);
+        bank.item_mut(1).select();
+        bank.item_mut(0).remove_marker();
+        bank.add_marker();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("marker".into(), "1/launch".into()),
+                BackendCall::NoArg("marker".into(), "1/select".into()),
+                BackendCall::NoArg("marker".into(), "0/remove".into()),
+                BackendCall::NoArg("marker".into(), "add".into()),
+            ]
+        );
     }
 }

@@ -6,6 +6,7 @@ package de.mossgrabers.dbm.bitwig;
 import com.bitwig.extension.controller.api.Action;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
+import com.bitwig.extension.controller.api.CueMarker;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.Parameter;
@@ -154,6 +155,7 @@ public final class CommandHandler
             case "clip" -> this.handleClip (command, value, null);
             case "automation" -> this.setAutomationWriteMode ((int) value);
             case "groove" -> this.handleGroove (command, value);
+            case "inifile" -> this.handleIniFile (command, (int) value);
             case "quantize" ->
             {
                 // As CursorClipImpl.quantize
@@ -286,8 +288,36 @@ public final class CommandHandler
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
             case "eq" -> this.handleEqualizer (command, 0, value);
             case "clip" -> this.handleClip (command, 0, value);
+            // ApplicationImpl.invokeAction: a Bitwig action ID; IDs which Bitwig does not know
+            // (e.g. Reaper's) are ignored as in the Java version
+            case "action" ->
+            {
+                final Action action = value == null ? null : this.model.application.getAction (value.trim ());
+                if (action != null)
+                    action.invoke ();
+            }
+            case "device" ->
+            {
+                // "add/0 <creation name>": Reaper's device creation names, Bitwig has no such
+                // names (ChannelImpl.addDevice of the Java version uses the device metadata)
+                if (!"add/0".equals (command))
+                    this.unhandled.accept (processor + " " + command);
+            }
             default -> this.unhandled.accept (processor + " " + command);
         }
+    }
+
+
+    /**
+     * The settings of Reaper's ini file: only the pre-roll length ("reaper/prerollmeas
+     * &lt;bars&gt;"), as TransportImpl.setPrerollMeasures of the Java version (none, 1, 2, 4 bars).
+     */
+    private void handleIniFile (final String command, final int bars)
+    {
+        if ("reaper/prerollmeas".equals (command) && bars >= 0 && bars < BitwigModel.PREROLLS.length && BitwigModel.PREROLLS[bars] != null)
+            this.model.transport.preRoll ().set (BitwigModel.PREROLLS[bars]);
+        else
+            this.unhandled.accept ("inifile " + command + " " + bars);
     }
 
 
@@ -543,6 +573,8 @@ public final class CommandHandler
             case "accent" -> this.setValue (clip.getAccent (), value);
             case "duplicate" -> clip.duplicate ();
             case "duplicateContent" -> clip.duplicateContent ();
+            // CursorClipImpl.clearAll (the core's command without a host step grid)
+            case "clear" -> clip.clearSteps ();
             case "pinned" ->
             {
                 for (final BitwigNoteClip noteClip: this.model.noteClips)
@@ -590,6 +622,15 @@ public final class CommandHandler
             {
                 if (parseIndex (parts[0]) >= 0)
                     this.reporter.forgetLater ("/track/" + parts[0] + "/", REPORT_AGAIN_DELAY);
+                // "[<position>/]param/<index>/…": the remote controls of the cursor track
+                final int param = Arrays.asList (parts).indexOf ("param");
+                if ((param == 0 || param == 1) && parts.length > param + 1)
+                    this.reporter.forgetLater ("/track/fx/param/" + parts[param + 1] + "/", REPORT_AGAIN_DELAY);
+            }
+            case "transport" ->
+            {
+                if ("crossfade".equals (parts[0]))
+                    this.reporter.forgetLater ("/crossfade", REPORT_AGAIN_DELAY);
             }
             case "device", "primary", "drum", "eq", "project" ->
             {
@@ -735,6 +776,10 @@ public final class CommandHandler
             case "toggleMetronomeTicks" -> this.model.transport.isMetronomeTickPlaybackEnabled ().toggle ();
             // MetronomeVolumeParameterImpl: set, "/inc"
             case "metronomeVolume" -> this.setValue (this.model.transport.metronomeVolume (), value);
+            // TransportImpl.getCrossfadeParameter (a ParameterImpl): set, "/inc", "/reset"
+            case "crossfade" -> this.setValue (this.model.transport.crossfade (), value);
+            case "crossfade/touch" -> this.model.transport.crossfade ().touch (value > 0);
+            case "crossfade/indicate" -> this.model.transport.crossfade ().setIndication (value > 0);
             default -> this.unhandled.accept ("transport " + command);
         }
     }
@@ -858,13 +903,37 @@ public final class CommandHandler
     }
 
 
+    /**
+     * The cue markers, as MarkerBankImpl and MarkerImpl of the Java version: "add", "previous",
+     * "next", "&lt;position&gt;/launch|select|remove" with the absolute position in the marker
+     * bank.
+     */
     private void handleMarker (final String command)
     {
         switch (command)
         {
+            case "add" -> this.model.transport.addCueMarkerAtPlaybackPosition ();
             case "previous" -> this.model.transport.jumpToPreviousCueMarker ();
             case "next" -> this.model.transport.jumpToNextCueMarker ();
-            default -> this.unhandled.accept ("marker " + command);
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                final int index = parts.length == 2 ? parseIndex (parts[0]) : -1;
+                if (this.model.markerBank == null || index < 0 || index >= BitwigModel.NUM_MARKERS)
+                {
+                    this.unhandled.accept ("marker " + command);
+                    return;
+                }
+                final CueMarker marker = this.model.markerBank.getItemAt (index);
+                switch (parts[1])
+                {
+                    // The controllers of the Java version launch quantized
+                    case "launch" -> marker.launch (true);
+                    case "select" -> this.setPosition (marker.position ().get ());
+                    case "remove" -> marker.deleteObject ();
+                    default -> this.unhandled.accept ("marker " + command);
+                }
+            }
         }
     }
 
@@ -887,11 +956,27 @@ public final class CommandHandler
 
     private void handleTime (final String command, final double seconds)
     {
+        // "signature <numerator + denominator * 100>": TransportImpl.setTimeSignature
+        if ("signature".equals (command))
+        {
+            final int value = (int) seconds;
+            final int numerator = value % 100;
+            final int denominator = value / 100;
+            if (numerator > 0 && denominator > 0)
+            {
+                this.model.transport.timeSignature ().numerator ().set (numerator);
+                this.model.transport.timeSignature ().denominator ().set (denominator);
+            }
+            return;
+        }
         final double tempo = this.model.transport.tempo ().value ().getRaw ();
         final double beats = seconds * tempo / 60.0;
         switch (command)
         {
             case "", "nosnap" -> this.setPosition (beats);
+            // The loop in seconds (the Reaper commands; the core sends "beats loop/…" itself)
+            case "loop/start" -> this.model.transport.arrangerLoopStart ().set (beats);
+            case "loop/length" -> this.model.transport.arrangerLoopDuration ().set (beats);
             default -> this.unhandled.accept ("time " + command);
         }
     }
@@ -962,7 +1047,12 @@ public final class CommandHandler
             }
             default ->
             {
-                // A command of a track
+                // "param/<index>/…" without a position (touch, indicate, the master)
+                if (command.startsWith ("param/"))
+                {
+                    this.handleTrackParameter (command, value);
+                    return;
+                }
             }
         }
         final int slash = command.indexOf ('/');
@@ -992,6 +1082,13 @@ public final class CommandHandler
             case "stop" -> track.stop ();
             case "stopAlt" -> track.stopAlt ();
             case "returnToArrangement" -> track.returnToArrangement ();
+            case "movePrev" -> this.moveTrack (track, index, -1);
+            case "moveNext" -> this.moveTrack (track, index, 1);
+            // ChannelImpl.toggleMultiSelect: no multi-selection in the Bitwig API
+            case "toggleMultiSelect" ->
+            {
+                // Intentionally empty, as the Java version
+            }
             case "name" ->
             {
                 if (text != null)
@@ -1010,6 +1107,8 @@ public final class CommandHandler
                     else
                         this.handleSlot (windowTrack, subCommand, text);
                 }
+                else if (subCommand.startsWith ("param/"))
+                    this.handleTrackParameter (subCommand, value);
                 else if (subCommand.startsWith ("createClip/"))
                 {
                     // createNewLauncherClip needs the absolute slot (as TrackImpl.createClip)
@@ -1021,6 +1120,38 @@ public final class CommandHandler
                     this.handleChannel (track, subCommand, value, text);
             }
         }
+    }
+
+
+    /**
+     * "param/&lt;index&gt;/value|touch|indicate": the remote controls of the cursor track, as
+     * CursorTrackImpl.getParameterBank of the Java version. The core sends them for its cursor
+     * track, which is Bitwig's cursor track, so the position is not needed.
+     */
+    private void handleTrackParameter (final String command, final double value)
+    {
+        final String [] parts = command.split ("/");
+        if (parts.length != 3 || !this.handleParameter (this.model.trackPages, parts, value))
+            this.unhandled.accept ("track " + command);
+    }
+
+
+    /**
+     * Move a track one position up or down, as CursorTrackImpl.swapWithPrevious / swapWithNext of
+     * the Java version (on the track of the command instead of the cursor track): move the
+     * neighbour behind or before the track and select it.
+     */
+    private void moveTrack (final Track track, final int position, final int direction)
+    {
+        final int neighbourPosition = position + direction;
+        if (neighbourPosition < 0 || neighbourPosition >= BitwigModel.NUM_LARGE_TRACKS)
+            return;
+        final Track neighbour = this.model.largeTrackBank.getItemAt (neighbourPosition);
+        if (direction < 0)
+            track.afterTrackInsertionPoint ().moveTracks (neighbour);
+        else
+            track.beforeTrackInsertionPoint ().moveTracks (neighbour);
+        neighbour.selectInEditor ();
     }
 
 
@@ -1220,6 +1351,12 @@ public final class CommandHandler
             case "pinned" -> this.model.cursorDevice.isPinned ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
             case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (this.model.cursorDevice, command);
+            // "preset <index>": the result of Reaper's preset browser, only sent without the
+            // host's browser (which Bitwig always reports)
+            case "preset" ->
+            {
+                // Intentionally empty
+            }
             default -> this.handleDeviceIndexed (command, value);
         }
     }
@@ -1244,6 +1381,12 @@ public final class CommandHandler
             this.unhandled.accept ("device " + command);
             return;
         }
+        // <position+1>/movePrev|moveNext: the core moves its cursor device, which is Bitwig's
+        if (parts.length == 2 && ("movePrev".equals (parts[1]) || "moveNext".equals (parts[1])))
+        {
+            this.moveCursorDevice ("movePrev".equals (parts[1]) ? -1 : 1);
+            return;
+        }
         // <position+1>/bypass, remove, duplicate
         if (parts.length == 2)
         {
@@ -1261,6 +1404,28 @@ public final class CommandHandler
             }
         }
         this.unhandled.accept ("device " + command);
+    }
+
+
+    /**
+     * Move the cursor device one position to the left or right, as
+     * CursorDeviceImpl.swapWithPrevious / swapWithNext of the Java version: move the neighbour
+     * behind or before the cursor device and select it.
+     */
+    private void moveCursorDevice (final int direction)
+    {
+        final PinnableCursorDevice device = this.model.cursorDevice;
+        if (!device.exists ().get ())
+            return;
+        final int neighbourPosition = device.position ().get () + direction;
+        if (neighbourPosition < 0 || neighbourPosition >= BitwigModel.NUM_LARGE_DEVICES)
+            return;
+        final Device neighbour = this.model.largeDeviceBank.getItemAt (neighbourPosition);
+        if (direction < 0)
+            device.afterDeviceInsertionPoint ().moveDevices (neighbour);
+        else
+            device.beforeDeviceInsertionPoint ().moveDevices (neighbour);
+        neighbour.selectInEditor ();
     }
 
 

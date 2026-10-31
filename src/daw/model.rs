@@ -424,6 +424,11 @@ impl Model {
         }
     }
 
+    /// True if the host pins its cursor track itself and reports it (`/track/pinned`, Bitwig).
+    pub fn host_pins_track(&self) -> bool {
+        self.host_pins_track
+    }
+
     pub fn is_cursor_track_pinned(&self) -> bool {
         self.pinned_track.is_some()
     }

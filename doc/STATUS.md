@@ -195,17 +195,29 @@ investigate:
   deviceCommands, layoutStep; HOST_BRIDGE_GUIDE.md §2); pinning, cursor track navigation, project
   unsolo/unmute, master activation and the VU clip state follow their own reports; a paging host
   without `/host/features` gets all features.
-- [ ] Commands the core sends which the Bitwig extension does not handle: `clip clear`, `time
-  signature`, `time loop/start|length` (Reaper form), `track <p>/movePrev|moveNext|toggleMultiSelect`,
-  `device <i>/movePrev|moveNext`, `device preset`, `device add/0`, `marker add`, `marker <i>/…`,
-  `inifile`, `action`, `master user/param/0/value` (crossfader), `track <p>/param/…` (track FX);
-  check whether the core sends `device indicate` for the cursor device's pad bank.
+- [x] Commands the core sends which the Bitwig extension did not handle. Done 2026-10-31
+  (BITWIG_DIVERGENCES.md §6 "Commands the extension did not handle"): `clip clear` (`clearSteps`),
+  `time signature`, `time loop/start|length` (in beats), `track <p>/movePrev|moveNext` and
+  `device <i>/movePrev|moveNext` (`moveTracks`/`moveDevices` as `swapWithPrevious/Next`), markers
+  (`marker add`, `marker <i>/launch|select|remove`, reported from a cue marker bank of 100 if
+  `numMarkers > 0`), `inifile reaper/prerollmeas` (`preRoll`, reported as
+  `/click/prerollMeasures`), `action` (Bitwig action IDs), the crossfader (reported as
+  `/crossfade`, the core then sends `transport crossfade` instead of `master user/param/0/value`),
+  the track parameters `track <p>/param/…` (remote controls of the cursor track as
+  `/track/fx/param/…`, on the pinned track with host pinning). Ignored: `toggleMultiSelect` (as
+  Java), `device preset`, `device add/0` (Reaper only). The core does not send `device indicate`
+  (the drum views use `drum indicate`). Also fixed: the parser read every marker value as a color
+  and logged errors (Reaper too).
+- [ ] The cursor track's remote controls have no page names and do not follow the page selected
+  in Bitwig (the project and device remote controls do); previous/next marker use
+  `jumpToPrevious/NextCueMarker` instead of Java's search in the marker bank. No ported controller
+  uses markers yet, so the marker bank is untested in Bitwig.
 - [ ] Commands whose value the extension ignores: `track <p>/send/<s>/active` and
   `device <i>/bypass` toggle; `track <p>/select 0` is ignored.
 - [ ] Addresses the parser accepts which the extension does not report: `/project/name`,
-  `/project/isDirty`, `/click/prerollMeasures`, `/track/<p>/depth|vuhold*|overdub|inQuant*`,
-  `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/*`,
-  `/scene/<s>/position|endPosition`, `/track/fx/…`, `/master/fx/…`, the Reaper browser and groove
+  `/project/isDirty`, `/track/<p>/depth|vuhold*|overdub|inQuant*`,
+  `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/<i>/endPosition`,
+  `/scene/<s>/position|endPosition`, `/master/fx/…`, the Reaper browser and groove
   addresses.
 - [x] Docs lag the code: BITWIG_DIVERGENCES.md §3 (automation) and the "Protocol additions" of
   BITWIG_CORE_PORT_PLAN.md (now split into implemented and planned) are updated (2026-10-31).

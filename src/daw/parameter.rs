@@ -40,6 +40,10 @@ pub enum ParameterKind {
     Send { channel_position: i32 },
     /// The crossfader on the master track (`master` `user/param/0/value`).
     MasterCrossfader,
+    /// The crossfader of the host's transport (Bitwig: `transport` `crossfade`, the
+    /// `ParameterImpl` on `transport.crossfade ()` of TransportImpl in the Java version). The
+    /// master crossfader becomes this one when the host reports `/crossfade`.
+    HostCrossfade,
     /// A parameter of the groove (`groove` `active` / `amount`).
     Groove(GrooveParameterId),
     /// The cue volume or cue mix of the project (Bitwig: `project` `cueVolume` / `cueMix`,
@@ -329,6 +333,7 @@ impl Parameter {
             ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
             ParameterKind::ProjectCue(name) => self.ctx.send_int(Processor::Project, &format!("{name}/touch"), touch),
             ParameterKind::HostGroove(name) => self.ctx.send_int(Processor::Groove, &format!("{name}/touch"), touch),
+            ParameterKind::HostCrossfade => self.ctx.send_int(Processor::Transport, "crossfade/touch", touch),
             _ => {}
         }
         self.is_being_touched = is_being_touched;
@@ -381,6 +386,7 @@ impl Parameter {
             ParameterKind::MasterPan => (Processor::Master, "pan".into()),
             ParameterKind::Send { channel_position } => (Processor::Track, format!("{}/send/{}/volume", channel_position, self.position)),
             ParameterKind::MasterCrossfader => (Processor::Master, "user/param/0/value".into()),
+            ParameterKind::HostCrossfade => (Processor::Transport, "crossfade".into()),
             ParameterKind::ProjectCue(name) => (Processor::Project, name.into()),
             ParameterKind::HostGroove(name) => (Processor::Groove, name.into()),
             ParameterKind::Groove(GrooveParameterId::Enabled) => (Processor::Groove, "active".into()),

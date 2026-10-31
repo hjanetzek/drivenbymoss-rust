@@ -9,6 +9,8 @@ import com.bitwig.extension.controller.api.Arranger;
 import com.bitwig.extension.controller.api.Channel;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.ControllerHost;
+import com.bitwig.extension.controller.api.CueMarker;
+import com.bitwig.extension.controller.api.CueMarkerBank;
 import com.bitwig.extension.controller.api.CursorDeviceFollowMode;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.CursorTrack;
@@ -31,6 +33,7 @@ import com.bitwig.extension.controller.api.TrackBank;
 import com.bitwig.extension.controller.api.Transport;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -54,6 +57,12 @@ public final class BitwigModel
     public static final int  NUM_LAYERS          = 32;
     /** The Bitwig Drum Machine (ModelImpl.INSTRUMENT_DRUM_MACHINE of the Java version). */
     private static final UUID INSTRUMENT_DRUM_MACHINE = UUID.fromString ("8ea97e45-0255-40fd-bc7e-94419741e9d1");
+    /** The size of the bank to move the cursor device (CursorDeviceImpl.NUM_DEVICES_LARGE_BANK of the Java version). */
+    public static final int  NUM_LARGE_DEVICES   = 100;
+    /** The number of cue markers: all markers, the core pages over them (MarkerBankImpl.NUM_LARGE_MARKER_BANK of the Java version). */
+    public static final int  NUM_MARKERS         = 100;
+    /** The pre-roll lengths of Bitwig by the number of bars (TransportImpl of the Java version). */
+    static final String []   PREROLLS            = { "none", "one_bar", "two_bars", null, "four_bars" };
     /** The size of the device sibling window, as in the Reaper backend. */
     public static final int  NUM_SIBLINGS        = 8;
     /** The parameters per remote control page. */
@@ -96,6 +105,12 @@ public final class BitwigModel
     final MasterTrack        masterTrack;
     final PinnableCursorDevice cursorDevice;
     final DeviceBank         siblings;
+    /** All devices of the cursor device's chain, to move the cursor device (CursorDeviceImpl.largeDeviceBank). */
+    final DeviceBank         largeDeviceBank;
+    /** The cue markers of the arranger (MarkerBankImpl), null if the controller has no markers. */
+    final CueMarkerBank      markerBank;
+    /** The remote controls of the cursor track (CursorTrackImpl.getParameterBank), empty if not needed. */
+    final CursorRemoteControlsPage [] trackPages;
     final CursorRemoteControlsPage [] pages;
     /** Follows the page selected in Bitwig (as the remote controls page of the Java version). */
     final CursorRemoteControlsPage remoteControls;
@@ -174,7 +189,14 @@ public final class BitwigModel
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
+        this.largeDeviceBank = this.cursorDevice.channel ().createDeviceBank (NUM_LARGE_DEVICES);
         this.remoteControls = this.cursorDevice.createCursorRemoteControlsPage (PARAMS_PER_PAGE);
+        // CursorTrackImpl: the remote controls of the cursor track, in pages as for devices
+        this.trackPages = new CursorRemoteControlsPage [numProjectPages];
+        for (int i = 0; i < numProjectPages; i++)
+            this.trackPages[i] = this.cursorTrack.createCursorRemoteControlsPage ("DBM track page " + (i + 1), PARAMS_PER_PAGE, "");
+        // MarkerBankImpl: the cue markers of the arranger, if the controller uses markers
+        this.markerBank = getInt (modelSetup, "numMarkers", 0) > 0 ? this.arranger.createCueMarkerBank (NUM_MARKERS) : null;
 
         // The drum machine of the cursor track, as ModelImpl of the Java version
         if (getBoolean (modelSetup, "wantsDrumDevice", true))
@@ -242,6 +264,9 @@ public final class BitwigModel
         this.transport.arrangerLoopStart ().markInterested ();
         this.transport.arrangerLoopDuration ().markInterested ();
         this.arranger.getHorizontalScrollbarModel ().getContentPerPixel ().markInterested ();
+        // TransportImpl: the pre-roll length, the crossfader
+        this.transport.preRoll ().markInterested ();
+        markParameter (this.transport.crossfade ());
         this.transport.timeSignature ().numerator ().markInterested ();
         this.transport.timeSignature ().denominator ().markInterested ();
         this.application.canUndo ().markInterested ();
@@ -372,6 +397,21 @@ public final class BitwigModel
             markPage (page);
         for (final CursorRemoteControlsPage page: this.projectPages)
             markPage (page);
+        for (final CursorRemoteControlsPage page: this.trackPages)
+            markPage (page);
+        if (this.markerBank != null)
+        {
+            // MarkerImpl
+            this.markerBank.itemCount ().markInterested ();
+            for (int i = 0; i < NUM_MARKERS; i++)
+            {
+                final CueMarker marker = this.markerBank.getItemAt (i);
+                marker.exists ().markInterested ();
+                marker.name ().markInterested ();
+                marker.getColor ().markInterested ();
+                marker.position ().markInterested ();
+            }
+        }
         if (this.projectRemoteControls != null)
         {
             this.projectRemoteControls.pageCount ().markInterested ();
@@ -426,6 +466,9 @@ public final class BitwigModel
         reporter.put ("/host/features", HOST_FEATURES);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
+        if (this.trackPages.length > 0)
+            collectPages (reporter, "/track/fx", this.trackPages);
+        this.collectMarkers (reporter);
         this.collectScenes (reporter);
         this.collectMaster (reporter);
         this.collectDevice (reporter);
@@ -516,6 +559,13 @@ public final class BitwigModel
         reporter.put ("/automode", arrangerAutomation || launcherAutomation ? automationModeIndex (this.transport.automationWriteMode ().get ()) : AUTOMATION_READ);
         // As Reaper's pre-roll bit field: 2 = the metronome is audible during the pre-roll
         reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
+        // TransportImpl.getPrerollMeasures
+        reporter.put ("/click/prerollMeasures", Math.max (0, Arrays.asList (PREROLLS).indexOf (this.transport.preRoll ().get ())));
+        // TransportImpl.getCrossfadeParameter
+        final Parameter crossfade = this.transport.crossfade ();
+        reporter.put ("/crossfade/name", crossfade.name ().get ());
+        reporter.put ("/crossfade", crossfade.value ().get ());
+        putDisplayedValue (reporter, "/crossfade/str", crossfade.displayedValue (), true);
         reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());
         reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
         // As TransportImpl.getMetronomeVolumeStr
@@ -607,8 +657,10 @@ public final class BitwigModel
         if (cursor != this.lastCursorTrack)
         {
             this.lastCursorTrack = cursor;
-            // The core keeps one note cache: report the notes of the new cursor track
+            // The core keeps one note cache: report the notes of the new cursor track; the
+            // remote controls belong to the track
             reporter.forget ("/track/" + cursor + "/playingnotes");
+            reporter.forget ("/track/fx/");
         }
 
         final int sceneOffset = this.sceneBank.scrollPosition ().get ();
@@ -699,6 +751,31 @@ public final class BitwigModel
             reporter.put (slotPrefix + "recQueued", slot.isRecordingQueued ().get ());
             reporter.put (slotPrefix + "stopQueued", slot.isStopQueued ().get ());
         }
+    }
+
+
+    /**
+     * The cue markers with their absolute positions, as MarkerImpl of the Java version (and the
+     * marker data of the Reaper backend); the position is in beats.
+     */
+    private void collectMarkers (final ModelReporter reporter)
+    {
+        if (this.markerBank == null)
+            return;
+        for (int i = 0; i < NUM_MARKERS; i++)
+        {
+            final CueMarker marker = this.markerBank.getItemAt (i);
+            final String prefix = "/marker/" + i + "/";
+            final boolean exists = marker.exists ().get ();
+            reporter.put (prefix + "exists", exists);
+            if (!exists)
+                continue;
+            reporter.put (prefix + "number", i);
+            reporter.put (prefix + "name", marker.name ().get ());
+            reporter.putColor (prefix + "color", marker.getColor ().red (), marker.getColor ().green (), marker.getColor ().blue ());
+            reporter.put (prefix + "position", marker.position ().get ());
+        }
+        reporter.put ("/marker/count", Math.min (this.markerBank.itemCount ().get (), NUM_MARKERS));
     }
 
 
