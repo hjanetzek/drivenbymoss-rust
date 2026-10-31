@@ -12,6 +12,7 @@ use std::time::Duration;
 use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordingBackend};
 use drivenbymoss::config::maschine::MaschineConfiguration;
+use drivenbymoss::daw::clip::NotePosition;
 use drivenbymoss::controller::maschine::core::ribbon_mode::RibbonMode;
 use drivenbymoss::controller::maschine::mk::surface as mk;
 use drivenbymoss::framework::ctx::Ctx;
@@ -453,6 +454,131 @@ fn edit_note_mode_shows_the_note() {
     app.tick();
     let lines = display_lines(&backend.take_calls());
     assert!(lines.iter().any(|(row, text)| *row == 0 && text.starts_with("Please select a device...")), "{lines:?}");
+}
+
+/// The clip of the drum and play views (16 steps, 128 rows).
+const CLIP_KEY: (usize, usize) = (16, 128);
+
+/// Activate the edit note mode and edit the note at step 3 of row 36. Waits until the
+/// notification of the mode has ended.
+fn edit_note(app: &mut App) -> NotePosition {
+    let base = std::time::Instant::now();
+    app.set_time(base);
+    press(app, mk::EVENTS);
+    app.set_time(base + Duration::from_millis(800));
+    app.tick();
+    let position = NotePosition::new(0, 2, 36);
+    let mode = ctx(app).modes.get(Modes::Note).unwrap();
+    mode.borrow_mut().note_editor_mut().unwrap().set_note(CLIP_KEY, &position);
+    position
+}
+
+/// Press the button while STEP LEFT (Shift on the Mk2, sends the STOP CC) is held.
+fn shifted_press(app: &mut App, control: i32) {
+    cc(app, mk::STOP, 127);
+    press(app, control);
+    cc(app, mk::STOP, 0);
+}
+
+/// Has the edit note mode a next / previous page?
+fn note_mode_pages(app: &mut App) -> (bool, bool) {
+    let ctx = ctx(app);
+    let mode = ctx.modes.get(Modes::Note).unwrap();
+    let mode = mode.borrow();
+    (mode.has_previous_item_page(ctx), mode.has_next_item_page(ctx))
+}
+
+/// The texts of the first display line after the next tick.
+fn first_display_line(app: &mut App, backend: &RecordingBackend) -> String {
+    app.tick();
+    let lines = display_lines(&backend.take_calls());
+    lines.iter().rev().find(|(row, _)| *row == 0).map(|(_, text)| text.clone()).unwrap_or_default()
+}
+
+#[test]
+fn edit_note_mode_has_3_pages_with_the_host_grid() {
+    let (mut app, backend) = start();
+    ctx(&mut app).model.note_clip(CLIP_KEY.0, CLIP_KEY.1);
+    // A note of the step grid of the host (Bitwig) with a gain of 0.5
+    app.update_model("clip/exists 1\nclip/grid/16x128/step/0/2/36 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 1 0.5 0 0 0 1 0 0 0 0 0 0\n");
+    let position = edit_note(&mut app);
+    backend.take_calls();
+
+    // EditNoteMode.updateDisplay: all attributes of the 'Note' page (the cells have 6
+    // characters)
+    let line = first_display_line(&mut app, &backend);
+    for label in ["Lengt", "Veloci", "Spread", "R-Vel", "Chance", "Occurn"] {
+        assert!(line.contains(label), "{label}: {line}");
+    }
+    assert_eq!(note_mode_pages(&mut app), (false, true));
+
+    // The Mk2 has no encoder up/down: STEP LEFT (Shift, the STOP CC in MIDI mode) + the right
+    // arrow below the encoder selects the next page (MaschineCursorCommand.scrollRight ->
+    // scrollUp -> selectNextItemPage)
+    shifted_press(&mut app, mk::CURSOR_RIGHT);
+    let line = first_display_line(&mut app, &backend);
+    for label in ["Gain", "Pan", "Pitch", "Timbre", "Pressu"] {
+        assert!(line.contains(label), "{label}: {line}");
+    }
+    assert_eq!(note_mode_pages(&mut app), (true, true));
+
+    shifted_press(&mut app, mk::CURSOR_RIGHT);
+    let line = first_display_line(&mut app, &backend);
+    for label in ["Veloci", "Count", "Curve", "V-Curv", "V-End"] {
+        assert!(line.contains(label), "{label}: {line}");
+    }
+    assert_eq!(note_mode_pages(&mut app), (true, false));
+    // No further page
+    shifted_press(&mut app, mk::CURSOR_RIGHT);
+    assert_eq!(note_mode_pages(&mut app), (true, false));
+
+    // STEP LEFT + the left arrow selects the previous page
+    shifted_press(&mut app, mk::CURSOR_LEFT);
+    assert_eq!(note_mode_pages(&mut app), (true, true));
+    // As in the Java version, MaschineCursorCommand does not consume STEP LEFT (no
+    // setStopConsumed), therefore its release still stops
+    assert!(contains(&backend.take_calls(), "stop"));
+    // The encoder up/down CCs (registered for the Mk2 as in the Java version) select the pages
+    // as well
+    press(&mut app, mk::CURSOR_UP);
+    assert_eq!(note_mode_pages(&mut app), (true, false));
+    press(&mut app, mk::CURSOR_DOWN);
+    assert_eq!(note_mode_pages(&mut app), (true, true));
+
+    // The 4th knob changes the gain on the 'Expressions' page
+    backend.take_calls();
+    cc(&mut app, mk::MODE_KNOB_1 + 3, 1);
+    let calls = backend.take_calls();
+    let gain = calls.iter().find_map(|c| match c {
+        BackendCall::DoubleArg(p, c, v) if p == "clip" && c == "grid/16x128/step/0/2/36/gain" => Some(*v),
+        _ => None,
+    });
+    assert!(gain.is_some_and(|v| v > 0.5 && v < 0.6), "{calls:?}");
+    let gain = ctx(&mut app).model.note_clip(CLIP_KEY.0, CLIP_KEY.1).step(&position).gain();
+    assert!(gain > 0.5, "{gain}");
+}
+
+#[test]
+fn edit_note_mode_has_only_the_note_page_on_reaper() {
+    let (mut app, backend) = start();
+    ctx(&mut app).model.note_clip(CLIP_KEY.0, CLIP_KEY.1);
+    app.update_model("clip/exists 1\n");
+    edit_note(&mut app);
+    backend.take_calls();
+
+    // Only length and velocity are supported by Reaper
+    let line = first_display_line(&mut app, &backend);
+    assert!(line.contains("Lengt") && line.contains("Veloci"), "{line}");
+    for label in ["Spread", "R-Vel", "Chance", "Occurn"] {
+        assert!(!line.contains(label), "{label}: {line}");
+    }
+    assert_eq!(note_mode_pages(&mut app), (false, false));
+
+    // No page switching (the display does not change)
+    shifted_press(&mut app, mk::CURSOR_RIGHT);
+    let line = first_display_line(&mut app, &backend);
+    assert!(!line.contains("Gain"), "{line}");
+    assert_eq!(note_mode_pages(&mut app), (false, false));
 }
 
 #[test]

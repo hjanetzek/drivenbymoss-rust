@@ -8,7 +8,8 @@
 //! Views and modes which provide a note editor (former `instanceof INoteEditorMode` /
 //! `INoteEditor`) return it from `View::note_editor(_mut)` / `Mode::note_editor(_mut)`.
 
-use crate::daw::clip::NotePosition;
+use crate::daw::clip::{CursorClip, NotePosition};
+use crate::daw::model::Model;
 
 /// Identifies a cursor clip of the model by its number of steps (columns) and rows, see
 /// [`crate::daw::model::Model::note_clip`]. Replaces the clip reference of the Java version.
@@ -69,6 +70,17 @@ impl NoteEditor {
     /// Get all edited notes.
     pub fn notes(&self) -> &[NotePosition] {
         &self.notes
+    }
+
+    /// Is the clip of the edited notes on the step grid of the host (Bitwig)? Replaces the
+    /// former `IHost.supports (NoteAttribute)`: the step grid of the host supports all note
+    /// attributes, Reaper only pitch, duration, mute and velocity. Without edited notes (e.g. to
+    /// switch the pages of a mode before a note is selected), the first cursor clip decides.
+    pub fn is_host_grid(&self, model: &Model) -> bool {
+        match self.clip {
+            Some((cols, rows)) => model.note_clip_ref(cols, rows).is_some_and(CursorClip::is_host_grid),
+            None => model.cursor_clip().is_some_and(CursorClip::is_host_grid),
+        }
     }
 
     /// Get the note positions which are edited by the parameter with the given index. The

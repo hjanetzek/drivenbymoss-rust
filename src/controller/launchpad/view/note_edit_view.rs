@@ -46,10 +46,11 @@ pub enum NoteAttribute {
 }
 
 impl NoteAttribute {
-    /// Is the attribute supported by Reaper (former `IHost.supports (NoteAttribute)`)? Reaper
-    /// supports pitch, duration, mute and velocity.
-    pub fn is_supported(self) -> bool {
-        matches!(self, NoteAttribute::Velocity | NoteAttribute::Mute)
+    /// Is the attribute supported by the host (former `IHost.supports (NoteAttribute)`)? With
+    /// the step grid of the host (Bitwig) all attributes are supported, Reaper supports only
+    /// pitch, duration, mute and velocity.
+    pub fn is_supported(self, is_host_grid: bool) -> bool {
+        is_host_grid || matches!(self, NoteAttribute::Velocity | NoteAttribute::Mute)
     }
 }
 
@@ -68,23 +69,29 @@ const PARAMETERS: [NoteAttribute; 8] = [
 /// Edit the attributes of the notes selected in a sequencer.
 pub struct NoteEditView {
     fader: FaderViewBase,
-    column_pan: [bool; 8],
     note_editor: NoteEditor,
 }
 
 impl NoteEditView {
     pub fn new(_ctx: &Ctx) -> Self {
-        let column_pan = [
-            false,
-            false,
-            false,
-            NoteAttribute::Gain.is_supported(),
-            NoteAttribute::Panning.is_supported(),
-            NoteAttribute::Transpose.is_supported(),
-            NoteAttribute::Timbre.is_supported(),
-            false,
-        ];
-        NoteEditView { fader: FaderViewBase::new("Note Edit"), column_pan, note_editor: NoteEditor::new() }
+        NoteEditView { fader: FaderViewBase::new("Note Edit"), note_editor: NoteEditor::new() }
+    }
+
+    /// Former `host.supports (NoteAttribute)`.
+    fn supports(&self, ctx: &Ctx, attribute: NoteAttribute) -> bool {
+        attribute.is_supported(self.note_editor.is_host_grid(&ctx.model))
+    }
+
+    /// Is the fader of the column a panorama fader (former `columnPan`)? The Java version
+    /// decides it in the constructor, the host is only known when the clip data arrives.
+    fn column_pan(&self, ctx: &Ctx, index: usize) -> bool {
+        match index {
+            3 => self.supports(ctx, NoteAttribute::Gain),
+            4 => self.supports(ctx, NoteAttribute::Panning),
+            5 => self.supports(ctx, NoteAttribute::Transpose),
+            6 => self.supports(ctx, NoteAttribute::Timbre),
+            _ => false,
+        }
     }
 
     fn clip<'a>(&self, ctx: &'a Ctx) -> Option<&'a CursorClip> {
@@ -105,13 +112,28 @@ impl NoteEditView {
             return 0;
         };
         let step_info = clip.step(note_position);
-        if step_info.state() == StepState::Off || !attribute.is_supported() {
+        if step_info.state() == StepState::Off || !self.supports(ctx, attribute) {
             return 0;
         }
         let normalized_value = match attribute {
             NoteAttribute::Velocity => step_info.velocity(),
-            NoteAttribute::Mute if step_info.is_muted() => 1.0,
-            _ => 0.0,
+            NoteAttribute::VelocitySpread => step_info.velocity_spread(),
+            NoteAttribute::Chance => step_info.chance(),
+            NoteAttribute::Gain => step_info.gain(),
+            NoteAttribute::Panning => (step_info.pan() + 1.0) / 2.0,
+            NoteAttribute::Transpose => {
+                let transpose_range = clip.step_transpose_range();
+                (step_info.transpose() + transpose_range) / (2.0 * transpose_range)
+            }
+            NoteAttribute::Timbre => step_info.timbre(),
+            NoteAttribute::Pressure => step_info.pressure(),
+            NoteAttribute::Mute => {
+                if step_info.is_muted() {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
         };
         ctx.model.value_changer().from_normalized_value(normalized_value)
     }
@@ -125,7 +147,7 @@ impl NoteEditView {
 
     /// Former `NoteParameter.setNormalizedValue`.
     pub fn set_parameter_normalized_value(&self, ctx: &mut Ctx, attribute: NoteAttribute, normalized_value: f64) {
-        if !attribute.is_supported() {
+        if !self.supports(ctx, attribute) {
             return;
         }
         let Some((cols, rows)) = self.note_editor.clip() else {
@@ -138,8 +160,17 @@ impl NoteEditView {
             }
             match attribute {
                 NoteAttribute::Velocity => clip.update_step_velocity(note_position, normalized_value),
+                NoteAttribute::VelocitySpread => clip.update_step_velocity_spread(note_position, normalized_value),
+                NoteAttribute::Chance => clip.update_step_chance(note_position, normalized_value),
+                NoteAttribute::Gain => clip.update_step_gain(note_position, normalized_value),
+                NoteAttribute::Panning => clip.update_step_pan(note_position, normalized_value * 2.0 - 1.0),
+                NoteAttribute::Transpose => {
+                    let transpose_range = clip.step_transpose_range();
+                    clip.update_step_transpose(note_position, normalized_value * 2.0 * transpose_range - transpose_range);
+                }
+                NoteAttribute::Timbre => clip.update_step_timbre(note_position, normalized_value),
+                NoteAttribute::Pressure => clip.update_step_pressure(note_position, normalized_value),
                 NoteAttribute::Mute => clip.update_step_mute_state(note_position, normalized_value > 0.5),
-                _ => {}
             }
         }
     }
@@ -148,7 +179,8 @@ impl NoteEditView {
 
 impl FaderView for NoteEditView {
     fn setup_fader(&self, ctx: &mut Ctx, index: usize) {
-        lp::setup_fader(ctx, index, COLUMN_COLORS[index], self.column_pan[index]);
+        let is_pan = self.column_pan(ctx, index);
+        lp::setup_fader(ctx, index, COLUMN_COLORS[index], is_pan);
         // Prevent issue with catch mode by initializing fader value at setup
         let value = self.fader_value(ctx, index);
         self.on_value_knob(ctx, index, value);

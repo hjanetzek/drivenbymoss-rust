@@ -413,9 +413,16 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   `IHost.supports (NoteAttribute)` of the Java version for Reaper: pitch, duration, mute,
   velocity). On Bitwig all attributes are supported. The Launch Control XL Note and Drum
   Sequencer now edit chance, repeat (ratchet), velocity spread and panning when the clip uses
-  the step grid of the host. Still limited to the Reaper attributes: the Maschine edit note mode
-  (`mk/mode/edit_note.rs`: velocity spread, release velocity, chance, occurrence, gain, pan,
-  transpose, timbre, pressure) and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`).
+  the step grid of the host. Fixed 2026-10-31 (not yet confirmed on Bitwig): the Maschine edit
+  note mode (`mk/mode/edit_note.rs`) has the 'Note', 'Expressions' and 'Repeat' pages of the Java
+  version, and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`) edits all 8
+  attributes, when the clip of the edited notes uses the step grid of the host
+  (`NoteEditor::is_host_grid`).
+- **Maschine Mk2, page selection with STEP LEFT (also in the Java version):** the Mk2 emulates
+  the encoder up/down with STEP LEFT (Shift) + the arrows below the encoder
+  (`MaschineCursorCommand`). The command does not consume STEP LEFT (no `setStopConsumed`), so
+  its release still runs the stop function. Rust keeps it; a candidate for the maintainer.
+  Tested in `edit_note_mode_has_3_pages_with_the_host_grid`. Found 2026-10-31.
 - **Launch Control XL, Note Sequencer Track Control row after a template change (Java bug):**
   the Java version registers the same note edit mode object (`noteEditMode`, also
   `drumPadEditMode`) in the main and in the fader mode manager. On a template change it is
