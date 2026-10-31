@@ -63,12 +63,30 @@ impl Application {
         self.panel_layout
     }
 
+    /// ApplicationImpl.previousPanelLayout: `application.previousPanelLayout ()` on Bitwig.
     pub fn previous_panel_layout(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Application, "layout/-");
+            return;
+        }
         self.set_panel_layout_index(self.window_layout - 1);
     }
 
+    /// ApplicationImpl.nextPanelLayout: `application.nextPanelLayout ()` on Bitwig.
     pub fn next_panel_layout(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Application, "layout/+");
+            return;
+        }
         self.set_panel_layout_index(self.window_layout + 1);
+    }
+
+    /// The host reported its panel layout (Bitwig: `application.panelLayout ()`).
+    pub fn set_internal_panel_layout(&mut self, panel_layout: &str) {
+        if let Some(index) = PANEL_LAYOUTS.iter().position(|l| *l == panel_layout) {
+            self.panel_layout = PANEL_LAYOUTS[index];
+            self.window_layout = index as i32;
+        }
     }
 
     fn set_panel_layout_index(&mut self, index: i32) {
@@ -262,15 +280,40 @@ impl Application {
 pub struct Arranger {
     ctx: DawContext,
     follow_playback: bool,
+    /// The visibility flags reported by the host (ArrangerImpl of the Java version for Bitwig):
+    /// cueMarkers, doubleRowTrackHeight, clipLauncher, timeline, ioSection, effectTracks.
+    flags: Flags,
+}
+
+/// Visibility flags reported by the host by name, false if not reported (Reaper).
+#[derive(Default)]
+struct Flags(Vec<(String, bool)>);
+
+impl Flags {
+    fn get(&self, name: &str) -> bool {
+        self.0.iter().any(|(n, v)| n == name && *v)
+    }
+
+    fn set(&mut self, name: &str, value: bool) {
+        match self.0.iter_mut().find(|(n, _)| n == name) {
+            Some(entry) => entry.1 = value,
+            None => self.0.push((name.to_string(), value)),
+        }
+    }
 }
 
 impl Arranger {
     pub fn new(ctx: DawContext) -> Self {
-        Arranger { ctx, follow_playback: false }
+        Arranger { ctx, follow_playback: false, flags: Flags::default() }
+    }
+
+    /// The host reported a visibility flag (`/arranger/<name>`).
+    pub fn set_flag_state(&mut self, name: &str, value: bool) {
+        self.flags.set(name, value);
     }
 
     pub fn are_cue_markers_visible(&self) -> bool {
-        false
+        self.flags.get("cueMarkers")
     }
 
     pub fn toggle_cue_marker_visibility(&mut self) {
@@ -286,7 +329,7 @@ impl Arranger {
     }
 
     pub fn has_double_row_track_height(&self) -> bool {
-        false
+        self.flags.get("doubleRowTrackHeight")
     }
 
     pub fn toggle_track_row_height(&mut self) {
@@ -294,7 +337,7 @@ impl Arranger {
     }
 
     pub fn is_clip_launcher_visible(&self) -> bool {
-        false
+        self.flags.get("clipLauncher")
     }
 
     pub fn toggle_clip_launcher(&mut self) {
@@ -302,7 +345,7 @@ impl Arranger {
     }
 
     pub fn is_timeline_visible(&self) -> bool {
-        false
+        self.flags.get("timeline")
     }
 
     pub fn toggle_time_line(&mut self) {
@@ -310,7 +353,7 @@ impl Arranger {
     }
 
     pub fn is_io_section_visible(&self) -> bool {
-        false
+        self.flags.get("ioSection")
     }
 
     pub fn toggle_io_section(&mut self) {
@@ -318,7 +361,7 @@ impl Arranger {
     }
 
     pub fn are_effect_tracks_visible(&self) -> bool {
-        false
+        self.flags.get("effectTracks")
     }
 
     pub fn toggle_effect_tracks(&mut self) {
@@ -334,15 +377,24 @@ impl Arranger {
 /// The mixer window.
 pub struct Mixer {
     ctx: DawContext,
+    /// The section visibility flags reported by the host (MixerImpl of the Java version for
+    /// Bitwig): clipLauncherSection, crossFadeSection, deviceSection, ioSection, meterSection,
+    /// sendSection.
+    flags: Flags,
 }
 
 impl Mixer {
     pub fn new(ctx: DawContext) -> Self {
-        Mixer { ctx }
+        Mixer { ctx, flags: Flags::default() }
+    }
+
+    /// The host reported a visibility flag (`/mixer/<name>`).
+    pub fn set_flag_state(&mut self, name: &str, value: bool) {
+        self.flags.set(name, value);
     }
 
     pub fn is_clip_launcher_section_visible(&self) -> bool {
-        false
+        self.flags.get("clipLauncherSection")
     }
 
     pub fn toggle_clip_launcher_section_visibility(&mut self) {
@@ -350,7 +402,7 @@ impl Mixer {
     }
 
     pub fn is_cross_fade_section_visible(&self) -> bool {
-        false
+        self.flags.get("crossFadeSection")
     }
 
     pub fn toggle_cross_fade_section_visibility(&mut self) {
@@ -358,7 +410,7 @@ impl Mixer {
     }
 
     pub fn is_device_section_visible(&self) -> bool {
-        false
+        self.flags.get("deviceSection")
     }
 
     pub fn toggle_device_section_visibility(&mut self) {
@@ -366,7 +418,7 @@ impl Mixer {
     }
 
     pub fn is_io_section_visible(&self) -> bool {
-        false
+        self.flags.get("ioSection")
     }
 
     pub fn toggle_io_section_visibility(&mut self) {
@@ -374,7 +426,7 @@ impl Mixer {
     }
 
     pub fn is_meter_section_visible(&self) -> bool {
-        false
+        self.flags.get("meterSection")
     }
 
     pub fn toggle_meter_section_visibility(&mut self) {
@@ -382,7 +434,7 @@ impl Mixer {
     }
 
     pub fn is_send_section_visible(&self) -> bool {
-        false
+        self.flags.get("sendSection")
     }
 
     pub fn toggle_sends_section_visibility(&mut self) {

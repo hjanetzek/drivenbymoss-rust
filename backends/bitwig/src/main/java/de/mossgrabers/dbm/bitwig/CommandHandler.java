@@ -12,6 +12,7 @@ import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.PinnableCursorClip;
 import com.bitwig.extension.controller.api.PinnableCursorDevice;
 import com.bitwig.extension.controller.api.Scene;
+import com.bitwig.extension.controller.api.SettableBeatTimeValue;
 import com.bitwig.extension.controller.api.SettableRangedValue;
 import com.bitwig.extension.controller.api.Track;
 
@@ -34,6 +35,8 @@ public final class CommandHandler
     /** The delay before the values of a commanded item are reported again, in milliseconds. */
     private static final int     REPORT_AGAIN_DELAY = 300;
     private static final String  IMMEDIATELY = "/immediately";
+    private static final String  INCREMENT = "/inc";
+    private static final String  RESET = "/reset";
     private static final Pattern COLOR_PATTERN = Pattern.compile ("RGB\\((\\d+),(\\d+),(\\d+)\\)");
 
 
@@ -42,6 +45,10 @@ public final class CommandHandler
     private final Consumer<String> unhandled;
     /** The current value command ends with "/immediately": set without the takeover mode. */
     private boolean              immediately;
+    /** The current value command ends with "/inc": change the value by the (normalized) delta. */
+    private boolean              increment;
+    /** The current value command ends with "/reset": reset the parameter (ParameterImpl.resetValue). */
+    private boolean              reset;
 
 
     /**
@@ -67,13 +74,19 @@ public final class CommandHandler
      */
     public void handle (final String processor, final String command)
     {
+        // "<value command>/reset" (see the value commands)
+        if (command.endsWith (RESET))
+        {
+            this.handle (processor, command, 0);
+            return;
+        }
         switch (processor)
         {
             case "transport" -> this.handleTransport (command, 1);
             case "application" -> this.handleApplication (command, 1);
             case "arranger" -> this.handleArranger (command);
             case "mixer" -> this.handleMixer (command);
-            case "project" -> this.handleProject (command);
+            case "project" -> this.handleProject (command, 1);
             case "marker" -> this.handleMarker (command);
             case "automation" -> this.handleAutomation (command);
             case "scene" -> this.handleScene (command, null);
@@ -108,7 +121,16 @@ public final class CommandHandler
         // "…/immediately": set the value without Bitwig's takeover mode (catch, relative
         // scaling), as setValueImmediatly of the Java version, e.g. for pads
         this.immediately = fullCommand.endsWith (IMMEDIATELY);
-        final String command = this.immediately ? fullCommand.substring (0, fullCommand.length () - IMMEDIATELY.length ()) : fullCommand;
+        String command = this.immediately ? fullCommand.substring (0, fullCommand.length () - IMMEDIATELY.length ()) : fullCommand;
+        // "…/inc": a relative change, as RangedValueImpl.inc (rangedValue.inc) of the Java version;
+        // the core sends the delta normalized (increment / upper bound)
+        this.increment = command.endsWith (INCREMENT);
+        if (this.increment)
+            command = command.substring (0, command.length () - INCREMENT.length ());
+        // "…/reset": ParameterImpl.resetValue (parameter.reset ())
+        this.reset = command.endsWith (RESET);
+        if (this.reset)
+            command = command.substring (0, command.length () - RESET.length ());
         this.reportAgain (processor, command);
         switch (processor)
         {
@@ -123,13 +145,14 @@ public final class CommandHandler
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
-            case "project" -> this.handleProject (command);
+            case "project" -> this.handleProject (command, value);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, value, null);
             case "eq" -> this.handleEqualizer (command, value, null);
             case "browser" -> this.handleBrowser (command, value);
             case "clip" -> this.handleClip (command, value, null);
             case "automation" -> this.setAutomationWriteMode ((int) value);
+            case "groove" -> this.handleGroove (command, value);
             case "quantize" ->
             {
                 // As CursorClipImpl.quantize
@@ -138,6 +161,72 @@ public final class CommandHandler
             }
             default -> this.unhandled.accept (processor + " " + command);
         }
+    }
+
+
+    /**
+     * The groove parameters, as GrooveImpl of the Java version: "&lt;name&gt;" (with "/inc",
+     * "/reset"), "&lt;name&gt;/touch", "&lt;name&gt;/indicate".
+     */
+    private void handleGroove (final String command, final double value)
+    {
+        final String [] parts = command.split ("/");
+        final int index = Arrays.asList (BitwigModel.GROOVE_PARAMETERS).indexOf (parts[0]);
+        if (index < 0 || parts.length > 2)
+        {
+            this.unhandled.accept ("groove " + command);
+            return;
+        }
+        final Parameter parameter = this.model.grooveParameters[index];
+        if (parts.length == 1)
+            this.setValue (parameter, value);
+        else if ("touch".equals (parts[1]))
+            parameter.touch (value > 0);
+        else if ("indicate".equals (parts[1]))
+            parameter.setIndication (value > 0);
+        else
+            this.unhandled.accept ("groove " + command);
+    }
+
+
+    /**
+     * Execute a command with several text values: "track addTrack &lt;type&gt; &lt;name&gt;
+     * &lt;color&gt; &lt;devices…&gt;", as AbstractTrackBankImpl.addChannel of the Java version.
+     *
+     * @param processor The processor
+     * @param command The command
+     * @param values The values
+     * @return False if the command is not handled
+     */
+    public boolean handle (final String processor, final String command, final String [] values)
+    {
+        if (!"track".equals (processor) || !"addTrack".equals (command) || values.length < 1)
+            return false;
+        // AbstractTrackBankImpl.addTrack
+        switch (values[0])
+        {
+            case "INSTRUMENT" -> this.model.application.createInstrumentTrack (-1);
+            case "EFFECT" -> this.model.application.createEffectTrack (-1);
+            default -> this.model.application.createAudioTrack (-1);
+        }
+        final String name = values.length > 1 && !values[1].isEmpty () ? values[1] : null;
+        final String color = values.length > 2 && !values[2].isEmpty () ? values[2] : null;
+        // The devices are creation names of Reaper, which Bitwig does not know
+        for (int i = 3; i < values.length; i++)
+            this.unhandled.accept ("addTrack device " + values[i]);
+        if (name == null && color == null)
+            return true;
+        // Name and color of the new track (the cursor track) 300 ms later, as the Java version;
+        // the core pages the track bank itself (no scrollIntoView)
+        this.model.host.scheduleTask ( () -> {
+            if (!this.model.cursorTrack.exists ().get ())
+                return;
+            if (name != null)
+                this.model.cursorTrack.name ().set (name);
+            if (color != null)
+                setColor (color, this.model.cursorTrack.color ()::set);
+        }, 300);
+        return true;
     }
 
 
@@ -184,6 +273,14 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
+            // ApplicationImpl.setRecordQuantizationGrid
+            case "application" ->
+            {
+                if ("recordQuantization".equals (command) && value != null)
+                    this.model.application.recordQuantizationGrid ().set (value.trim ());
+                else
+                    this.unhandled.accept (processor + " " + command);
+            }
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, 0, value);
             case "primary" -> this.handleSpecific (this.model.firstInstrument, processor, command, 0, value);
             case "eq" -> this.handleEqualizer (command, 0, value);
@@ -210,6 +307,7 @@ public final class CommandHandler
             case "indicate" -> device.drumPadBank.setIndication (value > 0);
             case "window" -> device.device.isWindowOpen ().set (value > 0);
             case "expand" -> device.device.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (device.device, command);
             case "parameterPage" ->
             {
                 // Show the page in Bitwig as well (ParameterPageBankImpl.scrollTo)
@@ -244,8 +342,14 @@ public final class CommandHandler
                 }
                 if ("select".equals (parts[2]))
                 {
+                    // DrumPadImpl.select: only selectInEditor; layers as ChannelImpl.select
                     if (value > 0)
-                        selectChannel (channel);
+                    {
+                        if ("pad".equals (parts[0]))
+                            channel.selectInEditor ();
+                        else
+                            selectChannel (channel);
+                    }
                 }
                 else
                     this.handleChannel (channel, parts[2], value, text);
@@ -273,6 +377,7 @@ public final class CommandHandler
             case "add" -> this.model.cursorTrack.endOfDeviceChainInsertionPoint ().insertBitwigDevice (EqualizerDevice.ID_BITWIG_EQ_PLUS);
             case "window" -> eq.device.isWindowOpen ().set (value > 0);
             case "expand" -> eq.device.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (eq.device, command);
             default ->
             {
                 final String [] parts = command.split ("/");
@@ -295,7 +400,7 @@ public final class CommandHandler
                     {
                         switch (parts[2])
                         {
-                            case "value" -> this.setValue (parameter.value (), value);
+                            case "value" -> this.setValue (parameter, value);
                             case "touch" -> parameter.touch (value > 0);
                             case "indicate" -> parameter.setIndication (value > 0);
                             default -> this.unhandled.accept ("eq " + command);
@@ -426,13 +531,15 @@ public final class CommandHandler
         {
             case "name" -> clip.setName (text == null ? "" : text);
             case "color" -> setColor (text, clip.color ()::set);
-            case "start" -> clip.getPlayStart ().set (value);
-            case "end" -> clip.getPlayStop ().set (value);
+            // "…/inc": CursorClipImpl.changePlayStart etc. (getPlayStart ().inc (frac))
+            case "start" -> setBeatTime (clip.getPlayStart (), value, this.increment);
+            case "end" -> setBeatTime (clip.getPlayStop (), value, this.increment);
             case "loop" -> clip.isLoopEnabled ().set (value > 0);
-            case "loopStart" -> clip.getLoopStart ().set (value);
-            case "loopLength" -> clip.getLoopLength ().set (value);
+            case "loopStart" -> setBeatTime (clip.getLoopStart (), value, this.increment);
+            case "loopLength" -> setBeatTime (clip.getLoopLength (), value, this.increment);
             case "shuffle" -> clip.getShuffle ().set (value > 0);
-            case "accent" -> clip.getAccent ().set (value);
+            // "accent/immediately": CursorClipImpl.resetAccent (setImmediately)
+            case "accent" -> this.setValue (clip.getAccent (), value);
             case "duplicate" -> clip.duplicate ();
             case "duplicateContent" -> clip.duplicateContent ();
             case "pinned" ->
@@ -483,7 +590,7 @@ public final class CommandHandler
                 if (parseIndex (parts[0]) >= 0)
                     this.reporter.forgetLater ("/track/" + parts[0] + "/", REPORT_AGAIN_DELAY);
             }
-            case "device", "primary", "drum", "eq" ->
+            case "device", "primary", "drum", "eq", "project" ->
             {
                 if (parts.length >= 2 && ("param".equals (parts[0]) || "pad".equals (parts[0]) || "layer".equals (parts[0])))
                     this.reporter.forgetLater ("/" + processor + "/" + parts[0] + "/" + parts[1] + "/", REPORT_AGAIN_DELAY);
@@ -497,11 +604,38 @@ public final class CommandHandler
 
 
     /**
-     * Set a value, immediately if the command asked for it.
+     * Set a beat time value, or change it by the delta.
+     */
+    private static void setBeatTime (final SettableBeatTimeValue beatTime, final double value, final boolean increment)
+    {
+        if (increment)
+            beatTime.inc (value);
+        else
+            beatTime.set (value);
+    }
+
+
+    /**
+     * Set the value of a parameter, reset it ("…/reset"), change it ("…/inc"), immediately if the
+     * command asked for it.
+     */
+    private void setValue (final Parameter parameter, final double value)
+    {
+        if (this.reset)
+            parameter.reset ();
+        else
+            this.setValue (parameter.value (), value);
+    }
+
+
+    /**
+     * Set a value (change it with "…/inc"), immediately if the command asked for it.
      */
     private void setValue (final SettableRangedValue rangedValue, final double value)
     {
-        if (this.immediately)
+        if (this.increment)
+            rangedValue.inc (value);
+        else if (this.immediately)
             rangedValue.setImmediately (value);
         else
             rangedValue.set (value);
@@ -582,6 +716,24 @@ public final class CommandHandler
             case "overdub/arranger" -> this.model.transport.isArrangerOverdubEnabled ().set (value > 0);
             case "overdub/launcher" -> this.model.transport.isClipLauncherOverdubEnabled ().set (value > 0);
             case "end" -> this.invokeAction ("jump_to_end_of_arrangement");
+            // TransportImpl of the Java version for Bitwig
+            case "play" -> this.model.transport.play ();
+            case "stop" -> this.model.transport.stop ();
+            case "restart" -> this.model.transport.restart ();
+            case "stopAndRewind" ->
+            {
+                this.model.transport.stop ();
+                // Delay the position movement to make sure that the playback is really stopped
+                this.model.host.scheduleTask ( () -> this.model.transport.setPosition (0), 100);
+            }
+            case "togglePunchIn" -> this.model.transport.isPunchInEnabled ().toggle ();
+            case "togglePunchOut" -> this.model.transport.isPunchOutEnabled ().toggle ();
+            case "fill" -> this.model.transport.isFillModeActive ().set (value > 0);
+            case "toggleFill" -> this.model.transport.isFillModeActive ().toggle ();
+            case "metronomeTicks" -> this.model.transport.isMetronomeTickPlaybackEnabled ().set (value > 0);
+            case "toggleMetronomeTicks" -> this.model.transport.isMetronomeTickPlaybackEnabled ().toggle ();
+            // MetronomeVolumeParameterImpl: set, "/inc"
+            case "metronomeVolume" -> this.setValue (this.model.transport.metronomeVolume (), value);
             default -> this.unhandled.accept ("transport " + command);
         }
     }
@@ -597,6 +749,11 @@ public final class CommandHandler
                 if (index >= 0 && index < PANEL_LAYOUTS.length)
                     this.model.application.setPanelLayout (PANEL_LAYOUTS[index]);
             }
+            // ApplicationImpl.previousPanelLayout / nextPanelLayout
+            // ApplicationImpl.toggleRecordQuantizationNoteLength
+            case "recordQuantization/noteLength/toggle" -> this.model.application.recordQuantizeNoteLength ().toggle ();
+            case "layout/-" -> this.model.application.previousPanelLayout ();
+            case "layout/+" -> this.model.application.nextPanelLayout ();
             case "toggleNoteEditor" -> this.model.application.toggleNoteEditor ();
             case "toggleAutomationEditor" -> this.model.application.toggleAutomationEditor ();
             case "toggleDevices" -> this.model.application.toggleDevices ();
@@ -654,17 +811,48 @@ public final class CommandHandler
     }
 
 
-    private void handleProject (final String command)
+    private void handleProject (final String command, final double value)
     {
         switch (command)
         {
+            // ApplicationImpl.setEngineActive
+            case "engine" ->
+            {
+                if (value > 0)
+                    this.model.application.activateEngine ();
+                else
+                    this.model.application.deactivateEngine ();
+            }
+            // ProjectImpl.clearSolo / clearMute
+            case "unsoloAll" -> this.model.project.unsoloAll ();
+            case "unmuteAll" -> this.model.project.unmuteAll ();
+            // ProjectImpl: the cue volume and mix parameters
+            case "cueVolume" -> this.setValue (this.model.project.cueVolume (), value);
+            case "cueMix" -> this.setValue (this.model.project.cueMix (), value);
+            // ProjectImpl: the remote controls of the root track group
+            case "parameterPage" ->
+            {
+                if (this.model.projectRemoteControls != null)
+                {
+                    final int count = this.model.projectRemoteControls.pageCount ().get ();
+                    if (count > 0)
+                        this.model.projectRemoteControls.selectedPageIndex ().set (Math.clamp ((int) value, 0, count - 1));
+                }
+            }
+            case "cueVolume/touch" -> this.model.project.cueVolume ().touch (value > 0);
+            case "cueMix/touch" -> this.model.project.cueMix ().touch (value > 0);
             case "createScene" -> this.model.project.createScene ();
             case "createSceneFromPlayingLauncherClips" -> this.model.project.createSceneFromPlayingLauncherClips ();
             case "previous" -> this.model.application.previousProject ();
             case "next" -> this.model.application.nextProject ();
             case "save" -> this.invokeAction ("Save");
             case "load" -> this.invokeAction ("Open");
-            default -> this.unhandled.accept ("project " + command);
+            default ->
+            {
+                final String [] parts = command.split ("/");
+                if (parts.length != 3 || !"param".equals (parts[0]) || !this.handleParameter (this.model.projectPages, parts, value))
+                    this.unhandled.accept ("project " + command);
+            }
         }
     }
 
@@ -742,6 +930,40 @@ public final class CommandHandler
      */
     private void handleTrack (final String command, final double value, final String text)
     {
+        switch (command)
+        {
+            // AbstractTrackBankImpl.setIndication
+            case "indicate" ->
+            {
+                this.model.trackBank.setShouldShowClipLauncherFeedback (value > 0);
+                return;
+            }
+            // CursorTrackImpl.setPinned, togglePinned, selectPrevious, selectNext
+            case "pinned" ->
+            {
+                this.model.cursorTrack.isPinned ().set (value > 0);
+                return;
+            }
+            case "pinned/toggle" ->
+            {
+                this.model.cursorTrack.isPinned ().toggle ();
+                return;
+            }
+            case "selectPrevious" ->
+            {
+                this.model.cursorTrack.selectPrevious ();
+                return;
+            }
+            case "selectNext" ->
+            {
+                this.model.cursorTrack.selectNext ();
+                return;
+            }
+            default ->
+            {
+                // A command of a track
+            }
+        }
         final int slash = command.indexOf ('/');
         final int index = slash > 0 ? parseIndex (command.substring (0, slash)) : -1;
         final Track track = this.model.getTrack (index);
@@ -753,11 +975,13 @@ public final class CommandHandler
         final String subCommand = command.substring (slash + 1);
         switch (subCommand)
         {
-            case "select", "scrollto" ->
+            case "select" ->
             {
                 if (value > 0)
                     selectChannel (track);
             }
+            // AbstractItemBankImpl.scrollTo: only scrolls (the core pages with "bank track" now)
+            case "scrollto" -> this.model.trackBank.scrollPosition ().set (index);
             case "recarm" -> track.arm ().set (value > 0);
             case "monitor" -> track.monitorMode ().set (value > 0 ? "ON" : "OFF");
             case "autoMonitor" -> track.monitorMode ().set (value > 0 ? "AUTO" : "OFF");
@@ -909,16 +1133,22 @@ public final class CommandHandler
     private void handleSend (final Track track, final String command, final double value)
     {
         final String [] parts = command.split ("/");
-        final int index = parts.length == 3 ? parseIndex (parts[1]) : -1;
+        final int index = parts.length >= 3 ? parseIndex (parts[1]) : -1;
         if (index < 0 || index >= this.model.numSends)
         {
             this.unhandled.accept ("track send " + command);
             return;
         }
         final Parameter send = track.sendBank ().getItemAt (index);
+        // "send/<index>/volume/indicate": ParameterImpl.setIndication
+        if (parts.length == 4 && "volume".equals (parts[2]) && "indicate".equals (parts[3]))
+        {
+            send.setIndication (value > 0);
+            return;
+        }
         switch (parts[2])
         {
-            case "volume" -> this.setValue (send.value (), value);
+            case "volume" -> this.setValue (send, value);
             case "active" -> track.sendBank ().getItemAt (index).isEnabled ().toggle ();
             default -> this.unhandled.accept ("track send " + parts[2]);
         }
@@ -932,16 +1162,22 @@ public final class CommandHandler
     {
         switch (command)
         {
+            // ChannelImpl.select (the master; tracks are selected in handleTrack)
             case "select" ->
             {
                 if (value > 0)
-                    channel.selectInEditor ();
+                    selectChannel (channel);
             }
             case "mute" -> channel.mute ().set (value > 0);
             case "active" -> channel.isActivated ().set (value > 0);
             case "solo" -> channel.solo ().set (value > 0);
-            case "volume" -> this.setValue (channel.volume ().value (), value);
-            case "pan" -> this.setValue (channel.pan ().value (), value);
+            // ChannelImpl.toggleSolo
+            case "solo/toggle" -> channel.solo ().toggleUsingPreferences (false);
+            // ParameterImpl.setIndication of the volume and panorama
+            case "volume/indicate" -> channel.volume ().setIndication (value > 0);
+            case "pan/indicate" -> channel.pan ().setIndication (value > 0);
+            case "volume" -> this.setValue (channel.volume (), value);
+            case "pan" -> this.setValue (channel.pan (), value);
             case "volume/touch" -> channel.volume ().touch (value > 0);
             case "pan/touch" -> channel.pan ().touch (value > 0);
             case "color" ->
@@ -982,6 +1218,7 @@ public final class CommandHandler
             case "window" -> this.model.cursorDevice.isWindowOpen ().set (value > 0);
             case "pinned" -> this.model.cursorDevice.isPinned ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
+            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (this.model.cursorDevice, command);
             default -> this.handleDeviceIndexed (command, value);
         }
     }
@@ -995,6 +1232,15 @@ public final class CommandHandler
         {
             if (!this.handleParameter (this.model.pages, parts, value))
                 this.unhandled.accept ("device " + command);
+            return;
+        }
+        // sibling/<index+1>/bypass|remove|duplicate|select: the sibling of the window (DeviceImpl)
+        if (parts.length == 3 && "sibling".equals (parts[0]))
+        {
+            final int index = parseIndex (parts[1]) - 1;
+            if (index >= 0 && index < BitwigModel.NUM_SIBLINGS && handleOwnDevice (this.model.siblings.getItemAt (index), parts[2]))
+                return;
+            this.unhandled.accept ("device " + command);
             return;
         }
         // <position+1>/bypass, remove, duplicate
@@ -1031,9 +1277,35 @@ public final class CommandHandler
         final Parameter parameter = pages[page].getParameter (index % BitwigModel.PARAMS_PER_PAGE);
         switch (parts[2])
         {
-            case "value" -> this.setValue (parameter.value (), value);
+            case "value" -> this.setValue (parameter, value);
             case "touch" -> parameter.touch (value > 0);
             case "indicate" -> parameter.setIndication (value > 0);
+            default ->
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * The commands of a device on the device itself, as SpecificDeviceImpl and DeviceImpl of the
+     * Java version: toggle the window and the expanded state, toggle the bypass, remove,
+     * duplicate, select.
+     *
+     * @return False if the command is unknown
+     */
+    private static boolean handleOwnDevice (final Device device, final String command)
+    {
+        switch (command)
+        {
+            case "window/toggle" -> device.isWindowOpen ().toggle ();
+            case "expand/toggle" -> device.isExpanded ().toggle ();
+            case "bypass" -> device.isEnabled ().toggle ();
+            case "remove" -> device.deleteObject ();
+            case "duplicate" -> device.afterDeviceInsertionPoint ().copyDevices (device);
+            case "select" -> device.selectInEditor ();
             default ->
             {
                 return false;

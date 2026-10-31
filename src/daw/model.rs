@@ -26,7 +26,7 @@ use crate::host::Host;
 use crate::scale::Scales;
 
 use super::application::{Application, Arranger, Mixer};
-use super::bank::BankItem;
+use super::bank::{bank_locator, BankItem};
 use super::browser::Browser;
 use super::clip::{CursorClip, Note};
 use super::color::ColorEx;
@@ -60,6 +60,8 @@ pub struct Model {
     marker_bank: MarkerBank,
     track_bank: TrackBank,
     pinned_track: Option<TrackRef>,
+    /// `cursorTrack.hasPrevious ()`, `hasNext ()` reported by the host (Bitwig).
+    host_cursor_track_neighbours: Option<(bool, bool)>,
     cursor_device: SpecificDevice,
     first_instrument: Option<SpecificDevice>,
     eq_device: Option<SpecificDevice>,
@@ -113,6 +115,7 @@ impl Model {
         let mut track_bank =
             TrackBank::new(ctx.clone(), setup.num_tracks, num_scenes, num_sends, num_params, setup.has_flat_track_list, setup.has_full_flat_track_list);
         track_bank.recalc_if_dirty();
+        track_bank.scene_bank_unguarded_mut().set_locator(bank_locator(|m: &mut Model| Some(&mut **m.track_bank_mut().scene_bank_unguarded_mut())));
 
         Model {
             application: Application::new(ctx.clone()),
@@ -128,6 +131,7 @@ impl Model {
             empty_slot_bank: SlotBank::new(ctx.muted(), num_scenes, -1),
             track_bank,
             pinned_track: None,
+            host_cursor_track_neighbours: None,
             first_instrument,
             eq_device,
             drum_device,
@@ -426,12 +430,41 @@ impl Model {
     }
 
     pub fn toggle_cursor_track_pinned(&mut self) {
+        // CursorTrackImpl.togglePinned: isPinned ().toggle () on Bitwig
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "pinned/toggle");
+            return;
+        }
         let pinned = self.pinned_track.is_none();
         self.set_cursor_track_pinned(pinned);
     }
 
-    /// Pin the currently selected track (or unpin it).
+    /// The host reported the position of its pinned cursor track, -1 if it is not pinned
+    /// (Bitwig: `cursorTrack.isPinned ()`; the cursor track then stays on that track, also for the
+    /// cursor device and the remote controls).
+    pub fn set_host_pinned_track(&mut self, position: i32) {
+        let pinned = (position >= 0).then_some(TrackRef::Position(position as usize));
+        if pinned == self.pinned_track {
+            return;
+        }
+        self.pinned_track = pinned;
+        self.ctx.set_pinned_track(pinned.map(|_| position));
+        self.after_parse();
+    }
+
+    /// The host reported `cursorTrack.hasPrevious ()` / `hasNext ()` (Bitwig).
+    pub fn set_host_cursor_track_neighbours(&mut self, has_previous: Option<bool>, has_next: Option<bool>) {
+        let (previous, next) = self.host_cursor_track_neighbours.unwrap_or((false, false));
+        self.host_cursor_track_neighbours = Some((has_previous.unwrap_or(previous), has_next.unwrap_or(next)));
+    }
+
+    /// Pin the currently selected track (or unpin it). Bitwig: CursorTrackImpl.setPinned,
+    /// `cursorTrack.isPinned ().set (pinned)`; the host reports the pinned track.
     pub fn set_cursor_track_pinned(&mut self, pinned: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Track, "pinned", pinned);
+            return;
+        }
         if pinned {
             let selected = self.selected_track_ref();
             match selected {
@@ -455,19 +488,38 @@ impl Model {
         self.after_parse();
     }
 
+    /// CursorTrackImpl.canSelectPrevious: `cursorTrack.hasPrevious ()` (Bitwig); Reaper: the
+    /// bank.
     pub fn cursor_track_can_select_previous(&self) -> bool {
-        self.track_bank.can_scroll_backwards()
+        match self.host_cursor_track_neighbours {
+            Some((previous, _)) => previous,
+            None => self.track_bank.can_scroll_backwards(),
+        }
     }
 
+    /// CursorTrackImpl.canSelectNext: `cursorTrack.hasNext ()` (Bitwig).
     pub fn cursor_track_can_select_next(&self) -> bool {
-        self.track_bank.can_scroll_forwards()
+        match self.host_cursor_track_neighbours {
+            Some((_, next)) => next,
+            None => self.track_bank.can_scroll_forwards(),
+        }
     }
 
+    /// CursorTrackImpl.selectPrevious: `cursorTrack.selectPrevious ()` (Bitwig).
     pub fn cursor_track_select_previous(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "selectPrevious");
+            return;
+        }
         self.track_bank.select_previous_item();
     }
 
+    /// CursorTrackImpl.selectNext: `cursorTrack.selectNext ()` (Bitwig).
     pub fn cursor_track_select_next(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Track, "selectNext");
+            return;
+        }
         self.track_bank.select_next_item();
     }
 
@@ -519,7 +571,9 @@ impl Model {
     /// bank (use [`Model::scene_bank`] / [`Model::scene_bank_mut`] for it).
     pub fn ensure_scene_bank(&mut self, num_scenes: usize) {
         if num_scenes != self.setup.num_scenes && !self.extra_scene_banks.iter().any(|(n, _)| *n == num_scenes) {
-            self.extra_scene_banks.push((num_scenes, SceneBank::new(self.ctx.clone(), num_scenes)));
+            let mut bank = SceneBank::new(self.ctx.clone(), num_scenes);
+            bank.set_locator(bank_locator(move |m: &mut Model| m.scene_bank_sized_mut(num_scenes).map(|b| &mut **b)));
+            self.extra_scene_banks.push((num_scenes, bank));
         }
     }
 
@@ -658,18 +712,27 @@ impl Model {
 
     /// Create a new clip on the track and select it. If `overdub` is set, recording is started.
     pub fn create_note_clip(&mut self, track: TrackRef, slot_index: usize, length_in_beats: i32, overdub: bool) {
+        // ModelImpl.createNoteClip: track.createClip; slot.select (); slot.launch (true, false);
+        // if (overdub) transport.setLauncherOverdub (true)
         let t = self.track_bank.track_mut(track);
         let position = t.slot_bank().item(slot_index).position();
         t.create_clip(position, length_in_beats);
-        t.slot_bank_mut().item_mut(slot_index).select();
+        let slot = t.slot_bank_mut().item_mut(slot_index);
+        slot.select();
+        slot.launch(true, false);
         if overdub {
-            self.transport.start_recording();
+            self.set_launcher_overdub(true);
         }
     }
 
-    /// Record a new clip on the track.
-    pub fn record_note_clip(&mut self, track: TrackRef) {
-        self.track_bank.track_mut(track).record_clip();
+    /// Record a new clip in the slot of the track (ModelImpl.recordNoteClip: start recording if
+    /// the slot does not record yet, then launch it).
+    pub fn record_note_clip(&mut self, track: TrackRef, slot_index: usize) {
+        let slot = self.track_bank.track_mut(track).slot_bank_mut().item_mut(slot_index);
+        if !slot.is_recording() {
+            slot.start_recording();
+        }
+        slot.launch(true, false);
     }
 
     pub fn can_convert_clip(&self) -> bool {

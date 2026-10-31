@@ -71,6 +71,9 @@ pub struct TrackBank {
     /// Tree: the node of the current folder.
     current_folder: usize,
     note_cache: [u8; 128],
+    /// `project.hasSoloedTracks ()` / `hasMutedTracks ()` reported by the host (Bitwig).
+    host_project_solo: Option<bool>,
+    host_project_mute: Option<bool>,
 }
 
 impl TrackBank {
@@ -88,6 +91,8 @@ impl TrackBank {
             empty: Track::empty(&ctx, num_sends),
             master: Track::new_master(ctx.clone(), num_sends, num_params),
             scene_bank: SceneBank::new(ctx.clone(), num_scenes),
+            host_project_solo: None,
+            host_project_mute: None,
             ctx,
             tracks: Vec::new(),
             page_size: num_tracks,
@@ -299,9 +304,17 @@ impl TrackBank {
         self.set_bank_offset(self.bank_offset as i64 + 1);
     }
 
-    /// Scroll the DAW to the given position (sends `<pos>/scrollto`, the DAW then updates the
-    /// selection).
+    /// Scroll the DAW to the given position. With host paging (Bitwig) as
+    /// AbstractItemBankImpl.scrollTo: the window starts exactly at the position (`adjust_page` is
+    /// ignored), nothing is selected. Reaper: sends `<pos>/scrollto`, the DAW then updates the
+    /// selection.
     pub fn scroll_to(&mut self, position: usize, adjust_page: bool) {
+        if self.host_paged {
+            if position < self.item_count() {
+                self.set_bank_offset(position as i64);
+            }
+            return;
+        }
         if self.has_flat_track_list && self.has_full_flat_track_list && self.view.get(position) == Some(&Entry::Master) {
             self.master.select();
             return;
@@ -374,10 +387,17 @@ impl TrackBank {
         }
     }
 
+    /// AbstractItemBankImpl.selectPreviousItem: at the first track, scroll to the previous page
+    /// and select its last track (`select_previous_page` selects the first one on Bitwig).
     pub fn select_previous_item(&mut self) {
         let index = self.selected_item().map(|t| t.index() - 1).unwrap_or(0);
         if index == -1 {
-            self.select_previous_page();
+            if !self.can_scroll_page_backwards() {
+                return;
+            }
+            self.scroll_page_backwards();
+            let index = self.page_size.saturating_sub(1);
+            self.ctx.schedule(75, move |m| m.track_bank_mut().item_mut(index).select());
         } else {
             self.item_mut(index as usize).select();
         }
@@ -498,24 +518,54 @@ impl TrackBank {
         (0..self.raw_item_count.min(self.tracks.len())).any(|p| p != position && self.tracks[p].is_solo())
     }
 
+    /// ProjectImpl.hasSolo: `project.hasSoloedTracks ()` as reported by the host (Bitwig: of all
+    /// tracks); otherwise from the known tracks (Reaper).
     pub fn has_solo(&self) -> bool {
+        if let Some(solo) = self.host_project_solo {
+            return solo;
+        }
         self.tracks.iter().any(|t| t.is_solo())
     }
 
+    /// ProjectImpl.hasMute: `project.hasMutedTracks ()` as reported by the host.
     pub fn has_mute(&self) -> bool {
+        if let Some(mute) = self.host_project_mute {
+            return mute;
+        }
         self.tracks.iter().any(|t| t.is_mute())
     }
 
+    /// ProjectImpl.clearSolo: `project.unsoloAll ()` on Bitwig (all tracks, not only the known
+    /// ones).
     pub fn clear_solo(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Project, "unsoloAll");
+            return;
+        }
         for track in &mut self.tracks {
             track.set_solo(false);
         }
     }
 
+    /// ProjectImpl.clearMute: `project.unmuteAll ()` on Bitwig.
     pub fn clear_mute(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send(Processor::Project, "unmuteAll");
+            return;
+        }
         for track in &mut self.tracks {
             track.set_mute(false);
         }
+    }
+
+    /// The host reported whether any track of the project is soloed (Bitwig).
+    pub fn set_host_project_solo(&mut self, solo: bool) {
+        self.host_project_solo = Some(solo);
+    }
+
+    /// The host reported whether any track of the project is muted (Bitwig).
+    pub fn set_host_project_mute(&mut self, mute: bool) {
+        self.host_project_mute = Some(mute);
     }
 
     /// Not supported.
@@ -528,8 +578,13 @@ impl TrackBank {
         self.ctx.send(Processor::Scene, if is_alternative { "stopAlt" } else { "stop" });
     }
 
-    /// Not supported.
-    pub fn set_indication(&mut self, _enable: bool) {}
+    /// AbstractTrackBankImpl.setIndication: `trackBank.setShouldShowClipLauncherFeedback` on
+    /// Bitwig (`track indicate <0|1>`).
+    pub fn set_indication(&mut self, enable: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Track, "indicate", enable);
+        }
+    }
 
     /// The color ID (see [`DawColor::id`]) of the selected track.
     pub fn selected_channel_color_entry(&self) -> &'static str {
@@ -540,16 +595,14 @@ impl TrackBank {
     }
 
     /// True if the send with the given index exists on one of the tracks of the page.
+    /// AbstractTrackBankImpl.canEditSend: the send exists on the first track of the page.
     pub fn can_edit_send(&self, send_index: usize) -> bool {
-        self.page_items().any(|t| t.send_bank().item_count() > 0 && t.send_bank().item(send_index).does_exist())
+        self.item(0).send_bank().item(send_index).does_exist()
     }
 
+    /// AbstractTrackBankImpl.getEditSendName: the name of the send of the first track of the page.
     pub fn edit_send_name(&self, send_index: usize) -> String {
-        if self.can_edit_send(send_index) {
-            format!("Send {}", send_index + 1)
-        } else {
-            String::new()
-        }
+        self.item(0).send_bank().item(send_index).name().to_string()
     }
 
     /// Add a new track (former `addChannel`). Without a color the next DAW color is used.
@@ -569,6 +622,11 @@ impl TrackBank {
     /// all tracks are updated to the page of the scene bank.
     pub fn scene_bank_mut(&mut self) -> SceneBankGuard<'_> {
         SceneBankGuard { bank: self }
+    }
+
+    /// The scene bank without updating the slot banks (for selections which do not page).
+    pub(crate) fn scene_bank_unguarded_mut(&mut self) -> &mut SceneBank {
+        &mut self.scene_bank
     }
 
     fn update_slot_banks(&mut self) {

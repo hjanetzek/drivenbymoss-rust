@@ -15,6 +15,7 @@ import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.Device;
 import com.bitwig.extension.controller.api.DeviceBank;
 import com.bitwig.extension.controller.api.DeviceMatcher;
+import com.bitwig.extension.controller.api.Groove;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.Mixer;
 import com.bitwig.extension.controller.api.Parameter;
@@ -62,7 +63,13 @@ public final class BitwigModel
     /** VU meter resolution, as ChannelImpl of the Java version. */
     private static final int VU_RANGE            = 16384;
 
+    final ControllerHost     host;
     final Transport          transport;
+    /** The groove and its parameters in the order of GrooveImpl (GROOVE_PARAMETERS). */
+    final Groove             groove;
+    final Parameter []       grooveParameters;
+    /** The names of the groove parameters for the core. */
+    static final String []   GROOVE_PARAMETERS = { "enabled", "shuffleAmount", "shuffleRate", "accentAmount", "accentRate", "accentPhase" };
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
@@ -77,7 +84,13 @@ public final class BitwigModel
     /** The size of the scene window. */
     final int                numScenes;
     final Project            project;
+    /** The project's remote controls (ProjectImpl: on the root track group), empty if not needed. */
+    final CursorRemoteControlsPage [] projectPages;
+    /** Follows the project page selected in Bitwig, null if there are no project pages. */
+    final CursorRemoteControlsPage projectRemoteControls;
     final CursorTrack        cursorTrack;
+    /** Follows the selection, also while the cursor track is pinned (for the selection reports). */
+    final CursorTrack        selectionTrack;
     final MasterTrack        masterTrack;
     final PinnableCursorDevice cursorDevice;
     final DeviceBank         siblings;
@@ -105,6 +118,8 @@ public final class BitwigModel
     private final boolean [] sceneSelected;
     /** The position of the selected track which was reported last, -1 if none. */
     private int              lastSelectedTrack   = -1;
+    /** The position of the cursor track (selected or pinned) which was reported last. */
+    private int              lastCursorTrack     = -1;
     private boolean          masterSelected;
     private int              masterVuLeft;
     private int              masterVuRight;
@@ -119,6 +134,7 @@ public final class BitwigModel
      */
     public BitwigModel (final ControllerHost host, final String modelSetup, final Arpeggiator arpeggiator)
     {
+        this.host = host;
         this.arpeggiator = arpeggiator;
         this.numSends = Math.max (0, getInt (modelSetup, "numSends", 8));
         this.numTracks = Math.max (1, getInt (modelSetup, "numTracks", 8));
@@ -129,6 +145,9 @@ public final class BitwigModel
         final int numParamPages = Math.max (1, getInt (modelSetup, "numParamPages", 8));
 
         this.transport = host.createTransport ();
+        // As GrooveImpl of the Java version
+        this.groove = host.createGroove ();
+        this.grooveParameters = new Parameter [] { this.groove.getEnabled (), this.groove.getShuffleAmount (), this.groove.getShuffleRate (), this.groove.getAccentAmount (), this.groove.getAccentRate (), this.groove.getAccentPhase () };
         this.application = host.createApplication ();
         this.arranger = host.createArranger ();
         this.mixer = host.createMixer ();
@@ -141,7 +160,15 @@ public final class BitwigModel
         this.largeTrackBank = host.createTrackBank (NUM_LARGE_TRACKS, 0, 0, true);
         this.sceneBank = this.trackBank.sceneBank ();
         this.project = host.getProject ();
+        // As ProjectImpl: the remote controls of the root track group, in pages as for devices
+        final int numProjectPages = getInt (modelSetup, "numParams", 8) > 0 ? numParamPages : 0;
+        final Track rootTrackGroup = this.project.getRootTrackGroup ();
+        this.projectPages = new CursorRemoteControlsPage [numProjectPages];
+        for (int i = 0; i < numProjectPages; i++)
+            this.projectPages[i] = rootTrackGroup.createCursorRemoteControlsPage ("DBM project page " + (i + 1), PARAMS_PER_PAGE, "");
+        this.projectRemoteControls = numProjectPages > 0 ? rootTrackGroup.createCursorRemoteControlsPage (PARAMS_PER_PAGE) : null;
         this.cursorTrack = host.createCursorTrack ("DBM_CURSOR_TRACK", "Cursor track", this.numSends, this.numScenes, true);
+        this.selectionTrack = host.createCursorTrack ("DBM_SELECTION_TRACK", "Selected track", 0, 0, true);
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
@@ -202,6 +229,8 @@ public final class BitwigModel
         this.transport.isMetronomeAudibleDuringPreRoll ().markInterested ();
         this.transport.isPunchInEnabled ().markInterested ();
         this.transport.isPunchOutEnabled ().markInterested ();
+        this.transport.isFillModeActive ().markInterested ();
+        this.transport.isMetronomeTickPlaybackEnabled ().markInterested ();
         this.arranger.isPlaybackFollowEnabled ().markInterested ();
         this.transport.metronomeVolume ().markInterested ();
         this.transport.metronomeVolume ().displayedValue ().markInterested ();
@@ -215,10 +244,39 @@ public final class BitwigModel
         this.transport.timeSignature ().denominator ().markInterested ();
         this.application.canUndo ().markInterested ();
         this.application.canRedo ().markInterested ();
+        // ApplicationImpl, ProjectImpl, ArrangerImpl, MixerImpl of the Java version
+        this.application.hasActiveEngine ().markInterested ();
+        this.application.panelLayout ().markInterested ();
+        this.application.recordQuantizationGrid ().markInterested ();
+        this.application.recordQuantizeNoteLength ().markInterested ();
+        this.project.hasSoloedTracks ().markInterested ();
+        this.project.hasMutedTracks ().markInterested ();
+        for (final Parameter parameter: this.grooveParameters)
+            markParameter (parameter);
+        markParameter (this.project.cueVolume ());
+        markParameter (this.project.cueMix ());
+        this.arranger.areCueMarkersVisible ().markInterested ();
+        this.arranger.hasDoubleRowTrackHeight ().markInterested ();
+        this.arranger.isClipLauncherVisible ().markInterested ();
+        this.arranger.isTimelineVisible ().markInterested ();
+        this.arranger.isIoSectionVisible ().markInterested ();
+        this.arranger.areEffectTracksVisible ().markInterested ();
+        this.mixer.isClipLauncherSectionVisible ().markInterested ();
+        this.mixer.isCrossFadeSectionVisible ().markInterested ();
+        this.mixer.isDeviceSectionVisible ().markInterested ();
+        this.mixer.isIoSectionVisible ().markInterested ();
+        this.mixer.isMeterSectionVisible ().markInterested ();
+        this.mixer.isSendSectionVisible ().markInterested ();
 
         this.trackBank.itemCount ().markInterested ();
         this.trackBank.scrollPosition ().markInterested ();
         this.cursorTrack.position ().markInterested ();
+        this.selectionTrack.position ().markInterested ();
+        this.cursorTrack.exists ().markInterested ();
+        // CursorTrackImpl: isPinned (), hasPrevious (), hasNext ()
+        this.cursorTrack.isPinned ().markInterested ();
+        this.cursorTrack.hasPrevious ().markInterested ();
+        this.cursorTrack.hasNext ().markInterested ();
         for (int i = 0; i < this.numTracks; i++)
         {
             final Track track = this.trackBank.getItemAt (i);
@@ -229,6 +287,9 @@ public final class BitwigModel
             track.isGroupExpanded ().markInterested ();
             track.arm ().markInterested ();
             track.monitorMode ().markInterested ();
+            track.isMonitoring ().markInterested ();
+            track.canHoldNoteData ().markInterested ();
+            track.canHoldAudioData ().markInterested ();
             track.addVuMeterObserver (VU_RANGE, 0, true, value -> this.trackVuLeft[index] = value);
             track.addVuMeterObserver (VU_RANGE, 1, true, value -> this.trackVuRight[index] = value);
             track.isStopped ().markInterested ();
@@ -255,6 +316,7 @@ public final class BitwigModel
                 send.value ().markInterested ();
                 send.displayedValue ().markInterested ();
                 send.isEnabled ().markInterested ();
+                send.sendChannelColor ().markInterested ();
             }
         }
 
@@ -306,6 +368,14 @@ public final class BitwigModel
 
         for (final CursorRemoteControlsPage page: this.pages)
             markPage (page);
+        for (final CursorRemoteControlsPage page: this.projectPages)
+            markPage (page);
+        if (this.projectRemoteControls != null)
+        {
+            this.projectRemoteControls.pageCount ().markInterested ();
+            this.projectRemoteControls.pageNames ().markInterested ();
+            this.projectRemoteControls.selectedPageIndex ().markInterested ();
+        }
     }
 
 
@@ -325,6 +395,7 @@ public final class BitwigModel
         channel.color ().markInterested ();
         channel.mute ().markInterested ();
         channel.solo ().markInterested ();
+        channel.isActivated ().markInterested ();
         markParameter (channel.volume ());
         markParameter (channel.pan ());
     }
@@ -442,9 +513,66 @@ public final class BitwigModel
         reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
         reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());
         reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
-        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().get ());
+        // As TransportImpl.getMetronomeVolumeStr
+        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().getLimited (6) + " dB");
+        reporter.put ("/click/ticks", this.transport.isMetronomeTickPlaybackEnabled ().get ());
+        // Independent punch switches, the fill mode (TransportImpl)
+        reporter.put ("/punchIn", this.transport.isPunchInEnabled ().get ());
+        reporter.put ("/punchOut", this.transport.isPunchOutEnabled ().get ());
+        reporter.put ("/fill", this.transport.isFillModeActive ().get ());
         reporter.put ("/project/canUndo", this.application.canUndo ().get ());
         reporter.put ("/project/canRedo", this.application.canRedo ().get ());
+        this.collectApplication (reporter);
+    }
+
+
+    /**
+     * The engine, the panel layout, the project's solo and mute state, cue volume and mix, the
+     * visibility flags of the arranger and the mixer, as ApplicationImpl, ProjectImpl,
+     * ArrangerImpl and MixerImpl of the Java version.
+     */
+    private void collectApplication (final ModelReporter reporter)
+    {
+        reporter.put ("/project/engine", this.application.hasActiveEngine ().get ());
+        reporter.put ("/layout", this.application.panelLayout ().get ());
+        reporter.put ("/recordQuantization", this.application.recordQuantizationGrid ().get ());
+        reporter.put ("/recordQuantization/noteLength", this.application.recordQuantizeNoteLength ().get ());
+        reporter.put ("/project/hasSolo", this.project.hasSoloedTracks ().get ());
+        reporter.put ("/project/hasMute", this.project.hasMutedTracks ().get ());
+        reporter.put ("/project/cueVolume", this.project.cueVolume ().value ().get ());
+        putDisplayedValue (reporter, "/project/cueVolume/str", this.project.cueVolume ().displayedValue (), true);
+        reporter.put ("/project/cueMix", this.project.cueMix ().value ().get ());
+        putDisplayedValue (reporter, "/project/cueMix/str", this.project.cueMix ().displayedValue (), true);
+        reporter.put ("/arranger/cueMarkers", this.arranger.areCueMarkersVisible ().get ());
+        reporter.put ("/arranger/doubleRowTrackHeight", this.arranger.hasDoubleRowTrackHeight ().get ());
+        reporter.put ("/arranger/clipLauncher", this.arranger.isClipLauncherVisible ().get ());
+        reporter.put ("/arranger/timeline", this.arranger.isTimelineVisible ().get ());
+        reporter.put ("/arranger/ioSection", this.arranger.isIoSectionVisible ().get ());
+        reporter.put ("/arranger/effectTracks", this.arranger.areEffectTracksVisible ().get ());
+        reporter.put ("/mixer/clipLauncherSection", this.mixer.isClipLauncherSectionVisible ().get ());
+        reporter.put ("/mixer/crossFadeSection", this.mixer.isCrossFadeSectionVisible ().get ());
+        reporter.put ("/mixer/deviceSection", this.mixer.isDeviceSectionVisible ().get ());
+        reporter.put ("/mixer/ioSection", this.mixer.isIoSectionVisible ().get ());
+        reporter.put ("/mixer/meterSection", this.mixer.isMeterSectionVisible ().get ());
+        reporter.put ("/mixer/sendSection", this.mixer.isSendSectionVisible ().get ());
+        if (this.projectRemoteControls != null)
+        {
+            collectPages (reporter, "/project", this.projectPages);
+            final String [] pageNames = this.projectRemoteControls.pageNames ().get ();
+            final int namedPages = Math.min (pageNames.length, this.projectPages.length);
+            for (int p = 0; p < namedPages; p++)
+                reporter.put ("/project/page/" + p + "/name", pageNames[p]);
+            reporter.put ("/project/page/count", namedPages);
+            reporter.put ("/project/page/selected", this.projectRemoteControls.selectedPageIndex ().get ());
+        }
+        for (int i = 0; i < GROOVE_PARAMETERS.length; i++)
+        {
+            final Parameter parameter = this.grooveParameters[i];
+            final String prefix = "/groove/" + GROOVE_PARAMETERS[i];
+            reporter.put (prefix + "/name", parameter.name ().get ());
+            reporter.put (prefix, parameter.value ().get ());
+            putDisplayedValue (reporter, prefix + "/str", parameter.displayedValue (), true);
+        }
     }
 
 
@@ -457,15 +585,25 @@ public final class BitwigModel
     {
         final int offset = this.trackBank.scrollPosition ().get ();
         final int total = this.trackBank.itemCount ().get ();
-        final int selected = this.cursorTrack.position ().get ();
+        // The selection comes from a cursor track which is never pinned; the pinned cursor track
+        // (CursorTrackImpl.isPinned) is reported as "/track/pinned" with its position
+        final int selected = this.selectionTrack.position ().get ();
+        final int cursor = this.cursorTrack.position ().get ();
+        reporter.put ("/track/pinned", this.cursorTrack.isPinned ().get () ? cursor : -1);
+        reporter.put ("/track/hasPrevious", this.cursorTrack.hasPrevious ().get ());
+        reporter.put ("/track/hasNext", this.cursorTrack.hasNext ().get ());
         reporter.put ("/track/offset", offset);
         if (selected != this.lastSelectedTrack)
         {
             if (this.lastSelectedTrack >= 0)
                 reporter.put ("/track/" + this.lastSelectedTrack + "/select", false);
             this.lastSelectedTrack = selected;
-            // The core keeps one note cache: report the notes of the newly selected track
-            reporter.forget ("/track/" + selected + "/playingnotes");
+        }
+        if (cursor != this.lastCursorTrack)
+        {
+            this.lastCursorTrack = cursor;
+            // The core keeps one note cache: report the notes of the new cursor track
+            reporter.forget ("/track/" + cursor + "/playingnotes");
         }
 
         final int sceneOffset = this.sceneBank.scrollPosition ().get ();
@@ -484,8 +622,11 @@ public final class BitwigModel
             reporter.put (prefix + "select", position == selected);
             reporter.put (prefix + "recarm", track.arm ().get ());
             final String monitorMode = track.monitorMode ().get ();
-            reporter.put (prefix + "monitor", "ON".equals (monitorMode));
+            // TrackImpl.isMonitor: the effective monitoring (also AUTO while armed)
+            reporter.put (prefix + "monitor", track.isMonitoring ().get ());
             reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
+            reporter.put (prefix + "canHoldNotes", track.canHoldNoteData ().get ());
+            reporter.put (prefix + "canHoldAudio", track.canHoldAudioData ().get ());
             reportVu (reporter, prefix, this.trackVuLeft[i], this.trackVuRight[i]);
             collectChannel (reporter, prefix, track, true);
 
@@ -498,14 +639,17 @@ public final class BitwigModel
                 reporter.put (sendPrefix + "volume", send.value ().get ());
                 putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
                 reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+                // SendImpl.getColor: sendChannelColor ()
+                reporter.putColor (sendPrefix + "color", send.sendChannelColor ().red (), send.sendChannelColor ().green (), send.sendChannelColor ().blue ());
             }
             reporter.put (prefix + "send/count", sendCount);
             this.collectSlots (reporter, prefix, track, sceneOffset, sceneTotal);
         }
         reporter.put ("/track/count", total);
         if (selected >= 0 && selected < total)
-        {
             reporter.put ("/track/" + selected + "/select", true);
+        if (cursor >= 0 && cursor < total)
+        {
             // The notes which play on the selected track (live and from clips), e.g. to light
             // the pads of the played notes, as the note observer of TrackImpl; in the note format
             // of the core
@@ -516,7 +660,7 @@ public final class BitwigModel
                     notes.append (';');
                 notes.append ("0:0:0:0:0:").append (note.pitch ()).append (':').append (note.velocity ());
             }
-            reporter.put ("/track/" + selected + "/playingnotes", notes.toString ());
+            reporter.put ("/track/" + cursor + "/playingnotes", notes.toString ());
         }
     }
 
@@ -686,6 +830,8 @@ public final class BitwigModel
         reporter.putColor (prefix + "color", channel.color ().red (), channel.color ().green (), channel.color ().blue ());
         reporter.put (prefix + "mute", channel.mute ().get ());
         reporter.put (prefix + "solo", channel.solo ().get ());
+        // ChannelImpl.isActivated
+        reporter.put (prefix + "active", channel.isActivated ().get ());
         reporter.put (prefix + "volume", channel.volume ().value ().get ());
         if (limited)
             putDisplayedValue (reporter, prefix + "volume/str", channel.volume ().displayedValue (), true);

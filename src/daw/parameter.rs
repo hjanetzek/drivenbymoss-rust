@@ -42,6 +42,12 @@ pub enum ParameterKind {
     MasterCrossfader,
     /// A parameter of the groove (`groove` `active` / `amount`).
     Groove(GrooveParameterId),
+    /// The cue volume or cue mix of the project (Bitwig: `project` `cueVolume` / `cueMix`,
+    /// ProjectImpl of the Java version).
+    ProjectCue(&'static str),
+    /// A parameter of the groove of the host (Bitwig: `groove` `<name>`, GrooveImpl of the Java
+    /// version: a `ParameterImpl` on `groove.getEnabled ()` etc.).
+    HostGroove(&'static str),
     /// A parameter which does not exist (former `EmptyParameter`).
     Empty,
 }
@@ -204,8 +210,21 @@ impl Parameter {
         self.number_of_steps
     }
 
-    /// Increase/decrease the value by the given amount.
+    /// True if the host changes the value relatively (Bitwig: `…/inc`, as `RangedValueImpl.inc`
+    /// of the Java version for Bitwig). Reaper gets absolute values (its backend has no `/inc`).
+    fn host_increments(&self) -> bool {
+        self.ctx.is_host_paging() && !matches!(self.kind, ParameterKind::Groove(_) | ParameterKind::Empty)
+    }
+
+    /// Increase/decrease the value by the given amount (in the range of the value changer).
+    /// Bitwig: RangedValueImpl.inc, `rangedValue.inc (increment, upperBound)`: the host changes
+    /// its value (also through its takeover mode, keeping fractions), the core gets the result.
     pub fn inc(&mut self, increment: f64) {
+        if self.host_increments() {
+            let upper = self.vc().upper_bound() as f64;
+            self.send_increment(increment / upper);
+            return;
+        }
         let upper = self.vc().upper_bound() as f64;
         match self.kind {
             ParameterKind::Send { .. } => self.set_value((self.value() as f64 + increment) as i32),
@@ -221,6 +240,12 @@ impl Parameter {
 
     /// Change the value with a relative knob value and the given value changer.
     pub fn change_value_with(&mut self, value_changer: &ValueChanger, control: i32) {
+        if self.host_increments() {
+            // RangedValueImpl.changeValue: this.inc (valueChanger.calcKnobChange (value)), the
+            // increment relative to the upper bound of the parameter's own value changer
+            self.inc(value_changer.calc_knob_change(control));
+            return;
+        }
         let mut offset = value_changer.calc_knob_change(control);
         let is_negative = offset < 0.0;
         offset = value_changer.to_normalized_value(offset.abs());
@@ -270,8 +295,16 @@ impl Parameter {
         self.send_value();
     }
 
-    /// Reset the value to its default.
+    /// Reset the value to its default. With host paging (Bitwig) as ParameterImpl.resetValue:
+    /// `parameter.reset ()`, Bitwig's own default (`<value command>/reset`). Reaper: the default
+    /// of the core (the Reaper backend has no reset).
     pub fn reset_value(&mut self) {
+        if self.ctx.is_host_paging() && self.host_increments() {
+            if let Some((processor, cmd)) = self.value_address() {
+                self.ctx.send(processor, &format!("{cmd}/reset"));
+            }
+            return;
+        }
         match self.kind {
             ParameterKind::Groove(id) if id != GrooveParameterId::Enabled => self.set_normalized_value(0.5),
             _ => self.set_value(self.default_value),
@@ -279,7 +312,7 @@ impl Parameter {
     }
 
     /// Signal that the parameter is touched (e.g. a touch sensitive knob). While touched, values
-    /// received from the DAW are deferred.
+    /// received from the DAW are deferred (Reaper; Bitwig: only `parameter.touch (b)`).
     pub fn touch_value(&mut self, is_being_touched: bool) {
         let touch = if is_being_touched { 1 } else { 0 };
         match self.kind {
@@ -288,6 +321,8 @@ impl Parameter {
             ParameterKind::MasterVolume => self.ctx.send_int(Processor::Master, "volume/touch", touch),
             ParameterKind::MasterPan => self.ctx.send_int(Processor::Master, "pan/touch", touch),
             ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
+            ParameterKind::ProjectCue(name) => self.ctx.send_int(Processor::Project, &format!("{name}/touch"), touch),
+            ParameterKind::HostGroove(name) => self.ctx.send_int(Processor::Groove, &format!("{name}/touch"), touch),
             _ => {}
         }
         self.is_being_touched = is_being_touched;
@@ -304,15 +339,22 @@ impl Parameter {
             if self.position >= 0 {
                 self.ctx.send_int(processor, &format!("param/{}/indicate", self.position), if enable { 1 } else { 0 });
             }
+            return;
+        }
+        // ParameterImpl.setIndication of the Java version for Bitwig: also the volume, panorama
+        // and sends (`<value command>/indicate`)
+        if !self.host_increments() {
+            return;
+        }
+        if let Some((processor, cmd)) = self.value_address() {
+            self.ctx.send_int(processor, &format!("{cmd}/indicate"), if enable { 1 } else { 0 });
         }
     }
 
-    fn send_value(&self) {
-        // The extension for Bitwig (the host which pages the banks) knows the commands to set a
-        // value immediately
-        let suffix = if self.immediately && self.ctx.is_host_paging() { "/immediately" } else { "" };
-        let send = |processor: Processor, cmd: &str, value: f64| self.ctx.send_double(processor, &format!("{cmd}{suffix}"), value);
-        match self.kind {
+    /// The processor and the command of the value (without a suffix), None if the parameter
+    /// has no value command.
+    fn value_address(&self) -> Option<(Processor, String)> {
+        Some(match self.kind {
             ParameterKind::Device(processor) => {
                 let mut cmd = format!("param/{}/value", self.position);
                 if processor == Processor::Track {
@@ -323,32 +365,50 @@ impl Parameter {
                         cmd = format!("{pos}/{cmd}");
                     }
                 }
-                send(processor, &cmd, self.value);
+                (processor, cmd)
             }
-            ParameterKind::TrackVolume | ParameterKind::TrackPan => {
-                if self.ctx.is_automation_rec_active() {
-                    self.ctx.delay_updates(Processor::Track);
-                }
-                let name = if self.kind == ParameterKind::TrackVolume { "volume" } else { "pan" };
-                send(Processor::Track, &format!("{}/{}", self.index, name), self.value);
-            }
-            ParameterKind::DeviceChannelVolume(processor, prefix) => send(processor, &format!("{prefix}/{}/volume", self.index), self.value),
-            ParameterKind::DeviceChannelPan(processor, prefix) => send(processor, &format!("{prefix}/{}/pan", self.index), self.value),
-            ParameterKind::MasterVolume | ParameterKind::MasterPan => {
-                if self.ctx.is_automation_rec_active() {
-                    self.ctx.delay_updates(Processor::Master);
-                }
-                let name = if self.kind == ParameterKind::MasterVolume { "volume" } else { "pan" };
-                send(Processor::Master, name, self.value);
-            }
-            ParameterKind::Send { channel_position } => {
-                send(Processor::Track, &format!("{}/send/{}/volume", channel_position, self.position), self.value);
-            }
-            ParameterKind::MasterCrossfader => send(Processor::Master, "user/param/0/value", self.value),
-            ParameterKind::Groove(GrooveParameterId::Enabled) => send(Processor::Groove, "active", self.value),
-            ParameterKind::Groove(_) => send(Processor::Groove, "amount", self.value * 2.0 - 1.0),
-            ParameterKind::Empty => {}
+            ParameterKind::TrackVolume => (Processor::Track, format!("{}/volume", self.index)),
+            ParameterKind::TrackPan => (Processor::Track, format!("{}/pan", self.index)),
+            ParameterKind::DeviceChannelVolume(processor, prefix) => (processor, format!("{prefix}/{}/volume", self.index)),
+            ParameterKind::DeviceChannelPan(processor, prefix) => (processor, format!("{prefix}/{}/pan", self.index)),
+            ParameterKind::MasterVolume => (Processor::Master, "volume".into()),
+            ParameterKind::MasterPan => (Processor::Master, "pan".into()),
+            ParameterKind::Send { channel_position } => (Processor::Track, format!("{}/send/{}/volume", channel_position, self.position)),
+            ParameterKind::MasterCrossfader => (Processor::Master, "user/param/0/value".into()),
+            ParameterKind::ProjectCue(name) => (Processor::Project, name.into()),
+            ParameterKind::HostGroove(name) => (Processor::Groove, name.into()),
+            ParameterKind::Groove(GrooveParameterId::Enabled) => (Processor::Groove, "active".into()),
+            ParameterKind::Groove(_) => (Processor::Groove, "amount".into()),
+            ParameterKind::Empty => return None,
+        })
+    }
+
+    /// Send a relative change of the normalized value (`<value command>/inc <delta>`, Bitwig
+    /// `SettableRangedValue.inc`).
+    fn send_increment(&self, delta: f64) {
+        if let Some((processor, cmd)) = self.value_address() {
+            self.ctx.send_double(processor, &format!("{cmd}/inc"), delta);
         }
+    }
+
+    fn send_value(&self) {
+        let Some((processor, cmd)) = self.value_address() else {
+            return;
+        };
+        match self.kind {
+            ParameterKind::TrackVolume | ParameterKind::TrackPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(Processor::Track),
+            ParameterKind::MasterVolume | ParameterKind::MasterPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(Processor::Master),
+            _ => {}
+        }
+        let value = match self.kind {
+            ParameterKind::Groove(GrooveParameterId::Enabled) => self.value,
+            ParameterKind::Groove(_) => self.value * 2.0 - 1.0,
+            _ => self.value,
+        };
+        // The extension for Bitwig (the host which pages the banks) knows the commands to set a
+        // value immediately
+        let suffix = if self.immediately && self.ctx.is_host_paging() { "/immediately" } else { "" };
+        self.ctx.send_double(processor, &format!("{cmd}{suffix}"), value);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -367,7 +427,9 @@ impl Parameter {
             ParameterKind::Groove(_) => (value + 1.0) / 2.0,
             _ => value,
         };
-        if self.is_being_touched {
+        // ParameterImpl.touchValue of the Java version for Bitwig only calls parameter.touch (b):
+        // the values of the host are shown while touched (Reaper: held back until released)
+        if self.is_being_touched && !self.ctx.is_host_paging() {
             self.last_received_value = value;
         } else {
             self.value = value;
@@ -563,6 +625,68 @@ mod tests {
             vec![
                 BackendCall::DoubleArg("track".into(), "2/send/0/volume/immediately".into(), 0.0),
                 BackendCall::DoubleArg("track".into(), "2/send/0/volume".into(), 1.0)
+            ]
+        );
+    }
+
+    /// RangedValueImpl.inc / changeValue: Bitwig changes the value relatively (`…/inc` with the
+    /// normalized delta, fractions kept); Reaper gets the absolute value.
+    #[test]
+    fn relative_changes_on_bitwig() {
+        let (ctx, backend) = test_ctx();
+        let mut volume = Parameter::new(ctx.clone(), ParameterKind::TrackVolume, 3, 0.716);
+        volume.set_exists(true);
+        volume.set_internal_value(0.5);
+        volume.inc(1.0);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 65.0 / 127.0)]);
+        ctx.set_host_paging();
+        volume.inc(1.5);
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume/inc".into(), 1.5 / 128.0)]);
+        let mut param = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Device), 0, 0.0);
+        param.set_exists(true);
+        param.set_position(9);
+        let control = ctx.value_changer().clone();
+        let delta = control.calc_knob_change(127);
+        param.change_value(127);
+        let mut send = Parameter::new(ctx.clone(), ParameterKind::Send { channel_position: 2 }, 0, 0.0);
+        send.set_position(1);
+        send.inc(-2.0);
+        let mut pad = Parameter::new(ctx, ParameterKind::DeviceChannelPan(Processor::Drum, "pad"), 36, 0.5);
+        pad.inc(4.0);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("device".into(), "param/9/value/inc".into(), delta / 128.0),
+                BackendCall::DoubleArg("track".into(), "2/send/1/volume/inc".into(), -2.0 / 128.0),
+                BackendCall::DoubleArg("drum".into(), "pad/36/pan/inc".into(), 4.0 / 128.0),
+            ]
+        );
+        // Not changed locally (the value of the Reaper change): Bitwig reports the result
+        assert_eq!(volume.value(), 65);
+    }
+
+    /// ParameterImpl.resetValue: `parameter.reset ()` on Bitwig.
+    #[test]
+    fn reset_on_bitwig() {
+        let (ctx, backend) = test_ctx();
+        ctx.set_host_paging();
+        let mut volume = Parameter::new(ctx.clone(), ParameterKind::TrackVolume, 3, 0.716);
+        volume.reset_value();
+        let mut param = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Eq), 0, 0.0);
+        param.set_position(4);
+        param.reset_value();
+        let mut send = Parameter::new(ctx.clone(), ParameterKind::Send { channel_position: 2 }, 0, 0.0);
+        send.set_position(1);
+        send.reset_value();
+        let mut master = Parameter::new(ctx, ParameterKind::MasterPan, 0, 0.5);
+        master.reset_value();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "3/volume/reset".into()),
+                BackendCall::NoArg("eq".into(), "param/4/value/reset".into()),
+                BackendCall::NoArg("track".into(), "2/send/1/volume/reset".into()),
+                BackendCall::NoArg("master".into(), "pan/reset".into()),
             ]
         );
     }

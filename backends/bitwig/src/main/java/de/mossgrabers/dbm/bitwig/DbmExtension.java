@@ -337,6 +337,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             System.arraycopy (values, 0, fields, 2, values.length);
             this.recorder.event ("strings", fields);
         }
+        if (this.commands != null && this.commands.handle (processor, command, values))
+            return;
         this.unhandled (processor + " " + command);
     }
 

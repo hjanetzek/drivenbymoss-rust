@@ -32,6 +32,8 @@ pub struct ParameterBank {
     /// The names of the parameter pages reported by the host (Bitwig's remote control pages);
     /// empty if the host has no named pages (Reaper).
     page_names: Vec<String>,
+    /// The page selected in the host as reported last (Bitwig), None without a report (Reaper).
+    host_page: Option<usize>,
 }
 
 impl ParameterBank {
@@ -59,10 +61,16 @@ impl ParameterBank {
             selected_device_pages: HashMap::new(),
             device_name: if has_device { Some(String::new()) } else { None },
             page_names: Vec::new(),
+            host_page: None,
         }
     }
 
     /// The ID of the bank which is used in events.
+    /// The processor of the parameter commands.
+    pub fn processor(&self) -> Processor {
+        self.processor
+    }
+
     pub fn id(&self) -> ParameterBankId {
         self.id
     }
@@ -101,7 +109,7 @@ impl ParameterBank {
         if position >= 0 && (position as usize) < self.bank.item_count() {
             let ps = self.bank.page_size().max(1) as i64;
             self.set_bank_offset(if adjust_page { position / ps * ps } else { position });
-            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) {
+            if matches!(self.id, ParameterBankId::CursorDevice | ParameterBankId::FirstInstrument) || self.processor == Processor::Project {
                 let page = self.bank.bank_offset as i64 / ps;
                 self.bank.ctx.send_int(self.processor, "parameterPage", page as i32);
             }
@@ -111,6 +119,7 @@ impl ParameterBank {
     /// The page selected in the host (e.g. in Bitwig's remote controls panel): show it, as the
     /// Java version for Bitwig does.
     pub fn set_selected_page_from_host(&mut self, page: usize) {
+        self.host_page = Some(page);
         let ps = self.bank.page_size().max(1);
         let position = page * ps;
         if position < self.bank.item_count() && position != self.bank.bank_offset {
@@ -182,6 +191,13 @@ impl ParameterBank {
             return;
         }
         self.device_name = Some(name.to_string());
+        // Bitwig remembers the page per device itself (remoteControls.selectedPageIndex ()): show
+        // the page it reported last, not the one the core remembers
+        if let Some(page) = self.host_page {
+            let ps = self.bank.page_size().max(1);
+            self.bank.set_bank_offset((page * ps) as i64);
+            return;
+        }
         let offset = self.selected_device_pages.get(&name.to_lowercase()).copied().unwrap_or(0);
         self.set_bank_offset(offset as i64);
     }
@@ -310,8 +326,15 @@ impl ParameterPageBank<'_> {
         self.bank.scroll_position() > 0
     }
 
+    /// ParameterPageBankImpl.canScrollPageForwards: a next page of pages exists (`end = sel / ps *
+    /// ps + ps; end < itemCount`).
     pub fn can_scroll_page_forwards(&self) -> bool {
-        self.bank.scroll_position() as usize + self.bank.page_size() < self.bank.item_count()
+        let ps = self.page_size();
+        if ps == 0 {
+            return false;
+        }
+        let end = self.selected_item_position() / ps * ps + ps;
+        end < self.item_count()
     }
 
     pub fn position_of_last_item(&self) -> i32 {
@@ -340,6 +363,34 @@ mod tests {
         // The core selects a page: the host is told
         bank.select_previous_item();
         assert_eq!(backend.take_calls(), vec![crate::backend::BackendCall::IntArg("device".into(), "parameterPage".into(), 1)]);
+    }
+
+    /// Bitwig: the page remembered by Bitwig after a device change, ParameterPageBankImpl
+    /// paging by pages of pages, touch without holding back the host's values.
+    #[test]
+    fn host_pages_and_touch() {
+        let (ctx, _) = test_ctx();
+        ctx.set_host_paging();
+        let mut bank = ParameterBank::new(ctx, ParameterBankId::CursorDevice, Processor::Device, 8, true);
+        bank.set_item_count(8 * 12);
+        bank.device_name_changed("A");
+        bank.set_selected_page_from_host(9);
+        bank.select_page(1);
+        // Another device: Bitwig reports its page; the core does not jump to the page it
+        // remembered for the name
+        bank.device_name_changed("B");
+        assert_eq!(bank.page_bank().selected_item_position(), 9);
+        bank.device_name_changed("A");
+        assert_eq!(bank.page_bank().selected_item_position(), 9);
+        // 12 pages, 8 per page of pages: page 9 is on the second page of pages, no third one
+        assert!(!bank.page_bank().can_scroll_page_forwards());
+        bank.set_selected_page_from_host(3);
+        assert!(bank.page_bank().can_scroll_page_forwards());
+        let param = bank.item_mut(0);
+        param.set_exists(true);
+        param.touch_value(true);
+        param.set_internal_value(0.5);
+        assert_eq!(param.internal_value(), 0.5);
     }
 
     #[test]

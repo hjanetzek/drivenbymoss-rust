@@ -1,6 +1,9 @@
 # Porting the Bitwig framework classes into the core: plan for an implementation agent
 
-Status: 2026-10-30, analysis done, implementation not started.
+Status: 2026-10-31, P1 1-10 done; P2 done except the scene navigation moving the cursor track's
+slot bank and the layer bank paging by the cursor layer; P3 not started. Verification step 1
+(`cargo test`) only: the replays listed under "Replays to record again" fail on purpose, steps 2-4
+(Bitwig, conformance runs) are still open.
 
 ## Goal
 
@@ -207,7 +210,123 @@ channels, scenes, slots, sends, layers and drum pads; devices, parameters, param
 clips and steps. The full reports with the method-level details and the quoted Java lines are
 in `BITWIG_CORE_PORT_ANALYSIS.md`; the Java classes themselves are the specification.
 
+## Not done yet
+
+- P2 scene navigation: `SceneBankImpl.select*` / `scroll*` also move the cursor track's own slot
+  bank (`slotBank.selectNextItem ()` etc., which selects a slot of the cursor track in Bitwig). The
+  core's slot banks follow the scene bank page and the extension has no slot bank of the cursor
+  track; needs a slot bank of the cursor track in the extension (`cursorTrack.clipLauncherSlotBank ()`)
+  with its own commands.
+- P2 layer bank paging: `LayerBankImpl.canScrollPage*` from `cursorDeviceLayer.hasPrevious/Next ()`;
+  needs a cursor layer in the extension (`wantsCursorLayer`).
+- P3 completely.
+
 ## Reaper backend follow-ups
 
-(To be filled during the implementation: commands and values the Reaper backend needs after a
-class was replaced.)
+(Commands and values the Reaper backend needs after a class was replaced.)
+
+- **P1 1, slot commands:** `track <position>/clip/<slot>/…` now carries the track position (as
+  all other track commands), not the index in the page. The Reaper `TrackProcessor` resolves the
+  first part as the track position for all commands, so this also fixes scrolled banks on Reaper;
+  nothing to change, but check the clip commands there with a scrolled bank.
+- **P1 2 and 4, selections after a page change:** the scene bank (and the other paged banks with
+  a place in the model) now selects 75 ms after the page change, as the Java version for Reaper
+  (`AbstractPagedBankImpl`) does too; the previous item of a track or scene bank at the first item
+  selects the last item of the previous page on both hosts. Nothing to change.
+- **P1 3, track bank `scroll_to`:** kept the Reaper path behind the host check (the test
+  `parser::tests::track_paging` encodes `<pos>/scrollto`, and the Reaper backend has no `bank
+  track` command): Reaper still gets the page-aligned `<pos>/scrollto`, which selects there. To
+  replace it, the Reaper backend would need a scroll-only command (its track bank is paged by the
+  core, so it would be `set_bank_offset` alone without a command).
+- **P1 5, relative value changes:** kept the Reaper path behind the host check
+  (`tests/maschine_jam_setup.rs::slow_fader_change_increments_the_volume` encodes the absolute
+  `0/volume` with the local value). To replace it, the Reaper backend must handle the suffix
+  `/inc <normalized delta>` for `track <p>/volume|pan`, `track <p>/send/<s>/volume`,
+  `master volume|pan`, `device|primary|drum|eq param/<i>/value`, `track <p>/param/<i>/value`
+  (track FX), `drum|primary pad|layer/<i>/volume|pan` and `master user/param/0/value` (add
+  the delta × the parameter range to the current value, clamp, report it). The clip's
+  `start|end|loopStart|loopLength/inc` is only sent with the host step grid (Bitwig).
+- **P1 6, reset:** kept the Reaper path behind the host check (`daw::parameter::tests::volume_and_touch`
+  encodes Reaper's 0 dB reset). To replace it, the Reaper backend needs `<value command>/reset`
+  (no value) for the same addresses as `/inc`, setting the parameter's default (Reaper: 0 dB for
+  the volume, center for the panorama, the FX parameter's default).
+- **P1 7, device commands:** kept the Reaper path behind the host check
+  (`daw::device::tests::cursor_device` encodes `device <index+1>/bypass`). To replace it, the
+  Reaper backend needs `device|primary|drum|eq window/toggle|expand/toggle|bypass|remove|duplicate|select`
+  without an index (the cursor device, the first instrument, the drum device, the EQ) and
+  `device sibling/<index+1>/bypass|remove|duplicate|select` (the sibling window).
+- **P1 8, step attributes:** only with the host step grid (Bitwig); Reaper's clip keeps its note
+  commands. Nothing to change.
+- **P1 9, step attribute knobs:** replaced (the Java version for Reaper casts the knob change to
+  an integer; no Reaper test encodes it). The Reaper clip only edits velocity, duration and mute;
+  the velocity knob now changes in finer steps there too. Nothing to change in the backend.
+- **P1 10, new note clips (replaced):** `create_note_clip` now selects and launches the slot
+  (`track <p>/clip/<s>/select|launch`) and overdub sets the launcher overdub (on Reaper the
+  selected track's `track <p>/overdub 1`) instead of starting the (arranger) recording;
+  `record_note_clip` sends `track <p>/clip/<s>/record` + `launch` instead of `track <p>/recordClip`.
+  The Reaper backend would need: `createClip` followed by the launch of the new item (or ignore
+  the launch), `clip/<s>/record` (record into the slot), and the Reaper meaning of the overdub
+  (start recording with the overdub record mode) for `track <p>/overdub` after a new clip.
+- **P2 transport:** kept the Reaper paths behind the host check (the Reaper backend has its
+  own `play`, `stop`, `record`, `time`, `metro_vol` processors; no test encodes them, but these are
+  its protocol). To replace them, the Reaper backend needs `transport play|stop|restart|stopAndRewind`,
+  `transport metronomeVolume <0..1>` and `metronomeVolume/inc <delta>`, `transport togglePunchIn|togglePunchOut`
+  and reports `/punchIn`, `/punchOut` (Reaper has one record mode for both: the backend would have
+  to map them). Fill mode and metronome ticks do not exist in Reaper.
+- **P2 application/project:** the layout stepping, `unsoloAll`/`unmuteAll` are behind the host
+  check (the Reaper backend has neither; the Reaper path sends the layout index, the solo/mute of
+  each track). For Reaper: `project unsoloAll|unmuteAll` (Reaper actions 40340 / 40339), report
+  `/project/hasSolo|hasMute`, `/layout` (the screenset), `/project/engine`. The cue volume, cue mix
+  and the arranger/mixer flags do not exist in Reaper (they stay false / do not exist).
+- **P2 tracks and channels:** solo toggle, indications, VU clip state and the master activation
+  are behind the host check (the Reaper backend has no `solo/toggle`, `…/indicate`, `track indicate`).
+  For Reaper: `<channel> solo/toggle` (toggle with Reaper's solo mode), report `/track/<p>/active` and
+  `/master/active` (Reaper tracks cannot be deactivated: report 1 or the bypass of the FX chain),
+  `canHoldNotes|canHoldAudio` (1, 1), `send/<s>/color` (the color of the receiving track).
+  `can_hold_notes`/`can_hold_audio_data` stay true without a report.
+- **P2 pinned track, previous/next track:** behind the host check (the Reaper backend keeps the
+  core's pin, `track <p>/pin`, and the track bank navigation). For Reaper: `track pinned <0|1>`,
+  `pinned/toggle`, report `/track/pinned <position>`, `track selectPrevious|selectNext` and
+  `/track/hasPrevious|hasNext`; the core's own pin could then go.
+- **P2 groove:** separate parameters which exist only when the host reports `/groove/<name>`;
+  Reaper keeps `groove active|amount` (−1..1). To unify, the Reaper backend could report
+  `/groove/enabled|shuffleAmount` normalized with texts and take `groove <name>` (`/inc`, `/reset`).
+- **P2 send names:** replaced; the Reaper backend reports the send names already, so the views
+  show the name of the send of the first track instead of "Send N". Nothing to change.
+- **P2 scenes, pages, touch, pads, layers:** all behind the host check or only reachable with a
+  host report (`set_selected_page_from_host`); the page-of-pages paging was replaced (no Reaper
+  test encodes the old one; Reaper now also pages by pages of pages, as the Java version for
+  Bitwig). Nothing to change in the Reaper backend.
+- **P2 device siblings:** behind the host check; Reaper's sibling window follows the cursor device
+  in its backend. Nothing to change.
+- **P2 record quantization:** only once the host reports the global values; Reaper keeps the per
+  track input quantization (`track <p>/inQuantResolution`). Nothing to change.
+- **P2 add track:** the core's command is unchanged (Reaper handles it). Nothing to change.
+- **P2 project remote controls:** the bank on the master FX stays for Reaper until the host reports
+  `/project/param/…`. Nothing to change.
+
+## Replays to record again
+
+Replays which fail only because a behaviour was corrected on purpose (do not edit them; record
+them again from a worktree run, see Verification):
+
+- `tests/conformance/launchcontrol_xl/replay/novation_launch_control_xl-drum_sequencer-rust.rec`,
+  `…-note_sequencer-rust.rec`,
+  `tests/conformance/maschine_jam/replay/native_instruments_maschine_jam-drum_sequencer-rust.rec`,
+  `…-note_sequencer-rust.rec`,
+  `tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-pad_modes-rust.rec`
+  (P1 8): a step attribute change sends `step/…/<attribute> <value>` (e.g. `chance 0.503937`,
+  `repeatCount 15`, `pan -1`, `velocity 0.629921`, `muted 1`) instead of `step/…/update` with
+  all attributes; the values are the same.
+- `tests/conformance/launchcontrol_xl/replay/novation_launch_control_xl-track_mix-rust.rec`,
+  `tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-global-rust.rec` (P2
+  project): clearing solo/mute sends `project unsoloAll` / `project unmuteAll` (ProjectImpl)
+  instead of `track <p>/solo 0` / `mute 0` for every known track.
+- `…/launchcontrol_xl/replay/novation_launch_control_xl-track_mix-rust.rec`,
+  `…/maschine_jam/replay/native_instruments_maschine_jam-global-rust.rec`,
+  `…/maschine_mk2/replay/native_instruments_maschine_mk2-global-rust.rec` (P2 tracks): the solo
+  button sends `track <p>/solo/toggle` (`toggleUsingPreferences`) instead of `track <p>/solo 1`;
+  the core no longer sets the solo locally, so the LED follows one tick later, when Bitwig reports it.
+- `…/maschine_jam/replay/native_instruments_maschine_jam-global-rust.rec` (P2 transport): punch in
+  toggles with `transport togglePunchIn` (`isPunchInEnabled ().toggle ()`) instead of
+  `transport punchIn 1`.

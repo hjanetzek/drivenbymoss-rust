@@ -11,7 +11,7 @@
 
 use crate::daw::clip::{Note, StepInfo};
 use crate::daw::color::ColorEx;
-use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId};
+use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId, RecordQuantization};
 use crate::daw::device::SpecificDevice;
 use crate::daw::model::Model;
 use crate::daw::parameter_bank::ParameterBank;
@@ -194,8 +194,73 @@ impl Parser {
                             model.project_mut().set_dirty(v > 0);
                         }
                     }
+                    // Bitwig (ProjectImpl): the project's remote controls (page cursors on the
+                    // root track group, as the parameters of a device)
+                    TAG_PARAM => {
+                        let host = model.host().clone();
+                        let param_cmd = parts.poll().unwrap_or("");
+                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
+                            match parse_index(param_cmd) {
+                                Some(param_no) => Self::parse_device_param_value(&host, param_no, bank, &mut parts, value),
+                                None if param_cmd == TAG_COUNT => {
+                                    if let Some(count) = parse_int(value) {
+                                        bank.set_item_count(count.max(0) as usize);
+                                        self.rebind_knobs();
+                                    }
+                                }
+                                None => host.error(&format!("Unhandled project parameter: {param_cmd}")),
+                            }
+                        }
+                    }
+                    "page" => {
+                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
+                            match (parts.poll(), parts.poll()) {
+                                (Some(TAG_COUNT), None) => {
+                                    if let Some(v) = parse_int(value) {
+                                        bank.set_page_count(v.max(0) as usize);
+                                    }
+                                }
+                                (Some("selected"), None) => {
+                                    if let Some(v) = parse_int(value).filter(|v| *v >= 0) {
+                                        bank.set_selected_page_from_host(v as usize);
+                                    }
+                                }
+                                (Some(index), Some(TAG_NAME)) => {
+                                    if let Some(page) = parse_index(index) {
+                                        bank.set_page_name(page, value);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    // Bitwig (ProjectImpl): solo and mute of all tracks, cue volume and mix
+                    "hasSolo" => model.track_bank_mut().set_host_project_solo(parse_flag(value)),
+                    "hasMute" => model.track_bank_mut().set_host_project_mute(parse_flag(value)),
+                    "cueVolume" | "cueMix" => {
+                        let project = model.project_mut();
+                        let param = if project_cmd == "cueVolume" { project.cue_volume_parameter_mut() } else { project.cue_mix_parameter_mut() };
+                        Self::parse_host_parameter(param, &mut parts, value);
+                    }
                     _ => Self::error(model, &format!("Unhandled Project parameter: {project_cmd}")),
                 }
+            }
+            // Bitwig: application.panelLayout (), the visibility flags of the arranger and the
+            // mixer (ArrangerImpl, MixerImpl)
+            "layout" => model.application_mut().set_internal_panel_layout(value),
+            // Bitwig (ApplicationImpl): the global record quantization grid and note length
+            "recordQuantization" => match parts.poll() {
+                None => model.ctx().update_host_record_quantization(None, Some(RecordQuantization::lookup(value.trim()))),
+                Some("noteLength") => model.ctx().update_host_record_quantization(Some(parse_flag(value)), None),
+                Some(other) => Self::error(model, &format!("Unhandled record quantization parameter: {other}")),
+            },
+            "arranger" => {
+                let flag = parts.poll().unwrap_or("");
+                model.arranger_mut().set_flag_state(flag, parse_flag(value));
+            }
+            "mixer" => {
+                let flag = parts.poll().unwrap_or("");
+                model.mixer_mut().set_flag_state(flag, parse_flag(value));
             }
             "click" => Self::parse_click(model, &mut parts, value),
             "track" => self.parse_track(model, &mut parts, value),
@@ -223,6 +288,26 @@ impl Parser {
 
     /// The drum machine of the cursor track with its 128 pads (protocol v2), applied to the main
     /// and the additional drum devices.
+    /// A parameter of the host which is reported as `<prefix> <value>`, `<prefix>/str <text>`,
+    /// `<prefix>/str/<limit> <text>` and `<prefix>/name <name>` (protocol v2). The parameter
+    /// exists once its value is reported.
+    fn parse_host_parameter(param: &mut crate::daw::parameter::Parameter, parts: &mut Parts, value: &str) {
+        match parts.poll() {
+            None => {
+                if let Some(v) = parse_double(value) {
+                    param.set_exists(true);
+                    param.set_internal_value(v);
+                }
+            }
+            Some("str") => match parse_limit(parts) {
+                Some(limit) => param.set_limited_value_str(limit, value),
+                None => param.set_value_str(value),
+            },
+            Some(TAG_NAME) => param.set_internal_name(value),
+            Some(_) => {}
+        }
+    }
+
     fn parse_drum(model: &mut Model, parts: &mut Parts, value: &str) {
         let host = model.host().clone();
         let flag = parse_double(value).map(|v| v > 0.0);
@@ -303,6 +388,8 @@ impl Parser {
                 }
             }
             "volumeStr" => transport.metronome_volume_parameter_mut().set_metronome_volume_str(value),
+            // Bitwig: isMetronomeTickPlaybackEnabled
+            "ticks" => transport.set_host_switch_state("ticks", parse_double(value).is_some_and(|v| v > 0.0)),
             _ => Self::error(model, &format!("Unhandled Click Parameter: {click_command}")),
         }
     }
@@ -352,6 +439,8 @@ impl Parser {
                     }
                 }
             }
+            // Bitwig: the independent punch switches, the fill mode
+            "punchIn" | "punchOut" | "fill" => model.transport_mut().set_host_switch_state(command, d.is_some_and(|v| v > 0.0)),
             "followPlayback" => {
                 if let Some(v) = d {
                     model.arranger_mut().set_playback_follow(v > 0.0);
@@ -476,6 +565,15 @@ impl Parser {
             "fx" => self.parse_track_fx_parameter(model, value, parts),
             // The host pages the tracks (protocol v2); the core keeps its own offset
             "offset" => model.track_bank_mut().enable_host_paging(),
+            // Bitwig (CursorTrackImpl): the position of the pinned cursor track (-1 if not
+            // pinned), hasPrevious (), hasNext ()
+            "pinned" => {
+                if let Some(position) = parse_int(value) {
+                    model.set_host_pinned_track(position);
+                }
+            }
+            "hasPrevious" => model.set_host_cursor_track_neighbours(Some(parse_flag(value)), None),
+            "hasNext" => model.set_host_cursor_track_neighbours(None, Some(parse_flag(value))),
             TAG_COUNT => {
                 if let Some(count) = parse_int(value) {
                     let tb = model.track_bank_mut();
@@ -561,6 +659,9 @@ impl Parser {
                     tb.mark_dirty();
                 }
             }
+            // Bitwig (TrackImpl): canHoldNoteData (), canHoldAudioData ()
+            "canHoldNotes" => track.set_can_hold_notes_state(parse_flag(value)),
+            "canHoldAudio" => track.set_can_hold_audio_state(parse_flag(value)),
             "type" => match ChannelType::from_name(value.trim()) {
                 Some(t) => {
                     track.set_type(t);
@@ -580,8 +681,9 @@ impl Parser {
                 if let Some(v) = d {
                     let is_selected = v > 0.0;
                     // Only a change: Bitwig reports the values of a track again after a command
-                    // to it, a repeated selection must not e.g. recall the preferred view
-                    if track.is_selected() == is_selected {
+                    // to it, a repeated selection must not e.g. recall the preferred view. The
+                    // selection itself, not the pinned track (Track::is_selected)
+                    if track.channel().is_selected() == is_selected {
                         return;
                     }
                     track.set_selected(is_selected);
@@ -1261,6 +1363,11 @@ impl Parser {
 
     fn parse_groove(model: &mut Model, parts: &mut Parts, value: &str) {
         let command = parts.poll().unwrap_or("");
+        // Bitwig: the six parameters of GrooveImpl
+        if let Some(param) = model.groove_mut().host_parameter_mut(command) {
+            Self::parse_host_parameter(param, parts, value);
+            return;
+        }
         let Some(v) = parse_double(value) else {
             return;
         };
@@ -1299,6 +1406,8 @@ mod tests {
     use crate::backend::{BackendCall, RecordingBackend, Sender};
     use crate::daw::bank::BankItem;
     use crate::daw::clip::{NotePosition, StepState};
+    use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
+    use crate::daw::constants::GrooveParameterId;
     use crate::daw::events::ModelEvent;
     use crate::daw::model_setup::ModelSetup;
     use crate::framework::value_changer::ValueChanger;
@@ -1409,6 +1518,39 @@ mod tests {
         // Shrink
         feed(&mut model, &mut parser, &["/track/count 5"]);
         assert_eq!(model.track_bank().scroll_position(), 0);
+    }
+
+    /// SlotImpl: the slot commands address the track by its position, also when the track bank
+    /// is scrolled (the index in the page launched the clip of another track).
+    #[test]
+    fn slot_commands_use_the_track_position() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let mut lines = vec!["/track/count 20".to_string(), "/scene/count 8".to_string()];
+        for i in 0..20 {
+            lines.push(format!("/track/{i}/exists 1"));
+        }
+        lines.push("/track/10/slot/count 8".into());
+        lines.push("/track/10/slot/2/exists 1".into());
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        feed(&mut model, &mut parser, &refs);
+        model.track_bank_mut().set_bank_offset(9);
+        backend.take_calls();
+        assert_eq!(model.track_bank().item(1).position(), 10);
+        let slot = model.track_bank_mut().item_mut(1).slot_bank_mut().item_mut(2);
+        slot.launch(true, false);
+        slot.set_color(ColorEx::RED);
+        slot.paste(9, 3);
+        slot.insert_file("a.wav");
+        assert_eq!(model.track_bank().item(1).slot_bank().item(2).track_position(), 10);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "10/clip/2/launch".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/color".into(), "RGB(255,0,0)".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/paste".into(), "9/3".into()),
+                BackendCall::StringArg("track".into(), "10/clip/2/insertFile".into(), "a.wav".into()),
+            ]
+        );
     }
 
     #[test]
@@ -1685,6 +1827,339 @@ mod tests {
         );
     }
 
+    /// TransportImpl of the Java version for Bitwig: independent punch switches, fill mode,
+    /// metronome ticks and volume, play / stop / restart / stop and rewind of the host.
+    #[test]
+    fn host_transport() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let t = model.transport();
+        assert!(!t.is_punch_in_enabled() && !t.is_fill_mode_active() && !t.is_metronome_ticks_on());
+        feed(&mut model, &mut parser, &["/punchIn 1", "/punchOut 1", "/fill 1", "/click/ticks 1", "/click/volumeStr -6.0 dB", "/track/offset 0"]);
+        let t = model.transport();
+        assert!(t.is_punch_in_enabled() && t.is_punch_out_enabled() && t.is_fill_mode_active() && t.is_metronome_ticks_on());
+        assert_eq!(t.metronome_volume_str(), "-6.0 dB");
+        backend.take_calls();
+        let t = model.transport_mut();
+        t.play();
+        t.stop();
+        t.restart();
+        t.stop_and_rewind();
+        t.toggle_punch_in();
+        t.set_punch_out(false);
+        t.toggle_fill_mode_active();
+        t.set_fill_mode_active(true);
+        t.toggle_metronome_ticks();
+        t.set_metronome_ticks(false);
+        t.change_metronome_volume(1);
+        t.metronome_volume_parameter_mut().reset_value();
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("transport".into(), "play".into()),
+                BackendCall::NoArg("transport".into(), "stop".into()),
+                BackendCall::NoArg("transport".into(), "restart".into()),
+                BackendCall::NoArg("transport".into(), "stopAndRewind".into()),
+                BackendCall::NoArg("transport".into(), "togglePunchIn".into()),
+                BackendCall::IntArg("transport".into(), "punchOut".into(), 0),
+                BackendCall::NoArg("transport".into(), "toggleFill".into()),
+                BackendCall::IntArg("transport".into(), "fill".into(), 1),
+                BackendCall::NoArg("transport".into(), "toggleMetronomeTicks".into()),
+                BackendCall::IntArg("transport".into(), "metronomeTicks".into(), 0),
+                BackendCall::DoubleArg("transport".into(), "metronomeVolume/inc".into(), change),
+                BackendCall::DoubleArg("transport".into(), "metronomeVolume".into(), 0.8),
+            ]
+        );
+        // The host's switches are not changed locally
+        assert!(model.transport().is_punch_out_enabled());
+    }
+
+    /// ApplicationImpl, ProjectImpl, ArrangerImpl, MixerImpl of the Java version for Bitwig.
+    #[test]
+    fn host_application_and_project() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        assert!(!model.project().cue_volume_parameter().does_exist());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/project/engine 0",
+                "/layout MIX",
+                "/project/hasSolo 1",
+                "/project/hasMute 0",
+                "/project/cueVolume 0.5",
+                "/project/cueVolume/str -6.0 dB",
+                "/project/cueVolume/str/6 -6.0",
+                "/project/cueMix 0.25",
+                "/project/cueMix/str 25 %",
+                "/arranger/cueMarkers 1",
+                "/arranger/ioSection 1",
+                "/mixer/meterSection 1",
+                "/mixer/ioSection 0",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        assert!(!model.application().is_engine_active());
+        assert!(model.application().is_mixer_layout());
+        assert!(model.track_bank().has_solo() && !model.track_bank().has_mute());
+        assert_eq!(model.project().cue_volume(), 64);
+        assert_eq!(model.project().cue_volume_str(), "-6.0 dB");
+        assert_eq!(model.project().cue_volume_str_limited(6), "-6.0");
+        assert_eq!(model.project().cue_mix_str(), "25 %");
+        assert!(model.arranger().are_cue_markers_visible() && model.arranger().is_io_section_visible() && !model.arranger().is_timeline_visible());
+        assert!(model.mixer().is_meter_section_visible() && !model.mixer().is_io_section_visible());
+        backend.take_calls();
+        model.application_mut().toggle_engine_active();
+        model.application_mut().next_panel_layout();
+        model.application_mut().previous_panel_layout();
+        model.track_bank_mut().clear_solo();
+        model.track_bank_mut().clear_mute();
+        model.project_mut().change_cue_volume(1);
+        model.project_mut().reset_cue_mix();
+        model.project_mut().touch_cue_mix(true);
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("project".into(), "engine".into(), 1),
+                BackendCall::NoArg("application".into(), "layout/+".into()),
+                BackendCall::NoArg("application".into(), "layout/-".into()),
+                BackendCall::NoArg("project".into(), "unsoloAll".into()),
+                BackendCall::NoArg("project".into(), "unmuteAll".into()),
+                BackendCall::DoubleArg("project".into(), "cueVolume/inc".into(), change),
+                BackendCall::NoArg("project".into(), "cueMix/reset".into()),
+                BackendCall::IntArg("project".into(), "cueMix/touch".into(), 1),
+            ]
+        );
+    }
+
+    /// ChannelImpl / TrackImpl / SendImpl of the Java version for Bitwig: activation of tracks
+    /// and the master, monitoring, can hold notes/audio, send colors, VU clip state, solo toggle,
+    /// indications.
+    #[test]
+    fn host_tracks_and_channels() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/track/count 2",
+                "/track/0/exists 1",
+                "/track/1/exists 1",
+                "/track/0/active 0",
+                "/master/active 0",
+                "/track/0/monitor 1",
+                "/track/0/canHoldNotes 0",
+                "/track/0/canHoldAudio 1",
+                "/track/0/send/count 1",
+                "/track/0/send/0/name FX",
+                "/track/0/send/0/color 255 0 0",
+                "/track/1/vuleft 0.995",
+                "/track/1/vuright 0.5",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let tb = model.track_bank();
+        let track = tb.item(0);
+        assert!(!track.is_activated() && track.is_monitor() && !track.can_hold_notes() && track.can_hold_audio_data());
+        assert!(tb.item(1).can_hold_notes());
+        assert!(!tb.master().is_activated());
+        assert_eq!(track.send_bank().item(0).color(), ColorEx::RED);
+        assert!(tb.item(1).vu_left_clip_state() && !tb.item(1).vu_right_clip_state() && tb.item(1).vu_clip_state());
+        backend.take_calls();
+        let tb = model.track_bank_mut();
+        tb.item_mut(1).toggle_solo();
+        tb.item_mut(1).set_volume_indication(true);
+        tb.item_mut(1).set_pan_indication(false);
+        tb.item_mut(0).send_bank_mut().item_mut(0).set_indication(true);
+        tb.master_mut().set_is_activated(true);
+        tb.set_indication(true);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::NoArg("track".into(), "1/solo/toggle".into()),
+                BackendCall::IntArg("track".into(), "1/volume/indicate".into(), 1),
+                BackendCall::IntArg("track".into(), "1/pan/indicate".into(), 0),
+                BackendCall::IntArg("track".into(), "0/send/0/volume/indicate".into(), 1),
+                BackendCall::IntArg("master".into(), "active".into(), 1),
+                BackendCall::IntArg("track".into(), "indicate".into(), 1),
+            ]
+        );
+    }
+
+    /// GrooveImpl of the Java version for Bitwig: six parameters with the host's values and
+    /// texts, relative changes, reset, touch, indication.
+    #[test]
+    fn host_groove() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        assert!(!model.groove().parameter(GrooveParameterId::AccentRate).does_exist());
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/track/offset 0",
+                "/groove/enabled/name Groove",
+                "/groove/enabled 1",
+                "/groove/enabled/str On",
+                "/groove/shuffleAmount 0.25",
+                "/groove/shuffleAmount/str 25.0 %",
+                "/groove/shuffleRate 0.5",
+                "/groove/accentAmount 0",
+                "/groove/accentRate 0.5",
+                "/groove/accentPhase 0.75",
+                "/groove/accentPhase/str/6 75%",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let groove = model.groove();
+        assert_eq!(groove.parameter(GrooveParameterId::Enabled).name(), "Groove");
+        assert_eq!(groove.parameter(GrooveParameterId::Enabled).displayed_value(), "On");
+        assert_eq!(groove.parameter(GrooveParameterId::ShuffleAmount).value(), 32);
+        assert_eq!(groove.parameter(GrooveParameterId::ShuffleAmount).displayed_value(), "25.0 %");
+        assert!(groove.parameter(GrooveParameterId::AccentRate).does_exist());
+        assert_eq!(groove.parameter(GrooveParameterId::AccentPhase).displayed_value_limited(6), "75%");
+        backend.take_calls();
+        let groove = model.groove_mut();
+        groove.parameter_mut(GrooveParameterId::ShuffleAmount).inc(2.0);
+        groove.parameter_mut(GrooveParameterId::AccentRate).set_value(127);
+        groove.parameter_mut(GrooveParameterId::ShuffleRate).reset_value();
+        groove.parameter_mut(GrooveParameterId::Enabled).touch_value(true);
+        groove.set_indication(true);
+        let calls = backend.take_calls();
+        assert_eq!(
+            calls[..5],
+            [
+                BackendCall::DoubleArg("groove".into(), "shuffleAmount/inc".into(), 2.0 / 128.0),
+                BackendCall::DoubleArg("groove".into(), "accentRate".into(), 1.0),
+                BackendCall::NoArg("groove".into(), "shuffleRate/reset".into()),
+                BackendCall::IntArg("groove".into(), "enabled/touch".into(), 1),
+                BackendCall::IntArg("groove".into(), "enabled/indicate".into(), 1),
+            ]
+        );
+        assert_eq!(calls.len(), 10);
+    }
+
+    /// AbstractTrackBankImpl.getEditSendName (the send of the first track),
+    /// CursorClipImpl.resetAccent (setImmediately).
+    #[test]
+    fn send_names_and_accent_reset() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        model.note_clip(8, 128);
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/0/send/count 2", "/track/0/send/1/name Reverb", "/clip/exists 1", "/clip/grid/8x128/playingStep 0"]);
+        assert!(model.track_bank().can_edit_send(1) && !model.track_bank().can_edit_send(0));
+        assert_eq!(model.track_bank().edit_send_name(1), "Reverb");
+        backend.take_calls();
+        model.note_clip(8, 128).reset_accent();
+        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("clip".into(), "accent/immediately".into(), 0.5)]);
+    }
+
+    /// Bitwig: scene scrolling as AbstractItemBank (selected scene and pages), the generic
+    /// selections on drum pads (DrumPadImpl.select), layers scroll exactly.
+    #[test]
+    fn host_scene_scrolling_pads_and_layers() {
+        let mut setup = ModelSetup::default();
+        setup.device_ids.push(DeviceId::FirstInstrument);
+        let (mut model, mut parser, backend, _) = create(setup);
+        feed(&mut model, &mut parser, &["/scene/count 4", "/scene/0/exists 1", "/scene/1/exists 1", "/scene/offset 0", "/track/offset 0"]);
+        // Reaper would allow scrolling forwards by one (offset 0 of 4); Bitwig: no selected scene
+        // and no next page
+        assert!(!model.scene_bank().can_scroll_forwards() && !model.scene_bank().can_scroll_backwards());
+        feed(&mut model, &mut parser, &["/scene/0/select 1"]);
+        assert!(model.scene_bank().can_scroll_forwards());
+        feed(&mut model, &mut parser, &["/primary/exists 1", "/primary/hasDrumPads 1", "/primary/pad/36/exists 1", "/primary/pad/37/exists 1", "/primary/layer/count 20"]);
+        backend.take_calls();
+        let device = model.specific_device_mut(DeviceId::FirstInstrument).unwrap();
+        let pads = device.drum_pad_bank_mut();
+        let index = (37 - pads.scroll_position()) as usize;
+        pads.item_mut(index).select();
+        device.layer_bank_mut().scroll_to(5, true);
+        assert_eq!(device.layer_bank().scroll_position(), 5);
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("primary".into(), "pad/37/select".into())]);
+    }
+
+    /// CursorDeviceImpl.selectPrevious/Next: the sibling page moves at its edges and its first
+    /// device is selected 75 ms later (AbstractItemBankImpl.selectPreviousPage/NextPage).
+    #[test]
+    fn host_cursor_device_siblings() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/offset 0", "/device/exists 1", "/device/count 12", "/device/position 7", "/device/sibling/1/name A"]);
+        backend.take_calls();
+        model.cursor_device_mut().select_next();
+        model.cursor_device_mut().select_previous();
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::NoArg("device".into(), "+".into()), BackendCall::NoArg("device".into(), "page/+".into()), BackendCall::NoArg("device".into(), "-".into())]
+        );
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("device".into(), "sibling/1/select".into())]);
+    }
+
+    /// ApplicationImpl: the record quantization is global on Bitwig (TrackImpl delegates).
+    #[test]
+    fn host_record_quantization() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(&mut model, &mut parser, &["/track/count 2", "/track/0/exists 1", "/track/1/exists 1", "/track/1/select 1", "/recordQuantization 1/16", "/recordQuantization/noteLength 1"]);
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let track = model.track_bank().item(0);
+        assert_eq!(track.record_quantization_grid(), RecordQuantization::Res1_16);
+        assert!(track.is_record_quantization_note_length());
+        backend.take_calls();
+        let track = model.cursor_track_mut();
+        track.next_record_quantization();
+        track.toggle_record_quantization_note_length();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::StringArg("application".into(), "recordQuantization".into(), "1/8".into()),
+                BackendCall::NoArg("application".into(), "recordQuantization/noteLength/toggle".into()),
+            ]
+        );
+    }
+
+    /// AbstractTrackBankImpl.addChannel: the extension creates the track from the string
+    /// arguments (type, name, color, devices) and sets name and color 300 ms later.
+    #[test]
+    fn add_track_command() {
+        let (mut model, _, backend, _) = create(ModelSetup::default());
+        model.application_mut().add_instrument_track();
+        model.application_mut().add_channel(ChannelType::Effect, Some("FX"), Some(ColorEx::RED), &["ReaEQ"]);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["INSTRUMENT".into(), "".into(), "".into()]),
+                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["EFFECT".into(), "FX".into(), "RGB(255,0,0)".into(), "ReaEQ".into()]),
+            ]
+        );
+    }
+
+    /// ProjectImpl: the project's remote controls (root track group) with their own commands.
+    #[test]
+    fn host_project_remote_controls() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/offset 0", "/project/param/count 16", "/project/param/9/name Macro", "/project/param/9/value 0.5", "/project/param/9/value/str 50 %", "/project/page/count 2", "/project/page/1/name Mix", "/project/page/selected 1"],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let bank = model.project().parameter_bank().unwrap();
+        assert_eq!(bank.scroll_position(), 8);
+        assert_eq!(bank.item(1).name(), "Macro");
+        assert_eq!(bank.item(1).displayed_value(), "50 %");
+        assert_eq!(bank.page_bank().selected_item(), "Mix");
+        backend.take_calls();
+        let bank = model.project_mut().parameter_bank_mut().unwrap();
+        bank.item_mut(1).change_value(1);
+        bank.select_previous_item();
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
+        assert_eq!(
+            backend.take_calls(),
+            vec![BackendCall::DoubleArg("project".into(), "param/9/value/inc".into(), change), BackendCall::IntArg("project".into(), "parameterPage".into(), 0)]
+        );
+    }
+
     #[test]
     fn note_repeat_and_notes() {
         let (mut model, mut parser, _, _) = create(ModelSetup::default());
@@ -1767,6 +2242,85 @@ mod tests {
             bank_calls(backend.take_calls()),
             vec![BackendCall::IntArg("bank".into(), "track".into(), 0), BackendCall::IntArg("bank".into(), "scene".into(), 8)]
         );
+    }
+
+    /// ModelImpl.createNoteClip / recordNoteClip of the Java version for Bitwig.
+    #[test]
+    fn create_and_record_note_clip() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/count 1", "/track/0/exists 1", "/track/0/slot/count 8", "/track/0/slot/2/exists 1", "/track/0/slot/3/exists 1", "/track/0/slot/3/recording 1", "/overdub/arranger 0", "/overdub/launcher 0"],
+        );
+        backend.take_calls();
+        let track = model.track_bank().ref_at(0).unwrap();
+        model.create_note_clip(track, 2, 4, true);
+        model.record_note_clip(track, 2);
+        model.record_note_clip(track, 3);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("track".into(), "0/createClip/2".into(), 4),
+                BackendCall::NoArg("track".into(), "0/clip/2/select".into()),
+                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
+                BackendCall::IntArg("transport".into(), "overdub/launcher".into(), 1),
+                BackendCall::NoArg("track".into(), "0/clip/2/record".into()),
+                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
+                BackendCall::NoArg("track".into(), "0/clip/3/launch".into()),
+            ]
+        );
+    }
+
+    /// AbstractItemBankImpl: the selections after a page change are scheduled (75 ms), the
+    /// previous item at the first item of a page is the last item of the previous page, the
+    /// previous page selects its first item (Bitwig).
+    #[test]
+    fn page_change_selections() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        let mut lines = vec!["/track/count 20".to_string(), "/scene/count 20".to_string()];
+        for i in 0..20 {
+            lines.push(format!("/track/{i}/exists 1"));
+            lines.push(format!("/scene/{i}/exists 1"));
+        }
+        lines.push("/track/offset 0".into());
+        lines.push("/scene/offset 0".into());
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        feed(&mut model, &mut parser, &refs);
+        model.track_bank_mut().set_bank_offset(8);
+        model.scene_bank_mut().set_bank_offset(8);
+        feed(&mut model, &mut parser, &["/track/8/select 1", "/scene/8/select 1"]);
+        backend.take_calls();
+
+        model.scene_bank_mut().select_previous_item();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "7/select".into())]);
+
+        model.scene_bank_mut().select_next_page();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "8/select".into())]);
+
+        model.scene_bank_mut().select_previous_page();
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0), BackendCall::NoArg("scene".into(), "0/select".into())]);
+
+        model.scene_bank_mut().select_item_at_position(13);
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "13/select".into())]);
+
+        model.track_bank_mut().select_previous_item();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 0)]);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "7/select".into(), 1)]);
+
+        // AbstractItemBankImpl.scrollTo: exactly to the position, without a selection
+        model.track_bank_mut().scroll_to(13, true);
+        model.run_all_tasks();
+        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 13)]);
+        assert_eq!(model.track_bank().scroll_position(), 13);
     }
 
     /// With host paging the banks can scroll back from any offset > 0, as Bitwig's banks.
@@ -1887,10 +2441,75 @@ mod tests {
         clip.clear_row(0, 36);
         let calls = backend.take_calls();
         assert_eq!(calls[0], BackendCall::IntArg("clip".into(), "grid/8x128/step/0/4/38/toggle".into(), 100));
-        assert!(matches!(&calls[1], BackendCall::StringArg(p, c, v) if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(13) == Some("0.25")), "{calls:?}");
+        // CursorClipImpl.updateStepChance: only the changed attribute outside of an edit
+        assert_eq!(calls[1], BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/chance".into(), 0.25));
         assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
         assert_eq!(calls[3], BackendCall::NoArg("clip".into(), "grid/8x128/page/+".into()));
         assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
+
+        let clip = model.note_clip(8, 128);
+        clip.update_step_velocity(&position, 0.5);
+        clip.update_step_mute_state(&position, true);
+        clip.update_step_duration(&position, 0.75);
+        clip.update_step_is_repeat_enabled(&position, true);
+        clip.update_step_recurrence_length(&position, 3);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/velocity".into(), 0.5),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/muted".into(), 1.0),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/duration".into(), 0.75),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/repeatEnabled".into(), 1.0),
+                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/recurrenceLength".into(), 3.0),
+            ]
+        );
+        // In an edit (startEdit/stopEdit) all attributes are written
+        clip.start_edit(&[position]);
+        backend.take_calls();
+        clip.update_step_gain(&position, 0.25);
+        assert!(backend.take_calls().is_empty());
+        clip.stop_edit();
+        let calls = backend.take_calls();
+        assert!(matches!(&calls[..], [BackendCall::StringArg(p, c, v)] if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(11) == Some("0.25")), "{calls:?}");
+
+        // CursorClipImpl.changeStepVelocity etc.: the knob change keeps its fraction (1.09 for
+        // one step at the default sensitivity, the cast cut it to 1)
+        let clip = model.note_clip(8, 128);
+        clip.change_step_velocity(&position, 1);
+        clip.change_step_chance(&position, 1);
+        let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 127.0;
+        assert!(change > 1.0 / 127.0);
+        let calls = backend.take_calls();
+        let value = |i: usize| match &calls[i] {
+            BackendCall::DoubleArg(_, _, v) => *v,
+            other => panic!("{other:?}"),
+        };
+        assert!((value(0) - (0.5 + change)).abs() < 1e-9, "{calls:?}");
+        assert!((value(1) - (0.25 + change)).abs() < 1e-9, "{calls:?}");
+    }
+
+    /// CursorClipImpl.changePlayStart/End, changeLoopStart/Length: relative on Bitwig.
+    #[test]
+    fn host_clip_time_changes() {
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        model.note_clip(8, 128);
+        feed(&mut model, &mut parser, &["/clip/exists 1", "/clip/loopLength 4"]);
+        backend.take_calls();
+        let clip = model.note_clip(8, 128);
+        clip.change_play_start(1, false);
+        clip.change_play_end(127, true);
+        clip.change_loop_start(1, true);
+        clip.change_loop_length(127, false);
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::DoubleArg("clip".into(), "start/inc".into(), INC_FRACTION_TIME),
+                BackendCall::DoubleArg("clip".into(), "end/inc".into(), -INC_FRACTION_TIME_SLOW),
+                BackendCall::DoubleArg("clip".into(), "loopStart/inc".into(), INC_FRACTION_TIME_SLOW),
+                BackendCall::DoubleArg("clip".into(), "loopLength/inc".into(), -INC_FRACTION_TIME),
+            ]
+        );
+        assert_eq!(clip.loop_length(), 4.0);
     }
 
     #[test]
@@ -2015,6 +2634,42 @@ mod tests {
         assert!(!model.track_bank().item(0).is_selected());
         model.set_cursor_track_pinned(false);
         assert_eq!(model.cursor_track().position(), 0);
+    }
+
+    /// CursorTrackImpl of the Java version for Bitwig: the pin is Bitwig's, previous and next
+    /// track move the cursor track.
+    #[test]
+    fn host_pinning_and_cursor_track_navigation() {
+        let (mut model, mut parser, backend, log) = create(ModelSetup::default());
+        feed(
+            &mut model,
+            &mut parser,
+            &["/track/offset 0", "/track/count 3", "/track/0/exists 1", "/track/1/exists 1", "/track/2/exists 1", "/track/0/select 1", "/track/hasPrevious 0", "/track/hasNext 1"],
+        );
+        assert!(!model.cursor_track_can_select_previous() && model.cursor_track_can_select_next());
+        backend.take_calls();
+        model.set_cursor_track_pinned(true);
+        model.toggle_cursor_track_pinned();
+        model.cursor_track_select_next();
+        model.cursor_track_select_previous();
+        assert_eq!(
+            backend.take_calls(),
+            vec![
+                BackendCall::IntArg("track".into(), "pinned".into(), 1),
+                BackendCall::NoArg("track".into(), "pinned/toggle".into()),
+                BackendCall::NoArg("track".into(), "selectNext".into()),
+                BackendCall::NoArg("track".into(), "selectPrevious".into()),
+            ]
+        );
+        // Not pinned until the host reports it
+        assert!(!model.is_cursor_track_pinned());
+        feed(&mut model, &mut parser, &["/track/pinned 2", "/track/0/select 0", "/track/1/select 1"]);
+        assert!(model.is_cursor_track_pinned());
+        assert_eq!(model.cursor_track().position(), 2);
+        feed(&mut model, &mut parser, &["/track/pinned -1"]);
+        assert!(!model.is_cursor_track_pinned());
+        assert_eq!(model.cursor_track().position(), 1);
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
     }
 
     #[test]

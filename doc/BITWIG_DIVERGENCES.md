@@ -6,7 +6,7 @@ Bitwig side follows the Java implementation where it can. This document lists ev
 it does not, for the maintainer of the Java version. It is updated with each change of the
 backend.
 
-As of 2026-10-29. "Java" means the Java DrivenByMoss for Bitwig, "Rust" the core with the Bitwig
+As of 2026-10-31 (core port of the Bitwig classes, P1 and P2: see BITWIG_CORE_PORT_PLAN.md). "Java" means the Java DrivenByMoss for Bitwig, "Rust" the core with the Bitwig
 extension. The core is a port of the Java version for Reaper, so where Java for Bitwig and Java
 for Reaper differ, Rust usually behaves like Java for Reaper.
 
@@ -37,6 +37,8 @@ These do not change what a controller does, but explain the other differences.
 | Note clips | `getNoteClip (cols, rows)` creates a launcher cursor clip per size when a view asks for it | Same, but the sizes must be known before the extension creates its objects: the core collects the sizes of the sequencer views created during the setup of the controller (plus 8x128 for the Drum 64 views) and lists them in the model setup. A size first requested later has no grid in Bitwig. The clip properties come from the first grid; `pinned` is set on all grids |
 | Effect tracks | Created from the ModelSetup | Not created yet |
 | Bank paging | `canScrollPageBackwards` of the banks is Bitwig's `canScrollBackwards`: true for any position > 0 | Same with host paging (the Java version for Reaper requires a full page); found 2026-10-30 (Maschine JAM session, Shift + arrow scrolls by 1 track) |
+| Selection after a page change | `AbstractItemBankImpl`: the previous item at the first item of a page scrolls back and selects the *last* item, the previous page selects the *first* item, the next page the first item, `selectItemAtPosition` scrolls and selects; all selections 75 ms after the page change | Same for tracks and scenes (core port P1 2 and 4, 2026-10-30; before, the previous item selected the first item of the previous page, and the scene selections were sent at once, while the extension still had the old window, so they were lost). Banks without a place in the model (slot banks of the tracks) still select at once |
+| Track bank `scrollTo` | `scrollPosition ().set (position)`, exact (`adjustPage` ignored), selects nothing | Same with host paging (`bank track <position>`; core port P1 3, 2026-10-30; before, `<pos>/scrollto` selected the track). Reaper keeps `<pos>/scrollto` (the Reaper backend selects and scrolls to the track) |
 | Device siblings | `createSiblingsDeviceBank (numDevicesInBank)` | Always 8 siblings (the Reaper protocol's fixed window) |
 | Device parameters | One remote-control page cursor; its selected page is the page shown on the controller and in Bitwig, page names from `pageNames` | Same page names and the same page selection in both directions (an extra page cursor follows Bitwig's selection). The parameter values come from `numParamPages` page cursors, each fixed to one page, as one flat list; pages beyond `numParamPages` are not reachable. When pages are switched quickly, the controller can briefly show the previous page while Bitwig catches up |
 | Parameter extras | `modulatedValue`, `setIndication`, `touch` for all parameters | `modulatedValue`, `setIndication` and `touch` for the cursor device's parameters, `touch` for track and master volume and pan; not for sends, the track and project remote controls |
@@ -53,10 +55,8 @@ the same functions (`TimeFormat`, a copy of `StringUtils.formatTimeLong` and
 | --- | --- | --- |
 | Changing the loop start and length | Step from the zoom resolution, rounded to it (`calcScrollFraction`) | Fixed step of 4 quarters, 1 quarter with Shift/slow, not rounded (as Java for Reaper, `INC_FRACTION_TIME`) |
 | Play position in seconds | Not used | Derived at the current tempo, only used by the core for Reaper's slot states |
-| Metronome volume | `metronomeVolume` | Not handled yet (`metro_vol` commands are ignored) |
 | Automation write mode | `isArrangerAutomationWriteEnabled` / `isClipLauncherAutomationWriteEnabled`, `automationWriteMode` | Not handled yet; the core sends Reaper's override numbering |
 | Pre-roll | `preRoll` (none, 1, 2, 4 bars) and the metronome during pre-roll | Only the metronome during pre-roll; the pre-roll length is not handled yet |
-| Punch in / out | `isPunchInEnabled` / `isPunchOutEnabled` | Same, but the core keeps one punch state (Reaper's record modes): punch in and punch out exclude each other |
 
 ## 4. Clip launcher
 
@@ -70,6 +70,12 @@ are created with `createScene` and `createSceneFromPlayingLauncherClips`.
 | Topic | Java | Rust |
 | --- | --- | --- |
 | Clip muted | Not available in the API, always false | Same |
+
+**Slot commands** (core port, P1 1): the slot commands (`track <p>/clip/<s>/…`, also the color,
+the paste source and insert file) address the track by its position, as `SlotImpl` acts on the
+slot of its own track. They used the index in the page, so with a scrolled track bank the clip of
+another track (or nothing) was launched. Also on Reaper (its track processor reads the same
+position for all track commands).
 
 ## 5. Note repeat
 
@@ -133,6 +139,169 @@ displays; NI's driver ignores the message. Also on Reaper (the same core).
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view
 ended while Shift was held). Found 2026-10-30.
 
+**Relative value changes (core port P1 5, 2026-10-30).** As `RangedValueImpl.inc` /
+`changeValue`: knobs change the parameters, the volume and panorama of tracks, the master, drum
+pads and layers, the sends and the EQ parameters relatively. The core sends
+`<value command>/inc <delta>` (e.g. `track 3/volume/inc`, `device param/9/value/inc`,
+`track 2/send/1/volume/inc`, `drum pad/36/pan/inc`) with the delta normalized to the upper bound
+of the value changer (`increment / upperBound`, as `inc (increment, upperBound)`), and the
+extension calls `inc (delta)`; the core does not change its value, Bitwig reports it. Before, the
+core sent its value plus the increment with `set`, which the takeover mode (catch) could swallow,
+and fractional increments were cut. The clip's play start and end, loop start and length change
+with `clip start|end|loopStart|loopLength/inc <beats>` (`getPlayStart ().inc (frac)` etc.; before:
+absolute, the loop length could become ≤ 0). Not yet for the groove. Only with host paging;
+Reaper gets the absolute values.
+
+**Reset (core port P1 6, 2026-10-30).** As `ParameterImpl.resetValue` (`parameter.reset ()`):
+resetting a device parameter, the volume or panorama of a track, the master, a drum pad or layer,
+a send or an EQ parameter sends `<value command>/reset` without a value (e.g. `track 3/volume/reset`,
+`eq param/4/value/reset`, `master pan/reset`), and Bitwig sets its own default. Before, the core
+set Reaper's defaults (0 for device parameters and sends, 0.716 = Reaper's 0 dB for the volume).
+Only with host paging; Reaper keeps the core's defaults.
+
+**Device commands (core port P1 7, 2026-10-30).** As `SpecificDeviceImpl` and `DeviceImpl`: the
+cursor device, the first instrument, the drum device and the EQ act on themselves with
+`<device|primary|drum|eq> window/toggle|expand/toggle|bypass|remove|duplicate|select` (no value;
+`isWindowOpen ().toggle ()`, `isExpanded ().toggle ()`, `isEnabled ().toggle ()`,
+`deleteObject ()`, `afterDeviceInsertionPoint ().copyDevices (device)`, `selectInEditor ()`), the
+siblings with `device sibling/<index + 1>/bypass|remove|duplicate|select` by their index in the
+sibling window. Before, window and expand of all kinds went to the cursor device, and the bypass,
+remove and duplicate of the specific devices were sent as `<index+1>/…` with index −1 or the
+window index, which the extension matched against the position in the chain (wrong from position
+8 on). Only with host paging; Reaper keeps its commands.
+
+**Step attributes (core port P1 8, 2026-10-30).** As `CursorClipImpl.updateStep*`: outside of
+an edit, changing one attribute of a step writes only that attribute,
+`clip grid/<id>/step/<channel>/<x>/<y>/<attribute> <value>` with the attributes `muted`,
+`duration`, `velocity`, `velocitySpread`, `releaseVelocity`, `pressure`, `timbre`, `pan`,
+`transpose`, `gain`, `chanceEnabled`, `chance`, `occurrenceEnabled`, `occurrence` (index),
+`recurrenceEnabled`, `recurrenceLength`, `recurrenceMask` (the other recurrence value is Bitwig's,
+as `setRecurrence (length, noteStep.recurrenceMask ())`), `repeatEnabled`, `repeatCount`,
+`repeatCurve`, `repeatVelocityCurve`, `repeatVelocityEnd`; flags as 0/1. In an edit
+(`startEdit` / `stopEdit`, every 100 ms) all attributes are written with `…/update` as before
+(`sendClipData`). Before, every change wrote all 21 attributes, including values not received yet.
+The gain is still reported as `gain () / 2` and written with `setGain (value)` as in the Java
+version (`StepInfoImpl.updateData`, `sendClipData`); whether both use the same range is open.
+
+**Step attribute knobs (core port P1 9, 2026-10-30).** The knob changes of the step attributes
+keep their fraction (`toNormalizedValue (calcKnobChange (control))` of `CursorClipImpl` for Bitwig);
+the core cut them to integers as the Java version for Reaper does (`(int) calcKnobChange`), so at
+the default sensitivity (1.09 per step) the changes were smaller. Also on Reaper.
+
+**New note clips (core port P1 10, 2026-10-30).** As `ModelImpl.createNoteClip`: the clip is
+created (`track <p>/createClip/<slot> <length>`), the slot selected and launched, overdub switches
+the launcher overdub on (`transport overdub/launcher 1`); before, arranger recording started and
+the clip was not launched. `recordNoteClip` records the slot unless it records already
+(`track <p>/clip/<s>/record`) and launches it; before, `track <p>/recordClip` was sent, which the
+extension did not handle. Also on Reaper.
+
+**Transport (core port P2, 2026-10-30).** As `TransportImpl` of the Java version for Bitwig:
+`transport play|stop|restart` (`transport.play ()`, `stop ()`, `restart ()`, record is not touched;
+before, play and stop switched the recording off first and restart was stop + play),
+`transport stopAndRewind` (`stop ()`, `setPosition (0)` 100 ms later; before, the play start
+position was set at once), the metronome ticks (`/click/ticks`, `transport metronomeTicks <0|1>`,
+`transport toggleMetronomeTicks`; before: always off), the fill mode (`/fill`, `transport fill <0|1>`,
+`transport toggleFill`; before: always off), independent punch in and out (`/punchIn`, `/punchOut`,
+`transport togglePunchIn|togglePunchOut`; before, one punch state in which in and out excluded each
+other), the metronome volume (`transport metronomeVolume <value>` and `metronomeVolume/inc <delta>`
+as `set`/`inc (…, upperBound)`, reset to 0.8, the text `displayedValue ().getLimited (6) + " dB"`;
+before, `metro_vol` was not handled). Only with host paging; Reaper keeps its commands. Note: the
+Pause behaviour of the play button calls `play`, which in Bitwig starts but does not pause (as in
+the Java version).
+
+**Application and project (core port P2, 2026-10-30).** As `ApplicationImpl`, `ProjectImpl`,
+`ArrangerImpl` and `MixerImpl`: the extension reports the audio engine (`/project/engine`,
+`project engine <0|1>` → `activateEngine ()` / `deactivateEngine ()`), the panel layout
+(`/layout <ARRANGE|MIX|EDIT|PLAY>`; previous and next with `application layout/-|+` →
+`previousPanelLayout ()` / `nextPanelLayout ()`), whether any track of the project is soloed or
+muted (`/project/hasSolo`, `/project/hasMute`; clearing with `project unsoloAll|unmuteAll`, before:
+a solo/mute command per known track), the cue volume and cue mix (`/project/cueVolume`,
+`/project/cueMix` with `…/str`, `…/str/6|8`; `project cueVolume|cueMix` with `/inc`, `/reset`, `/touch`;
+before: no-ops) and the visibility flags `/arranger/cueMarkers|doubleRowTrackHeight|clipLauncher|timeline|ioSection|effectTracks`
+and `/mixer/clipLauncherSection|crossFadeSection|deviceSection|ioSection|meterSection|sendSection`
+(before: always false).
+
+**Tracks and channels (core port P2, 2026-10-30).** As `ChannelImpl`, `TrackImpl`, `SendImpl` and
+`AbstractTrackBankImpl`: the extension reports `active` for tracks and the master
+(`isActivated ()`; before only for pads and layers, the core kept true and toggled locally, which
+also broke `set_skip_disabled_items`; the master can be (de)activated), `/track/<p>/monitor` is the
+effective monitoring `isMonitoring ()` (also AUTO while armed; before: monitor mode ON),
+`/track/<p>/canHoldNotes|canHoldAudio` (`canHoldNoteData ()`, `canHoldAudioData ()`; before: true for
+every track), the send colors `/track/<p>/send/<s>/color` (`sendChannelColor ()`; before: black).
+The solo button toggles with `<channel> solo/toggle` (`solo ().toggleUsingPreferences (false)`, so
+the exclusive solo preference of Bitwig applies; before: `solo <!local>`). Indications:
+`<channel> volume/indicate|pan/indicate <0|1>`, `track <p>/send/<s>/volume/indicate <0|1>`
+(`setIndication`) and `track indicate <0|1>` (`trackBank.setShouldShowClipLauncherFeedback`);
+before: no-ops. The VU clip state is `vuLeft >= 16241/16384` (`CLIP_BORDER`; before: Reaper's hold
+values, never reported). The Java bug of `TrackImpl.setMonitor (false)` (sets ON) is not copied.
+
+**Pinned cursor track, previous/next track (core port P2, 2026-10-30).** As `CursorTrackImpl`: the
+pin is Bitwig's `cursorTrack.isPinned ()` (`track pinned <0|1>`, `track pinned/toggle`); the extension
+reports `/track/pinned <position>` (−1 if not pinned) and the core shows the pinned track as the
+cursor track; the selection is reported from a second cursor track which is never pinned, so that
+Bitwig's cursor device and remote controls stay on the pinned track as in the Java version (before,
+the core kept the pin itself and sent `track <p>/pin`, which the extension ignored, so the device
+followed the selection). Previous and next track move the cursor track (`track selectPrevious|selectNext`,
+`cursorTrack.selectPrevious ()` etc.) and their availability is `/track/hasPrevious|hasNext`
+(before: via the track bank). The playing notes are those of the cursor track.
+
+**Groove (core port P2, 2026-10-30).** As `GrooveImpl`: six `ParameterImpl`s on `host.createGroove ()`
+(`enabled`, `shuffleAmount`, `shuffleRate`, `accentAmount`, `accentRate`, `accentPhase`), reported as
+`/groove/<name>`, `/groove/<name>/name`, `/groove/<name>/str` (+ `/6`, `/8`), changed with `groove <name>`
+(`/inc`, `/reset`, `/touch`, `/indicate`, `setIndication` on all six). Before, only the enabled state and
+the shuffle amount existed with Reaper's range −1..1 and texts computed by the core, and the extension
+handled none of them (the groove did not work on Bitwig). Reaper keeps `groove active|amount`.
+
+**Send names, accent reset (core port P2, 2026-10-30).** `can_edit_send` / `edit_send_name` use the send
+of the first track of the page and its name, as `AbstractTrackBankImpl.canEditSend` /
+`getEditSendName` (before: any track of the page, the name "Send N"); also on Reaper. Resetting the
+accent of the clip sends `clip accent/immediately 0.5` (`getAccent ().setImmediately (0.5)`; before:
+`set`, which the takeover mode could swallow).
+
+**Scenes, parameter pages, touch, pads, layers (core port P2, 2026-10-30).** With host paging:
+the scene bank's `can_scroll_backwards|forwards` are those of `AbstractItemBank` (a selected scene
+after the first one / an existing next scene on the page, or a previous / next page; before: the
+offset as the Java version for Reaper); after a device change the parameter page is the one
+Bitwig reported last (`remoteControls.selectedPageIndex ()`, Bitwig remembers the page per device;
+before: the page the core remembered for the device name); `ParameterPageBankImpl.canScrollPageForwards`
+asks for a next page *of pages* (before: a next parameter page); touching a parameter only sends
+`touch` (`ParameterImpl.touchValue`), the host's values are shown while touched (before: held back
+until released, as Reaper); selecting a drum pad selects it only in the editor
+(`DrumPadImpl.select`: `selectInEditor ()`; before: also in the mixer and made visible) and the
+generic bank selections (`select_next_item` etc.) work on pads (before: no-ops); the layer bank
+scrolls exactly to a position (`scrollTo`, `adjustPage` ignored; before: page aligned). Selecting
+the master selects it in the editor and the mixer and makes it visible (`ChannelImpl.select`).
+
+**Device siblings (core port P2, 2026-10-30).** As `CursorDeviceImpl.selectPrevious/Next`: at the
+first (last) device of the sibling page the page moves as well (`device page/-|+`), and as
+`AbstractItemBankImpl.selectPreviousPage/NextPage` the first device of the new page is selected
+75 ms later (`device sibling/1/select`); without the guard on the core's position and count. Before,
+the sibling window did not follow the cursor device and a page change did not select. Note: so
+`selectPrevious` at the first device of a page ends on the first device of the previous page (as in
+the Java version).
+
+**Record quantization (core port P2, 2026-10-30).** Global as in `ApplicationImpl` (`TrackImpl` delegates):
+the extension reports `/recordQuantization <OFF|1/32|1/16|1/8|1/4>` (`recordQuantizationGrid ()`) and
+`/recordQuantization/noteLength` (`recordQuantizeNoteLength ()`); the tracks show and change these
+(`application recordQuantization <grid>`, `application recordQuantization/noteLength/toggle`). Before,
+per track as Reaper (`inQuantResolution`), unhandled, and the note length toggle did nothing.
+
+**Add track (core port P2, 2026-10-30).** `track addTrack <type> <name> <color> <devices…>` (string
+arguments) is handled now, as `AbstractTrackBankImpl.addChannel`: `createInstrumentTrack (-1)`,
+`createEffectTrack (-1)` or `createAudioTrack (-1)`, then 300 ms later the name and color of the new
+(cursor) track. Differences: the devices are Reaper creation names which Bitwig does not know, they
+are dropped (logged as not handled); the track bank is not scrolled to the new track
+(`scrollIntoView`), the core pages the bank itself. Before, `DbmExtension.processStringArgs` only logged
+the command.
+
+**Project remote controls (core port P2, 2026-10-30).** As `ProjectImpl`: the remote controls of the
+root track group (`rootTrackGroup.createCursorRemoteControlsPage`), with fixed page cursors as for
+the devices (`numParamPages`), reported as `/project/param/<i>/…`, `/project/param/count`,
+`/project/page/<p>/name`, `/project/page/count`, `/project/page/selected`; commands
+`project param/<i>/value|touch|indicate` (with `/inc`, `/reset`) and `project parameterPage <page>`. Before,
+the core used a bank on the master FX (Reaper), whose `master param/…` commands the extension did not
+handle. The extension creates them if the model setup has `numParams` > 0.
+
 **Tempo steps.** The slow tempo change (`tempo +`/`-`) is 0.01 BPM as `TransportImpl.changeTempo`
 (Reaper: 0.1), the normal one 1 BPM.
 
@@ -155,7 +324,7 @@ back to them. Found by the conformance runner 2026-10-30 (Launch Control XL knob
 
 Logged as `Not handled yet: …` in the controller's script console and Bitwig's log.
 
-- `metro_vol`, `inifile` (pre-roll measures), `groove`, `cursor`,
+- `inifile` (pre-roll measures), `cursor`,
   user-configured Reaper actions (`action` with a string).
 
 ## 8. Known issues

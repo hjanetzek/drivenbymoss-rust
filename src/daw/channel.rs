@@ -20,6 +20,9 @@ use super::util;
 
 const GRAY: ColorEx = ColorEx::new(0.2, 0.2, 0.2);
 
+/// The clip border of the VU meters of Bitwig (ChannelImpl.CLIP_BORDER = 16241 of 16384).
+const VU_CLIP_BORDER: f64 = 16241.0 / 16384.0;
+
 /// The kind of a channel which defines how commands are addressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChannelKind {
@@ -261,7 +264,12 @@ impl Channel {
         self.volume.set_value(value);
     }
 
+    /// ChannelImpl.resetVolume: the volume parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_volume(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.volume.reset_value();
+            return;
+        }
         let value = (0.716 * self.ctx.value_changer().upper_bound() as f64) as i32;
         self.set_volume(value);
     }
@@ -270,7 +278,10 @@ impl Channel {
         self.volume.touch_value(is_being_touched);
     }
 
-    pub fn set_volume_indication(&mut self, _indicate: bool) {}
+    /// ChannelImpl.setVolumeIndication: the volume parameter's `setIndication` (Bitwig).
+    pub fn set_volume_indication(&mut self, indicate: bool) {
+        self.volume.set_indication(indicate);
+    }
 
     pub fn pan_parameter(&self) -> &Parameter {
         &self.pan
@@ -312,7 +323,12 @@ impl Channel {
         self.pan.set_value(value);
     }
 
+    /// ChannelImpl.resetPan: the panorama parameter's reset (Bitwig: `parameter.reset ()`).
     pub fn reset_pan(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.pan.reset_value();
+            return;
+        }
         let value = self.ctx.value_changer().upper_bound() / 2;
         self.set_pan(value);
     }
@@ -321,7 +337,10 @@ impl Channel {
         self.pan.touch_value(is_being_touched);
     }
 
-    pub fn set_pan_indication(&mut self, _indicate: bool) {}
+    /// ChannelImpl.setPanIndication: the panorama parameter's `setIndication` (Bitwig).
+    pub fn set_pan_indication(&mut self, indicate: bool) {
+        self.pan.set_indication(indicate);
+    }
 
     // ----------------------------------------------------------------------------------------
     // Color
@@ -368,7 +387,13 @@ impl Channel {
         self.send_bool("solo", value);
     }
 
+    /// ChannelImpl.toggleSolo: `solo ().toggleUsingPreferences (false)` on Bitwig (exclusive
+    /// solo as set in Bitwig's preferences): `solo/toggle`.
     pub fn toggle_solo(&mut self) {
+        if self.ctx.is_host_paging() {
+            self.send_cmd("solo/toggle");
+            return;
+        }
         self.set_solo(!self.is_solo());
     }
 
@@ -419,19 +444,28 @@ impl Channel {
         self.vu_left_clip_state() || self.vu_right_clip_state()
     }
 
+    /// ChannelImpl.getVuLeftClipState: `vuLeft >= CLIP_BORDER` (16241 of 16384) on Bitwig;
+    /// Reaper: the hold value above 0 dB.
     pub fn vu_left_clip_state(&self) -> bool {
+        if self.ctx.is_host_paging() {
+            return self.vu_left >= VU_CLIP_BORDER;
+        }
         self.vu_hold_db_left > 0.0
     }
 
     pub fn vu_right_clip_state(&self) -> bool {
+        if self.ctx.is_host_paging() {
+            return self.vu_right >= VU_CLIP_BORDER;
+        }
         self.vu_hold_db_right > 0.0
     }
 
     // ----------------------------------------------------------------------------------------
     // Other commands
 
+    /// ChannelImpl.setIsActivated: `isActivated ().set (value)`, also for the master on Bitwig.
     pub fn set_is_activated(&mut self, enable: bool) {
-        if self.kind == ChannelKind::Master {
+        if self.kind == ChannelKind::Master && !self.ctx.is_host_paging() {
             return;
         }
         self.is_activated = enable;

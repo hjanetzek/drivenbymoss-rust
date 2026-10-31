@@ -39,6 +39,8 @@ const PUNCH_LOOP: i32 = 2;
 
 const DEFAULT_TEMPO: f64 = 120.0;
 const DEFAULT_METRONOME_VOLUME: f64 = 0.592449;
+/// The default of the metronome volume on Bitwig (MetronomeVolumeParameterImpl.resetValue).
+const HOST_DEFAULT_METRONOME_VOLUME: f64 = 0.8;
 
 /// Format like Java's `DecimalFormat("#.00")`.
 pub fn format_tempo(tempo: f64) -> String {
@@ -147,21 +149,41 @@ impl MetronomeVolumeParameter {
         self.set_normalized_value(v);
     }
 
+    /// Bitwig: `metronomeVolume ().set (value, upperBound)` (`transport metronomeVolume`).
     pub fn set_normalized_value(&mut self, value: f64) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_double(Processor::Transport, "metronomeVolume", value);
+            return;
+        }
         self.volume = value;
         self.ctx.send_int(Processor::MetroVol, "", (self.volume * 127.0).round() as i32);
     }
 
+    /// Bitwig: RangedValueImpl.changeValue, `inc (calcKnobChange (control))`.
     pub fn change_value(&mut self, control: i32) {
+        if self.ctx.is_host_paging() {
+            let change = self.ctx.value_changer().calc_knob_change(control);
+            self.inc(change);
+            return;
+        }
         let value = self.ctx.value_changer().change_value(control, self.value());
         self.set_value(value);
     }
 
+    /// MetronomeVolumeParameterImpl.resetValue: 0.8 on Bitwig.
     pub fn reset_value(&mut self) {
-        self.set_normalized_value(DEFAULT_METRONOME_VOLUME);
+        let default = if self.ctx.is_host_paging() { HOST_DEFAULT_METRONOME_VOLUME } else { DEFAULT_METRONOME_VOLUME };
+        self.set_normalized_value(default);
     }
 
+    /// Bitwig: RangedValueImpl.inc, `metronomeVolume ().inc (increment, upperBound)`
+    /// (`transport metronomeVolume/inc <normalized delta>`).
     pub fn inc(&mut self, increment: f64) {
+        if self.ctx.is_host_paging() {
+            let upper = self.ctx.value_changer().upper_bound() as f64;
+            self.ctx.send_double(Processor::Transport, "metronomeVolume/inc", increment / upper);
+            return;
+        }
         self.ctx.send(Processor::MetroVol, if increment > 0.0 { "+" } else { "-" });
     }
 
@@ -208,7 +230,18 @@ pub struct Transport {
     /// The overdub switches of the host (Bitwig: arranger and clip launcher), `None` if the host
     /// has none (Reaper: the record mode of the selected track).
     host_overdub: Option<HostAutomation>,
+    /// The switches which only the host has (Bitwig), `None` if it does not report them.
+    host_switches: Option<HostSwitches>,
     visible_pixels_per_second: f64,
+}
+
+/// The transport switches reported by Bitwig (TransportImpl of the Java version for Bitwig).
+#[derive(Debug, Clone, Copy, Default)]
+struct HostSwitches {
+    punch_in: bool,
+    punch_out: bool,
+    fill: bool,
+    metronome_ticks: bool,
 }
 
 /// The automation write switches of Bitwig (former `TransportImpl` of the Java version).
@@ -251,6 +284,7 @@ impl Transport {
             automation_mode: AutomationMode::TrimRead,
             host_automation: None,
             host_overdub: None,
+            host_switches: None,
             visible_pixels_per_second: 0.0,
         }
     }
@@ -262,7 +296,21 @@ impl Transport {
     // ----------------------------------------------------------------------------------------
     // Play / record
 
+    /// With host paging (Bitwig) the commands of TransportImpl for Bitwig: `transport.play ()`,
+    /// `stop ()`, `restart ()`, and stop and rewind (`stop ()`, `setPosition (0)` 100 ms later);
+    /// record is not touched. Returns false without host paging.
+    fn send_host(&self, command: &str) -> bool {
+        if !self.ctx.is_host_paging() {
+            return false;
+        }
+        self.ctx.send(Processor::Transport, command);
+        true
+    }
+
     pub fn play(&mut self) {
+        if self.send_host("play") {
+            return;
+        }
         if self.is_playing && self.is_recording {
             self.ctx.send(Processor::Record, "");
         }
@@ -274,6 +322,9 @@ impl Transport {
     }
 
     pub fn restart(&mut self) {
+        if self.send_host("restart") {
+            return;
+        }
         if self.is_playing {
             self.stop();
         }
@@ -281,6 +332,9 @@ impl Transport {
     }
 
     pub fn stop(&mut self) {
+        if self.send_host("stop") {
+            return;
+        }
         if self.is_playing && self.is_recording {
             self.ctx.send(Processor::Record, "");
         }
@@ -288,6 +342,9 @@ impl Transport {
     }
 
     pub fn stop_and_rewind(&mut self) {
+        if self.send_host("stopAndRewind") {
+            return;
+        }
         self.stop();
         self.ctx.send_int(Processor::Time, "", 0);
     }
@@ -315,13 +372,21 @@ impl Transport {
         self.ctx.send(Processor::Transport, "toggleMetronome");
     }
 
+    /// TransportImpl.isMetronomeTicksOn: `isMetronomeTickPlaybackEnabled ()` (Bitwig), false
+    /// on Reaper.
     pub fn is_metronome_ticks_on(&self) -> bool {
-        false
+        self.host_switches.is_some_and(|s| s.metronome_ticks)
     }
 
-    pub fn toggle_metronome_ticks(&mut self) {}
+    pub fn toggle_metronome_ticks(&mut self) {
+        self.send_host("toggleMetronomeTicks");
+    }
 
-    pub fn set_metronome_ticks(&mut self, _on: bool) {}
+    pub fn set_metronome_ticks(&mut self, on: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Transport, "metronomeTicks", on);
+        }
+    }
 
     pub fn metronome_volume_parameter(&self) -> &MetronomeVolumeParameter {
         &self.metronome_volume
@@ -336,6 +401,11 @@ impl Transport {
     }
 
     pub fn change_metronome_volume(&mut self, control: i32) {
+        if self.ctx.is_host_paging() {
+            // TransportImpl.changeMetronomeVolume: inc (calcKnobChange (control), upperBound)
+            self.metronome_volume.change_value(control);
+            return;
+        }
         let inc = if self.ctx.value_changer().is_increase(control) { 1.0 } else { -1.0 };
         self.metronome_volume.inc(inc);
     }
@@ -639,32 +709,64 @@ impl Transport {
     // ----------------------------------------------------------------------------------------
     // Punch
 
+    // Bitwig (TransportImpl): punch in and out are independent switches of the host
+    // (`isPunchInEnabled ()`, `isPunchOutEnabled ()`); Reaper: one punch mode, in and out exclude
+    // each other.
+
     pub fn toggle_punch_in(&mut self) {
+        if self.send_host("togglePunchIn") {
+            return;
+        }
         let v = !self.is_punch_in_enabled();
         self.set_punch_in(v);
     }
 
     pub fn set_punch_in(&mut self, enable: bool) {
         self.ctx.send_bool(Processor::Transport, "punchIn", enable);
-        self.punch_mode = if enable { PUNCH_LOOP } else { PUNCH_OFF };
+        if !self.ctx.is_host_paging() {
+            self.punch_mode = if enable { PUNCH_LOOP } else { PUNCH_OFF };
+        }
     }
 
     pub fn is_punch_in_enabled(&self) -> bool {
-        self.punch_mode != PUNCH_OFF
+        match self.host_switches {
+            Some(s) => s.punch_in,
+            None => self.punch_mode != PUNCH_OFF,
+        }
     }
 
     pub fn toggle_punch_out(&mut self) {
+        if self.send_host("togglePunchOut") {
+            return;
+        }
         let v = !self.is_punch_out_enabled();
         self.set_punch_out(v);
     }
 
     pub fn set_punch_out(&mut self, enable: bool) {
         self.ctx.send_bool(Processor::Transport, "punchOut", enable);
-        self.punch_mode = if enable { PUNCH_ITEMS } else { PUNCH_OFF };
+        if !self.ctx.is_host_paging() {
+            self.punch_mode = if enable { PUNCH_ITEMS } else { PUNCH_OFF };
+        }
     }
 
     pub fn is_punch_out_enabled(&self) -> bool {
-        self.punch_mode != PUNCH_OFF
+        match self.host_switches {
+            Some(s) => s.punch_out,
+            None => self.punch_mode != PUNCH_OFF,
+        }
+    }
+
+    /// The host reported a transport switch (Bitwig): "punchIn", "punchOut", "fill", "ticks".
+    pub fn set_host_switch_state(&mut self, name: &str, on: bool) {
+        let switches = self.host_switches.get_or_insert_with(HostSwitches::default);
+        match name {
+            "punchIn" => switches.punch_in = on,
+            "punchOut" => switches.punch_out = on,
+            "fill" => switches.fill = on,
+            "ticks" => switches.metronome_ticks = on,
+            _ => {}
+        }
     }
 
     // ----------------------------------------------------------------------------------------
@@ -767,13 +869,20 @@ impl Transport {
 
     pub fn next_launch_quantization(&mut self) {}
 
+    /// TransportImpl.isFillModeActive: `isFillModeActive ()` (Bitwig), false on Reaper.
     pub fn is_fill_mode_active(&self) -> bool {
-        false
+        self.host_switches.is_some_and(|s| s.fill)
     }
 
-    pub fn set_fill_mode_active(&mut self, _active: bool) {}
+    pub fn set_fill_mode_active(&mut self, active: bool) {
+        if self.ctx.is_host_paging() {
+            self.ctx.send_bool(Processor::Transport, "fill", active);
+        }
+    }
 
-    pub fn toggle_fill_mode_active(&mut self) {}
+    pub fn toggle_fill_mode_active(&mut self) {
+        self.send_host("toggleFill");
+    }
 
     // ----------------------------------------------------------------------------------------
     // Internal setters (parser)

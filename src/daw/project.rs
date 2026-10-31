@@ -10,6 +10,7 @@ use crate::backend::Processor;
 
 use super::context::DawContext;
 use super::events::ParameterBankId;
+use super::parameter::{Parameter, ParameterKind};
 use super::parameter_bank::ParameterBank;
 
 /// The project.
@@ -18,13 +19,20 @@ pub struct Project {
     name: String,
     is_dirty: bool,
     parameter_bank: Option<ParameterBank>,
+    /// ProjectImpl (Bitwig): `ParameterImpl` on `project.cueVolume ()` and `cueMix ()`; they exist
+    /// once the host reports them.
+    cue_volume: Parameter,
+    cue_mix: Parameter,
+    num_params: usize,
 }
 
 impl Project {
     pub fn new(ctx: DawContext, num_params: usize) -> Self {
         let parameter_bank =
             if num_params > 0 { Some(ParameterBank::new(ctx.clone(), ParameterBankId::Project, Processor::Master, num_params, false)) } else { None };
-        Project { ctx, name: "None".into(), is_dirty: false, parameter_bank }
+        let cue_volume = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueVolume"), 0, 0.0);
+        let cue_mix = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueMix"), 0, 0.0);
+        Project { ctx, name: "None".into(), is_dirty: false, parameter_bank, cue_volume, cue_mix, num_params }
     }
 
     pub fn enable_observers(&self, enable: bool) {
@@ -81,39 +89,110 @@ impl Project {
         self.parameter_bank.as_mut()
     }
 
-    // Cue volume and mix are not supported in Reaper
+    /// The project's remote controls of the host, for the parser (Bitwig: ProjectImpl,
+    /// `rootTrackGroup.createCursorRemoteControlsPage`, reported as `/project/param/…` and
+    /// `/project/page/…`). The first report replaces the bank on the master FX (Reaper) with one
+    /// whose commands go to the project (`project param/<i>/value`, `project parameterPage`).
+    pub fn host_parameter_bank_mut(&mut self) -> Option<&mut ParameterBank> {
+        if self.num_params == 0 {
+            return None;
+        }
+        if self.parameter_bank.as_ref().is_none_or(|b| b.processor() != Processor::Project) {
+            self.parameter_bank = Some(ParameterBank::new(self.ctx.clone(), ParameterBankId::Project, Processor::Project, self.num_params, false));
+        }
+        self.parameter_bank.as_mut()
+    }
 
-    pub fn cue_volume_str(&self) -> &str {
-        ""
+    // Cue volume and mix (ProjectImpl of the Java version for Bitwig); Reaper has none, they do
+    // not exist there (nothing is sent)
+
+    /// The cue volume parameter (exists if the host reports it).
+    pub fn cue_volume_parameter(&self) -> &Parameter {
+        &self.cue_volume
+    }
+
+    pub fn cue_volume_parameter_mut(&mut self) -> &mut Parameter {
+        &mut self.cue_volume
+    }
+
+    pub fn cue_volume_str(&self) -> String {
+        self.cue_volume.displayed_value()
+    }
+
+    /// The cue volume text shortened by the host (ProjectImpl.getCueVolumeStr (limit)).
+    pub fn cue_volume_str_limited(&self, limit: usize) -> String {
+        self.cue_volume.displayed_value_limited(limit)
     }
 
     pub fn cue_volume(&self) -> i32 {
-        0
+        self.cue_volume.value()
     }
 
-    pub fn change_cue_volume(&mut self, _control: i32) {}
+    pub fn change_cue_volume(&mut self, control: i32) {
+        if self.cue_volume.does_exist() {
+            self.cue_volume.change_value(control);
+        }
+    }
 
-    pub fn set_cue_volume(&mut self, _value: i32) {}
+    pub fn set_cue_volume(&mut self, value: i32) {
+        self.cue_volume.set_value(value);
+    }
 
-    pub fn reset_cue_volume(&mut self) {}
+    pub fn reset_cue_volume(&mut self) {
+        if self.cue_volume.does_exist() {
+            self.cue_volume.reset_value();
+        }
+    }
 
-    pub fn touch_cue_volume(&mut self, _touched: bool) {}
+    pub fn touch_cue_volume(&mut self, touched: bool) {
+        if self.cue_volume.does_exist() {
+            self.cue_volume.touch_value(touched);
+        }
+    }
 
-    pub fn cue_mix_str(&self) -> &str {
-        ""
+    /// The cue mix parameter (exists if the host reports it).
+    pub fn cue_mix_parameter(&self) -> &Parameter {
+        &self.cue_mix
+    }
+
+    pub fn cue_mix_parameter_mut(&mut self) -> &mut Parameter {
+        &mut self.cue_mix
+    }
+
+    pub fn cue_mix_str(&self) -> String {
+        self.cue_mix.displayed_value()
+    }
+
+    /// The cue mix text shortened by the host (ProjectImpl.getCueMixStr (limit)).
+    pub fn cue_mix_str_limited(&self, limit: usize) -> String {
+        self.cue_mix.displayed_value_limited(limit)
     }
 
     pub fn cue_mix(&self) -> i32 {
-        0
+        self.cue_mix.value()
     }
 
-    pub fn change_cue_mix(&mut self, _control: i32) {}
+    pub fn change_cue_mix(&mut self, control: i32) {
+        if self.cue_mix.does_exist() {
+            self.cue_mix.change_value(control);
+        }
+    }
 
-    pub fn set_cue_mix(&mut self, _value: i32) {}
+    pub fn set_cue_mix(&mut self, value: i32) {
+        self.cue_mix.set_value(value);
+    }
 
-    pub fn reset_cue_mix(&mut self) {}
+    pub fn reset_cue_mix(&mut self) {
+        if self.cue_mix.does_exist() {
+            self.cue_mix.reset_value();
+        }
+    }
 
-    pub fn touch_cue_mix(&mut self, _touched: bool) {}
+    pub fn touch_cue_mix(&mut self, touched: bool) {
+        if self.cue_mix.does_exist() {
+            self.cue_mix.touch_value(touched);
+        }
+    }
 
     // Internal setters
 

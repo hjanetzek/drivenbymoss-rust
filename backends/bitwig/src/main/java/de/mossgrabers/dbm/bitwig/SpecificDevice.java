@@ -165,7 +165,7 @@ final class SpecificDevice
     {
         reporter.put (itemPrefix + "exists", exists);
         reporter.put (itemPrefix + "select", selected);
-        reporter.put (itemPrefix + "active", channel.isActivated ().get ());
+        // "active" with the channel values
         BitwigModel.collectChannel (reporter, itemPrefix, channel);
     }
 }

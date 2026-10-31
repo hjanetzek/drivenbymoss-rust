@@ -38,16 +38,20 @@ pub struct Track {
     is_overdub: bool,
     parameter_bank: Option<ParameterBank>,
     crossfader: Option<Parameter>,
+    /// `canHoldNoteData ()` / `canHoldAudioData ()` reported by the host (Bitwig).
+    host_can_hold_notes: Option<bool>,
+    host_can_hold_audio: Option<bool>,
 }
 
 impl Track {
     /// Create a track at the given position.
     pub fn new(ctx: DawContext, index: i32, position: i32, num_sends: usize, num_scenes: usize, num_params: usize) -> Self {
         let channel = Channel::new(ctx.clone(), ChannelKind::Track, index, position, num_sends);
-        Self::with_channel(ctx, channel, index, num_scenes, num_params)
+        Self::with_channel(ctx, channel, num_scenes, num_params)
     }
 
-    fn with_channel(ctx: DawContext, channel: Channel, index: i32, num_scenes: usize, num_params: usize) -> Self {
+    fn with_channel(ctx: DawContext, channel: Channel, num_scenes: usize, num_params: usize) -> Self {
+        let position = channel.position;
         Track {
             channel,
             is_group_expanded: true,
@@ -55,7 +59,7 @@ impl Track {
             is_rec_arm: false,
             monitor: false,
             auto_monitor: false,
-            slot_bank: SlotBank::new(ctx.clone(), num_scenes, index),
+            slot_bank: SlotBank::new(ctx.clone(), num_scenes, position),
             depth: 0,
             record_quantization_note_length: false,
             record_quantization: RecordQuantization::ResOff,
@@ -66,13 +70,15 @@ impl Track {
                 None
             },
             crossfader: None,
+            host_can_hold_notes: None,
+            host_can_hold_audio: None,
         }
     }
 
     /// Create the master track.
     pub fn new_master(ctx: DawContext, num_sends: usize, num_params: usize) -> Self {
         let channel = Channel::new(ctx.clone(), ChannelKind::Master, 0, 0, num_sends);
-        let mut track = Self::with_channel(ctx.clone(), channel, 0, 0, num_params);
+        let mut track = Self::with_channel(ctx.clone(), channel, 0, num_params);
         track.crossfader = Some(Parameter::new(ctx, ParameterKind::MasterCrossfader, 0, 0.0));
         track.channel.set_exists(true);
         track.channel.set_internal_name("Master");
@@ -83,7 +89,7 @@ impl Track {
     /// Create a placeholder for a non-existing track.
     pub fn empty(ctx: &DawContext, num_sends: usize) -> Self {
         let channel = Channel::empty(ctx, num_sends);
-        Self::with_channel(ctx.muted(), channel, -1, 0, 0)
+        Self::with_channel(ctx.muted(), channel, 0, 0)
     }
 
     pub fn channel(&self) -> &Channel {
@@ -230,12 +236,14 @@ impl Track {
 
     /// All Reaper tracks can hold notes (false for empty tracks).
     pub fn can_hold_notes(&self) -> bool {
-        self.channel.kind != ChannelKind::Empty
+        // TrackImpl.canHoldNotes: track.canHoldNoteData () (Bitwig)
+        self.channel.kind != ChannelKind::Empty && self.host_can_hold_notes.unwrap_or(true)
     }
 
     /// All Reaper tracks can hold audio (false for empty tracks).
     pub fn can_hold_audio_data(&self) -> bool {
-        self.channel.kind != ChannelKind::Empty
+        // TrackImpl.canHoldAudioData: track.canHoldAudioData () (Bitwig)
+        self.channel.kind != ChannelKind::Empty && self.host_can_hold_audio.unwrap_or(true)
     }
 
     /// Not supported.
@@ -258,32 +266,54 @@ impl Track {
         self.is_stopped = is_stopped;
     }
 
+    /// TrackImpl.isRecordQuantizationNoteLength: the global setting of the application on
+    /// Bitwig (`recordQuantizeNoteLength ()`), per track on Reaper.
     pub fn is_record_quantization_note_length(&self) -> bool {
-        self.record_quantization_note_length
+        match self.channel.ctx.host_record_quantization() {
+            Some((note_length, _)) => note_length,
+            None => self.record_quantization_note_length,
+        }
     }
 
-    /// Not supported.
-    pub fn toggle_record_quantization_note_length(&mut self) {}
+    /// TrackImpl.toggleRecordQuantizationNoteLength: `recordQuantizeNoteLength ().toggle ()` on
+    /// Bitwig; not supported by Reaper.
+    pub fn toggle_record_quantization_note_length(&mut self) {
+        if self.channel.ctx.host_record_quantization().is_some() {
+            self.channel.ctx.send(Processor::Application, "recordQuantization/noteLength/toggle");
+        }
+    }
 
+    /// TrackImpl.getRecordQuantizationGrid: the global grid of the application on Bitwig.
     pub fn record_quantization_grid(&self) -> RecordQuantization {
-        self.record_quantization
+        match self.channel.ctx.host_record_quantization() {
+            Some((_, grid)) => grid,
+            None => self.record_quantization,
+        }
     }
 
+    /// TrackImpl.setRecordQuantizationGrid: `recordQuantizationGrid ().set (value)` on Bitwig
+    /// (`application recordQuantization <OFF|1/32|1/16|1/8|1/4>`).
     pub fn set_record_quantization_grid(&mut self, rq: RecordQuantization) {
+        if self.channel.ctx.host_record_quantization().is_some() {
+            self.channel.ctx.send_str(Processor::Application, "recordQuantization", rq.value());
+            return;
+        }
         self.record_quantization = rq;
         self.channel.send_double("inQuantResolution", rq.beats());
     }
 
     pub fn previous_record_quantization(&mut self) {
         let all = RecordQuantization::ALL;
-        let pos = all.iter().position(|r| *r == self.record_quantization).unwrap_or(0);
+        let current = self.record_quantization_grid();
+        let pos = all.iter().position(|r| *r == current).unwrap_or(0);
         let pos = if pos == 0 { all.len() - 1 } else { pos - 1 };
         self.set_record_quantization_grid(all[pos]);
     }
 
     pub fn next_record_quantization(&mut self) {
         let all = RecordQuantization::ALL;
-        let pos = all.iter().position(|r| *r == self.record_quantization).unwrap_or(0) + 1;
+        let current = self.record_quantization_grid();
+        let pos = all.iter().position(|r| *r == current).unwrap_or(0) + 1;
         self.set_record_quantization_grid(all[if pos >= all.len() { 0 } else { pos }]);
     }
 
@@ -353,7 +383,15 @@ impl Track {
 
     pub fn set_rec_arm_state(&mut self, is_rec_arm: bool) {
         self.is_rec_arm = is_rec_arm;
-        self.slot_bank.set_track_info(self.channel.index, self.is_rec_arm);
+        self.slot_bank.set_track_info(self.channel.position, self.is_rec_arm);
+    }
+
+    pub fn set_can_hold_notes_state(&mut self, value: bool) {
+        self.host_can_hold_notes = Some(value);
+    }
+
+    pub fn set_can_hold_audio_state(&mut self, value: bool) {
+        self.host_can_hold_audio = Some(value);
     }
 
     pub fn set_monitor_state(&mut self, monitor: bool) {
@@ -392,7 +430,8 @@ impl Track {
 
     pub(crate) fn set_index(&mut self, index: i32) {
         self.channel.set_index(index);
-        self.slot_bank.set_track_info(index, self.is_rec_arm);
+        // SlotImpl: the slot commands address the track by its position, as the channel commands
+        self.slot_bank.set_track_info(self.channel.position, self.is_rec_arm);
     }
 
     pub(crate) fn set_master_position(&mut self, position: i32) {
