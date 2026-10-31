@@ -289,3 +289,44 @@ fn slow_fader_change_increments_the_volume() {
     let new_volume = ctx(&mut app).model.current_track_bank().item(0).volume();
     assert_eq!(new_volume, volume + 2);
 }
+
+/// The notes which the core sent to the note input of the DAW (note on, with velocity 0 a note
+/// off).
+fn notes(calls: &[BackendCall]) -> Vec<(i32, i32)> {
+    calls
+        .iter()
+        .filter_map(|c| match c {
+            BackendCall::Midi(_, 0x90, note, velocity) => Some((*note, *velocity)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn chords_sharing_notes_keep_them_until_both_are_released() {
+    let (mut app, backend) = start();
+    cc(&mut app, jam::PAD_MODE as u8, 127);
+    press(&mut app, jam::SCENE1 as u8 + 1);
+    cc(&mut app, jam::PAD_MODE as u8, 0);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Chords));
+    backend.take_calls();
+
+    // The triads of the 1st and 3rd pad of the lowest row: C (E G added) and E (G B added)
+    app.on_midi_event(IN, &[0x90, 36, 100]);
+    app.on_midi_event(IN, &[0x90, 38, 90]);
+    assert_eq!(notes(&backend.take_calls()), vec![(40, 100), (43, 100), (47, 90)]);
+    // Releasing C keeps E (the root of the E triad) and G
+    app.on_midi_event(IN, &[0x90, 36, 0]);
+    assert_eq!(notes(&backend.take_calls()), vec![]);
+    app.on_midi_event(IN, &[0x90, 38, 0]);
+    assert_eq!(notes(&backend.take_calls()), vec![(43, 0), (47, 0)]);
+
+    // The other order: the note input ends E with the E triad, it is played again for C
+    app.on_midi_event(IN, &[0x90, 38, 90]);
+    app.on_midi_event(IN, &[0x90, 36, 100]);
+    backend.take_calls();
+    app.on_midi_event(IN, &[0x90, 38, 0]);
+    assert_eq!(notes(&backend.take_calls()), vec![(47, 0), (40, 100)]);
+    app.on_midi_event(IN, &[0x90, 36, 0]);
+    assert_eq!(notes(&backend.take_calls()), vec![(40, 0), (43, 0)]);
+}

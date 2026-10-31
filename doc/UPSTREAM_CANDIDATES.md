@@ -316,6 +316,29 @@ Notes:
 - **Ready:** after dbm-nihost is public. The PR should link it, and the manual needs a matching
   PR in DrivenByMoss-Documentation.
 
+#### K. Chords which share notes: releasing one ends the shared notes
+
+- **Where:** `src/main/java/de/mossgrabers/framework/view/AbstractChordView.java` (`onGridNote`,
+  the JAM, Launchpad and Push chord views) and
+  `src/main/java/de/mossgrabers/controller/ni/maschine/mk3/view/PlayView.java` (`onGridNote`, the
+  chord mode of the Maschine Mk2/Mk3).
+- **What is wrong:** the root of a chord is played by the note input of the pad. The added
+  notes are sent with `sendRawMidiEvent`, and on the release each gets a note off. Nothing
+  checks whether another held pad still plays the same note. So releasing chord A ends the notes
+  it shares with the held chord B.
+- **Reproduce:** Maschine JAM, Chords mode, C major. Hold the 1st pad of the lowest row (C E G),
+  hold the 3rd pad (E G B), release the 1st: E and G stop, though the E triad is still held. The
+  same in the chord mode of the Mk2 (PAD MODE). Reproduced by the user with the Java version
+  on Bitwig (2026-10-31).
+- **Fix:** keep the chords of the held pads. Send the note on of an added note only if no held
+  chord plays it, and its note off only when no held chord plays it any more. The note input
+  ends the root of a released chord in any case: if another held chord contains it, send its
+  note on again. The Rust port does this in `HeldChords` (`rust/src/framework/view/play_view.rs`),
+  test `chords_sharing_notes_keep_them_until_both_are_released` in
+  `rust/tests/maschine_jam_setup.rs`.
+- **Confidence:** high, a bug.
+- **Ready:** yes; the same fix in the Rust port works on the JAM and Mk2 (2026-10-31).
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |
@@ -358,6 +381,7 @@ not contain test scaffolding.
 | 6. Bitwig: note step velocity spread (and gain) | D, E if confirmed | D ready; E after the check |
 | 7. Push clip mode: channel of the next/previous note | F | after a Push check |
 | 8. Maschine Mk2/JAM on Linux with dbm-nihost | J | after Part 2 |
+| 9. Chords which share notes: keep them until all are released | K | ready (the Rust fix checked on the JAM and Mk2) |
 
 ## Part 2: dbm-nihost as its own repository
 
@@ -536,6 +560,7 @@ Options:
 | H | XL EQ+ not added on activation | `XLEqMode.java:155` | bug | high | ready |
 | I | XL exception for an empty step | `XLNoteSequencerMode.java:70, 92` | bug | high | ready (d66bb744) |
 | J | Maschine Mk2/JAM refuse Linux | `MaschineControllerSetup.java:180`, `MaschineJamControllerSetup.java:150` | intended restriction | high | after dbm-nihost (219204b8) |
+| K | releasing a chord ends the notes shared with a held chord | `AbstractChordView.java`, Maschine `PlayView.java` | bug | high | ready |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |

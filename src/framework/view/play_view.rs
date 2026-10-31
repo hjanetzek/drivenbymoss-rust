@@ -230,16 +230,100 @@ const CHORD_INTERVALS: [&[i32]; 8] = [
     &[3, 5, 11], // Add eleventh (11)
 ];
 
+/// The chords of the held pads, so that a note which two held chords share sounds until both are
+/// released. Java sends the note off of every chord note on a release (a bug of the Java
+/// version, BITWIG_DIVERGENCES.md §8). The root of a chord is played by the note input of the
+/// pad, its note off cannot be held back: if another held chord still contains it, it is sent
+/// on again.
+#[derive(Default)]
+pub struct HeldChords {
+    held: Vec<HeldChord>,
+}
+
+/// The chord of a held pad.
+struct HeldChord {
+    key: i32,
+    root: i32,
+    /// The added notes, sent by the core.
+    notes: Vec<i32>,
+    velocity: i32,
+}
+
+impl HeldChord {
+    fn contains(&self, note: i32) -> bool {
+        self.root == note || self.notes.contains(&note)
+    }
+}
+
+impl HeldChords {
+    /// Forget all held chords (when the view is activated: the releases of a previous use went to
+    /// another view).
+    pub fn clear(&mut self) {
+        self.held.clear();
+    }
+
+    /// True if the pad with the key holds a chord.
+    pub fn is_held(&self, key: i32) -> bool {
+        self.held.iter().any(|chord| chord.key == key)
+    }
+
+    /// The velocity of the first held chord which contains the note.
+    fn sounding(&self, note: i32) -> Option<i32> {
+        self.held.iter().find(|chord| chord.contains(note)).map(|chord| chord.velocity)
+    }
+
+    /// A pad of a chord was pressed (`velocity` > 0) or released: send the note on or off of the
+    /// added notes of `chord` (with `root` played by the note input of the pad).
+    pub fn play(&mut self, ctx: &mut Ctx, key: i32, root: i32, chord: &[i32], channel: i32, velocity: i32) {
+        let notes: Vec<i32> = chord.iter().copied().filter(|note| (0..128).contains(note)).collect();
+        if velocity > 0 {
+            for &note in &notes {
+                if self.sounding(note).is_none() {
+                    ctx.surface.input.send_raw_midi_event(CMD_NOTE_ON + channel, note, velocity);
+                }
+            }
+            self.held.retain(|chord| chord.key != key);
+            self.held.push(HeldChord { key, root, notes, velocity });
+            return;
+        }
+
+        let Some(index) = self.held.iter().position(|chord| chord.key == key) else {
+            // Not pressed in this view: release as the Java version
+            for &note in &notes {
+                ctx.surface.input.send_raw_midi_event(CMD_NOTE_ON + channel, note, 0);
+            }
+            return;
+        };
+        let released = self.held.remove(index);
+        for &note in &released.notes {
+            if self.sounding(note).is_none() {
+                ctx.surface.input.send_raw_midi_event(CMD_NOTE_ON + channel, note, 0);
+            }
+        }
+        // The note input has ended the root, play it again for the other chord
+        if let Some(velocity) = self.sounding(released.root) {
+            ctx.surface.input.send_raw_midi_event(CMD_NOTE_ON + channel, released.root, velocity);
+        }
+    }
+}
+
 /// Abstract implementation for a chord grid (former `AbstractChordView`). Each row of the grid
 /// plays a different chord type on the note of the pad.
 pub struct ChordViewBase {
     pub play: PlayViewBase,
     current_chord: Vec<i32>,
+    held_chords: HeldChords,
 }
 
 impl ChordViewBase {
     pub fn new(name: &str, use_track_color: bool) -> Self {
-        ChordViewBase { play: PlayViewBase::new(name, use_track_color), current_chord: Vec::new() }
+        ChordViewBase { play: PlayViewBase::new(name, use_track_color), current_chord: Vec::new(), held_chords: HeldChords::default() }
+    }
+
+    /// Activate the view: the note mapping, the held chords are forgotten.
+    pub fn on_activate(&mut self, ctx: &mut Ctx, scale_matrix: NoteMatrix) {
+        self.held_chords.clear();
+        self.play.on_activate(ctx, scale_matrix);
     }
 
     /// The scale matrix of the chord view (former `getScaleMatrix`).
@@ -274,11 +358,7 @@ impl ChordViewBase {
         if velocity > 0 {
             vel = if ctx.config.is_accent_active() { ctx.config.fixed_accent_value() } else { velocity };
         }
-        for &element in &chord {
-            if (0..128).contains(&element) {
-                ctx.surface.input.send_raw_midi_event(CMD_NOTE_ON + channel, element, vel);
-            }
-        }
+        self.held_chords.play(ctx, key, note, &chord, channel, vel);
 
         self.current_chord.clear();
         if velocity > 0 {

@@ -425,6 +425,13 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   "Mute/Solo/Rec Arm buttons are off: Press to toggle the mute state of the note of the step").
   The Rust port registers separate fader modes and follows the manual. Found by the conformance
   runner 2026-10-30 (`tests/conformance/launchcontrol_xl/note_sequencer.toml`).
+- **Chords which share notes (Java bug):** the chord views (`AbstractChordView`) and the chord
+  mode of the Maschine play view send a note off for every note of a released chord, also for
+  notes which another held chord still plays. The Rust port keeps the chords of the held pads
+  (`HeldChords`, `framework/view/play_view.rs`): an added note is only sent off when no held
+  chord plays it. The root comes from the note input of the pad, which always ends it. If
+  another held chord contains it, it is sent on again. Found by the user on the JAM and Mk2, in
+  both versions (2026-10-31). Upstream candidate K (UPSTREAM_CANDIDATES.md).
 - **Master track twice (fixed 2026-10-30):** the extension always created Bitwig's full track
   bank (with effect tracks and the master) and the core added its own master for a full flat
   track list, so the master appeared twice (Maschine Mk2/JAM, the 8th track of the Launch Control

@@ -24,11 +24,11 @@ use crate::framework::commands::aftertouch::AftertouchViewCommand;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::View;
 use crate::framework::ids::{ButtonId, Modes};
-use crate::framework::view::play_view::{play_scale_matrix, PlayViewBase};
+use crate::framework::view::play_view::{play_scale_matrix, HeldChords, PlayViewBase};
 use crate::framework::view::sequencer::abstract_sequencer_view::SequencerBase;
 use crate::framework::view::transpose_view::TransposeView;
 use crate::impl_as_any;
-use crate::midi::{ButtonEvent, CMD_NOTE_ON};
+use crate::midi::ButtonEvent;
 use crate::scale::Scales;
 
 /// The play view.
@@ -41,6 +41,7 @@ pub struct PlayView {
     selected_note: i32,
     copy_note: Option<StepInfo>,
     is_chord_active: bool,
+    held_chords: HeldChords,
 }
 
 impl PlayView {
@@ -54,6 +55,7 @@ impl PlayView {
             selected_note: -1,
             copy_note: None,
             is_chord_active: false,
+            held_chords: HeldChords::default(),
         }
     }
 
@@ -287,6 +289,7 @@ impl View for PlayView {
     }
 
     fn on_activate(&mut self, ctx: &mut Ctx) {
+        self.held_chords.clear();
         self.play.on_activate(ctx, play_scale_matrix(ctx));
         if self.is_shifted {
             self.play.base.clear_note_mapping(ctx);
@@ -364,14 +367,14 @@ impl View for PlayView {
             if note != -1 {
                 self.play.base.key_manager.set_all_keys_pressed(note, velocity);
                 self.selected_note = note;
-                if self.is_chord_active {
+                // A held chord is also released after the chord mode was switched off
+                if self.is_chord_active || (velocity == 0 && self.held_chords.is_held(key)) {
                     let third_chord = ctx.model.scales().third_chord(note);
                     if third_chord.len() < 2 {
                         return;
                     }
                     let channel = ctx.config.midi_edit_channel();
-                    ctx.surface.send_midi_event(CMD_NOTE_ON + channel, third_chord[0], velocity);
-                    ctx.surface.send_midi_event(CMD_NOTE_ON + channel, third_chord[1], velocity);
+                    self.held_chords.play(ctx, key, note, &third_chord[..2], channel, velocity);
                 }
             }
             return;

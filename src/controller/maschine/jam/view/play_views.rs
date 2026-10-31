@@ -254,7 +254,7 @@ impl View for ChordsView {
     }
 
     fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.chords.play.on_activate(ctx, ChordViewBase::scale_matrix(ctx));
+        self.chords.on_activate(ctx, ChordViewBase::scale_matrix(ctx));
     }
 
     fn draw_grid(&mut self, ctx: &mut Ctx) {
