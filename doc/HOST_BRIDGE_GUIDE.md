@@ -270,8 +270,8 @@ Bitwig bridge (Reaper only, or nobody).
 | `/project/canUndo`, `/project/canRedo` | flag | `application.canUndo/canRedo` | Rec |
 | `/host/features` | space separated feature names (§2 "Host features") | all features, constant | Rec with host paging |
 | `/project/engine` | flag | `hasActiveEngine` | O |
-| `/project/name` | text (also schedules a note mapping update) | – | O |
-| `/project/isDirty` | flag | – | O |
+| `/project/name` | text (also schedules a note mapping update) | `application.projectName` | O |
+| `/project/isDirty` | flag | `project.isModified` | O |
 | `/project/hasSolo`, `/project/hasMute` | flag (feature) | `hasSoloedTracks`, `hasMutedTracks` | O |
 | `/project/cueVolume`, `/project/cueMix` (+ `/str`, `/str/6\|8`, `/name`) | 0..1 (feature) | `project.cueVolume/cueMix` | O |
 | `/project/param/<i>/…`, `/project/param/count`, `/project/page/count\|selected`, `/project/page/<i>/name` | as device params (§3.5) | root track group remote controls | O |

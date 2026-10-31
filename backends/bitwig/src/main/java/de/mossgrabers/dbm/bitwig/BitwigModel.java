@@ -276,6 +276,8 @@ public final class BitwigModel
         this.application.panelLayout ().markInterested ();
         this.application.recordQuantizationGrid ().markInterested ();
         this.application.recordQuantizeNoteLength ().markInterested ();
+        this.application.projectName ().markInterested ();
+        this.project.isModified ().markInterested ();
         this.project.hasSoloedTracks ().markInterested ();
         this.project.hasMutedTracks ().markInterested ();
         for (final Parameter parameter: this.grooveParameters)
@@ -582,13 +584,16 @@ public final class BitwigModel
 
 
     /**
-     * The engine, the panel layout, the project's solo and mute state, cue volume and mix, the
-     * visibility flags of the arranger and the mixer, as ApplicationImpl, ProjectImpl,
-     * ArrangerImpl and MixerImpl of the Java version.
+     * The engine, the project's name and modified state, the panel layout, the project's solo and
+     * mute state, cue volume and mix, the visibility flags of the arranger and the mixer, as
+     * ApplicationImpl, ProjectImpl, ArrangerImpl and MixerImpl of the Java version.
      */
     private void collectApplication (final ModelReporter reporter)
     {
         reporter.put ("/project/engine", this.application.hasActiveEngine ().get ());
+        // ProjectImpl.getName, isDirty
+        reporter.put ("/project/name", this.application.projectName ().get ());
+        reporter.put ("/project/isDirty", this.project.isModified ().get ());
         reporter.put ("/layout", this.application.panelLayout ().get ());
         reporter.put ("/recordQuantization", this.application.recordQuantizationGrid ().get ());
         reporter.put ("/recordQuantization/noteLength", this.application.recordQuantizeNoteLength ().get ());

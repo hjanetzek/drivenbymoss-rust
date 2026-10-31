@@ -216,11 +216,16 @@ investigate:
   `device <i>/bypass` toggle; `track <p>/select 0` is ignored. `send active` is a toggle in
   Reaper too (its value is the send volume), and the core only sends `select 1`; Reaper also
   ignores the value. `device <i>/bypass <value>` now sets the state, as in Reaper.
-- [ ] Addresses the parser accepts which the extension does not report: `/project/name`,
+- [x] Addresses the parser accepts which the extension does not report: `/project/name`,
   `/project/isDirty`, `/track/<p>/depth|vuhold*|overdub|inQuant*`,
   `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/<i>/endPosition`,
   `/scene/<s>/position|endPosition`, `/master/fx/…`, the Reaper browser and groove
-  addresses.
+  addresses. The extension now reports `/project/name` and `/project/isDirty` (ProjectImpl).
+  The others have no Bitwig counterpart in the Java version: track depth, VU hold, track
+  overdub, touched parameter, clip play position and note list, region positions, master FX,
+  and the Reaper browser and groove are Reaper-only. The track `inQuant*` comes from the
+  application's `/recordQuantization/noteLength`, which the extension reports. The guide
+  marks them as Reaper-only.
 - [x] Docs lag the code: BITWIG_DIVERGENCES.md §3 (automation) and the "Protocol additions" of
   BITWIG_CORE_PORT_PLAN.md (now split into implemented and planned) are updated (2026-10-31).
 - [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)`. This is
