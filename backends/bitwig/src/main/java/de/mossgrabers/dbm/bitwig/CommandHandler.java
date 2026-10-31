@@ -1395,7 +1395,8 @@ public final class CommandHandler
             {
                 switch (parts[1])
                 {
-                    case "bypass" -> device.isEnabled ().toggle ();
+                    // As Reaper's DeviceProcessor: the value is the new bypass state
+                    case "bypass" -> device.isEnabled ().set (value <= 0);
                     case "remove" -> device.deleteObject ();
                     case "duplicate" -> device.duplicateObject ();
                     default -> this.unhandled.accept ("device " + command);

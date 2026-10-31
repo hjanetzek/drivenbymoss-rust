@@ -212,8 +212,10 @@ investigate:
   in Bitwig (the project and device remote controls do); previous/next marker use
   `jumpToPrevious/NextCueMarker` instead of Java's search in the marker bank. No ported controller
   uses markers yet, so the marker bank is untested in Bitwig.
-- [ ] Commands whose value the extension ignores: `track <p>/send/<s>/active` and
-  `device <i>/bypass` toggle; `track <p>/select 0` is ignored.
+- [x] Commands whose value the extension ignores: `track <p>/send/<s>/active` and
+  `device <i>/bypass` toggle; `track <p>/select 0` is ignored. `send active` is a toggle in
+  Reaper too (its value is the send volume), and the core only sends `select 1`; Reaper also
+  ignores the value. `device <i>/bypass <value>` now sets the state, as in Reaper.
 - [ ] Addresses the parser accepts which the extension does not report: `/project/name`,
   `/project/isDirty`, `/track/<p>/depth|vuhold*|overdub|inQuant*`,
   `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/<i>/endPosition`,
@@ -221,5 +223,8 @@ investigate:
   addresses.
 - [x] Docs lag the code: BITWIG_DIVERGENCES.md §3 (automation) and the "Protocol additions" of
   BITWIG_CORE_PORT_PLAN.md (now split into implemented and planned) are updated (2026-10-31).
-- [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)` (as the Java
-  version); check the range against the Bitwig API.
+- [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)`. This is
+  the same as in Java (`StepInfoImpl.updateData`, `CursorClipImpl.updateStepGain`, clamped to
+  0..1). The API jar has no javadoc, so the range needs a check on Bitwig. Set a step's gain
+  in the inspector, note the value the controller shows, then change it once by encoder. If the
+  gain halves or doubles, Java has the bug too (an upstream candidate, UPSTREAM_CANDIDATES.md).

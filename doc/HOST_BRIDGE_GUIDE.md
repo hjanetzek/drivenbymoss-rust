@@ -527,7 +527,7 @@ resolves `<p>` in the window, else in the 400-track bank; sends and slots only i
 
 | Command | Arg | Meaning / Bitwig |
 | --- | --- | --- |
-| `track <p>/select`, `master select` | int 1 | select: `selectInEditor`, `selectInMixer`, `makeVisibleInArranger/Mixer`. `0` is ignored |
+| `track <p>/select`, `master select` | int 1 | select: `selectInEditor`, `selectInMixer`, `makeVisibleInArranger/Mixer`. The core always sends `1`; there is no deselection (Reaper selects with any value, Bitwig ignores `0`) |
 | `track <p>/scrollto` | none | Reaper path (select and scroll); Bitwig: `scrollPosition.set(p)` |
 | `track <p>/volume\|pan`, `master volume\|pan` | double (+ suffixes §4.1) | `volume/pan` |
 | `…/volume/touch`, `…/pan/touch` | int | `touch` |
@@ -544,7 +544,7 @@ resolves `<p>` in the window, else in the 400-track bank; sends and slots only i
 | `track <p>/stop\|stopAlt\|returnToArrangement` | none | same names |
 | `track <p>/createClip/<slot>` | int length in beats | `createNewLauncherClip(slot, length)` (absolute slot) |
 | `track <p>/send/<s>/volume` | double (+ `/inc`, `/reset`, `/immediately`, `/indicate`) | `sendBank.getItemAt(s)` |
-| `track <p>/send/<s>/active` | int | Bitwig **toggles** `isEnabled` (value ignored) |
+| `track <p>/send/<s>/active` | double (the send volume, meaningless) | a **toggle**: Reaper `ToggleTrackSendUIMute`, Bitwig `isEnabled().toggle()`; the value is ignored |
 | `track <p>/clip/<s>/…` | see §4.5 | |
 | `track indicate` | int | `trackBank.setShouldShowClipLauncherFeedback` |
 | `track pinned` / `track pinned/toggle` | int / none | `cursorTrack.isPinned.set/toggle` |
@@ -582,7 +582,7 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 | `<dev> window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select` | none (`deviceCommands`) | on the device itself (`duplicate` = `afterDeviceInsertionPoint.copyDevices`) |
 | `<dev> window`, `<dev> expand` | int | `isWindowOpen/isExpanded.set` |
 | `device pinned` | int | `cursorDevice.isPinned.set` |
-| `device <i+1>/bypass\|remove\|duplicate` | int / none (Reaper path) | the sibling whose chain position is `i` (bypass toggles) |
+| `device <i+1>/bypass\|remove\|duplicate` | int / none (Reaper path) | the sibling whose chain position is `i`; `bypass <1\|0>` sets the bypass state (the core sends the current enabled state, so it toggles) |
 | `device\|primary\|project parameterPage` | int page | show the page in the DAW (`selectedPageIndex.set`, clamped) |
 | `<dev> param/<i>/value` (+ §4.1), `param/<i>/touch`, `param/<i>/indicate` | | flat index → page `i/8`, param `i%8`; EQ: frequency/gain/Q of band `i/3` |
 | `eq band/<b>` | string Reaper type index | sets the EQ+ `TYPE` parameter |
