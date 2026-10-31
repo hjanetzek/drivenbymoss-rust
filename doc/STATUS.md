@@ -180,3 +180,34 @@ Open issues:
 - [ ] Note attributes are limited to what Reaper supports (pitch, duration, mute, velocity).
 - [ ] Small duplications to clean up: `ArpeggiatorMode` and the scale name lists exist in both
   `config/` and `scale/`.
+
+Host bridge findings (2026-10-31, from writing [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md)), to
+investigate:
+
+- [ ] Probable bug: `master solo/toggle` and other master commands without a value arrive through
+  `process_no_arg`, whose handler in the Bitwig extension (`CommandHandler.handle (processor,
+  command)`) has no `master` case, so they are dropped as "not handled".
+- [ ] The report of `/track/offset` (host paging) switches on all Bitwig command forms (`/inc`,
+  `/reset`, `/immediately`, `solo/toggle`, `transport play|stop|restart`, device commands
+  without index, …). A new host has to handle all of them at once; consider finer capability
+  switches (e.g. a host capability set in the model setup).
+- [ ] Commands the core sends which the Bitwig extension does not handle: `clip clear`, `time
+  signature`, `time loop/start|length` (Reaper form), `track <p>/movePrev|moveNext|toggleMultiSelect`,
+  `device <i>/movePrev|moveNext`, `device preset`, `device add/0`, `marker add`, `marker <i>/…`,
+  `inifile`, `action`, `master user/param/0/value` (crossfader), `track <p>/param/…` (track FX);
+  check whether the core sends `device indicate` for the cursor device's pad bank.
+- [ ] Commands whose value the extension ignores: `track <p>/send/<s>/active` and
+  `device <i>/bypass` toggle; `track <p>/select 0` is ignored.
+- [ ] Addresses the parser accepts which the extension does not report: `/project/name`,
+  `/project/isDirty`, `/click/prerollMeasures`, `/track/<p>/depth|vuhold*|overdub|inQuant*`,
+  `/device/touchedParam`, `/clip/notes|playposition|all`, `/marker/*`,
+  `/scene/<s>/position|endPosition`, `/track/fx/…`, `/master/fx/…`, the Reaper browser and groove
+  addresses.
+- [ ] Docs lag the code: BITWIG_DIVERGENCES.md §3 still lists the automation write mode as not
+  handled; the "Protocol additions" of BITWIG_CORE_PORT_PLAN.md list reports and commands which
+  were not implemented (`/project/name`, `/project/isDirty`, `/marker/…`,
+  `/device/nested|plugin|preset|slots|onMaster`, `…/name/6|8`, `/crossfade`,
+  `/track/<p>/monitoring` (the extension reports `monitor`), `time signature`, `metro_vol`, the
+  move commands).
+- [ ] The step gain is reported as `gain () / 2` but written with `setGain (value)` (as the Java
+  version); check the range against the Bitwig API.
