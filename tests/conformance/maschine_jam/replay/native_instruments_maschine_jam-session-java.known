@@ -1,3 +1,4 @@
+leds F0 00 21 09 15 00 4D 50 00 01 04	The setup of the touch strips (colors): after a restart Java sends it only with the first change (jam.session.select-clip changes nothing, it comes in jam.session.launch), Rust already with its startup output; the same value afterwards
 leds B0 4[01]	The VU meter of the master (strip left and right): audio levels
 leds 90 5[EF]	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
 leds 90 6[0123]	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
