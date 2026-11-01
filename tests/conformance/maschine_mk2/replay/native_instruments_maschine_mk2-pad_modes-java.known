@@ -1,3 +1,3 @@
 leds F0 7D 44 42 4D 10 00	The labels of the buttons above the display: only the Rust version sends them (for dbm-nihost)
 leds B0 4[01]	VU meters: audio levels
-leds 90 25	Variation mode: the selected parameter (pad 2) blinks (emulated): the last value depends on the phase
+leds 90 2[58]	Variation mode: the selected parameter blinks (emulated; pad 5 before pad 2 is pressed, then pad 2): the last value depends on the phase

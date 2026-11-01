@@ -4,9 +4,9 @@ The state of the comparison of the Rust port with the Java DrivenByMoss on Bitwi
 runs of the scenario files in this folder (see doc/CONFORMANCE_TESTING_PLAN.md and
 tests/conformance/FIXTURE.md). Updated with every run which changes something.
 
-Last full run: 2026-10-30, all five templates, each recording on a fresh fixture project and
-with restarted controllers (`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all
-scenarios the same, except the known differences below.
+Last full run: 2026-11-01, all five templates, unattended (`conformance_all.sh`), each recording
+on a fresh fixture project and with restarted controllers (`pair ... --fresh-project 8 --restart
+15`), Bitwig 5.3.13: all 27 scenarios the same, except the known differences below.
 
 Replays (`replay/`, run by `cargo test --test conformance_replay`): the Rust recordings of this
 run for all five files, with the final LED state of the Java version; the replay checks the core's
