@@ -9,7 +9,7 @@ from the lower left; the Mk2 has no Shift in MIDI mode, STEP LEFT (the Stop CC 5
 display is the MCU text display (`F0 00 00 66 14 12 <position> <text> F7`), compared per
 position (`sysex_key_bytes = 7`).
 
-Last full run: 2026-10-30, on fresh fixture projects with restarted controllers (`pair ...
+Last full run: 2026-11-01, on fresh fixture projects with restarted controllers (`pair ...
 --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 27 scenarios of both files the same, except
 the known differences below.
 
@@ -38,7 +38,7 @@ None.
 | VU meters | | | audio levels |
 | Variation mode: the pad of the selected parameter | blinks | blinks | emulated blinking: the last value depends on the phase |
 | The labels of the buttons above the display (`F0 7D 44 42 4D 10 00 …`) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6) |
-| The query whether the host sends the Shift button (`F0 7D 44 42 4D 11 F7`, at the startup) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6); not a LED, the runner keys it as `F0 7D 44 42 4D`, which the Java file does not have. Added by hand to the two Rust recordings in `replay/` (2026-11-01), until they are recorded again |
+| The query whether the host sends the Shift button (`F0 7D 44 42 4D 11 F7`, at the startup) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6); not a LED, the runner keys it as `F0 7D 44 42 4D`, which the Java file does not have. |
 
 ## Fixed by the comparison
 
