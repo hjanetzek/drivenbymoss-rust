@@ -33,8 +33,8 @@ match = "leds B0 4[01]"
 reason = "VU meters: audio levels"
 
 [[known_difference]]
-match = "leds 90 25"
-reason = "Variation mode: the selected parameter (pad 2) blinks (emulated): the last value depends on the phase"
+match = "leds 90 2[58]"
+reason = "Variation mode: the selected parameter blinks (emulated; pad 5 before pad 2 is pressed, then pad 2): the last value depends on the phase"
 
 [[scenario]]
 id = "mk2.chords.play"

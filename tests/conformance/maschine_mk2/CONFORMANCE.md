@@ -36,7 +36,7 @@ None.
 | Area | Java | Rust | Why |
 | --- | --- | --- | --- |
 | VU meters | | | audio levels |
-| Variation mode: the pad of the selected parameter | blinks | blinks | emulated blinking: the last value depends on the phase |
+| Variation mode: the pad of the selected parameter (pad 5 before pad 2 is pressed, then pad 2) | blinks | blinks | emulated blinking: the last value depends on the phase |
 | The labels of the buttons above the display (`F0 7D 44 42 4D 10 00 …`) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6) |
 | The query whether the host sends the Shift button (`F0 7D 44 42 4D 11 F7`, at the startup) | - | sent | an addition of the Rust version for dbm-nihost (BITWIG_DIVERGENCES.md §6); not a LED, the runner keys it as `F0 7D 44 42 4D`, which the Java file does not have. |
 

@@ -377,7 +377,8 @@ def record(args, listener=None):
                 entry["steps"].append({"input": step, "bitwig": diff(state, new_state), "leds": dict(leds)})
                 state = new_state
             entry["final"] = {"bitwig": state, "leds": dict(leds)}
-            problems = check_expectations(scenario, entry["final"])
+            # expect_labels: the versions the expectations apply to (default: all)
+            problems = check_expectations(scenario, entry["final"]) if args.label in scenario.get("expect_labels", [args.label]) else []
             entry["expectation_problems"] = problems
             failures += bool(problems)
             print(f"{'FAIL' if problems else 'ok  '} {scenario['id']}")

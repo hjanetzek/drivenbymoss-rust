@@ -47,7 +47,7 @@ before and after its recording (`--restart`).
 | --- | --- | --- | --- |
 | Note Sequencer: Track Control row after a template change | track mutes | step mutes | Java bug: the note edit mode is registered in the main and the fader mode manager (BITWIG_DIVERGENCES.md §8); Rust follows the manual |
 | Note and drum step knobs (chance etc.): value of an absolute knob | CC / 128 (Bitwig's normalized value of the hardware control, passed to the note parameter) | CC / 127 (as the Java version for Reaper) | at most 0.8 %; Bitwig hardware binding of the Java version |
-| Equalizer: Send A knob to the center | band stays off | Bell (as the manual) | takeover mode catch: Java's knob sets the EQ+ type parameter (16 values) and its jump is caught; Rust selects one of the 7 types (as the Java version for Reaper) with a command |
+| Equalizer: Send A knob to the center | band stays off | Bell (as the manual) | takeover mode catch: Java's knob sets the EQ+ type parameter (16 values) and its jump is caught; Rust selects one of the 7 types (as the Java version for Reaper) with a command; the expectation of `lcxl.eq.type` (bell) is checked for Rust only (`expect_labels`) |
 | Layer Mix with an Instrument Layer of 2 layers: Track Select "previous" LED | on | off | there is no previous page; Java takes it from Bitwig's layer bank (`canScrollPageBackwards`), Rust from its paging over all layers |
 
 ## Possible Java bugs (to decide later)

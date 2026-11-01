@@ -37,6 +37,9 @@ steps = [
   { midi = "B9 0D 40", note = "Send A knob 1 to the center" },
 ]
 expect.bitwig = { "/eq/type/1/value" = "bell" }
+# Only Rust: the takeover catch of the Java version does not take the jump of the knob to the
+# center (a known difference of this file), Bitwig stays at "off"
+expect_labels = ["rust"]
 
 [[scenario]]
 id = "lcxl.eq.q-frequency-gain"
