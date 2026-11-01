@@ -58,20 +58,14 @@ impl SequencerView {
 }
 
 impl View for SequencerView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, update_control_surface, on_sequencer_left,
+        on_sequencer_right);
+    // AbstractNoteSequencerView
+    crate::forward_view!(base => on_activate, draw_grid, update_note_mapping);
 
     fn button_color(&self, ctx: &Ctx, button: ButtonId) -> i32 {
         resolution_button_color(&self.base.seq, ctx, button, LAUNCHPAD_COLOR_BLACK)
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
     }
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
@@ -96,24 +90,8 @@ impl View for SequencerView {
         self.base.seq.on_button(ctx, button, event);
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.seq.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         Some(note_sequencer_scroll_states(&self.base.seq, ctx))
-    }
-
-    fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_left(ctx, event);
-    }
-
-    fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_right(ctx, event);
     }
 
     crate::impl_transpose_view!();
@@ -122,23 +100,7 @@ impl View for SequencerView {
 }
 
 impl TransposeView for SequencerView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractNoteSequencerView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

@@ -12,7 +12,6 @@ use crate::controller::launchpad::colors::{
 };
 use crate::daw::clip::NotePosition;
 use crate::daw::constants::Resolution;
-use crate::daw::events::ModelEvent;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
 use crate::framework::ids::ButtonId;
@@ -100,20 +99,14 @@ impl DrumView {
 }
 
 impl View for DrumView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, on_sequencer_left, on_sequencer_right);
+    // AbstractDrumView
+    crate::forward_view!(base => on_activate, on_deactivate, draw_grid, update_control_surface,
+        update_note_mapping, on_model_event);
 
     fn aftertouch_command(&mut self) -> Option<&mut Box<dyn AftertouchCommand>> {
         Some(&mut self.aftertouch)
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
     }
 
     fn button_color(&self, ctx: &Ctx, button: ButtonId) -> i32 {
@@ -141,10 +134,6 @@ impl View for DrumView {
         } else {
             LAUNCHPAD_COLOR_GREEN
         }
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
     }
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
@@ -190,28 +179,8 @@ impl View for DrumView {
         self.base.seq.on_button(ctx, button, event);
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.base.on_model_event(ctx, event);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         Some(drum_scroll_states(&self.base.seq, ctx))
-    }
-
-    fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_left(ctx, event);
-    }
-
-    fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_right(ctx, event);
     }
 
     crate::impl_transpose_view!();
@@ -220,23 +189,7 @@ impl View for DrumView {
 }
 
 impl TransposeView for DrumView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractDrumView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

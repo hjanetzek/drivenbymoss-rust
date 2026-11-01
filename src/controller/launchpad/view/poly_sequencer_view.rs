@@ -6,7 +6,6 @@
 
 use super::sequencer_common::{note_sequencer_scroll_states, up_down_combination};
 use crate::daw::clip::{NotePosition, StepState};
-use crate::daw::events::ModelEvent;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
 use crate::framework::ids::ButtonId;
@@ -73,21 +72,11 @@ impl PolySequencerView {
 }
 
 impl View for PolySequencerView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
-        self.base.seq.button_color_id(ctx, button)
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, button_color_id, update_control_surface,
+        on_sequencer_left, on_sequencer_right);
+    // AbstractPolySequencerView
+    crate::forward_view!(base => on_activate, draw_grid, update_note_mapping, on_model_event);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
         self.base.on_grid_note(&mut self.hooks, ctx, note, velocity);
@@ -111,28 +100,8 @@ impl View for PolySequencerView {
         self.base.seq.on_button(ctx, button, event);
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.seq.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.base.on_model_event(ctx, event);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         Some(note_sequencer_scroll_states(&self.base.seq, ctx))
-    }
-
-    fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_left(ctx, event);
-    }
-
-    fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_right(ctx, event);
     }
 
     crate::impl_transpose_view!();
@@ -141,23 +110,7 @@ impl View for PolySequencerView {
 }
 
 impl TransposeView for PolySequencerView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractPolySequencerView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

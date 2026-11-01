@@ -4,7 +4,6 @@
 
 //! The drum view with 64 pads of the Launchpad (former `Drum64View`).
 
-use crate::daw::events::ModelEvent;
 use crate::framework::color::BUTTON_STATE_OFF;
 use crate::framework::command::AftertouchCommand;
 use crate::framework::commands::aftertouch::AftertouchViewCommand;
@@ -14,7 +13,6 @@ use crate::framework::ids::ButtonId;
 use crate::framework::view::drum64_view::Drum64ViewBase;
 use crate::framework::view::transpose_view::TransposeView;
 use crate::impl_as_any;
-use crate::midi::ButtonEvent;
 
 /// The drum view with 64 pads.
 pub struct Drum64View {
@@ -37,20 +35,12 @@ impl View for Drum64View {
         &self.drum.base.name
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.drum.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.drum.on_deactivate(ctx);
-    }
+    // AbstractDrum64View
+    crate::forward_view!(drum => on_activate, on_deactivate, draw_grid, update_note_mapping,
+        on_model_event);
 
     fn button_color_id(&self, _ctx: &Ctx, _button: ButtonId) -> &'static str {
         BUTTON_STATE_OFF
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.drum.draw_grid(ctx);
     }
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
@@ -62,14 +52,6 @@ impl View for Drum64View {
                 ctx.model.note_clip(8, 128).clear_row(edit_midi_channel, drum.offset_y + played_pad);
             });
         }
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.drum.update_note_mapping(ctx);
-    }
-
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.drum.on_model_event(ctx, event);
     }
 
     fn aftertouch_command(&mut self) -> Option<&mut Box<dyn AftertouchCommand>> {
@@ -87,23 +69,7 @@ impl View for Drum64View {
 }
 
 impl TransposeView for Drum64View {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.drum.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.drum.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.drum.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.drum.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.drum.reset_octave(ctx);
-    }
+    // AbstractDrum64View
+    crate::forward_transpose_view!(drum => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

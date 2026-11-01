@@ -26,20 +26,11 @@ impl View for LaunchpadBrowserView {
         &self.browser.base.name
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.browser.on_activate(ctx);
-    }
+    // BrowserView
+    crate::forward_view!(browser => on_activate, draw_grid, on_grid_note);
 
     fn button_color_id(&self, _ctx: &Ctx, _button: ButtonId) -> &'static str {
         self.browser.button_color_id()
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.browser.draw_grid(ctx);
-    }
-
-    fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
-        self.browser.on_grid_note(ctx, note, velocity);
     }
 
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {

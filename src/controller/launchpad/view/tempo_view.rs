@@ -36,17 +36,12 @@ impl View for LaunchpadTempoView {
         &self.display.base.name
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.display.on_activate(ctx);
-    }
+    // AbstractNumberDisplayView
+    crate::forward_view!(display => on_activate, on_grid_note);
 
     fn draw_grid(&mut self, ctx: &mut Ctx) {
         self.display.draw_number(ctx, tempo_number(ctx));
         self.display.fill_bottom(ctx);
-    }
-
-    fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
-        self.display.on_grid_note(ctx, note, velocity);
     }
 
     fn scroll_states(&self, _ctx: &Ctx) -> Option<ScrollStates> {
@@ -109,9 +104,8 @@ impl View for LaunchpadShuffleView {
         &self.display.base.name
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.display.on_activate(ctx);
-    }
+    // AbstractNumberDisplayView
+    crate::forward_view!(display => on_activate);
 
     fn draw_grid(&mut self, ctx: &mut Ctx) {
         self.display.draw_number(ctx, shuffle_number(ctx));

@@ -8,7 +8,6 @@ use super::play_controls::PlayControls;
 use super::play_view::{handle_scale_scene_button, scale_scroll_states};
 use crate::config::SettingId;
 use crate::controller::launchpad::colors::*;
-use crate::daw::events::ModelEvent;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
 use crate::framework::ids::{ButtonId, Views};
@@ -100,9 +99,8 @@ impl View for ChordsView {
         self.chords.play.update_note_mapping(ctx, ChordViewBase::scale_matrix(ctx));
     }
 
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.chords.play.on_model_event(ctx, event);
-    }
+    // AbstractPlayView
+    crate::forward_view!(chords.play => on_model_event);
 
     fn on_setting_changed(&mut self, ctx: &mut Ctx, id: SettingId) {
         if id == SettingId::ACTIVATE_FIXED_ACCENT || id == SettingId::FIXED_ACCENT_VALUE {
@@ -128,13 +126,8 @@ impl TransposeView for ChordsView {
         self.chords.play.on_octave_up(ctx, event, ChordViewBase::scale_matrix);
     }
 
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.chords.play.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.chords.play.is_octave_down_button_on(ctx)
-    }
+    // AbstractPlayView
+    crate::forward_transpose_view!(chords.play => is_octave_up_button_on, is_octave_down_button_on);
 
     fn reset_octave(&mut self, ctx: &mut Ctx) {
         self.chords.play.reset_octave(ctx, ChordViewBase::scale_matrix);

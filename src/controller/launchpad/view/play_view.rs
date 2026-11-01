@@ -7,7 +7,6 @@
 use super::play_controls::PlayControls;
 use crate::config::SettingId;
 use crate::controller::launchpad::colors::*;
-use crate::daw::events::ModelEvent;
 use crate::framework::command::AftertouchCommand;
 use crate::framework::commands::aftertouch::AftertouchViewCommand;
 use crate::framework::ctx::Ctx;
@@ -150,9 +149,8 @@ impl View for PlayView {
         self.play.update_note_mapping(ctx, play_scale_matrix(ctx));
     }
 
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.play.on_model_event(ctx, event);
-    }
+    // AbstractPlayView
+    crate::forward_view!(play => on_model_event);
 
     fn on_setting_changed(&mut self, ctx: &mut Ctx, id: SettingId) {
         if id == SettingId::ACTIVATE_FIXED_ACCENT || id == SettingId::FIXED_ACCENT_VALUE {
@@ -182,13 +180,8 @@ impl TransposeView for PlayView {
         self.play.on_octave_up(ctx, event, play_scale_matrix);
     }
 
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.play.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.play.is_octave_down_button_on(ctx)
-    }
+    // AbstractPlayView
+    crate::forward_transpose_view!(play => is_octave_up_button_on, is_octave_down_button_on);
 
     fn reset_octave(&mut self, ctx: &mut Ctx) {
         self.play.reset_octave(ctx, play_scale_matrix);
