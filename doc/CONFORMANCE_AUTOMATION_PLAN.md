@@ -103,3 +103,11 @@ The brief:
   (`keep_startup_output = true`, only the JAM files). The JAM session started with the transport
   still playing from the Java run: the runner now sends `/stop` twice after the new project
   (stop, then rewind; `/play 0` of the OSC controller calls Bitwig's `play ()` and starts it again).
+- Damaged MIDI messages (aseqdump run, `DBM_ASEQDUMP=1`): `aseqdump` sees the same damaged event as
+  the runner (`B0 00 53` for `B0 53 4D`, as if a `00` was inserted after the status byte), while
+  the extension's recording has the right one: the damage happens in Bitwig's MIDI output or in
+  snd-virmidi, before the ALSA sequencer, not in rtmidi. Next: `strace -e write` on Bitwig's
+  `/dev/snd/midiC5D*` to tell Bitwig and the kernel apart.
+- The double `/stop` came too early: Bitwig resumes the old play state when the audio engine runs
+  again, after the `/stop`s. The runner now waits for the engine and stops until Bitwig reports
+  `/play 0`, then rewinds.

@@ -298,11 +298,17 @@ def record(args, listener=None):
             # A new project does not always get the audio engine; without it Bitwig does not
             # monitor, the pads of a play mode play nothing
             send_osc("/project/engine 1")
-            # The transport keeps playing in the new project (e.g. after the run of the other
-            # version), also its position: /stop stops a playing transport, a second one rewinds
-            # (TransportModule of the OSC controller; /play 0 starts the playback again)
-            send_osc("/stop")
-            time.sleep(0.3)
+            # The transport of the old project keeps playing, and Bitwig resumes it when the
+            # engine runs again (after the run of the other version): wait for the engine, stop
+            # until Bitwig reports it stopped, then rewind with one more /stop (TransportModule of
+            # the OSC controller: stop if playing, otherwise stop and rewind; /play 0 would start
+            # the playback again)
+            time.sleep(2.0)
+            for _ in range(10):
+                if listener.snapshot().get("osc:/play") == "0":
+                    break
+                send_osc("/stop")
+                time.sleep(1.0)
             send_osc("/stop")
             time.sleep(1.0)
         marker(1)

@@ -8,7 +8,9 @@
 #
 #   conformance_all.sh [--no-replays] [setup ...]     (all setups with a profile if none given)
 #
-# Environment: BITWIG (the binary), DBM_PROFILE_DIR, JAVA_PORT, RUST_PORT.
+# Environment: BITWIG (the binary), DBM_PROFILE_DIR, JAVA_PORT, RUST_PORT; DBM_ASEQDUMP=1 also
+# logs the sequencer events of both ports with aseqdump (target/conformance/aseqdump-<setup>.log),
+# to compare with what the runner received.
 
 set -euo pipefail
 
@@ -129,12 +131,23 @@ for setup in "${setups[@]}"; do
     # The controllers start a moment after the OSC controller
     sleep 10
 
+    aseqdump_pid=""
+    if [[ "${DBM_ASEQDUMP:-}" == "1" ]]; then
+        # The sequencer addresses (client:port) of the port names
+        addresses=$(aseqdump -l | awk -v java="$JAVA_PORT" -v rust="$RUST_PORT" 'index($0, java) || index($0, rust) { print $1 }' | paste -sd,)
+        aseqdump -p "$addresses" >"$OUT/aseqdump-$setup.log" 2>&1 &
+        aseqdump_pid=$!
+    fi
+
     start="$(date +%s)"
     scenarios=("$RUST/tests/conformance/$setup/"*.toml)
     runlog="$OUT/run-$setup.log"
     # The exit status of pair is also 1 for differences: count the failed expectations
     uv run --quiet --directory "$TOOLS" conformance_runner.py pair "${scenarios[@]}" \
         --java-port "$JAVA_PORT" --rust-port "$RUST_PORT" --fresh-project 8 --restart 15 --out "$OUT" 2>&1 | tee "$runlog" || true
+    if [[ -n "$aseqdump_pid" ]]; then
+        kill "$aseqdump_pid" 2>/dev/null || true
+    fi
     failed=$(grep -c '^FAIL ' "$runlog" || true)
     result="$failed failed expectations"
     same=$(grep -c '^same' "$runlog" || true)
