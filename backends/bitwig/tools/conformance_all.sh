@@ -10,7 +10,8 @@
 #
 # Environment: BITWIG (the binary), DBM_PROFILE_DIR, JAVA_PORT, RUST_PORT; DBM_ASEQDUMP=1 also
 # logs the sequencer events of both ports with aseqdump (target/conformance/aseqdump-<setup>.log),
-# to compare with what the runner received.
+# to compare with what the runner received; DBM_STRACE=1 starts Bitwig under strace and logs the
+# bytes it writes to the two raw MIDI devices (target/conformance/strace-<setup>.log).
 
 set -euo pipefail
 
@@ -119,8 +120,18 @@ for setup in "${setups[@]}"; do
     clean_projects
 
     log="$OUT/bitwig-$setup.log"
+    launcher=()
+    if [[ "${DBM_STRACE:-}" == "1" ]]; then
+        # The raw MIDI devices of the ports ("VirMIDI 5-1" is /dev/snd/midiC5D1); Bitwig must be a
+        # child of strace (kernel.yama.ptrace_scope 1 allows to trace only descendants)
+        devices=()
+        for name in "$JAVA_PORT" "$RUST_PORT"; do
+            [[ "$name" =~ ([0-9]+)-([0-9]+)$ ]] && devices+=(-P "/dev/snd/midiC${BASH_REMATCH[1]}D${BASH_REMATCH[2]}")
+        done
+        launcher=(strace -f -qq -ttt -xx -s 65536 -e trace=write,writev "${devices[@]}" -o "$OUT/strace-$setup.log")
+    fi
     DBM_OSC_CONFORMANCE=1 DBM_DEV_LIBRARY="$RUST/target/debug/libdrivenbymoss.so" \
-        setsid "$BITWIG" >"$log" 2>&1 </dev/null &
+        setsid "${launcher[@]}" "$BITWIG" >"$log" 2>&1 </dev/null &
     bitwig_pid=$!
 
     if ! uv run --quiet --directory "$TOOLS" conformance_runner.py wait --timeout 180 --port "$JAVA_PORT" --port "$RUST_PORT"; then

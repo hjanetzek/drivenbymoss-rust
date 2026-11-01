@@ -299,11 +299,16 @@ def record(args, listener=None):
             # monitor, the pads of a play mode play nothing
             send_osc("/project/engine 1")
             # The transport of the old project keeps playing, and Bitwig resumes it when the
-            # engine runs again (after the run of the other version): wait for the engine, stop
+            # engine runs again (after the run of the other version): wait until Bitwig reports the
+            # engine (it takes some seconds, the state of /play is meaningless before), stop
             # until Bitwig reports it stopped, then rewind with one more /stop (TransportModule of
             # the OSC controller: stop if playing, otherwise stop and rewind; /play 0 would start
             # the playback again)
-            time.sleep(2.0)
+            deadline = time.monotonic() + 20.0
+            while listener.snapshot().get("osc:/project/engine") != "1" and time.monotonic() < deadline:
+                time.sleep(0.2)
+            # Bitwig resumes the playback a moment after the engine is up
+            time.sleep(1.0)
             for _ in range(10):
                 if listener.snapshot().get("osc:/play") == "0":
                     break
