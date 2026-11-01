@@ -160,17 +160,9 @@ impl ParameterMode {
 }
 
 impl Mode for ParameterMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, is_any_knob_touched,
+        select_item_page, has_previous_item_page, has_next_item_page);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         self.knob(ctx, index, value);
@@ -182,10 +174,6 @@ impl Mode for ParameterMode {
 
     fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
         self.knob_touch(ctx, index, is_touched);
-    }
-
-    fn is_any_knob_touched(&self) -> bool {
-        self.base.is_any_knob_touched()
     }
 
     fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
@@ -214,24 +202,12 @@ impl Mode for ParameterMode {
         Self::select_next_page(ctx);
     }
 
-    fn select_item_page(&mut self, ctx: &mut Ctx, page: usize) {
-        self.base.select_item_page(ctx, page);
-    }
-
     fn has_previous_item(&self, ctx: &Ctx) -> bool {
         self.has_previous(ctx)
     }
 
     fn has_next_item(&self, ctx: &Ctx) -> bool {
         self.has_next(ctx)
-    }
-
-    fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item_page(ctx)
-    }
-
-    fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item_page(ctx)
     }
 
     crate::impl_as_any!();
@@ -296,68 +272,18 @@ impl SelectedDeviceMode {
 }
 
 impl Mode for SelectedDeviceMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, knob_value, select_item,
+        select_previous_item, select_next_item, select_previous_item_page, select_next_item_page,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         self.knob(ctx, index as i32, value);
     }
 
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.base.knob_value(ctx, index)
-    }
-
     fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
         self.knob_touch(ctx, index as i32, is_touched);
-    }
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.base.select_item(ctx, index);
-    }
-
-    fn select_previous_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item(ctx);
-    }
-
-    fn select_next_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item(ctx);
-    }
-
-    fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item_page(ctx);
-    }
-
-    fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item_page(ctx);
-    }
-
-    fn select_item_page(&mut self, ctx: &mut Ctx, page: usize) {
-        self.base.select_item_page(ctx, page);
-    }
-
-    fn has_previous_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item(ctx)
-    }
-
-    fn has_next_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item(ctx)
-    }
-
-    fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item_page(ctx)
-    }
-
-    fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item_page(ctx)
     }
 
     crate::impl_as_any!();
@@ -453,13 +379,10 @@ impl Mode for ProjectParamsMode {
         }
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        select_previous_item_page, select_next_item_page, select_item_page, has_previous_item,
+        has_next_item, has_previous_item_page, has_next_item_page, select_item);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         let param = ParamRef::BankItem { bank: self.bank_id(), index };
@@ -470,23 +393,11 @@ impl Mode for ProjectParamsMode {
         }
     }
 
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.base.knob_value(ctx, index)
-    }
-
     fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
         self.knob_touch(ctx, index, is_touched);
     }
 
-    fn is_any_knob_touched(&self) -> bool {
-        self.base.is_any_knob_touched()
-    }
-
     fn on_button(&mut self, _ctx: &mut Ctx, _row: usize, _index: usize, _event: ButtonEvent) {}
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.base.select_item(ctx, index);
-    }
 
     fn select_previous_item(&mut self, ctx: &mut Ctx) {
         self.base.select_previous_item(ctx);
@@ -496,34 +407,6 @@ impl Mode for ProjectParamsMode {
     fn select_next_item(&mut self, ctx: &mut Ctx) {
         self.base.select_next_item(ctx);
         self.do_notify_page(ctx);
-    }
-
-    fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item_page(ctx);
-    }
-
-    fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item_page(ctx);
-    }
-
-    fn select_item_page(&mut self, ctx: &mut Ctx, page: usize) {
-        self.base.select_item_page(ctx, page);
-    }
-
-    fn has_previous_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item(ctx)
-    }
-
-    fn has_next_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item(ctx)
-    }
-
-    fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item_page(ctx)
-    }
-
-    fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item_page(ctx)
     }
 
     crate::impl_as_any!();

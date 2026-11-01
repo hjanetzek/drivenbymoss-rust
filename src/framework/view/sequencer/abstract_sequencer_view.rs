@@ -135,6 +135,32 @@ impl SequencerBase {
         Resolution::get_match(step_length)
     }
 
+    // The sequencer functions of the View trait, so that the views can forward them with
+    // crate::forward_view!.
+
+    /// [`Self::on_left`] as [`View::on_sequencer_left`](crate::framework::feature::View::on_sequencer_left).
+    pub fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
+        self.on_left(ctx, event);
+    }
+
+    /// [`Self::on_right`] as [`View::on_sequencer_right`](crate::framework::feature::View::on_sequencer_right).
+    pub fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
+        self.on_right(ctx, event);
+    }
+
+    /// [`Self::resolution_index`] as
+    /// [`View::sequencer_resolution_index`](crate::framework::feature::View::sequencer_resolution_index).
+    pub fn sequencer_resolution_index(&self, ctx: &Ctx) -> Option<usize> {
+        Some(self.resolution_index(ctx))
+    }
+
+    /// [`Self::set_resolution_index`] as
+    /// [`View::set_sequencer_resolution_index`](crate::framework::feature::View::set_sequencer_resolution_index).
+    pub fn set_sequencer_resolution_index(&mut self, ctx: &mut Ctx, index: i32) -> bool {
+        self.set_resolution_index(ctx, index);
+        true
+    }
+
     /// Former `getButtonColorID`.
     pub fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
         if !self.is_active() {

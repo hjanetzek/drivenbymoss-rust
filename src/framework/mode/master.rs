@@ -42,57 +42,10 @@ impl MasterAndFXVolumeMode {
 }
 
 impl Mode for MasterAndFXVolumeMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.base.knob_value(ctx, index)
-    }
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.base.select_item(ctx, index);
-    }
-
-    fn select_previous_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item(ctx);
-    }
-
-    fn select_next_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item(ctx);
-    }
-
-    fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item_page(ctx);
-    }
-
-    fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item_page(ctx);
-    }
-
-    fn has_previous_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item(ctx)
-    }
-
-    fn has_next_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item(ctx)
-    }
-
-    fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item_page(ctx)
-    }
-
-    fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item_page(ctx)
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, knob_value, select_item,
+        select_previous_item, select_next_item, select_previous_item_page, select_next_item_page,
+        has_previous_item, has_next_item, has_previous_item_page, has_next_item_page);
 
     crate::impl_as_any!();
 }

@@ -28,21 +28,8 @@ impl DummyMode {
 }
 
 impl Mode for DummyMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.base.knob_value(ctx, index)
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, knob_value);
 
     crate::impl_as_any!();
 }

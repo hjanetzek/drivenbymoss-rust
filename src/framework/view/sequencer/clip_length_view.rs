@@ -39,17 +39,12 @@ impl ClipLengthView {
 }
 
 impl View for ClipLengthView {
-    fn name(&self) -> &str {
-        self.seq.name()
-    }
+    // AbstractSequencerView
+    crate::forward_view!(seq => name, update_control_surface);
 
     fn on_activate(&mut self, ctx: &mut Ctx) {
         self.seq.clip(ctx);
         self.update_note_mapping(ctx);
-    }
-
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.seq.update_control_surface(ctx);
     }
 
     fn update_note_mapping(&mut self, ctx: &mut Ctx) {

@@ -99,17 +99,10 @@ impl<B: LayerModeBehavior> DefaultLayerMode<B> {
 }
 
 impl<B: LayerModeBehavior> Mode for DefaultLayerMode<B> {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, select_item,
+        select_previous_item, select_next_item, select_previous_item_page, select_next_item_page,
+        has_previous_item, has_next_item, has_previous_item_page, has_next_item_page);
 
     fn on_button(&mut self, ctx: &mut Ctx, row: usize, index: usize, event: ButtonEvent) {
         self.handle_button(ctx, row, index, event);
@@ -118,42 +111,6 @@ impl<B: LayerModeBehavior> Mode for DefaultLayerMode<B> {
     fn selected_item_name(&self, ctx: &Ctx) -> Option<String> {
         let layer = layer(ctx, selected_layer_index(ctx)?)?;
         layer.does_exist().then(|| format!("{}: {}", layer.position() + 1, layer.name()))
-    }
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.base.select_item(ctx, index);
-    }
-
-    fn select_previous_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item(ctx);
-    }
-
-    fn select_next_item(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item(ctx);
-    }
-
-    fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_previous_item_page(ctx);
-    }
-
-    fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-        self.base.select_next_item_page(ctx);
-    }
-
-    fn has_previous_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item(ctx)
-    }
-
-    fn has_next_item(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item(ctx)
-    }
-
-    fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_previous_item_page(ctx)
-    }
-
-    fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-        self.base.has_next_item_page(ctx)
     }
 
     crate::impl_as_any!();
