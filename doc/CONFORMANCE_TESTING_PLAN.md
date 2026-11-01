@@ -267,7 +267,7 @@ ticks and the save time in the `config` lines (`backends/bitwig/tools/rec_textco
 are not changed, `git diff --no-textconv` shows the raw lines):
 
 ```
-git config diff.dbmrec.textconv rust/backends/bitwig/tools/rec_textconv.sh
+git config diff.dbmrec.textconv backends/bitwig/tools/rec_textconv.sh
 git config diff.dbmrec.cachetextconv true
 ```
 
