@@ -143,8 +143,8 @@ Notes:
   They may need the same line. A fix in `AbstractHwButton` would change all buttons, so it is not
   proposed.
 - **Confidence:** high for the mechanism (code). A bug.
-- **Ready:** needs a hardware check on the JAM. The Rust port copies the behaviour, so it needs
-  the same fix (and a note in BITWIG_DIVERGENCES.md if Java does not take it).
+- **Ready:** after a check on the JAM. The fix is on `conformance-osc` (the JAM setup) and in
+  the Rust port (JAM and Mk2 setups, test `consumed_shift_resets_the_slow_knobs`), 2026-11-01.
 
 #### D. The velocity spread of a step is never read from Bitwig
 

@@ -558,6 +558,11 @@ pub fn register_trigger_commands(ctx: &mut Ctx, maschine: Maschine) {
         lit(|ctx: &Ctx| ctx.views.is_active(Views::Shift) || ctx.surface.is_shift_pressed()),
     );
     install_shift_tap(ctx);
+    // A consumed Shift does not pass its release to the command, which resets the slow knobs (a
+    // bug of the Java version, UPSTREAM_CANDIDATES.md C); the Mk3 keeps its sensitivity
+    if maschine != Maschine::Mk3 {
+        ctx.surface.add_button_event_handler(ButtonId::Shift, ButtonEvent::Up, Rc::new(|ctx: &mut Ctx, _| ctx.surface.set_knob_sensitivity_is_slow(false)));
+    }
 
     // Transport
     add_button(ctx, ButtonId::Play, "PLAY", shared(PlayCommand::new()), mk::PLAY, lit(|ctx: &Ctx| ctx.model.transport().is_playing()));

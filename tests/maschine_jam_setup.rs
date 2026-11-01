@@ -370,3 +370,16 @@ fn shift_view_after_a_tap_and_the_hold_setting() {
     app.on_midi_event(IN, &SHIFT_UP);
     assert_eq!(ctx(&mut app).views.active_id(), view);
 }
+
+/// A Shift combination which consumes Shift (Shift + LEFT: the previous page) does not leave the
+/// knobs slow (the Java version does, UPSTREAM_CANDIDATES.md C).
+#[test]
+fn consumed_shift_resets_the_slow_knobs() {
+    let (mut app, _backend) = start();
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    assert!(ctx(&mut app).surface.is_knob_sensitivity_slow());
+    press(&mut app, jam::LEFT as u8);
+    assert!(ctx(&mut app).surface.is_trigger_consumed(ButtonId::Shift));
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert!(!ctx(&mut app).surface.is_knob_sensitivity_slow());
+}

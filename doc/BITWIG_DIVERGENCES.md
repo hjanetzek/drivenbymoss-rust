@@ -448,6 +448,11 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   version, and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`) edits all 8
   attributes, when the clip of the edited notes uses the step grid of the host
   (`NoteEditor::is_host_grid`).
+- **Maschine JAM, slow knobs after a Shift combination (Java bug):** a combination which consumes
+  Shift (e.g. Shift + PAGE LEFT) does not pass the release of Shift to `ToggleShiftViewCommand`,
+  which resets the slow knob sensitivity, so the knobs stay slow: the TEMPO encoder steps
+  0.01 BPM instead of 1 BPM until the next plain Shift press. The Rust port resets it with a
+  release handler (JAM, and the Mk2 with the Shift button of dbm-nihost); upstream candidate C.
 - **Maschine Mk2, page selection with STEP LEFT (Java bug):** the Mk2 emulates the encoder
   up/down with STEP LEFT (Shift) + the arrows below the encoder (`MaschineCursorCommand`). The
   Java command does not consume STEP LEFT (no `setStopConsumed`), so its release still runs the

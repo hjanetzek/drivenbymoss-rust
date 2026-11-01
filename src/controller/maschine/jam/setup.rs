@@ -355,6 +355,9 @@ fn add_button(ctx: &mut Ctx, id: ButtonId, label: &str, command: Option<SharedTr
 pub fn register_trigger_commands(ctx: &mut Ctx) {
     add_button(ctx, ButtonId::Shift, "SHIFT", Some(shared(ToggleShiftViewCommand::with_hold_setting(MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD))), -1, None);
     install_shift_tap(ctx);
+    // A consumed Shift does not pass its release to the command, which resets the slow knobs (a
+    // bug of the Java version, UPSTREAM_CANDIDATES.md C)
+    ctx.surface.add_button_event_handler(ButtonId::Shift, ButtonEvent::Up, Rc::new(|ctx: &mut Ctx, _| ctx.surface.set_knob_sensitivity_is_slow(false)));
     add_button(ctx, ButtonId::Select, "SELECT", Some(shared(MaschineJamSelectCommand)), jam::SELECT, None);
     add_button(ctx, ButtonId::Delete, "CLEAR", None, jam::CLEAR, None);
     add_button(ctx, ButtonId::Duplicate, "DUPLICATE", Some(shared(MaschineJamDoubleCommand::new())), jam::DUPLICATE, None);
