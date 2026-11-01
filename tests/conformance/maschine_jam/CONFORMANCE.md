@@ -45,7 +45,7 @@ None.
 
 | Area | Java | Rust | Java code |
 | --- | --- | --- | --- |
-| TEMPO + encoder: step | 0.01 BPM | the same | the manual says "Use the encoder in combination with SHIFT for slower changes", but without Shift the step is the slow one; `TempoCommand` uses `isKnobSensitivitySlow`, which Shift sets (`ToggleShiftViewCommand`); in the scenario Shift was used before (Shift + Page Left/Right): a consumed Shift does not get its release, which resets the slow knobs (UPSTREAM_CANDIDATES.md C). Fixed in both versions (2026-11-01); the `tempo +` of the Rust recording `global` was changed by hand to `tempo ++` until the next run |
+| TEMPO + encoder: step | 0.01 BPM | the same | the manual says "Use the encoder in combination with SHIFT for slower changes", but without Shift the step is the slow one; `TempoCommand` uses `isKnobSensitivitySlow`, which Shift sets (`ToggleShiftViewCommand`); in the scenario Shift was used before (Shift + Page Left/Right): a consumed Shift does not get its release, which resets the slow knobs (UPSTREAM_CANDIDATES.md C). Fixed in both versions (2026-11-01): the expectation (121) passes in both |
 
 ## Fixed by the comparison
 

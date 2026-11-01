@@ -132,12 +132,11 @@ for setup in "${setups[@]}"; do
     start="$(date +%s)"
     scenarios=("$RUST/tests/conformance/$setup/"*.toml)
     runlog="$OUT/run-$setup.log"
-    if uv run --quiet --directory "$TOOLS" conformance_runner.py pair "${scenarios[@]}" \
-        --java-port "$JAVA_PORT" --rust-port "$RUST_PORT" --fresh-project 8 --restart 15 --out "$OUT" 2>&1 | tee "$runlog"; then
-        result="expectations ok"
-    else
-        result="expectations failed"
-    fi
+    # The exit status of pair is also 1 for differences: count the failed expectations
+    uv run --quiet --directory "$TOOLS" conformance_runner.py pair "${scenarios[@]}" \
+        --java-port "$JAVA_PORT" --rust-port "$RUST_PORT" --fresh-project 8 --restart 15 --out "$OUT" 2>&1 | tee "$runlog" || true
+    failed=$(grep -c '^FAIL ' "$runlog" || true)
+    result="$failed failed expectations"
     same=$(grep -c '^same' "$runlog" || true)
     different=$(grep -c '^DIFF\|^MISSING' "$runlog" || true)
 
