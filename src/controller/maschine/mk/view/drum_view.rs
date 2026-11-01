@@ -10,7 +10,6 @@ use crate::config::SettingId;
 use crate::controller::maschine::core::colors::{COLOR_BLACK, COLOR_BLUE, COLOR_SKIN};
 use crate::daw::clip::{NotePosition, StepState};
 use crate::daw::constants::Resolution;
-use crate::daw::events::ModelEvent;
 use crate::framework::command::AftertouchCommand;
 use crate::framework::commands::aftertouch::AftertouchViewCommand;
 use crate::framework::commands::mv_helper::notify_edit_page;
@@ -182,25 +181,12 @@ impl DrumView {
 }
 
 impl View for DrumView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
-
-    fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
-        self.base.seq.button_color_id(ctx, button)
-    }
-
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.update_control_surface(ctx);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, button_color_id, sequencer_resolution_index,
+        set_sequencer_resolution_index);
+    // AbstractDrumView
+    crate::forward_view!(base => on_activate, on_deactivate, update_control_surface,
+        on_model_event);
 
     fn update_note_mapping(&mut self, ctx: &mut Ctx) {
         if self.is_shifted || self.is_sequencer_visible || self.is_grid_editor {
@@ -300,23 +286,10 @@ impl View for DrumView {
         self.update_note_mapping(ctx);
     }
 
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.base.on_model_event(ctx, event);
-    }
-
     fn on_setting_changed(&mut self, _ctx: &mut Ctx, _id: SettingId) {}
 
     fn aftertouch_command(&mut self) -> Option<&mut Box<dyn AftertouchCommand>> {
         Some(&mut self.aftertouch)
-    }
-
-    fn sequencer_resolution_index(&self, ctx: &Ctx) -> Option<usize> {
-        Some(self.base.seq.resolution_index(ctx))
-    }
-
-    fn set_sequencer_resolution_index(&mut self, ctx: &mut Ctx, index: i32) -> bool {
-        self.base.seq.set_resolution_index(ctx, index);
-        true
     }
 
     crate::impl_transpose_view!();
@@ -325,23 +298,7 @@ impl View for DrumView {
 }
 
 impl TransposeView for DrumView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractDrumView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

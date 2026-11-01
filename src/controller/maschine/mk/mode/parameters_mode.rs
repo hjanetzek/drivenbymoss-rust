@@ -60,25 +60,9 @@ impl MaschineParametersMode {
 }
 
 impl Mode for MaschineParametersMode {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.inner.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.inner.on_deactivate(ctx);
-    }
-
-    fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
-        self.inner.on_knob_value(ctx, index, value);
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.inner.knob_value(ctx, index)
-    }
+    // SelectedDeviceMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, on_knob_value, knob_value,
+        select_item);
 
     fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
         self.touch.set(index, is_touched);
@@ -116,10 +100,6 @@ impl Mode for MaschineParametersMode {
             }
             d.all_done();
         });
-    }
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.inner.select_item(ctx, index);
     }
 
     fn select_previous_item(&mut self, ctx: &mut Ctx) {

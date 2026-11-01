@@ -70,17 +70,8 @@ impl MaschineUserMode {
 }
 
 impl Mode for MaschineUserMode {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.inner.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.inner.on_deactivate(ctx);
-    }
+    // ProjectParamsMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, select_item);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         let index = if index == MAIN_ENCODER { self.selected_parameter() } else { index };
@@ -88,10 +79,6 @@ impl Mode for MaschineUserMode {
         if param.does_exist(ctx) {
             param.change_value(ctx, value);
         }
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.inner.knob_value(ctx, index)
     }
 
     fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
@@ -124,10 +111,6 @@ impl Mode for MaschineUserMode {
             }
             d.all_done();
         });
-    }
-
-    fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-        self.inner.select_item(ctx, index);
     }
 
     fn select_previous_item(&mut self, ctx: &mut Ctx) {

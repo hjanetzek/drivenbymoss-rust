@@ -8,7 +8,6 @@
 use super::{change_scale_option, update_scale_properties, MaschineView};
 use crate::controller::maschine::core::encoder_mode_manager::EncoderMode;
 use crate::daw::clip::{NotePosition, SessionAlternative};
-use crate::daw::events::ModelEvent;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
 use crate::framework::ids::ButtonId;
@@ -57,21 +56,12 @@ impl SequencerView {
 }
 
 impl View for SequencerView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
-        self.base.seq.button_color_id(ctx, button)
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, button_color_id, update_control_surface,
+        sequencer_resolution_index, set_sequencer_resolution_index, on_sequencer_left,
+        on_sequencer_right);
+    // AbstractNoteSequencerView
+    crate::forward_view!(base => on_activate, draw_grid, update_note_mapping);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
         self.base.on_grid_note(&mut SequencerHooks, ctx, note, velocity);
@@ -87,14 +77,6 @@ impl View for SequencerView {
         }
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.seq.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         let (left, right) = clip_scroll(&self.base.seq, ctx);
         Some(ScrollStates {
@@ -103,23 +85,6 @@ impl View for SequencerView {
             can_scroll_up: self.base.is_octave_up_button_on(ctx),
             can_scroll_down: self.base.is_octave_down_button_on(ctx),
         })
-    }
-
-    fn sequencer_resolution_index(&self, ctx: &Ctx) -> Option<usize> {
-        Some(self.base.seq.resolution_index(ctx))
-    }
-
-    fn set_sequencer_resolution_index(&mut self, ctx: &mut Ctx, index: i32) -> bool {
-        self.base.seq.set_resolution_index(ctx, index);
-        true
-    }
-
-    fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_left(ctx, event);
-    }
-
-    fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_right(ctx, event);
     }
 
     crate::impl_session_alternative!();
@@ -154,25 +119,9 @@ impl MaschineView for SequencerView {
 }
 
 impl TransposeView for SequencerView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractNoteSequencerView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }
 
 /// The poly sequencer (former `PolySequencerView`).
@@ -187,28 +136,16 @@ impl PolySequencerView {
 }
 
 impl View for PolySequencerView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
-        self.base.seq.button_color_id(ctx, button)
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, button_color_id, update_control_surface,
+        sequencer_resolution_index, set_sequencer_resolution_index, on_sequencer_left,
+        on_sequencer_right);
+    // AbstractPolySequencerView
+    crate::forward_view!(base => on_activate, draw_grid, on_grid_note_long_press,
+        update_note_mapping, on_model_event);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
         self.base.on_grid_note(&mut DefaultPolySequencerHooks, ctx, note, velocity);
-    }
-
-    fn on_grid_note_long_press(&mut self, ctx: &mut Ctx, note: i32) {
-        self.base.on_grid_note_long_press(ctx, note);
     }
 
     fn on_button(&mut self, ctx: &mut Ctx, button: ButtonId, event: ButtonEvent, _velocity: i32) {
@@ -221,18 +158,6 @@ impl View for PolySequencerView {
         }
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.seq.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.base.on_model_event(ctx, event);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         let (left, right) = clip_scroll(&self.base.seq, ctx);
         Some(ScrollStates {
@@ -243,48 +168,15 @@ impl View for PolySequencerView {
         })
     }
 
-    fn sequencer_resolution_index(&self, ctx: &Ctx) -> Option<usize> {
-        Some(self.base.seq.resolution_index(ctx))
-    }
-
-    fn set_sequencer_resolution_index(&mut self, ctx: &mut Ctx, index: i32) -> bool {
-        self.base.seq.set_resolution_index(ctx, index);
-        true
-    }
-
-    fn on_sequencer_left(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_left(ctx, event);
-    }
-
-    fn on_sequencer_right(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.seq.on_right(ctx, event);
-    }
-
     crate::impl_transpose_view!();
 
     impl_as_any!();
 }
 
 impl TransposeView for PolySequencerView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractPolySequencerView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }
 
 /// The raindrops sequencer (former `RaindropsView`).
@@ -299,25 +191,11 @@ impl RaindropsView {
 }
 
 impl View for RaindropsView {
-    fn name(&self) -> &str {
-        self.base.seq.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn button_color_id(&self, ctx: &Ctx, button: ButtonId) -> &'static str {
-        self.base.seq.button_color_id(ctx, button)
-    }
-
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.base.draw_grid(ctx);
-    }
-
-    fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
-        self.base.on_grid_note(ctx, note, velocity);
-    }
+    // AbstractSequencerView
+    crate::forward_view!(base.seq => name, button_color_id, update_control_surface,
+        sequencer_resolution_index, set_sequencer_resolution_index);
+    // AbstractRaindropsView
+    crate::forward_view!(base => on_activate, draw_grid, on_grid_note, update_note_mapping);
 
     fn on_button(&mut self, ctx: &mut Ctx, button: ButtonId, event: ButtonEvent, _velocity: i32) {
         match button {
@@ -327,27 +205,10 @@ impl View for RaindropsView {
         }
     }
 
-    fn update_control_surface(&mut self, ctx: &mut Ctx) {
-        self.base.seq.update_control_surface(ctx);
-    }
-
-    fn update_note_mapping(&mut self, ctx: &mut Ctx) {
-        self.base.update_note_mapping(ctx);
-    }
-
     fn scroll_states(&self, ctx: &Ctx) -> Option<ScrollStates> {
         let up = self.base.is_octave_up_button_on(ctx);
         let down = self.base.is_octave_down_button_on(ctx);
         Some(ScrollStates { can_scroll_left: up, can_scroll_right: down, can_scroll_up: up, can_scroll_down: down })
-    }
-
-    fn sequencer_resolution_index(&self, ctx: &Ctx) -> Option<usize> {
-        Some(self.base.seq.resolution_index(ctx))
-    }
-
-    fn set_sequencer_resolution_index(&mut self, ctx: &mut Ctx, index: i32) -> bool {
-        self.base.seq.set_resolution_index(ctx, index);
-        true
     }
 
     crate::impl_transpose_view!();
@@ -356,23 +217,7 @@ impl View for RaindropsView {
 }
 
 impl TransposeView for RaindropsView {
-    fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_down(ctx, event);
-    }
-
-    fn on_octave_up(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.base.on_octave_up(ctx, event);
-    }
-
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on(ctx)
-    }
-
-    fn reset_octave(&mut self, ctx: &mut Ctx) {
-        self.base.reset_octave(ctx);
-    }
+    // AbstractRaindropsView
+    crate::forward_transpose_view!(base => on_octave_down, on_octave_up, is_octave_up_button_on,
+        is_octave_down_button_on, reset_octave);
 }

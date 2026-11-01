@@ -9,7 +9,6 @@ use super::{change_scale_option, update_scale_properties, MaschineView};
 use crate::config::SettingId;
 use crate::controller::maschine::core::encoder_mode_manager::EncoderMode;
 use crate::daw::clip::SessionAlternative;
-use crate::daw::events::ModelEvent;
 use crate::framework::commands::mv_helper::delay_display;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
@@ -113,9 +112,8 @@ impl View for PlayView {
         self.play.update_note_mapping(ctx, matrix);
     }
 
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.play.on_model_event(ctx, event);
-    }
+    // AbstractPlayView
+    crate::forward_view!(play => on_model_event);
 
     fn on_setting_changed(&mut self, ctx: &mut Ctx, id: SettingId) {
         if id == SettingId::ACTIVATE_FIXED_ACCENT || id == SettingId::FIXED_ACCENT_VALUE {
@@ -244,13 +242,10 @@ impl View for ChordsView {
         self.chords.on_activate(ctx, ChordViewBase::scale_matrix(ctx));
     }
 
-    fn draw_grid(&mut self, ctx: &mut Ctx) {
-        self.chords.play.draw_grid(ctx);
-    }
-
-    fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
-        self.chords.on_grid_note(ctx, note, velocity);
-    }
+    // AbstractPlayView
+    crate::forward_view!(chords.play => draw_grid, on_model_event);
+    // AbstractChordView
+    crate::forward_view!(chords => on_grid_note);
 
     fn on_button(&mut self, ctx: &mut Ctx, button: ButtonId, event: ButtonEvent, _velocity: i32) {
         match button {
@@ -267,10 +262,6 @@ impl View for ChordsView {
 
     fn update_note_mapping(&mut self, ctx: &mut Ctx) {
         self.chords.play.update_note_mapping(ctx, ChordViewBase::scale_matrix(ctx));
-    }
-
-    fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
-        self.chords.play.on_model_event(ctx, event);
     }
 
     fn on_setting_changed(&mut self, ctx: &mut Ctx, id: SettingId) {
@@ -322,13 +313,8 @@ impl TransposeView for ChordsView {
         self.chords.play.on_octave_up(ctx, event, ChordViewBase::scale_matrix);
     }
 
-    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
-        self.chords.play.is_octave_up_button_on(ctx)
-    }
-
-    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
-        self.chords.play.is_octave_down_button_on(ctx)
-    }
+    // AbstractPlayView
+    crate::forward_transpose_view!(chords.play => is_octave_up_button_on, is_octave_down_button_on);
 
     fn reset_octave(&mut self, ctx: &mut Ctx) {
         self.chords.play.reset_octave(ctx, ChordViewBase::scale_matrix);
