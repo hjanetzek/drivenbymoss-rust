@@ -344,6 +344,42 @@ Notes:
 - **Confidence:** high, a bug.
 - **Ready:** yes; the same fix in the Rust port works on the JAM and Mk2 (2026-10-31).
 
+#### L. Maschine Mk2/Studio: Shift + arrows (encoder up/down) also stops the transport
+
+- **Where:** `src/main/java/de/mossgrabers/controller/ni/maschine/mk3/command/trigger/MaschineCursorCommand.java:61`
+  and `:82` (`scrollLeft`, `scrollRight`).
+- **What is wrong:** the Mk2 has no Shift in MIDI mode and no encoder up/down. STEP LEFT (the
+  Stop button) is Shift, and Shift + the arrows below the encoder emulate up/down (the next or
+  previous page of the mode, e.g. the Expressions page of the edit note mode). The command
+  does not mark Stop as consumed, so releasing STEP LEFT afterwards still runs Stop: the
+  transport stops, or the play position is set back to the start when it is not playing.
+  Other Shift combinations do consume it, e.g. `PageCommand` (Shift + page left/right) and
+  `MaschineTapMetroCommand`.
+- **Reproduce:** Maschine Mk2 in MIDI mode. Play, press EVENTS and a pad with a note, hold STEP
+  LEFT, press the right arrow (the next page), release STEP LEFT: the transport stops.
+- **Evidence:** found while porting the edit note mode pages to the Rust port (2026-10-31),
+  `rust/doc/BITWIG_DIVERGENCES.md` ("Maschine Mk2, page selection with STEP LEFT"). The Rust port
+  copies the behaviour (test `edit_note_mode_has_3_pages_with_the_host_grid` in
+  `rust/tests/maschine_mk2_setup.rs` asserts it). Manual: `Native-Instruments-Maschine-Mk3.md`,
+  Mk2 section ("4D-Encoder up/down: Use the 2 arrows below the encoder with Shift (STEP LEFT)").
+- **Fix:**
+
+  ```java
+  if (this.isUpDownEmulated && this.surface.isShiftPressed ())
+  {
+      this.surface.setStopConsumed ();
+      super.scrollDown ();   // scrollUp () in scrollRight
+      return;
+  }
+  ```
+
+  On the Studio Shift is a real button; `setStopConsumed` there only marks Stop, which is not
+  pressed, so it is harmless. The Rust port has this fix (`mk/command/trigger.rs`, test
+  `edit_note_mode_has_3_pages_with_the_host_grid`), and the branch `conformance-osc` of the Java
+  repository too.
+- **Confidence:** high, a bug (the other Shift combinations consume Stop).
+- **Ready:** yes; the fix works on the Mk2 in both versions (2026-11-01).
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |
@@ -387,6 +423,7 @@ not contain test scaffolding.
 | 7. Push clip mode: channel of the next/previous note | F | after a Push check |
 | 8. Maschine Mk2/JAM on Linux with dbm-nihost | J | after Part 2 |
 | 9. Chords which share notes: keep them until all are released | K | ready (the Rust fix checked on the JAM and Mk2) |
+| 10. Maschine Mk2: Shift + arrows does not also stop the transport | L | ready (`conformance-osc`) |
 
 ## Part 2: dbm-nihost as its own repository
 
@@ -566,6 +603,7 @@ Options:
 | I | XL exception for an empty step | `XLNoteSequencerMode.java:70, 92` | bug | high | ready (d66bb744) |
 | J | Maschine Mk2/JAM refuse Linux | `MaschineControllerSetup.java:180`, `MaschineJamControllerSetup.java:150` | intended restriction | high | after dbm-nihost (219204b8) |
 | K | releasing a chord ends the notes shared with a held chord | `AbstractChordView.java`, Maschine `PlayView.java` | bug | high | ready |
+| L | Shift (STEP LEFT) + arrows also runs Stop on release | `MaschineCursorCommand.java:61, 82` | bug | high | ready |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |

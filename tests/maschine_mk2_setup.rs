@@ -535,9 +535,9 @@ fn edit_note_mode_has_3_pages_with_the_host_grid() {
     // STEP LEFT + the left arrow selects the previous page
     shifted_press(&mut app, mk::CURSOR_LEFT);
     assert_eq!(note_mode_pages(&mut app), (true, true));
-    // As in the Java version, MaschineCursorCommand does not consume STEP LEFT (no
-    // setStopConsumed), therefore its release still stops
-    assert!(contains(&backend.take_calls(), "stop"));
+    // STEP LEFT is consumed by the page selection, its release does not stop (the Java version
+    // stops, UPSTREAM_CANDIDATES.md L)
+    assert!(!contains(&backend.take_calls(), "stop"));
     // The encoder up/down CCs (registered for the Mk2 as in the Java version) select the pages
     // as well
     press(&mut app, mk::CURSOR_UP);

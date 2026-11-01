@@ -418,10 +418,11 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   version, and the Launchpad note edit view (`launchpad/view/note_edit_view.rs`) edits all 8
   attributes, when the clip of the edited notes uses the step grid of the host
   (`NoteEditor::is_host_grid`).
-- **Maschine Mk2, page selection with STEP LEFT (also in the Java version):** the Mk2 emulates
-  the encoder up/down with STEP LEFT (Shift) + the arrows below the encoder
-  (`MaschineCursorCommand`). The command does not consume STEP LEFT (no `setStopConsumed`), so
-  its release still runs the stop function. Rust keeps it; a candidate for the maintainer.
+- **Maschine Mk2, page selection with STEP LEFT (Java bug):** the Mk2 emulates the encoder
+  up/down with STEP LEFT (Shift) + the arrows below the encoder (`MaschineCursorCommand`). The
+  Java command does not consume STEP LEFT (no `setStopConsumed`), so its release still runs the
+  stop function. The Rust port consumes it, as the other Shift combinations do; upstream
+  candidate L (UPSTREAM_CANDIDATES.md).
   Tested in `edit_note_mode_has_3_pages_with_the_host_grid`. Found 2026-10-31.
 - **Launch Control XL, Note Sequencer Track Control row after a template change (Java bug):**
   the Java version registers the same note edit mode object (`noteEditMode`, also

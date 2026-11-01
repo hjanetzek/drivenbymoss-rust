@@ -461,7 +461,9 @@ impl TriggerCommand for MaschineCursorCommand {
                     return;
                 }
                 if is_up_down_emulated && ctx.surface.is_shift_pressed() {
-                    // Former scrollDown
+                    // Former scrollDown; Shift is the Stop button on the Mk2, its release must not
+                    // stop (a bug of the Java version, UPSTREAM_CANDIDATES.md L)
+                    set_stop_consumed(ctx);
                     self.select(ctx, true, false);
                     return;
                 }
@@ -474,7 +476,9 @@ impl TriggerCommand for MaschineCursorCommand {
                     return;
                 }
                 if is_up_down_emulated && ctx.surface.is_shift_pressed() {
-                    // Former scrollUp
+                    // Former scrollUp; Shift is the Stop button on the Mk2, its release must not
+                    // stop (a bug of the Java version, UPSTREAM_CANDIDATES.md L)
+                    set_stop_consumed(ctx);
                     self.select(ctx, true, true);
                     return;
                 }
