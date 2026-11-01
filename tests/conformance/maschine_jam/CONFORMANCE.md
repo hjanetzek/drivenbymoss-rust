@@ -9,7 +9,7 @@ from the lower left, Shift is the system exclusive message `F0 00 21 09 15 00 4D
 F7`; the setup sends the "return from the host" message (`… 46 01 F7`), on which both versions
 redraw everything.
 
-Last full run: 2026-10-30, all five files, on fresh fixture projects with restarted controllers
+Last full run: 2026-11-01, all five files, on fresh fixture projects with restarted controllers
 (`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 41 scenarios the same, except
 the known differences below.
 
@@ -39,13 +39,13 @@ None.
 | Area | Java | Rust | Why |
 | --- | --- | --- | --- |
 | Session: the pad of the selected clip | blinks | blinks | emulated blinking (about 600 ms): the last value depends on the phase |
-| Session: Shift + arrow (`jam.session.scroll`) | the release of Shift opens the Shift view | stays in the session view | the Shift view stays open only after a tap of Shift (BITWIG_DIVERGENCES.md); the recording of `session` was edited by hand: the Shift view LEDs of the last tick removed (2026-11-01, re-record to replace) |
+| Session: Shift + arrow (`jam.session.scroll`) | the release of Shift opens the Shift view | stays in the session view | the Shift view stays open only after a tap of Shift (BITWIG_DIVERGENCES.md) |
 
 ## Possible Java bugs (to decide later)
 
 | Area | Java | Rust | Java code |
 | --- | --- | --- | --- |
-| TEMPO + encoder: step | 0.01 BPM | the same | the manual says "Use the encoder in combination with SHIFT for slower changes", but without Shift the step is the slow one; `TempoCommand` uses `isKnobSensitivitySlow`, which Shift sets (`ToggleShiftViewCommand`); in the scenario Shift was used before (Shift + Page Left/Right), so maybe the Shift view or a release which does not reset it; to check |
+| TEMPO + encoder: step | 0.01 BPM | the same | the manual says "Use the encoder in combination with SHIFT for slower changes", but without Shift the step is the slow one; `TempoCommand` uses `isKnobSensitivitySlow`, which Shift sets (`ToggleShiftViewCommand`); in the scenario Shift was used before (Shift + Page Left/Right): a consumed Shift does not get its release, which resets the slow knobs, in both versions (UPSTREAM_CANDIDATES.md C); the expectation (121) fails in both |
 
 ## Fixed by the comparison
 

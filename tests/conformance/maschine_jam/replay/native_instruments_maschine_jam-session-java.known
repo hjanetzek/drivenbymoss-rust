@@ -1,6 +1,6 @@
 leds B0 4[01]	The VU meter of the master (strip left and right): audio levels
-leds 90 5[CD]	The selected clip blinks (emulated, about 600 ms) between its color and the selected color: the final value depends on the phase
 leds 90 5[EF]	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
 leds 90 6[0123]	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
 leds B0 1E	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
 leds B0 2[BC]	Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)
+leds 90 5[CD]	The selected clip blinks (emulated, about 600 ms) between its color and the selected color: the final value depends on the phase
