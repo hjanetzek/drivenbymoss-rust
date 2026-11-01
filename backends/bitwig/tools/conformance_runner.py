@@ -305,11 +305,13 @@ def record(args, listener=None):
         # full redraw of the setup is not complete in the Java version on Bitwig
         # (HwLightImpl.forceFlush turns a light off and restores it 100 ms later, Bitwig sends
         # only changes), so it would miss the LEDs which are off
-        led_state(startup + port.take(), leds, sysex_key_bytes)
+        startup += port.take()
+        led_state(startup, leds, sysex_key_bytes)
         # Bring the controller into a known state, e.g. a full redraw of the LEDs
         for step in config.get("setup", []):
             run_step(port, step, settle)
-        led_state(port.take(), leds, sysex_key_bytes)
+        setup_output = port.take()
+        led_state(setup_output, leds, sysex_key_bytes)
         # The fixture must be loaded, otherwise the scenarios fail for the wrong reason
         listener.request_dump()
         time.sleep(settle)
@@ -320,6 +322,9 @@ def record(args, listener=None):
                 print(f"       {problem}")
             return 2
         trace = {"controller": config["controller"], "manual": config.get("manual", ""), "label": args.label, "scenarios": [], "known_differences": config.get("known_difference", [])}
+        # The raw output before the scenarios, to find where an unexpected LED value comes from
+        trace["startup_output"] = [to_hex(message) for message in startup]
+        trace["setup_output"] = [to_hex(message) for message in setup_output]
         failures = 0
         for scenario in config["scenario"]:
             listener.request_dump()
