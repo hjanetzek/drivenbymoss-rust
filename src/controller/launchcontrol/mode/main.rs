@@ -840,9 +840,8 @@ impl XlMainMode {
 }
 
 impl Mode for XlMainMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name);
 
     fn on_activate(&mut self, ctx: &mut Ctx) {
         // Make sure there is the correct provider if the settings has changed in another main mode
@@ -1055,21 +1054,8 @@ impl XlDummyMode {
 }
 
 impl Mode for XlDummyMode {
-    fn name(&self) -> &str {
-        self.mode.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.mode.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.mode.on_deactivate(ctx);
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.mode.knob_value(ctx, index)
-    }
+    // DummyMode
+    crate::forward_mode!(mode => name, on_activate, on_deactivate, knob_value);
 
     crate::impl_as_any!();
 }

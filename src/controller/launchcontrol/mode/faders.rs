@@ -28,17 +28,8 @@ impl XlEqGainMode {
 }
 
 impl Mode for XlEqGainMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate);
 
     fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
         if !ctx.model.specific_device(DeviceId::Eq).is_some_and(|d| d.does_exist()) {
@@ -67,21 +58,8 @@ impl XlLayerVolumeMode {
 }
 
 impl Mode for XlLayerVolumeMode {
-    fn name(&self) -> &str {
-        self.base.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.base.on_deactivate(ctx);
-    }
-
-    fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-        self.base.knob_value(ctx, index)
-    }
+    // AbstractParameterMode
+    crate::forward_mode!(base => name, on_activate, on_deactivate, knob_value);
 
     crate::impl_as_any!();
 }

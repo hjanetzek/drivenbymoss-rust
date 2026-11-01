@@ -77,21 +77,8 @@ impl XlChannelStateMode {
 }
 
 impl Mode for XlChannelStateMode {
-    fn name(&self) -> &str {
-        self.mode.name()
-    }
-
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.mode.on_activate(ctx);
-    }
-
-    fn on_deactivate(&mut self, ctx: &mut Ctx) {
-        self.mode.on_deactivate(ctx);
-    }
-
-    fn on_button(&mut self, ctx: &mut Ctx, row: usize, index: usize, event: ButtonEvent) {
-        self.mode.on_button(ctx, row, index, event);
-    }
+    // TrackMuteMode, TrackSoloMode, TrackRecArmMode, LayerMuteMode, LayerSoloMode
+    crate::forward_mode!(mode => name, on_activate, on_deactivate, on_button);
 
     fn button_color(&self, ctx: &Ctx, button: ButtonId) -> i32 {
         let Some(index) = row2_index(button) else {
@@ -496,9 +483,8 @@ impl Mode for XlNoteSequencerMode {
         &self.base.name
     }
 
-    fn on_activate(&mut self, ctx: &mut Ctx) {
-        self.base.on_activate(ctx);
-    }
+    // AbstractSequencerMode
+    crate::forward_mode!(base => on_activate);
 
     fn on_button(&mut self, ctx: &mut Ctx, _row: usize, index: usize, event: ButtonEvent) {
         if event != ButtonEvent::Up {
