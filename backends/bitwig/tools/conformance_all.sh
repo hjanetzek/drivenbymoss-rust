@@ -128,6 +128,7 @@ for setup in "${setups[@]}"; do
         for name in "$JAVA_PORT" "$RUST_PORT"; do
             [[ "$name" =~ ([0-9]+)-([0-9]+)$ ]] && devices+=(-P "/dev/snd/midiC${BASH_REMATCH[1]}D${BASH_REMATCH[2]}")
         done
+        # shellcheck disable=SC2054 # the comma belongs to strace's syntax (trace=write,writev)
         launcher=(strace -f -qq -ttt -xx -s 65536 -e trace=write,writev "${devices[@]}" -o "$OUT/strace-$setup.log")
     fi
     DBM_OSC_CONFORMANCE=1 DBM_DEV_LIBRARY="$RUST/target/debug/libdrivenbymoss.so" \

@@ -1,3 +1,4 @@
+#!/bin/sh
 # Requires Rust (cargo, https://rustup.rs), CMake and a C++ compiler
 
 mkdir -p build

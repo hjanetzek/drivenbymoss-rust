@@ -36,9 +36,12 @@ in [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md), with a list of mismatches between
 and the Reaper backend. [BITWIG_BACKEND_PLAN.md](BITWIG_BACKEND_PLAN.md) drafts a Bitwig Studio 6.1
 backend (a Java extension over FFM) with a dev mode that reloads the rebuilt native library.
 
-`ci/linux.sh` builds and tests everything that builds on Linux: the crate, the C++ wrapper,
-`dbm-nihost` and the Reaper extension. `.github/workflows/linux.yml` runs it once `rust/` is its
-own repository.
+`ci/linux.sh` builds and tests everything that builds on Linux: the crate (with the replays of the
+recorded Bitwig sessions), the C++ wrapper, `dbm-nihost`, the Reaper and the Bitwig extension.
+`.github/workflows/linux.yml` runs it on every push, after `cargo clippy --all-targets -D warnings`
+and `shellcheck` of the own scripts. Next: a Windows build (the Reaper extension; `dbm-nihost` with
+hidapi would give Windows users the Shift button of the Mk2, which NI's driver does not send in
+MIDI mode).
 
 | Controller | Models registered | Rust path | Integration tests |
 | --- | --- | --- | --- |
