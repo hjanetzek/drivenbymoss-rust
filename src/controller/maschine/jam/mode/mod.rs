@@ -23,7 +23,6 @@ use crate::framework::ids::Modes;
 use crate::framework::mode::device::{ParameterMode, ProjectParamsMode};
 use crate::framework::mode::track::{TrackMode, TrackPanMode, TrackSendMode, TrackVolumeMode};
 use crate::framework::parameterprovider::{resolve_mut, ParamRef};
-use crate::midi::ButtonEvent;
 
 use super::surface::FaderConfig;
 
@@ -62,96 +61,6 @@ pub trait MaschineJamMode {
     fn setup_fader(&self, ctx: &Ctx, index: usize) -> FaderConfig;
 }
 
-/// Forwards the functions of the [`Mode`] trait to the wrapped mode `inner`, except the ones
-/// listed in the macro call.
-macro_rules! forward_mode {
-    () => {
-        fn name(&self) -> &str {
-            self.inner.name()
-        }
-
-        fn on_activate(&mut self, ctx: &mut Ctx) {
-            self.inner.on_activate(ctx);
-        }
-
-        fn on_deactivate(&mut self, ctx: &mut Ctx) {
-            self.inner.on_deactivate(ctx);
-        }
-
-        fn knob_value(&self, ctx: &Ctx, index: usize) -> i32 {
-            self.inner.knob_value(ctx, index)
-        }
-
-        fn is_any_knob_touched(&self) -> bool {
-            self.inner.is_any_knob_touched()
-        }
-
-        fn on_button(&mut self, ctx: &mut Ctx, row: usize, index: usize, event: ButtonEvent) {
-            self.inner.on_button(ctx, row, index, event);
-        }
-
-        fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-            self.inner.select_item(ctx, index);
-        }
-
-        fn selected_item_name(&self, ctx: &Ctx) -> Option<String> {
-            self.inner.selected_item_name(ctx)
-        }
-
-        fn select_previous_item(&mut self, ctx: &mut Ctx) {
-            self.inner.select_previous_item(ctx);
-        }
-
-        fn select_next_item(&mut self, ctx: &mut Ctx) {
-            self.inner.select_next_item(ctx);
-        }
-
-        fn select_item_page(&mut self, ctx: &mut Ctx, page: usize) {
-            self.inner.select_item_page(ctx, page);
-        }
-
-        fn has_previous_item(&self, ctx: &Ctx) -> bool {
-            self.inner.has_previous_item(ctx)
-        }
-
-        fn has_next_item(&self, ctx: &Ctx) -> bool {
-            self.inner.has_next_item(ctx)
-        }
-
-        fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-            self.inner.has_previous_item_page(ctx)
-        }
-
-        fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-            self.inner.has_next_item_page(ctx)
-        }
-
-        crate::impl_as_any!();
-    };
-}
-
-/// Forwards the item page navigation to the wrapped mode.
-macro_rules! forward_pages {
-    () => {
-        fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-            self.inner.select_previous_item_page(ctx);
-        }
-
-        fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-            self.inner.select_next_item_page(ctx);
-        }
-    };
-}
-
-/// Forwards the knob touch to the wrapped mode.
-macro_rules! forward_touch {
-    () => {
-        fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
-            self.inner.on_knob_touch(ctx, index, is_touched);
-        }
-    };
-}
-
 fn track_color(ctx: &Ctx, color: crate::daw::color::ColorEx) -> i32 {
     ctx.colors.color_index(DawColor::color_id(color))
 }
@@ -172,13 +81,17 @@ impl MaschineJamVolumeMode {
 }
 
 impl Mode for MaschineJamVolumeMode {
-    forward_mode!();
-    forward_pages!();
-    forward_touch!();
+    // TrackVolumeMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, select_previous_item_page, select_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         self.slow_change.change_value(ctx, &ParamRef::TrackVolume { index }, value);
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamVolumeMode {
@@ -211,13 +124,17 @@ impl MaschineJamPanMode {
 }
 
 impl Mode for MaschineJamPanMode {
-    forward_mode!();
-    forward_pages!();
-    forward_touch!();
+    // TrackPanMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, select_previous_item_page, select_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         self.slow_change.change_value(ctx, &ParamRef::TrackPan { index }, value);
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamPanMode {
@@ -246,9 +163,11 @@ impl MaschineJamSendMode {
 }
 
 impl Mode for MaschineJamSendMode {
-    forward_mode!();
-    forward_pages!();
-    forward_touch!();
+    // TrackSendMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, select_previous_item_page, select_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         let parameter = ParamRef::TrackSend { index, send: self.send_index };
@@ -256,6 +175,8 @@ impl Mode for MaschineJamSendMode {
             self.slow_change.change_value(ctx, &parameter, value);
         }
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamSendMode {
@@ -287,9 +208,11 @@ impl MaschineJamTrackMode {
 }
 
 impl Mode for MaschineJamTrackMode {
-    forward_mode!();
-    forward_pages!();
-    forward_touch!();
+    // TrackMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, select_previous_item_page, select_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         let Some(track) = ctx.model.current_track_bank().selected_item() else {
@@ -307,6 +230,8 @@ impl Mode for MaschineJamTrackMode {
         };
         self.slow_change.change_value(ctx, &parameter, value);
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamTrackMode {
@@ -357,8 +282,11 @@ impl MaschineJamParameterMode {
 }
 
 impl Mode for MaschineJamParameterMode {
-    forward_mode!();
-    forward_touch!();
+    // ParameterMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         if !ctx.model.cursor_device().does_exist() {
@@ -387,6 +315,8 @@ impl Mode for MaschineJamParameterMode {
         }
         mv_helper::notify_selected_device_and_parameter_page(ctx);
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamParameterMode {
@@ -435,17 +365,17 @@ impl MaschineJamUserMode {
 }
 
 impl Mode for MaschineJamUserMode {
-    forward_mode!();
+    // ProjectParamsMode
+    crate::forward_mode!(inner => name, on_activate, on_deactivate, knob_value, is_any_knob_touched,
+        on_button, select_item, selected_item_name, select_previous_item, select_next_item,
+        select_item_page, has_previous_item, has_next_item, has_previous_item_page,
+        has_next_item_page, on_knob_touch);
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
         let item = ParamRef::BankItem { bank: self.bank_id(), index };
         if item.does_exist(ctx) {
             self.slow_change.change_value(ctx, &item, value);
         }
-    }
-
-    fn on_knob_touch(&mut self, ctx: &mut Ctx, index: usize, is_touched: bool) {
-        self.inner.on_knob_touch(ctx, index, is_touched);
     }
 
     fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
@@ -457,6 +387,8 @@ impl Mode for MaschineJamUserMode {
         self.inner.select_next_item(ctx);
         self.notify_page(ctx);
     }
+
+    crate::impl_as_any!();
 }
 
 impl MaschineJamMode for MaschineJamUserMode {

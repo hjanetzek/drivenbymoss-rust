@@ -22,20 +22,15 @@ fn track_index(ctx: &Ctx, index: usize) -> Option<usize> {
     }
 }
 
-/// Forwards the functions of the [`Mode`] trait to the wrapped track mode.
+/// Forwards the functions of the [`Mode`] trait to the wrapped track mode; the knob functions
+/// map the main encoder to the selected track, the touch state is kept here.
 macro_rules! forward_track_mode {
     () => {
-        fn name(&self) -> &str {
-            self.inner.name()
-        }
-
-        fn on_activate(&mut self, ctx: &mut Ctx) {
-            self.inner.on_activate(ctx);
-        }
-
-        fn on_deactivate(&mut self, ctx: &mut Ctx) {
-            self.inner.on_deactivate(ctx);
-        }
+        // TrackVolumeMode, TrackPanMode, TrackSendMode
+        crate::forward_mode!(inner => name, on_activate, on_deactivate, on_button, select_item,
+            selected_item_name, select_previous_item, select_next_item, select_previous_item_page,
+            select_next_item_page, select_item_page, has_previous_item, has_next_item,
+            has_previous_item_page, has_next_item_page);
 
         fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
             if let Some(index) = track_index(ctx, index) {
@@ -59,54 +54,6 @@ macro_rules! forward_track_mode {
 
         fn is_any_knob_touched(&self) -> bool {
             self.touch.is_any_touched()
-        }
-
-        fn on_button(&mut self, ctx: &mut Ctx, row: usize, index: usize, event: crate::midi::ButtonEvent) {
-            self.inner.on_button(ctx, row, index, event);
-        }
-
-        fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
-            self.inner.select_item(ctx, index);
-        }
-
-        fn selected_item_name(&self, ctx: &Ctx) -> Option<String> {
-            self.inner.selected_item_name(ctx)
-        }
-
-        fn select_previous_item(&mut self, ctx: &mut Ctx) {
-            self.inner.select_previous_item(ctx);
-        }
-
-        fn select_next_item(&mut self, ctx: &mut Ctx) {
-            self.inner.select_next_item(ctx);
-        }
-
-        fn select_previous_item_page(&mut self, ctx: &mut Ctx) {
-            self.inner.select_previous_item_page(ctx);
-        }
-
-        fn select_next_item_page(&mut self, ctx: &mut Ctx) {
-            self.inner.select_next_item_page(ctx);
-        }
-
-        fn select_item_page(&mut self, ctx: &mut Ctx, page: usize) {
-            self.inner.select_item_page(ctx, page);
-        }
-
-        fn has_previous_item(&self, ctx: &Ctx) -> bool {
-            self.inner.has_previous_item(ctx)
-        }
-
-        fn has_next_item(&self, ctx: &Ctx) -> bool {
-            self.inner.has_next_item(ctx)
-        }
-
-        fn has_previous_item_page(&self, ctx: &Ctx) -> bool {
-            self.inner.has_previous_item_page(ctx)
-        }
-
-        fn has_next_item_page(&self, ctx: &Ctx) -> bool {
-            self.inner.has_next_item_page(ctx)
         }
 
         impl_as_any!();
