@@ -260,6 +260,17 @@ differing command, which is the point where the scenario has to be recorded agai
   marker the LED state of `<controller>-java.leds` (written by the runner with
   `<controller>-java.known`, the known differences).
 
+Readable diffs of the recordings: every line starts with its time and more than half are ticks, so
+a new recording changes almost every line. `.gitattributes` marks the recordings with
+`diff=dbmrec`; with the filter configured once per checkout, `git diff` shows them without times,
+ticks and the save time in the `config` lines (`backends/bitwig/tools/rec_textconv.sh`; the files
+are not changed, `git diff --no-textconv` shows the raw lines):
+
+```
+git config diff.dbmrec.textconv rust/backends/bitwig/tools/rec_textconv.sh
+git config diff.dbmrec.cachetextconv true
+```
+
 To record a replay: restart the Rust controller (the recording starts with it, from a fresh
 state), run `pair`, then copy `target/conformance/recordings/<run>-rust.rec` and
 `target/conformance/<run>-java.leds|known` to `tests/conformance/<controller>/replay/`; `<run>`

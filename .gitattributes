@@ -11,3 +11,7 @@
 
 # Third-party code stays as it comes from upstream
 backends/reaper/libraries/** -text
+
+# Protocol recordings: git diff without times and ticks if the textconv filter is configured
+# (backends/bitwig/tools/rec_textconv.sh)
+tests/conformance/**/*.rec diff=dbmrec
