@@ -110,9 +110,7 @@ impl View for SendsView {
         Some(session_scroll_states(ctx))
     }
 
-    fn as_virtual_fader_view(&self) -> Option<&dyn VirtualFaderView> {
-        Some(self)
-    }
+    crate::impl_virtual_fader_view!();
 
     fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
         Some(&self.fader)

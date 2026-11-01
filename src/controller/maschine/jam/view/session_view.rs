@@ -187,13 +187,7 @@ impl View for SessionView {
         self.session.is_birds_eye_active = is_active;
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
 
     impl_as_any!();
 }

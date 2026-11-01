@@ -81,13 +81,7 @@ impl View for Drum64View {
         Some(ScrollStates { can_scroll_left: false, can_scroll_right: false, can_scroll_up: drum_octave < 1, can_scroll_down: drum_octave > -2 })
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

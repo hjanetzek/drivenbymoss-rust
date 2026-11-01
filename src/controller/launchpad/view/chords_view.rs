@@ -114,13 +114,7 @@ impl View for ChordsView {
         Some(scale_scroll_states(ctx))
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

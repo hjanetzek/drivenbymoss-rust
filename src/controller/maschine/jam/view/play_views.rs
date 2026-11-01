@@ -133,21 +133,8 @@ impl View for PlayView {
         })
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }
@@ -296,21 +283,8 @@ impl View for ChordsView {
         Some(super::up_down_scroll_states(self.is_octave_up_button_on(ctx), self.is_octave_down_button_on(ctx)))
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

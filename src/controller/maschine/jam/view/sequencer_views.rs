@@ -122,21 +122,8 @@ impl View for SequencerView {
         self.base.seq.on_right(ctx, event);
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }
@@ -273,13 +260,7 @@ impl View for PolySequencerView {
         self.base.seq.on_right(ctx, event);
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }
@@ -369,13 +350,7 @@ impl View for RaindropsView {
         true
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

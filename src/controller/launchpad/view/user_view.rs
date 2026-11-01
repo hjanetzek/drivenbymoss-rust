@@ -165,9 +165,7 @@ impl View for UserView {
         Some(ScrollStates { can_scroll_left: left, can_scroll_right: right, can_scroll_up: !self.is_project_mode, can_scroll_down: self.is_project_mode })
     }
 
-    fn as_virtual_fader_view(&self) -> Option<&dyn VirtualFaderView> {
-        Some(self)
-    }
+    crate::impl_virtual_fader_view!();
 
     fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
         Some(&self.fader)

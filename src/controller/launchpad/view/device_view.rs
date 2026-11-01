@@ -168,9 +168,7 @@ impl View for DeviceView {
         Some(ScrollStates { can_scroll_left: left, can_scroll_right: right, can_scroll_up: device.can_select_previous(), can_scroll_down: device.can_select_next() })
     }
 
-    fn as_virtual_fader_view(&self) -> Option<&dyn VirtualFaderView> {
-        Some(self)
-    }
+    crate::impl_virtual_fader_view!();
 
     fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
         Some(&self.fader)

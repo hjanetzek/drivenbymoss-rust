@@ -108,13 +108,7 @@ impl View for PianoView {
         Some(ScrollStates { can_scroll_left: false, can_scroll_right: false, can_scroll_up: piano_octave < 3, can_scroll_down: piano_octave > -3 })
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

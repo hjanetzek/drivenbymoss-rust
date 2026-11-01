@@ -137,21 +137,8 @@ impl View for DrumView {
         self.base.seq.on_right(ctx, event);
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }
@@ -302,21 +289,8 @@ impl View for DrumLaneView {
         self.base.seq_mut().on_right(ctx, event);
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }
@@ -442,13 +416,7 @@ impl View for Drum64View {
         Some(super::up_down_scroll_states(self.drum.is_octave_up_button_on(), self.drum.is_octave_down_button_on()))
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     impl_as_any!();
 }

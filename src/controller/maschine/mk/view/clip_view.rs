@@ -137,13 +137,7 @@ impl View for ClipView {
         }
     }
 
-    fn session_alternative(&self) -> Option<&dyn SessionAlternative> {
-        Some(self)
-    }
-
-    fn session_alternative_mut(&mut self) -> Option<&mut dyn SessionAlternative> {
-        Some(self)
-    }
+    crate::impl_session_alternative!();
 
     impl_as_any!();
 }

@@ -258,9 +258,7 @@ impl View for NoteEditView {
         Some(&mut self.fader)
     }
 
-    fn as_virtual_fader_view(&self) -> Option<&dyn VirtualFaderView> {
-        Some(self)
-    }
+    crate::impl_virtual_fader_view!();
 
     fn note_editor(&self) -> Option<&NoteEditor> {
         Some(&self.note_editor)

@@ -294,6 +294,47 @@ macro_rules! impl_as_any {
     };
 }
 
+/// Implements [`View::as_transpose_view`] and [`View::as_transpose_view_mut`] for a view which
+/// implements [`super::view::transpose_view::TransposeView`] itself.
+#[macro_export]
+macro_rules! impl_transpose_view {
+    () => {
+        fn as_transpose_view(&self) -> Option<&dyn $crate::framework::view::transpose_view::TransposeView> {
+            Some(self)
+        }
+
+        fn as_transpose_view_mut(&mut self) -> Option<&mut dyn $crate::framework::view::transpose_view::TransposeView> {
+            Some(self)
+        }
+    };
+}
+
+/// Implements [`View::session_alternative`] and [`View::session_alternative_mut`] for a view
+/// which implements [`crate::daw::clip::SessionAlternative`] itself.
+#[macro_export]
+macro_rules! impl_session_alternative {
+    () => {
+        fn session_alternative(&self) -> Option<&dyn $crate::daw::clip::SessionAlternative> {
+            Some(self)
+        }
+
+        fn session_alternative_mut(&mut self) -> Option<&mut dyn $crate::daw::clip::SessionAlternative> {
+            Some(self)
+        }
+    };
+}
+
+/// Implements [`View::as_virtual_fader_view`] for a view which implements
+/// [`super::virtual_fader::VirtualFaderView`] itself.
+#[macro_export]
+macro_rules! impl_virtual_fader_view {
+    () => {
+        fn as_virtual_fader_view(&self) -> Option<&dyn $crate::framework::virtual_fader::VirtualFaderView> {
+            Some(self)
+        }
+    };
+}
+
 /// Called when the active feature group changes (previous ID, new ID).
 pub type ChangeListener<E> = Rc<dyn Fn(&mut Ctx, Option<E>, E)>;
 

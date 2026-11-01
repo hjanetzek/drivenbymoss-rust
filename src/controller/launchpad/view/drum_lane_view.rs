@@ -133,13 +133,7 @@ impl View for DrumLaneView {
         self.base.seq_mut().on_right(ctx, event);
     }
 
-    fn as_transpose_view(&self) -> Option<&dyn TransposeView> {
-        Some(self)
-    }
-
-    fn as_transpose_view_mut(&mut self) -> Option<&mut dyn TransposeView> {
-        Some(self)
-    }
+    crate::impl_transpose_view!();
 
     crate::impl_as_any!();
 }
