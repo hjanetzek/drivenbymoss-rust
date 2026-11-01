@@ -275,6 +275,55 @@ fn shift_from_dbm_nihost() {
     cc(&mut app, mk::STOP, 0);
 }
 
+/// The Shift view stays open only after a short tap of Shift (not in the Java version): a long
+/// press or one combined with a button closes it on release.
+#[test]
+fn shift_view_stays_open_only_after_a_tap() {
+    let (mut app, _backend) = start();
+    app.on_midi_event(IN, &HOST_SENDS_SHIFT);
+
+    // A tap toggles the Shift view on, the next press toggles it off
+    app.on_midi_event(IN, &shift_sysex(true));
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    app.on_midi_event(IN, &shift_sysex(true));
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+
+    // Held longer than the tap time
+    app.on_midi_event(IN, &shift_sysex(true));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    std::thread::sleep(Duration::from_millis(300));
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+
+    // Shift + PAD MODE (the settings of the pad mode), also when short
+    app.on_midi_event(IN, &shift_sysex(true));
+    cc(&mut app, mk::PAD_MODE, 127);
+    cc(&mut app, mk::PAD_MODE, 0);
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_ne!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+}
+
+/// PAD MODE closes the settings opened with Shift + PAD MODE (not in the Java version).
+#[test]
+fn pad_mode_closes_the_pad_mode_settings() {
+    let (mut app, _backend) = start();
+    app.on_midi_event(IN, &HOST_SENDS_SHIFT);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+
+    app.on_midi_event(IN, &shift_sysex(true));
+    cc(&mut app, mk::PAD_MODE, 127);
+    cc(&mut app, mk::PAD_MODE, 0);
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert!(ctx(&mut app).modes.is_active(Modes::Scales));
+
+    cc(&mut app, mk::PAD_MODE, 127);
+    cc(&mut app, mk::PAD_MODE, 0);
+    assert!(!ctx(&mut app).modes.is_active(Modes::Scales));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+}
+
 /// The Shift button of dbm-nihost.
 fn shift_sysex(down: bool) -> Vec<u8> {
     let mut data = HOST_SHIFT_HEADER.to_vec();

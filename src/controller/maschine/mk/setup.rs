@@ -32,7 +32,7 @@ use super::mode::play_configuration::PlayConfigurationMode;
 use super::mode::track_modes::{MaschinePanMode, MaschineSendMode, MaschineVolumeMode};
 use super::mode::transport_modes::{TransportMode, TransportModeKind};
 use super::mode::user_mode::MaschineUserMode;
-use super::surface::{self as mk, enable_shift, ext, ext_mut, has_shift, install_trigger_sender, maschine, set_stop_consumed, MaschineExt};
+use super::surface::{self as mk, enable_shift, ext, ext_mut, has_shift, install_trigger_sender, maschine, set_stop_consumed, MaschineExt, SHIFT_TAP_TIME};
 use super::view::clip_view::ClipView;
 use super::view::drum_view::DrumView;
 use super::view::mute_view::MuteView;
@@ -556,6 +556,30 @@ pub fn register_trigger_commands(ctx: &mut Ctx, maschine: Maschine) {
         shared(MaschineToggleShiftViewCommand::new()),
         if maschine == Maschine::Studio { mk::NAVIGATE_BACK } else { -1 },
         lit(|ctx: &Ctx| ctx.views.is_active(Views::Shift) || ctx.surface.is_shift_pressed()),
+    );
+    // The Shift view stays open after a short tap of Shift only (not in the Java version, which
+    // also keeps it open when Shift was held long or combined with a button). The handlers also
+    // get the release of a consumed Shift.
+    ctx.surface.add_button_event_handler(
+        ButtonId::Shift,
+        ButtonEvent::Down,
+        Rc::new(|ctx: &mut Ctx, _| {
+            let down = (ctx.host.now(), ctx.surface.button_press_count());
+            ext_mut(ctx).shift_down = Some(down);
+        }),
+    );
+    ctx.surface.add_button_event_handler(
+        ButtonId::Shift,
+        ButtonEvent::Up,
+        Rc::new(|ctx: &mut Ctx, _| {
+            let Some((time, count)) = ext_mut(ctx).shift_down.take() else {
+                return;
+            };
+            let is_tap = ctx.host.now().duration_since(time) < SHIFT_TAP_TIME && ctx.surface.button_press_count() == count;
+            if !is_tap && ctx.views.is_active(Views::Shift) {
+                ctx.restore_view();
+            }
+        }),
     );
 
     // Transport

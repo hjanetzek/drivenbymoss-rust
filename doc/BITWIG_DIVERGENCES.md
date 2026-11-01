@@ -147,6 +147,17 @@ Without the answer (NI's driver ignores the query) nothing changes. Tested in
 `tests/maschine_mk2_setup.rs` (`shift_from_dbm_nihost`, `shift_stays_emulated_without_the_announcement`).
 Also on Reaper (the same core).
 
+**Maschine Shift view only after a tap (not in the Java version).** With a Shift button (the Mk2
+with dbm-nihost, the Mk3), Shift down opens the Shift view as in Java. Java keeps it open on
+release unless a pad of the Shift view was used, also after a long press or a combination with
+another button (Shift + PAD MODE then leaves the Shift view on). The Rust version keeps it open
+only after a tap: shorter than 250 ms (`SHIFT_TAP_TIME`) and no other button pressed in between;
+otherwise the release closes it, also when a combination consumed Shift. Tested in
+`shift_view_stays_open_only_after_a_tap`. Asked for by the user (2026-11-01). On the Mk2, PAD
+MODE alone closes the settings opened with Shift + PAD MODE (play options in the drum view,
+scales in the play view) instead of switching to the next view; Java switches the view and
+leaves them open (`pad_mode_closes_the_pad_mode_settings`).
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

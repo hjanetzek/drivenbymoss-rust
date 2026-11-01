@@ -377,6 +377,7 @@ impl Ctx {
             return;
         }
         let velocity = (value * 127.0) as i32;
+        self.surface.button_press_count = self.surface.button_press_count.wrapping_add(1);
         let handlers = {
             let Some(button) = self.surface.button_mut(id) else {
                 return;

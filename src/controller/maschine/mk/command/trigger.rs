@@ -296,6 +296,13 @@ impl TriggerCommand for MaschineMk2PlayViewSwitchCommand {
             return;
         }
 
+        // PAD MODE closes the settings opened with Shift + PAD MODE instead of switching the view
+        // (not in the Java version)
+        if ctx.modes.is_any_active(&[Modes::PlayOptions, Modes::Scales]) {
+            ctx.restore_mode();
+            return;
+        }
+
         match ctx.views.active_id() {
             Some(Views::Drum) => KeyboardCommand::execute_keyboard(ctx, event),
             Some(Views::Play) => {

@@ -166,6 +166,8 @@ pub struct Surface {
     pub(crate) update_requested: bool,
     pub(crate) is_shutting_down: bool,
     last_notification: Option<String>,
+    /// Counts the button presses, to find out whether a button was combined with another one.
+    pub(crate) button_press_count: u64,
     /// The button which acts as the Shift button (e.g. the Maschine Mk2 uses Stop), see
     /// [`Surface::is_shift_pressed`].
     pub shift_button: ButtonId,
@@ -186,6 +188,7 @@ impl Surface {
             update_requested: false,
             is_shutting_down: false,
             last_notification: None,
+            button_press_count: 0,
             shift_button: ButtonId::Shift,
         }
     }
@@ -233,6 +236,12 @@ impl Surface {
         if let Some((bind_type, channel, control, value)) = self.buttons.get(&id).and_then(|b| b.binding) {
             self.input.bind_button(id, bind_type, channel, control, value);
         }
+    }
+
+    /// The number of button presses so far (to find out whether a button was combined with
+    /// another one while it was held).
+    pub fn button_press_count(&self) -> u64 {
+        self.button_press_count
     }
 
     pub fn add_button_event_handler(&mut self, id: ButtonId, event: ButtonEvent, handler: ButtonEventHandler) {
