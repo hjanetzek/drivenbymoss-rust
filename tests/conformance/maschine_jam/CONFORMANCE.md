@@ -39,6 +39,7 @@ None.
 | Area | Java | Rust | Why |
 | --- | --- | --- | --- |
 | Session: the pad of the selected clip | blinks | blinks | emulated blinking (about 600 ms): the last value depends on the phase |
+| Session: the touch strip setup (`F0 … 4D 50 00 01 04`) after a restart | sent with the first change | sent with the startup output | the same value afterwards; seen since the runner keeps the startup output (2026-11-01) |
 | Session: Shift + arrow (`jam.session.scroll`) | the release of Shift opens the Shift view | stays in the session view | the Shift view stays open only after a tap of Shift (BITWIG_DIVERGENCES.md) |
 
 ## Possible Java bugs (to decide later)

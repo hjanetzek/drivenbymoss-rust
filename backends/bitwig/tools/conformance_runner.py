@@ -242,22 +242,25 @@ def restart_controller(port_name, timeout):
     runs with DBM_OSC_CONFORMANCE) and wait for it. The restart cannot be seen reliably in the
     output (e.g. the Maschine JAM sends its VU meters all the time, the old and the new instance
     without a gap); all controllers restarted within about 1.2 s, so this waits 3 s and then
-    until the controller has sent something. Returns False if it did not within the timeout
-    (seconds)."""
+    until the controller has sent something. Returns what the controller sent (its startup
+    output, all LEDs), or None if it did not send anything within the timeout (seconds)."""
     startup = MidiPort(port_name, [])
     started = time.time()
     startup.send(RESTART)
     print(f"Restarting the controller on {port_name}, waiting up to {timeout} s")
     time.sleep(3.0)
-    alive = bool(startup.take())
-    while not alive and time.time() - started < timeout:
+    output = startup.take()
+    while not output and time.time() - started < timeout:
         time.sleep(0.1)
-        alive = bool(startup.take())
+        output = startup.take()
+    # The rest of the startup output
+    time.sleep(1.0)
+    output += startup.take()
     startup.close()
-    if not alive:
+    if not output:
         print(f"The controller did not send anything within {timeout} s after the restart")
-        return False
-    return True
+        return None
+    return output
 
 
 # A recording which takes longer is hanging: print the stacks and end the run
@@ -276,7 +279,8 @@ def record(args, listener=None):
         listener = StateListener()
         listener.start()
     restart = getattr(args, "restart", 0)
-    if restart and not restart_controller(args.port, restart):
+    startup = restart_controller(args.port, restart) if restart else []
+    if startup is None:
         return 2
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
@@ -297,9 +301,11 @@ def record(args, listener=None):
             time.sleep(1.0)
         marker(1)
         time.sleep(1.0)
-        # The output before the setup (e.g. the startup of a just restarted controller) depends on
-        # timing; the setup brings both versions into the same state (e.g. a full redraw)
-        port.take()
+        # The LED state starts with the startup output of the restarted controller (all LEDs): the
+        # full redraw of the setup is not complete in the Java version on Bitwig
+        # (HwLightImpl.forceFlush turns a light off and restores it 100 ms later, Bitwig sends
+        # only changes), so it would miss the LEDs which are off
+        led_state(startup + port.take(), leds, sysex_key_bytes)
         # Bring the controller into a known state, e.g. a full redraw of the LEDs
         for step in config.get("setup", []):
             run_step(port, step, settle)
@@ -469,7 +475,7 @@ def pair(args):
     failures = 0
     if args.restart:
         for port in (args.java_port, args.rust_port):
-            if not restart_controller(port, args.restart):
+            if restart_controller(port, args.restart) is None:
                 return 2
     for scenarios in args.scenarios:
         paths = []

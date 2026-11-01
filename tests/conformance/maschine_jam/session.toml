@@ -19,6 +19,10 @@ setup = [
 ]
 
 [[known_difference]]
+match = "leds F0 00 21 09 15 00 4D 50 00 01 04"
+reason = "The setup of the touch strips (colors): after a restart Java sends it only with the first change (jam.session.select-clip changes nothing, it comes in jam.session.launch), Rust already with its startup output; the same value afterwards"
+
+[[known_difference]]
 match = "leds B0 4[01]"
 reason = "The VU meter of the master (strip left and right): audio levels"
 

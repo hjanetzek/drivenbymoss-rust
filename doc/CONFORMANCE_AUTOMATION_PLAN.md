@@ -88,3 +88,9 @@ with it): it starts and kills its own Bitwig. The brief:
   lost the CC LEDs), maybe caused by the restored projects; to run again.
 - The script copied all replays, also of the files with differences: now only clean files that
   replay are copied.
+- Second JAM run: `global` (tempo 121 in both), `session` the same, no recovery dialog;
+  `note_sequencer` lost the Java CC LEDs. Cause: the runner dropped the output before the setup
+  and relied on its full redraw, which is not complete in the Java version on Bitwig
+  (`HwLightImpl.forceFlush` turns a light off and restores it 100 ms later; Bitwig sends only
+  changes, so LEDs which are off are not sent). The runner now starts the LED state with the
+  startup output of the restarted controller (`restart_controller` returns it).
