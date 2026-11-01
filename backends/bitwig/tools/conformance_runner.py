@@ -263,6 +263,18 @@ def restart_controller(port_name, timeout):
     return output
 
 
+def stop_transport(listener):
+    """Stop the transport until Bitwig reports it stopped (/stop of the OSC controller stops a
+    playing transport, otherwise it stops and rewinds)."""
+    listener.request_dump()
+    time.sleep(0.5)
+    for _ in range(10):
+        if listener.snapshot().get("osc:/play") == "0":
+            return
+        send_osc("/stop")
+        time.sleep(1.0)
+
+
 # A recording which takes longer is hanging: print the stacks and end the run
 RECORD_TIMEOUT = 600
 
@@ -279,6 +291,9 @@ def record(args, listener=None):
         listener = StateListener()
         listener.start()
     restart = getattr(args, "restart", 0)
+    # A playing transport changes the startup output (e.g. the strips of the Maschine JAM show
+    # the volume as dual values while playing)
+    stop_transport(listener)
     startup = restart_controller(args.port, restart) if restart else []
     if startup is None:
         return 2
@@ -309,11 +324,7 @@ def record(args, listener=None):
                 time.sleep(0.2)
             # Bitwig resumes the playback a moment after the engine is up
             time.sleep(1.0)
-            for _ in range(10):
-                if listener.snapshot().get("osc:/play") == "0":
-                    break
-                send_osc("/stop")
-                time.sleep(1.0)
+            stop_transport(listener)
             send_osc("/stop")
             time.sleep(1.0)
         marker(1)

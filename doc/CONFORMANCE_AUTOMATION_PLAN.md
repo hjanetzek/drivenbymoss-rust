@@ -111,3 +111,8 @@ The brief:
 - The double `/stop` came too early: Bitwig resumes the old play state when the audio engine runs
   again, after the `/stop`s. The runner now waits for the engine and stops until Bitwig reports
   `/play 0`, then rewinds.
+- The engine wait was a fixed pause, then fixed: the runner waits until Bitwig reports
+  `/project/engine 1`. JAM session the same. The transport also played at a controller restart
+  (the old project, before the new one): the JAM strips then switch to dual mode (the volume as
+  dual value, `MaschineJamVolumeMode` while playing) and that is in the startup output the JAM
+  keeps. The runner now also stops the transport before the restart (`stop_transport`).
