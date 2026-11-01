@@ -1,6 +1,12 @@
 # Less boilerplate for calls into the "base classes": plan
 
-Status: 2026-11-01, not started.
+Status: 2026-11-01, A and B done. 535 -> 292 `self.base.` / `self.inner.` calls in `src/`
+(about 780 lines less, the new macros included). What is left is not a pure forward: calls with hooks
+(`on_grid_note(&mut SequencerHooks, ...)`), button dispatch, functions which do more than
+forwarding, and forwards to a function with another name (`on_button` -> `seq.on_button` without
+the velocity). The sequencer base got the `View` variants `on_sequencer_left`/`right` and
+`(set_)sequencer_resolution_index`, so that the views forward them. The blanket "has a base"
+trait (see Decision) was not needed so far.
 
 ## Problem
 
