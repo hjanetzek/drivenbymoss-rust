@@ -149,12 +149,12 @@ impl TransposeView for PolySequencerView {
         self.base.on_octave_up(ctx, event);
     }
 
-    fn is_octave_up_button_on(&self, _ctx: &Ctx) -> bool {
-        self.base.is_octave_up_button_on()
+    fn is_octave_up_button_on(&self, ctx: &Ctx) -> bool {
+        self.base.is_octave_up_button_on(ctx)
     }
 
-    fn is_octave_down_button_on(&self, _ctx: &Ctx) -> bool {
-        self.base.is_octave_down_button_on()
+    fn is_octave_down_button_on(&self, ctx: &Ctx) -> bool {
+        self.base.is_octave_down_button_on(ctx)
     }
 
     fn reset_octave(&mut self, ctx: &mut Ctx) {

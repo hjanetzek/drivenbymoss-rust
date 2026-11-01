@@ -300,11 +300,11 @@ impl NoteSequencerBase {
         upper_note - lower_note
     }
 
-    pub fn is_octave_up_button_on(&self) -> bool {
+    pub fn is_octave_up_button_on(&self, _ctx: &Ctx) -> bool {
         self.seq.is_active()
     }
 
-    pub fn is_octave_down_button_on(&self) -> bool {
+    pub fn is_octave_down_button_on(&self, _ctx: &Ctx) -> bool {
         self.seq.is_active()
     }
 

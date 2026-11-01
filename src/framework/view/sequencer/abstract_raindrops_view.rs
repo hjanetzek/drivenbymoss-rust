@@ -197,11 +197,11 @@ impl RaindropsBase {
     /// Currently, not used.
     pub fn reset_octave(&mut self, _ctx: &mut Ctx) {}
 
-    pub fn is_octave_up_button_on(&self) -> bool {
+    pub fn is_octave_up_button_on(&self, _ctx: &Ctx) -> bool {
         self.seq.is_active()
     }
 
-    pub fn is_octave_down_button_on(&self) -> bool {
+    pub fn is_octave_down_button_on(&self, _ctx: &Ctx) -> bool {
         self.seq.is_active()
     }
 

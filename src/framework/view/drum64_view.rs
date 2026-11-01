@@ -234,11 +234,11 @@ impl Drum64ViewBase {
         }
     }
 
-    pub fn is_octave_up_button_on(&self) -> bool {
+    pub fn is_octave_up_button_on(&self, _ctx: &Ctx) -> bool {
         self.drum_octave < 1
     }
 
-    pub fn is_octave_down_button_on(&self) -> bool {
+    pub fn is_octave_down_button_on(&self, _ctx: &Ctx) -> bool {
         self.drum_octave > Scales::DRUM_OCTAVE_LOWER
     }
 

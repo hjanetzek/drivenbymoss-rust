@@ -11,6 +11,7 @@ pub mod color_ids;
 pub mod command;
 pub mod ctx;
 pub mod feature;
+pub mod forward;
 pub mod grid;
 pub mod surface;
 pub mod view;
