@@ -101,4 +101,5 @@ The brief:
   to dbm-nihost) and the Launch Control XL (Java's LEDs on channel 16 before the template select),
   0 of 27 the same each. Keeping the startup output is now an option of the scenario file
   (`keep_startup_output = true`, only the JAM files). The JAM session started with the transport
-  still playing from the Java run: the runner now sends `/play 0` after the new project.
+  still playing from the Java run: the runner now sends `/stop` twice after the new project
+  (stop, then rewind; `/play 0` of the OSC controller calls Bitwig's `play ()` and starts it again).

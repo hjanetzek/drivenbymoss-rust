@@ -299,8 +299,11 @@ def record(args, listener=None):
             # monitor, the pads of a play mode play nothing
             send_osc("/project/engine 1")
             # The transport keeps playing in the new project (e.g. after the run of the other
-            # version)
-            send_osc("/play 0")
+            # version), also its position: /stop stops a playing transport, a second one rewinds
+            # (TransportModule of the OSC controller; /play 0 starts the playback again)
+            send_osc("/stop")
+            time.sleep(0.3)
+            send_osc("/stop")
             time.sleep(1.0)
         marker(1)
         time.sleep(1.0)
