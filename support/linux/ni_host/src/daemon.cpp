@@ -62,6 +62,8 @@ namespace
         virtual void poll() = 0;
         virtual const std::string& getName() const = 0;
         virtual AlsaPorts& getPorts() = 0;
+        // The ports were connected to the DAW (snd-virmidi).
+        virtual void dawConnected() = 0;
     };
 
     template <typename Host, typename Protocol>
@@ -78,6 +80,11 @@ namespace
         AlsaPorts& getPorts() override { return this->ports; }
 
         void start() override { this->hidraw.start(); }
+        void dawConnected() override
+        {
+            std::lock_guard<std::mutex> lock( this->hostLock );
+            this->host.dawConnected();
+        }
         void stop() override { this->hidraw.stop(); }
 
         void poll() override
@@ -139,6 +146,7 @@ namespace
             {
                 connected[i] = client;
                 log( devices[i]->getName() + " connected to " + virmidiPrefix + " client " + std::to_string( client ) );
+                devices[i]->dawConnected();
             }
             else
                 log( "Cannot connect " + devices[i]->getName() + " to " + virmidiPrefix + " client " + std::to_string( client ) );

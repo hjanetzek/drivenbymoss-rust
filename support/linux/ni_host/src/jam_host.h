@@ -22,6 +22,9 @@ namespace dbm::nihost
         // The device was attached: resend all LEDs and tell the DAW (NI's "return from host"
         // sysex), which then refreshes its state.
         void attached();
+        // The ports were connected to the DAW (snd-virmidi): nothing to announce, NI's driver
+        // sends the Shift button of the JAM itself.
+        void dawConnected() {}
         // An input report of the device.
         void hidReport( const uint8_t* report, size_t length );
         // A MIDI message from the DAW (short message or complete sysex).

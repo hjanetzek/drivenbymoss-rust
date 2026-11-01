@@ -91,13 +91,29 @@ virtual MIDI driver bridges the two:
 ## What is emulated
 
 - **Input:** buttons, pads (Mk2 with velocity), encoders (relative, two's complement), the JAM
-  matrix, touch strips with touch, and the JAM's Shift (as NI's sysex).
+  matrix, touch strips with touch, the JAM's Shift (as NI's sysex) and the Mk2's Shift (as a
+  DrivenByMoss sysex, see below; NI's MIDI mode does not send it, so with NI's driver
+  DrivenByMoss uses STEP LEFT as Shift).
 - **Output:** button LEDs, pad, group and scene colours (NI's palette, hue × 4 + level), the JAM
   strip modes from the `STRIP_SETUP` sysex, and the Mk2 displays (Mackie MCU text, 2 × 56
   characters split across both displays; above them the labels of the 8 buttons over the
-  displays, which DrivenByMoss sends as `F0 7D 44 42 4D 10 <position> <56 characters> F7`, not
-  part of NI's MIDI mode).
+  displays, see below).
 - **Not yet:** the Mk2 pad pressure as poly aftertouch, the JAM level meters and footswitch.
+
+### DrivenByMoss messages
+
+Not part of NI's MIDI mode: system exclusive messages with the header `F0 7D 44 42 4D` (`7D` is
+the ID for non-commercial use, then "DBM"). NI's driver ignores them. Only the Mk2 uses them.
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `F0 7D 44 42 4D 10 <position> <56 characters> F7` | DAW → device | the labels of the 8 buttons above the displays (8 cells of 7 characters), drawn above the MCU lines |
+| `F0 7D 44 42 4D 11 F7` | DAW → device | DrivenByMoss asks at its start whether the host sends the Shift button |
+| `F0 7D 44 42 4D 11 01 F7` | device → DAW | the host sends the Shift button: the answer to the query, also sent when the Mk2 is attached and when `--virmidi` connects the ports (for a DAW which was started before dbm-nihost). DrivenByMoss then uses the Shift button, and STEP LEFT is only Stop |
+| `F0 7D 44 42 4D 12 <01 down, 00 up> F7` | device → DAW | the Shift button; the Shift LED is lit by dbm-nihost |
+
+`01` and `02` (the markers of the conformance runner) and `03` (its restart) are used by the
+conformance tests of DrivenByMoss, not by dbm-nihost.
 
 ## Origin
 

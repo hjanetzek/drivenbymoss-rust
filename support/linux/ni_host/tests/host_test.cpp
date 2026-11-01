@@ -142,10 +142,31 @@ static void testMk2()
     Recorder    midi;
     Mk2Host     host( midi.out() );
     host.attached();
+    // the announcement that the Shift button is sent (DrivenByMoss)
+    const Bytes sendsShift = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0x01, 0xF7 };
+    CHECK( midi.has( sendsShift ) );
+    midi.midi.clear();
+    host.dawConnected();
+    CHECK( midi.midi.size() == 1 && midi.has( sendsShift ) );
+    midi.midi.clear();
+    // the answer to the query of DrivenByMoss
+    const uint8_t query[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0xF7 };
+    host.midiIn( query, sizeof query );
+    CHECK( midi.midi.size() == 1 && midi.has( sendsShift ) );
 
     Bytes report( 25, 0 );
     report[0] = 0x01;
     host.hidReport( report.data(), report.size() );
+    midi.midi.clear();
+
+    // Shift is sent as a DrivenByMoss sysex (it is not in the template)
+    setBit( report, 1, MaschineMk2::Shift );
+    host.hidReport( report.data(), report.size() );
+    CHECK( midi.midi.size() == 1 && midi.has( { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x12, 0x01, 0xF7 } ) );
+    report.assign( report.size(), 0 );
+    report[0] = 0x01;
+    host.hidReport( report.data(), report.size() );
+    CHECK( midi.midi.size() == 2 && midi.has( { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x12, 0x00, 0xF7 } ) );
     midi.midi.clear();
 
     setBit( report, 1, MaschineMk2::Play );

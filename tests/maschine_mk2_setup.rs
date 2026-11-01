@@ -14,6 +14,7 @@ use drivenbymoss::backend::{BackendCall, RecordingBackend};
 use drivenbymoss::config::maschine::MaschineConfiguration;
 use drivenbymoss::daw::clip::NotePosition;
 use drivenbymoss::controller::maschine::core::ribbon_mode::RibbonMode;
+use drivenbymoss::controller::maschine::mk::setup::{HOST_QUERY, HOST_SENDS_SHIFT, HOST_SHIFT_HEADER};
 use drivenbymoss::controller::maschine::mk::surface as mk;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
@@ -211,6 +212,74 @@ fn stop_emulates_shift() {
     // Stop without a function stops
     press(&mut app, mk::STOP);
     assert!(contains(&backend.take_calls(), "stop"));
+}
+
+/// The startup asks dbm-nihost whether it sends the Shift button (not in the Java version).
+#[test]
+fn startup_sends_the_host_query() {
+    let (_app, backend) = start();
+    let calls = backend.take_calls();
+    assert!(calls.iter().any(|c| matches!(c, BackendCall::SendMidi(OUT, d) if d[..] == HOST_QUERY)), "{calls:?}");
+}
+
+/// Without the announcement of dbm-nihost (NI's driver), STEP LEFT stays Stop and Shift, and the
+/// Shift sysex of dbm-nihost is ignored.
+#[test]
+fn shift_stays_emulated_without_the_announcement() {
+    let (mut app, backend) = start();
+    app.on_midi_event(IN, &shift_sysex(true));
+    assert!(!ctx(&mut app).surface.is_shift_pressed());
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    app.on_midi_event(IN, &shift_sysex(false));
+
+    cc(&mut app, mk::STOP, 127);
+    assert!(ctx(&mut app).surface.is_shift_pressed());
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    backend.take_calls();
+    cc(&mut app, mk::STOP, 0);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    assert!(contains(&backend.take_calls(), "stop"));
+}
+
+/// After the announcement of dbm-nihost, its Shift sysex is Shift and STEP LEFT only stops, as on
+/// a Mk3 (not in the Java version).
+#[test]
+fn shift_from_dbm_nihost() {
+    let (mut app, backend) = start();
+    app.on_midi_event(IN, &HOST_SENDS_SHIFT);
+
+    // Shift down activates the shift view, the lower left pad is Undo
+    app.on_midi_event(IN, &shift_sysex(true));
+    assert!(ctx(&mut app).surface.is_shift_pressed());
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    backend.take_calls();
+    pad(&mut app, 36, 127);
+    assert!(contains(&backend.take_calls(), "undo"));
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert!(!ctx(&mut app).surface.is_shift_pressed());
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    backend.take_calls();
+
+    // STEP LEFT is Stop: no Shift view, stops on release
+    cc(&mut app, mk::STOP, 127);
+    assert!(!ctx(&mut app).surface.is_shift_pressed());
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    assert!(!contains(&backend.take_calls(), "stop"));
+    cc(&mut app, mk::STOP, 0);
+    assert!(contains(&backend.take_calls(), "stop"));
+
+    // The reply to the query (the same message) changes nothing
+    app.on_midi_event(IN, &HOST_SENDS_SHIFT);
+    cc(&mut app, mk::STOP, 127);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    cc(&mut app, mk::STOP, 0);
+}
+
+/// The Shift button of dbm-nihost.
+fn shift_sysex(down: bool) -> Vec<u8> {
+    let mut data = HOST_SHIFT_HEADER.to_vec();
+    data.extend([if down { 0x01 } else { 0x00 }, 0xF7]);
+    data
 }
 
 #[test]

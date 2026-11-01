@@ -19,9 +19,10 @@ pub fn create_pad_grid(colors: &ColorManager, rows: i32, cols: i32) -> PadGrid {
 
 /// The button which is used as the Shift button (former `isShiftPressed`): the models without a
 /// usable Shift button emulate it with the Stop button (on the Studio it is the Shift button
-/// which is bound to the 'Navigate Back' button).
-pub fn shift_button(maschine: Maschine) -> ButtonId {
-    if maschine.has_shift() || maschine == Maschine::Studio {
+/// which is bound to the 'Navigate Back' button). `has_shift` is [`Maschine::has_shift`], or for
+/// the Mk2 true when dbm-nihost sends its Shift button (not in the Java version).
+pub fn shift_button(maschine: Maschine, has_shift: bool) -> ButtonId {
+    if has_shift || maschine == Maschine::Studio {
         ButtonId::Shift
     } else {
         ButtonId::Stop

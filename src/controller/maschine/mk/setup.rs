@@ -32,7 +32,7 @@ use super::mode::play_configuration::PlayConfigurationMode;
 use super::mode::track_modes::{MaschinePanMode, MaschineSendMode, MaschineVolumeMode};
 use super::mode::transport_modes::{TransportMode, TransportModeKind};
 use super::mode::user_mode::MaschineUserMode;
-use super::surface::{self as mk, ext, ext_mut, install_trigger_sender, maschine, set_stop_consumed, MaschineExt};
+use super::surface::{self as mk, enable_shift, ext, ext_mut, has_shift, install_trigger_sender, maschine, set_stop_consumed, MaschineExt};
 use super::view::clip_view::ClipView;
 use super::view::drum_view::DrumView;
 use super::view::mute_view::MuteView;
@@ -73,7 +73,7 @@ use crate::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use crate::framework::surface::{ContinuousKind, Surface};
 use crate::framework::value_changer::ValueChanger;
 use crate::host::Host;
-use crate::midi::{BindType, ButtonEvent, MidiInput, MidiOutput};
+use crate::midi::{to_hex_str, BindType, ButtonEvent, MidiInput, MidiOutput};
 use crate::scale::Scales;
 
 /// The drum grid matrix.
@@ -148,7 +148,7 @@ pub fn create(definition: MaschineDefinition, host: Host, sender: Sender, ports:
     let input = MidiInput::new(sender.clone(), Some(ports.input), &["80????", "90????"])?;
     let display_output = output.clone();
     let mut surface = Surface::new(output, input, Some(create_pad_grid(&colors, 4, 4)));
-    surface.shift_button = shift_button(maschine);
+    surface.shift_button = shift_button(maschine, maschine.has_shift());
 
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, colors);
     ctx.ext = Box::new(MaschineExt::new(maschine));
@@ -157,7 +157,7 @@ pub fn create(definition: MaschineDefinition, host: Host, sender: Sender, ports:
         // Do not notify on display!
         ctx.notify_view_change = false;
     }
-    ctx.sysex_handler = Some(Rc::new(move |ctx: &mut Ctx, data: &str| handle_sysex(ctx, maschine, data)));
+    ctx.sysex_handler = Some(Rc::new(move |ctx: &mut Ctx, data: &str| handle_maschine_sysex(ctx, maschine, data)));
     install_trigger_sender(&mut ctx);
     ctx.create_pads();
 
@@ -189,6 +189,10 @@ impl ControllerSetup for MaschineSetup {
         ctx.set_active_mode(Modes::Volume);
         let view = ctx.config.startup_view();
         ctx.set_active_view(view);
+        // Ask dbm-nihost whether it sends the Shift button (not in the Java version)
+        if self.maschine == Maschine::Mk2 {
+            ctx.surface.output.send_sysex(&HOST_QUERY);
+        }
     }
 
     fn flush(&mut self, ctx: &mut Ctx) {
@@ -245,6 +249,51 @@ impl ControllerSetup for MaschineSetup {
 /// display. Only dbm-nihost shows it (on the Mk2 displays, above the MCU lines); NI's driver
 /// ignores it.
 pub const BUTTON_LABELS_HEADER: [u8; 7] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x10, 0x00];
+
+/// The query of the core to dbm-nihost (not in the Java version): `F0 7D 44 42 4D 11 F7`. dbm-nihost
+/// answers with [`HOST_SENDS_SHIFT`]; NI's driver ignores it, then Shift stays emulated with the
+/// Stop button (STEP LEFT).
+pub const HOST_QUERY: [u8; 7] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0xF7];
+
+/// The answer to [`HOST_QUERY`], also sent by dbm-nihost when the Mk2 is attached or the DAW is
+/// connected: `F0 7D 44 42 4D 11 01 F7`, dbm-nihost sends the Shift button of the Mk2.
+pub const HOST_SENDS_SHIFT: [u8; 8] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0x01, 0xF7];
+
+/// The Shift button of the Mk2 from dbm-nihost: `F0 7D 44 42 4D 12 <01 down, 00 up> F7`.
+pub const HOST_SHIFT_HEADER: [u8; 6] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x12];
+
+/// Handle the system exclusive messages of dbm-nihost (Mk2 only, not in the Java version) and
+/// otherwise the ones of NI's driver.
+fn handle_maschine_sysex(ctx: &mut Ctx, maschine: Maschine, data: &str) {
+    if maschine == Maschine::Mk2 && handle_host_sysex(ctx, data) {
+        return;
+    }
+    handle_sysex(ctx, maschine, data);
+}
+
+/// Handle the system exclusive messages of dbm-nihost; true if it was one.
+fn handle_host_sysex(ctx: &mut Ctx, data: &str) -> bool {
+    if data.eq_ignore_ascii_case(&to_hex_str(&HOST_SENDS_SHIFT)) {
+        if !has_shift(ctx) {
+            ctx.host.println("dbm-nihost sends the Shift button, STEP LEFT is Stop");
+            enable_shift(ctx);
+        }
+        return true;
+    }
+    let header = to_hex_str(&HOST_SHIFT_HEADER);
+    if !data.get(..header.len()).is_some_and(|start| start.eq_ignore_ascii_case(&header)) {
+        return false;
+    }
+    // Shift stays emulated with STEP LEFT until dbm-nihost announced that it sends Shift
+    if has_shift(ctx) {
+        match &data[header.len()..] {
+            "01F7" => ctx.trigger_button(ButtonId::Shift, ButtonEvent::Down, 1.0),
+            "00F7" => ctx.trigger_button(ButtonId::Shift, ButtonEvent::Up, 0.0),
+            _ => {}
+        }
+    }
+    true
+}
 
 /// The labels of the buttons above the display of the Mk2: the active mode is marked with '>',
 /// Pin and Active show whether they act on the device or the track.
@@ -519,7 +568,7 @@ pub fn register_trigger_commands(ctx: &mut Ctx, maschine: Maschine) {
         mk::REC,
         lit(|ctx: &Ctx| ConfiguredRecordCommand::is_lit(ctx, ctx.surface.is_shift_pressed())),
     );
-    add_button(ctx, ButtonId::Stop, "STOP", shared(MaschineStopCommand), mk::STOP, lit(|ctx: &Ctx| !ctx.model.transport().is_playing()));
+    add_button(ctx, ButtonId::Stop, "STOP", shared(MaschineStopCommand::default()), mk::STOP, lit(|ctx: &Ctx| !ctx.model.transport().is_playing()));
     add_button(ctx, ButtonId::Loop, "LOOP", shared(ToggleLoopCommand::new()), mk::RESTART, lit(|ctx: &Ctx| ctx.model.transport().is_loop()));
     add_button(ctx, ButtonId::Delete, "ERASE", nop(), mk::ERASE, None);
     add_button(

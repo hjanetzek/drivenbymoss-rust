@@ -12,7 +12,8 @@ DrivenByMoss on Linux, in Reaper and later Zynthian, without NI's driver.
 >   channels 1–3, but the active page uses an indexed mode (`color-mode="3"`), so DrivenByMoss's
 >   single value on channel 1 is a palette index.
 > - **Mk2 display button 7** is an MCU button: note 28.
-> - **Shift:** the JAM's Shift is NI's sysex `4D 01/00`. The Mk2 has no Shift in the template.
+> - **Shift:** the JAM's Shift is NI's sysex `4D 01/00`. The Mk2 has no Shift in the template;
+>   dbm-nihost sends it as the DrivenByMoss sysex `F0 7D 44 42 4D 12 01/00 F7` (§7a).
 > - **Reaper** sees the ports through PipeWire's MIDI bridge as
 >   `Midi-Bridge:Maschine MK2: In (capture)` etc.; the Rust discovery pairs include these names.
 > - **Bitwig** only opens raw MIDI devices. `dbm-nihost --virmidi` connects the ports to the two
@@ -221,12 +222,25 @@ the DrivenByMoss manual, Maschine Mk2):
 - The Events button is STEP LEFT + Select/Events.
 
 `dbm-nihost` reads the HID reports itself and sees all of these buttons. It could send them:
-the real SHIFT as NI's Shift sysex (as on the JAM; the core already knows the Mk2's message,
-`Maschine::Mk2.message_shift_down`), Page left/right and the encoder directions as additional
-notes or CCs outside the template. The core then needs a Mk2 variant which uses them (e.g. a
-flag that `dbm-nihost` is the host, so that SHIFT is the Shift button and STEP LEFT is STOP
-again). This only works with `dbm-nihost`, not with NI's driver on Windows and macOS, so it has
-to stay optional.
+Page left/right and the encoder directions as additional notes or CCs outside the template.
+This only works with `dbm-nihost`, not with NI's driver on Windows and macOS, so it has to stay
+optional.
+
+- [x] **SHIFT** (2026-11-01). The DrivenByMoss sysex messages (header `F0 7D 44 42 4D`, see the
+  README of dbm-nihost):
+  - `11 F7`: the core asks at its startup (`MaschineSetup::startup`, Mk2 only) whether the host
+    sends the Shift button;
+  - `11 01 F7`: dbm-nihost answers, and also announces it when the Mk2 is attached and when
+    `--virmidi` connects the ports (a DAW which was started before dbm-nihost);
+  - `12 01|00 F7`: the Shift button down / up.
+
+  On `11 01` the core switches the Mk2 to the Shift button (`enable_shift` in
+  `controller/maschine/mk/surface.rs`): `shift_button` returns Shift, the Shift sysex drives the
+  Shift button, and `MaschineStopCommand` is a plain Stop as on the Mk3. Without the answer
+  (NI's driver) STEP LEFT stays Stop and Shift. NI's Shift sysex with the Mk2's ID (`F0 00 21 09
+  00 00 4D 50 00 01 4D 01 F7`, which the core already parses) was not used: NI's driver never
+  sends it for the Mk2, and the switch needs the announcement anyway.
+- [ ] Page left / right and the encoder directions.
 
 ## 8. Testing
 

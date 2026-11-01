@@ -131,6 +131,10 @@ final class ProtocolRecorder
         for (int i = 0; i < MARKER.length; i++)
             if (data[i] != MARKER[i])
                 return false;
+        // Only 01 and 02, the other messages with the header are for the core (e.g. the Shift
+        // button of the Mk2 from dbm-nihost)
+        if (data[MARKER.length] != 1 && data[MARKER.length] != 2)
+            return false;
         final boolean isBegin = data[MARKER.length] == 1;
         final String name = new String (data, MARKER.length + 1, data.length - MARKER.length - 2, StandardCharsets.US_ASCII).replaceAll ("[^A-Za-z0-9._-]+", "_");
         this.event ("mark", isBegin ? "begin" : "end", name);

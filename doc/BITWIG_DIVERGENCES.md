@@ -136,6 +136,17 @@ the MCU display, the active mode marked with `>`, Pin and Active as `PinDev`/`Pi
 `DevOn`/`TrkOn`), only when they change. dbm-nihost draws them above the MCU lines on the two
 displays; NI's driver ignores the message. Also on Reaper (the same core).
 
+**Maschine Mk2 Shift button with dbm-nihost (not in the Java version).** NI's MIDI mode does
+not send the Shift button of the Mk2, so the Java version (and the Rust version with NI's driver)
+uses STEP LEFT (Stop) as Shift. At its startup the core sends `F0 7D 44 42 4D 11 F7` (does the
+host send the Shift button?); dbm-nihost answers `F0 7D 44 42 4D 11 01 F7`, and also sends it
+when the Mk2 is attached or its ports are connected to the DAW. From then on the core uses the
+Shift button (`F0 7D 44 42 4D 12 <01 down, 00 up> F7`, `enable_shift` in
+`controller/maschine/mk/surface.rs`) and STEP LEFT is only Stop, as on the Mk3 (`has_shift`).
+Without the answer (NI's driver ignores the query) nothing changes. Tested in
+`tests/maschine_mk2_setup.rs` (`shift_from_dbm_nihost`, `shift_stays_emulated_without_the_announcement`).
+Also on Reaper (the same core).
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

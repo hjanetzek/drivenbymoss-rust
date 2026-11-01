@@ -8,6 +8,7 @@
 use std::rc::Rc;
 
 use crate::controller::maschine::core::maschine::Maschine;
+use crate::controller::maschine::core::surface::shift_button;
 use crate::framework::ctx::Ctx;
 use crate::midi::{BindType, MidiOutput};
 
@@ -124,6 +125,10 @@ pub const METRO: i32 = 14;
 /// The Maschine specific state of a controller instance (stored in [`Ctx::ext`]).
 pub struct MaschineExt {
     pub maschine: Maschine,
+    /// Can the Shift button be used (former `Maschine.hasShift`)? Otherwise it is emulated with
+    /// the Stop button. Set at runtime for the Mk2 when dbm-nihost announces that it sends the
+    /// Shift button (not in the Java version).
+    has_shift: bool,
     /// The last value sent to the touch strip LEDs (former `MaschineControlSurface.ribbonValue`).
     surface_ribbon_value: i32,
     /// The value of the touch strip (former `TouchstripCommand.ribbonValue`).
@@ -140,7 +145,15 @@ pub struct MaschineExt {
 
 impl MaschineExt {
     pub fn new(maschine: Maschine) -> Self {
-        MaschineExt { maschine, surface_ribbon_value: -1, ribbon_value: 0, stop_consumed: false, control_last_param_active: false, button_labels: String::new() }
+        MaschineExt {
+            maschine,
+            has_shift: maschine.has_shift(),
+            surface_ribbon_value: -1,
+            ribbon_value: 0,
+            stop_consumed: false,
+            control_last_param_active: false,
+            button_labels: String::new(),
+        }
     }
 }
 
@@ -156,6 +169,22 @@ pub fn ext_mut(ctx: &mut Ctx) -> &mut MaschineExt {
 /// Get the Maschine model.
 pub fn maschine(ctx: &Ctx) -> Maschine {
     ext(ctx).maschine
+}
+
+/// Can the Shift button be used? Otherwise it is emulated with the Stop button (former
+/// `getMaschine ().hasShift ()`, a runtime state for the Mk2 with dbm-nihost).
+pub fn has_shift(ctx: &Ctx) -> bool {
+    ext(ctx).has_shift
+}
+
+/// Use the Shift button from now on instead of emulating it with the Stop button (the Mk2 with
+/// dbm-nihost, which sends the Shift button as a sysex; not in the Java version).
+pub fn enable_shift(ctx: &mut Ctx) {
+    let maschine = maschine(ctx);
+    let ext = ext_mut(ctx);
+    ext.has_shift = true;
+    ext.stop_consumed = false;
+    ctx.surface.shift_button = shift_button(maschine, true);
 }
 
 /// Signal that the stop function should not be called on button release (former

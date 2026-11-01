@@ -22,8 +22,12 @@ namespace dbm::nihost
     public:
         explicit Mk2Host( MidiOut out );
 
-        // The device was attached: resend all LEDs and the displays.
+        // The device was attached: resend all LEDs and the displays, and announce that the Shift
+        // button is sent (see announceShift).
         void attached();
+        // The ports were connected to the DAW (snd-virmidi): announce that the Shift button is
+        // sent, for a DAW which was started before dbm-nihost.
+        void dawConnected();
         void hidReport( const uint8_t* report, size_t length );
         // A MIDI message from the DAW (short message or complete sysex).
         void midiIn( const uint8_t* data, size_t length );
@@ -42,6 +46,9 @@ namespace dbm::nihost
         void mk2Pad( int pad, bool down, int velocity ) override;
 
         void setButtonLed( int button, int value );
+        // Tell DrivenByMoss that the Shift button is sent (F0 7D 44 42 4D 11 01 F7), it no longer
+        // emulates Shift with STEP LEFT then; also the answer to its query (F0 7D 44 42 4D 11 F7).
+        void announceShift();
 
         MaschineMk2    mk2;
         MidiOut        out;

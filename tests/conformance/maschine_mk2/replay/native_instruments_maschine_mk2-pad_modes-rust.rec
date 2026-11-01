@@ -193,6 +193,7 @@
 971.069	tick
 1015.433	model	/track/1/vuleft 0.041077\n/track/1/vuright 0.045837\n/track/1/vu 0.043457\n/master/vuleft 0.041077\n/master/vuright 0.045837\n/master/vu 0.043457\n
 1015.545	tick
+1015.700	out	F0 7D 44 42 4D 11 F7
 1015.749	out	B0 2C 7F
 1015.827	out	B0 1F 2D
 1015.842	out	B0 1E 2D

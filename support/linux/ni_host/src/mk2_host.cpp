@@ -6,6 +6,8 @@
 #include "palette.h"
 #include "template_map.h"
 
+#include <algorithm>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 
@@ -83,6 +85,12 @@ namespace dbm::nihost
         }
 
         uint8_t toLed( uint8_t value ) { return (uint8_t)( value >> 1 ); } // 0..255 -> 0..0x7F
+
+        // The messages of DrivenByMoss for dbm-nihost (not in NI's driver): F0 7D 44 42 4D <id> ...
+        // 11: the query of DrivenByMoss (F7) and the answer (01 F7): the Shift button is sent
+        // 12: the Shift button, 01 down, 00 up
+        constexpr uint8_t dbmHeader[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D };
+        constexpr uint8_t dbmHost = 0x11, dbmShift = 0x12;
     }
 
 
@@ -129,6 +137,24 @@ namespace dbm::nihost
         std::copy( r.begin(), r.end(), right.begin() );
         this->mk2.setDisplay( 0, left );
         this->mk2.setDisplay( 1, right );
+        this->announceShift();
+    }
+
+
+    void Mk2Host::dawConnected()
+    {
+        this->announceShift();
+    }
+
+
+    void Mk2Host::announceShift()
+    {
+        uint8_t message[sizeof dbmHeader + 3];
+        std::copy( std::begin( dbmHeader ), std::end( dbmHeader ), message );
+        message[sizeof dbmHeader]     = dbmHost;
+        message[sizeof dbmHeader + 1] = 0x01;
+        message[sizeof dbmHeader + 2] = 0xF7;
+        this->out( message, sizeof message );
     }
 
 
@@ -160,8 +186,15 @@ namespace dbm::nihost
     {
         if( button == B::Shift )
         {
-            // Not in the template (DrivenByMoss emulates Shift on the Mk2), only light it
+            // Not in the template (DrivenByMoss emulates Shift with STEP LEFT on the Mk2 with NI's
+            // driver): light it and send it as a DrivenByMoss sysex
             this->mk2.setLed( L::LedShift, down ? MaschineMk2::lightOn : MaschineMk2::lightOff );
+            uint8_t message[sizeof dbmHeader + 3];
+            std::copy( std::begin( dbmHeader ), std::end( dbmHeader ), message );
+            message[sizeof dbmHeader]     = dbmShift;
+            message[sizeof dbmHeader + 1] = down ? 0x01 : 0x00;
+            message[sizeof dbmHeader + 2] = 0xF7;
+            this->out( message, sizeof message );
             return;
         }
         if( button < 0 || button >= MaschineMk2::NumButtons )
@@ -206,6 +239,13 @@ namespace dbm::nihost
             return;
         if( data[0] == 0xF0 )
         {
+            // The query of DrivenByMoss whether the Shift button is sent
+            if( length == sizeof dbmHeader + 2 && std::equal( std::begin( dbmHeader ), std::end( dbmHeader ), data ) && data[sizeof dbmHeader] == dbmHost
+                && data[sizeof dbmHeader + 1] == 0xF7 )
+            {
+                this->announceShift();
+                return;
+            }
             this->text.handleSysex( data, length );
             return;
         }

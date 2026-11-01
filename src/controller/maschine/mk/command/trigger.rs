@@ -9,7 +9,7 @@ use crate::controller::maschine::core::maschine::Maschine;
 use crate::controller::maschine::mk::mode::edit_note::{EditNoteMode, NoteAttribute};
 use crate::controller::maschine::mk::mode::track_modes::MaschineVolumeMode;
 use crate::controller::maschine::mk::mode::user_mode::MaschineUserMode;
-use crate::controller::maschine::mk::surface::{ext, ext_mut, maschine, set_stop_consumed};
+use crate::controller::maschine::mk::surface::{ext, ext_mut, has_shift, maschine, set_stop_consumed};
 use crate::controller::maschine::mk::view::drum_view::DrumView;
 use crate::controller::maschine::mk::view::play_view::PlayView;
 use crate::framework::command::TriggerCommand;
@@ -86,22 +86,15 @@ fn toggle_note_attribute(ctx: &mut Ctx, first: NoteAttribute, second: NoteAttrib
 /// Stops the playback; on the models without a Shift button, the Stop button acts as the Shift
 /// button (former `MaschineStopCommand`).
 #[derive(Default)]
-pub struct MaschineStopCommand;
-
-impl MaschineStopCommand {
-    /// Former `executeNormal`.
-    fn stop(ctx: &mut Ctx) {
-        if ctx.model.transport().is_playing() {
-            StopCommand::handle_stop_options(ctx);
-        } else {
-            ctx.model.transport_mut().stop_and_rewind();
-        }
-    }
+pub struct MaschineStopCommand {
+    stop: StopCommand,
 }
 
 impl TriggerCommand for MaschineStopCommand {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, _velocity: i32) {
-        if !maschine(ctx).has_shift() {
+        // Emulate Shift with the Stop button if the Shift button is not supported (the Mk2,
+        // unless dbm-nihost sends its Shift button)
+        if !has_shift(ctx) {
             if event == ButtonEvent::Down {
                 ctx.surface.set_knob_sensitivity_is_slow(true);
                 if !ctx.views.is_active(Views::Shift) {
@@ -121,8 +114,9 @@ impl TriggerCommand for MaschineStopCommand {
                 return;
             }
         }
-        // Note: as in Java the models with a Shift button stop on all button events
-        Self::stop(ctx);
+        // Former super.executeNormal (AbstractDoubleTriggerCommand): stops on release, a double
+        // click moves the play cursor to the end
+        self.stop.execute_normal(ctx, event);
     }
 }
 

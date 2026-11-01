@@ -479,12 +479,13 @@ A copy of the directory alone, outside this repository, builds and passes `ctest
 | Part | Decision |
 | --- | --- |
 | The MIDI mapping comes from the DrivenByMoss templates | Keep. It is the point of the tool: DrivenByMoss's NI templates are the "MIDI mode" it emulates. Document that other DAWs see this mapping. A later option could load another `.ncm2`/`.ncmj` at run time. |
-| Label sysex `F0 7D 44 42 4D 10 <position> <chars> F7` (Mk2 button labels) | Keep and document as an extension of the protocol. It is passive: without it, the label row stays empty. Document the `F0 7D 44 42 4D` ("DBM") namespace and its message IDs: `10` labels, `03` is used by the conformance tests (restart, Java branch only). An option to turn it off is not needed. |
+| Label sysex `F0 7D 44 42 4D 10 <position> <chars> F7` (Mk2 button labels) | Keep and document as an extension of the protocol. It is passive: without it, the label row stays empty. Document the `F0 7D 44 42 4D` ("DBM") namespace and its message IDs: `10` labels, `11` and `12` the Mk2 Shift button (next row), `01`/`02` (markers) and `03` (restart, Java branch only) are used by the conformance tests. An option to turn it off is not needed. |
+| Mk2 Shift button: `F0 7D 44 42 4D 11 F7` (query of the core, at its start), `F0 7D 44 42 4D 11 01 F7` (answer and announcement of dbm-nihost: it sends Shift; also on attach and on the `--virmidi` connection), `F0 7D 44 42 4D 12 <01 down, 00 up> F7` (Shift) | Keep and document as an extension of the protocol (2026-11-01). Negotiated: the core uses the Shift button, and STEP LEFT is only Stop, after the announcement; with NI's driver nothing changes. A DAW which does not know the messages (the Java version on the `linux-maschine` branch) logs them as unhandled sysex (`AbstractMaschineControlSurface.handleSysEx`); if that matters, an option of dbm-nihost to turn them off. |
 | Mk2 MCU text on the displays (`F0 00 00 66 14 12 …`) | Keep. It is the Mackie protocol, any DAW can send it. |
 | JAM `STRIP_SETUP` and Shift sysex (`F0 00 21 09 15 00 4D 50 …`) | Keep. These are NI's messages. |
 | `--virmidi` uses the first two `snd-virmidi` clients, Mk2 first | Keep, but add an option to choose the clients (the conformance tests use `midi_devs=4`). Document it as "for DAWs that only open raw MIDI devices (Bitwig)". |
 | Port names as NI's driver (`Maschine MK2 In`, `Maschine Jam - 1 Input`) | Keep. Hosts with NI discovery pairs find them. |
-| Plan §7a (real Shift, Page left/right on the Mk2) | Would only work with dbm-nihost. If it comes, make it an option that is off by default. |
+| Plan §7a (Page left/right on the Mk2) | Would only work with dbm-nihost. If it comes, make it an option that is off by default, or negotiate it as the Shift button (row above). |
 
 ### 2.5 Build, install, packaging, CI
 
