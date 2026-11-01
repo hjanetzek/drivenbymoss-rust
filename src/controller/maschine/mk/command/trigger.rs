@@ -19,6 +19,7 @@ use crate::framework::commands::mode::{ModeMultiSelectCommand, ModeSelectCommand
 use crate::framework::commands::mv_helper::notify_selected_device;
 use crate::framework::commands::transport::MetronomeCommand;
 use crate::framework::commands::transport_ext::{StopCommand, TapTempoCommand};
+use crate::config::maschine::MaschineConfiguration;
 use crate::framework::commands::view::ToggleShiftViewCommand;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, Modes, Views};
@@ -122,14 +123,19 @@ impl TriggerCommand for MaschineStopCommand {
 
 /// Toggles the Shift view (former `MaschineToggleShiftViewCommand`): the knob sensitivity is
 /// not changed on the Mk3.
-#[derive(Default)]
 pub struct MaschineToggleShiftViewCommand {
     inner: ToggleShiftViewCommand,
 }
 
+impl Default for MaschineToggleShiftViewCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MaschineToggleShiftViewCommand {
     pub fn new() -> Self {
-        Self::default()
+        MaschineToggleShiftViewCommand { inner: ToggleShiftViewCommand::with_hold_setting(MaschineConfiguration::SHIFT_VIEW_WHILE_HELD) }
     }
 }
 

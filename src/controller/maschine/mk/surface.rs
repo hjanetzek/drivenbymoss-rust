@@ -122,10 +122,6 @@ pub const MONITOR_ENCODER: i32 = 10;
 pub const NAVIGATE_BACK: i32 = 11;
 pub const METRO: i32 = 14;
 
-/// The longest press of Shift which keeps the Shift view open (a tap). A longer press, or one
-/// combined with another button, closes it on release (not in the Java version).
-pub const SHIFT_TAP_TIME: std::time::Duration = std::time::Duration::from_millis(250);
-
 /// The Maschine specific state of a controller instance (stored in [`Ctx::ext`]).
 pub struct MaschineExt {
     pub maschine: Maschine,
@@ -140,9 +136,6 @@ pub struct MaschineExt {
     /// The stop function should not be called on button release (former
     /// `MaschineStopCommand.consumed`).
     pub stop_consumed: bool,
-    /// When the Shift button was pressed and the button press count at that time (see
-    /// [`SHIFT_TAP_TIME`]).
-    pub shift_down: Option<(std::time::Instant, u64)>,
     /// The main encoder controls the last touched parameter (former
     /// `MainKnobRowModeCommand.controlLastParamActive`).
     pub control_last_param_active: bool,
@@ -158,7 +151,6 @@ impl MaschineExt {
             surface_ribbon_value: -1,
             ribbon_value: 0,
             stop_consumed: false,
-            shift_down: None,
             control_last_param_active: false,
             button_labels: String::new(),
         }

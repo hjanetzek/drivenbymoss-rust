@@ -147,13 +147,21 @@ Without the answer (NI's driver ignores the query) nothing changes. Tested in
 `tests/maschine_mk2_setup.rs` (`shift_from_dbm_nihost`, `shift_stays_emulated_without_the_announcement`).
 Also on Reaper (the same core).
 
-**Maschine Shift view only after a tap (not in the Java version).** With a Shift button (the Mk2
-with dbm-nihost, the Mk3), Shift down opens the Shift view as in Java. Java keeps it open on
+**Maschine Shift view only after a tap (not in the Java version).** Mk2 (with dbm-nihost) and
+JAM (`install_shift_tap` in `framework/commands/view.rs`). With a Shift button (the Mk2 with
+dbm-nihost, the Mk3), Shift down opens the Shift view as in Java. Java keeps it open on
 release unless a pad of the Shift view was used, also after a long press or a combination with
 another button (Shift + PAD MODE then leaves the Shift view on). The Rust version keeps it open
 only after a tap: shorter than 250 ms (`SHIFT_TAP_TIME`) and no other button pressed in between;
 otherwise the release closes it, also when a combination consumed Shift. Tested in
-`shift_view_stays_open_only_after_a_tap`. Asked for by the user (2026-11-01). On the Mk2, PAD
+`shift_view_stays_open_only_after_a_tap`. Asked for by the user (2026-11-01). On the JAM all
+views are session alternatives (Shift + pad are the alternative clip and scene functions), so
+as in Java the Shift view opens only on the release of Shift; the tap rule applies there too
+(Shift + arrow no longer opens it). The setting "Shift Pads While Holding Shift" (Workflow)
+decides whether the Shift view is shown while Shift is held: on by default on the Mk2 (as in
+Java), off on the JAM (as in Java; on replaces the alternative functions of Shift + pad); when
+off, a tap of Shift opens it (`shift_view_hold_setting_off`,
+`shift_view_after_a_tap_and_the_hold_setting`). On the Mk2, PAD
 MODE alone closes the settings opened with Shift + PAD MODE (play options in the drum view,
 scales in the play view) instead of switching to the next view; Java switches the view and
 leaves them open (`pad_mode_closes_the_pad_mode_settings`).

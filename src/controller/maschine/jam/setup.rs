@@ -27,6 +27,7 @@ use super::view::session_view::SessionView;
 use super::view::shift_view::ShiftView;
 use super::view::utility_views::{BrowserView, NumberView};
 use crate::backend::Sender;
+use crate::config::maschine_jam::MaschineJamConfiguration;
 use crate::config::values::REAPER_ARP_MODES;
 use crate::config::{Configuration, SettingId};
 use crate::controller::maschine::core::colors::{self as colors, create_color_manager};
@@ -44,7 +45,7 @@ use crate::framework::color::{BUTTON_STATE_HI, BUTTON_STATE_ON};
 use crate::framework::command::{shared, FnTrigger, SharedTrigger};
 use crate::framework::commands::misc::FootswitchCommand;
 use crate::framework::commands::mode::KnobRowModeCommand;
-use crate::framework::commands::view::{ToggleShiftViewCommand, ViewMultiSelectCommand};
+use crate::framework::commands::view::{install_shift_tap, ToggleShiftViewCommand, ViewMultiSelectCommand};
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use crate::framework::surface::{ContinuousKind, Surface};
@@ -85,7 +86,7 @@ pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Confi
 
 /// Create the configuration with all settings of the Maschine JAM.
 pub fn create_configuration() -> Configuration {
-    crate::config::maschine_jam::MaschineJamConfiguration::for_reaper().into_base()
+    MaschineJamConfiguration::for_reaper().into_base()
 }
 
 /// The Maschine JAM controller setup.
@@ -352,7 +353,8 @@ fn add_button(ctx: &mut Ctx, id: ButtonId, label: &str, command: Option<SharedTr
 
 /// Register the commands of all buttons (former `registerTriggerCommands`).
 pub fn register_trigger_commands(ctx: &mut Ctx) {
-    add_button(ctx, ButtonId::Shift, "SHIFT", Some(shared(ToggleShiftViewCommand::new())), -1, None);
+    add_button(ctx, ButtonId::Shift, "SHIFT", Some(shared(ToggleShiftViewCommand::with_hold_setting(MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD))), -1, None);
+    install_shift_tap(ctx);
     add_button(ctx, ButtonId::Select, "SELECT", Some(shared(MaschineJamSelectCommand)), jam::SELECT, None);
     add_button(ctx, ButtonId::Delete, "CLEAR", None, jam::CLEAR, None);
     add_button(ctx, ButtonId::Duplicate, "DUPLICATE", Some(shared(MaschineJamDoubleCommand::new())), jam::DUPLICATE, None);

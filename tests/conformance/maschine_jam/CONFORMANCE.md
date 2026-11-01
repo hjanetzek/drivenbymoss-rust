@@ -39,6 +39,7 @@ None.
 | Area | Java | Rust | Why |
 | --- | --- | --- | --- |
 | Session: the pad of the selected clip | blinks | blinks | emulated blinking (about 600 ms): the last value depends on the phase |
+| Session: Shift + arrow (`jam.session.scroll`) | the release of Shift opens the Shift view | stays in the session view | the Shift view stays open only after a tap of Shift (BITWIG_DIVERGENCES.md); the recording of `session` was edited by hand: the Shift view LEDs of the last tick removed (2026-11-01, re-record to replace) |
 
 ## Possible Java bugs (to decide later)
 

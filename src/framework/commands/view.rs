@@ -4,8 +4,12 @@
 
 //! View commands (former `framework.command.trigger.view`).
 
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
+use crate::config::setting::SettingId;
 use crate::daw::bank::BankItem;
 use crate::framework::command::TriggerCommand;
 use crate::framework::ctx::Ctx;
@@ -124,16 +128,28 @@ impl TriggerCommand for SelectPlayViewCommand {
     }
 }
 
+/// The longest press of Shift which keeps the Shift view open (a tap), see [`install_shift_tap`].
+pub const SHIFT_TAP_TIME: Duration = Duration::from_millis(250);
+
 /// Toggles the Shift view (former `ToggleShiftViewCommand`).
 #[derive(Default)]
-pub struct ToggleShiftViewCommand;
+pub struct ToggleShiftViewCommand {
+    /// The On/Off setting whether the Shift view is shown while Shift is held (not in the Java
+    /// version, which always shows it); none to always show it.
+    hold_setting: Option<SettingId>,
+}
 
 impl ToggleShiftViewCommand {
     pub fn new() -> Self {
-        ToggleShiftViewCommand
+        ToggleShiftViewCommand { hold_setting: None }
     }
 
-    fn handle_on_down(ctx: &mut Ctx) {
+    /// The command with the setting whether the Shift view is shown while Shift is held.
+    pub fn with_hold_setting(hold_setting: SettingId) -> Self {
+        ToggleShiftViewCommand { hold_setting: Some(hold_setting) }
+    }
+
+    fn handle_on_down(&self, ctx: &mut Ctx) {
         if ctx.views.is_active(Views::Shift) {
             ctx.restore_view();
             ctx.surface.set_trigger_consumed(ButtonId::Shift);
@@ -142,8 +158,8 @@ impl ToggleShiftViewCommand {
         }
 
         // Do not trigger SHIFT view on button down if the active view is a session view since we
-        // need this for the alternate clip/scene commands!
-        if !is_session_alternative(ctx) {
+        // need this for the alternate clip/scene commands! The setting decides if there is one.
+        if shows_shift_view_while_held(ctx, self.hold_setting) {
             ctx.set_temporary_view(Views::Shift);
         }
     }
@@ -156,7 +172,7 @@ impl ToggleShiftViewCommand {
             return;
         }
 
-        if is_session_alternative(ctx) {
+        if is_session_alternative(ctx) && !ctx.views.is_active(Views::Shift) {
             if was_alternate_interaction_used(ctx) {
                 set_alternate_interaction_used(ctx, false);
             } else {
@@ -174,7 +190,7 @@ impl TriggerCommand for ToggleShiftViewCommand {
         match event {
             ButtonEvent::Down => {
                 ctx.surface.set_knob_sensitivity_is_slow(true);
-                Self::handle_on_down(ctx);
+                self.handle_on_down(ctx);
             }
             ButtonEvent::Long => {}
             ButtonEvent::Up => {
@@ -183,6 +199,59 @@ impl TriggerCommand for ToggleShiftViewCommand {
             }
         }
     }
+}
+
+/// Is the Shift view shown while Shift is held? The On/Off setting if there is one, otherwise
+/// not for a session alternative (former behaviour).
+fn shows_shift_view_while_held(ctx: &Ctx, hold_setting: Option<SettingId>) -> bool {
+    match hold_setting {
+        Some(id) if ctx.config.is_setting_active(id) => ctx.config.custom_bool(id),
+        _ => !is_session_alternative(ctx),
+    }
+}
+
+/// The Shift view stays open only after a tap of Shift (not in the Java version, which also
+/// keeps it open when Shift was held long or combined with a button): shorter than
+/// [`SHIFT_TAP_TIME`] and no other button pressed in between. Otherwise the release closes it,
+/// also when a combination consumed Shift (the handlers get the release of a consumed button).
+/// If the Shift view is not shown while Shift is held (the setting of
+/// [`ToggleShiftViewCommand::with_hold_setting`]), a tap opens it on release. Call after the
+/// Shift button with [`ToggleShiftViewCommand`] was added.
+pub fn install_shift_tap(ctx: &mut Ctx) {
+    // When Shift was pressed, the button press count at that time and whether the press closed
+    // the Shift view
+    let shift_down: Rc<Cell<Option<(Instant, u64, bool)>>> = Rc::new(Cell::new(None));
+    let down = shift_down.clone();
+    ctx.surface.add_button_event_handler(
+        ButtonId::Shift,
+        ButtonEvent::Down,
+        Rc::new(move |ctx: &mut Ctx, _| {
+            let has_closed = ctx.surface.is_trigger_consumed(ButtonId::Shift);
+            down.set(Some((ctx.host.now(), ctx.surface.button_press_count(), has_closed)));
+        }),
+    );
+    ctx.surface.add_button_event_handler(
+        ButtonId::Shift,
+        ButtonEvent::Up,
+        Rc::new(move |ctx: &mut Ctx, _| {
+            let Some((time, count, has_closed)) = shift_down.take() else {
+                return;
+            };
+            if has_closed {
+                return;
+            }
+            let is_tap = ctx.host.now().duration_since(time) < SHIFT_TAP_TIME && ctx.surface.button_press_count() == count;
+            let is_active = ctx.views.is_active(Views::Shift);
+            if !is_tap {
+                if is_active {
+                    ctx.restore_view();
+                }
+            } else if !is_active && !is_session_alternative(ctx) {
+                // Not shown while held (a session alternative opens it itself on release)
+                ctx.set_temporary_view(Views::Shift);
+            }
+        }),
+    );
 }
 
 /// Is the active view a session alternative (former `instanceof ISessionAlternative`)?

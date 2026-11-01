@@ -305,6 +305,23 @@ fn shift_view_stays_open_only_after_a_tap() {
     assert_ne!(ctx(&mut app).views.active_id(), Some(Views::Shift));
 }
 
+/// With the setting off, holding Shift does not show the Shift view, a tap does.
+#[test]
+fn shift_view_hold_setting_off() {
+    let (mut app, _backend) = start();
+    app.on_midi_event(IN, &HOST_SENDS_SHIFT);
+    ctx(&mut app).config.set_value(MaschineConfiguration::SHIFT_VIEW_WHILE_HELD, "Off");
+
+    app.on_midi_event(IN, &shift_sysex(true));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    assert!(ctx(&mut app).surface.is_shift_pressed());
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    app.on_midi_event(IN, &shift_sysex(true));
+    app.on_midi_event(IN, &shift_sysex(false));
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+}
+
 /// PAD MODE closes the settings opened with Shift + PAD MODE (not in the Java version).
 #[test]
 fn pad_mode_closes_the_pad_mode_settings() {

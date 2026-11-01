@@ -7,9 +7,9 @@
 
 use std::ops::{Deref, DerefMut};
 
-use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_PLAY_AND_SEQUENCE};
+use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_PLAY_AND_SEQUENCE, CATEGORY_WORKFLOW};
 use super::setting::{Scope, SettingId};
-use super::values::ArpeggiatorMode;
+use super::values::{to_options, ArpeggiatorMode, ON_OFF_OPTIONS};
 use crate::controller::maschine::core::maschine::Maschine;
 use crate::controller::maschine::core::ribbon_mode::RibbonMode;
 use crate::framework::ids::Views;
@@ -27,6 +27,9 @@ pub struct MaschineConfiguration {
 impl MaschineConfiguration {
     /// Setting for the mode of the touch strip (ribbon).
     pub const RIBBON_MODE: SettingId = SettingId::NEXT_SETTING_ID;
+    /// Setting whether the Shift view (the Shift functions on the pads) is shown while Shift is
+    /// held; otherwise only a tap of Shift shows it (not in the Java version).
+    pub const SHIFT_VIEW_WHILE_HELD: SettingId = SettingId::NEXT_SETTING_ID.offset(1);
 
     /// Create the configuration and activate all settings (the former `init`).
     pub fn new(maschine: Maschine, arpeggiator_modes: &[ArpeggiatorMode], note_repeat: NoteRepeatCapabilities) -> Self {
@@ -70,6 +73,7 @@ impl MaschineConfiguration {
         base.activate_exclude_deactivated_items_setting(global);
         base.activate_new_clip_length_setting(global);
         base.activate_knob_speed_setting(global, 100, 60, false);
+        base.activate_enum_setting(Self::SHIFT_VIEW_WHILE_HELD, global, CATEGORY_WORKFLOW, "Shift Pads While Holding Shift", to_options(&ON_OFF_OPTIONS), ON_OFF_OPTIONS[1], false);
 
         let footswitches = maschine.footswitches();
         if footswitches >= 2 {

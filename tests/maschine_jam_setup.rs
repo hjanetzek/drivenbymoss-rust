@@ -330,3 +330,43 @@ fn chords_sharing_notes_keep_them_until_both_are_released() {
     app.on_midi_event(IN, &[0x90, 36, 0]);
     assert_eq!(notes(&backend.take_calls()), vec![(40, 0), (43, 0)]);
 }
+
+/// The Shift view stays open only after a tap of Shift (not in the Java version). As in Java the
+/// JAM does not show it while Shift is held (Shift + pad are the alternative functions), unless
+/// the setting is on.
+#[test]
+fn shift_view_after_a_tap_and_the_hold_setting() {
+    let (mut app, _backend) = start();
+    let view = ctx(&mut app).views.active_id();
+
+    // A tap opens the Shift view on release, the next press closes it
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    assert_eq!(ctx(&mut app).views.active_id(), view);
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), view);
+
+    // Held longer than the tap time
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    std::thread::sleep(Duration::from_millis(300));
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), view);
+
+    // Combined with a button (Shift + arrow right: scroll by 1)
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    press(&mut app, jam::NAV_RIGHT as u8);
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), view);
+
+    // Setting on: the Shift view is shown while held, a tap keeps it
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD, "On");
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    app.on_midi_event(IN, &SHIFT_UP);
+    assert_eq!(ctx(&mut app).views.active_id(), view);
+}

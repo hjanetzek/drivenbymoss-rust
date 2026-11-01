@@ -23,6 +23,22 @@ match = "leds B0 4[01]"
 reason = "The VU meter of the master (strip left and right): audio levels"
 
 [[known_difference]]
+match = "leds 90 5[EF]"
+reason = "Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)"
+
+[[known_difference]]
+match = "leds 90 6[0123]"
+reason = "Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)"
+
+[[known_difference]]
+match = "leds B0 1E"
+reason = "Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)"
+
+[[known_difference]]
+match = "leds B0 2[BC]"
+reason = "Shift + arrow (jam.session.scroll, the last scenario): Java opens the Shift view on the release of Shift, Rust only after a tap of Shift (BITWIG_DIVERGENCES.md, Shift view only after a tap)"
+
+[[known_difference]]
 match = "leds 90 5[CD]"
 reason = "The selected clip blinks (emulated, about 600 ms) between its color and the selected color: the final value depends on the phase"
 

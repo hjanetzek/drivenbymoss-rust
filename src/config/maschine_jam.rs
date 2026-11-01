@@ -53,6 +53,10 @@ pub struct MaschineJamConfiguration {
 impl MaschineJamConfiguration {
     /// Setting to change the fader values slowly.
     pub const SLOW_FADER_CHANGE: SettingId = SettingId::NEXT_SETTING_ID;
+    /// Setting whether the Shift view (the Shift functions on the pads) is shown while Shift is
+    /// held, instead of the alternative clip and scene functions of Shift + pad; otherwise only a
+    /// tap of Shift shows it (not in the Java version, which does not show it while held).
+    pub const SHIFT_VIEW_WHILE_HELD: SettingId = SettingId::NEXT_SETTING_ID.offset(1);
 
     /// Create the configuration and activate all settings (the former `init`).
     pub fn new(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: NoteRepeatCapabilities, has_drum_device: bool) -> Self {
@@ -102,6 +106,7 @@ impl MaschineJamConfiguration {
         base.activate_startup_mode_setting(global, &STARTUP_MODES);
         base.activate_new_clip_length_setting(global);
         base.activate_knob_speed_setting(global, 100, 60, false);
+        base.activate_enum_setting(Self::SHIFT_VIEW_WHILE_HELD, global, CATEGORY_WORKFLOW, "Shift Pads While Holding Shift", to_options(&ON_OFF_OPTIONS), ON_OFF_OPTIONS[0], false);
         base.activate_footswitch_setting(global, 0, "Footswitch (Tip)", None);
         base.activate_footswitch_setting(global, 1, "Footswitch (Ring)", None);
 
