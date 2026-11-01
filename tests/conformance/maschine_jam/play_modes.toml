@@ -11,6 +11,8 @@ settle_ms = 400
 # System exclusive LEDs per message type (header up to the command byte): the strip
 # configuration carries the colors of all 8 strips
 sysex_key_bytes = 11
+# The LED state starts with the startup output (the full redraw of the Java version is not complete)
+keep_startup_output = true
 
 require = { "/track/1/name" = "Synth", "/track/1/playingNotes" = "" }
 

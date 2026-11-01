@@ -68,7 +68,10 @@ if none are given). Implemented as below; Bitwig's readiness is
 ## Running by an agent
 
 Once the profiles exist, a subagent may run the conformance tests with this script (and only
-with it): it starts and kills its own Bitwig. The brief:
+with it): it starts and kills its own Bitwig. Drafts for Claude Code: the subagent
+`.claude/agents/conformance-runner.md` (the rules and the report) and the skill
+`.claude/skills/conformance-run/SKILL.md` (preconditions, installing, judging results, replays).
+The brief:
 
 - The user's Bitwig must not run; if it does, stop and report, do not kill it.
 - Run `rust/backends/bitwig/tools/conformance_all.sh <setups>` in the background (a setup takes
@@ -94,3 +97,8 @@ with it): it starts and kills its own Bitwig. The brief:
   (`HwLightImpl.forceFlush` turns a light off and restores it 100 ms later; Bitwig sends only
   changes, so LEDs which are off are not sent). The runner now starts the LED state with the
   startup output of the restarted controller (`restart_controller` returns it).
+- Run with clean profiles (all three setups): the startup output broke the Mk2 (Rust's host query
+  to dbm-nihost) and the Launch Control XL (Java's LEDs on channel 16 before the template select),
+  0 of 27 the same each. Keeping the startup output is now an option of the scenario file
+  (`keep_startup_output = true`, only the JAM files). The JAM session started with the transport
+  still playing from the Java run: the runner now sends `/play 0` after the new project.

@@ -298,15 +298,21 @@ def record(args, listener=None):
             # A new project does not always get the audio engine; without it Bitwig does not
             # monitor, the pads of a play mode play nothing
             send_osc("/project/engine 1")
+            # The transport keeps playing in the new project (e.g. after the run of the other
+            # version)
+            send_osc("/play 0")
             time.sleep(1.0)
         marker(1)
         time.sleep(1.0)
-        # The LED state starts with the startup output of the restarted controller (all LEDs): the
-        # full redraw of the setup is not complete in the Java version on Bitwig
-        # (HwLightImpl.forceFlush turns a light off and restores it 100 ms later, Bitwig sends
-        # only changes), so it would miss the LEDs which are off
+        # With keep_startup_output the LED state starts with the startup output of the restarted
+        # controller (all LEDs): the full redraw of the setup is not complete in the Java version
+        # on Bitwig (HwLightImpl.forceFlush turns a light off and restores it 100 ms later, Bitwig
+        # sends only changes), so it would miss the LEDs which are off (Maschine JAM). Otherwise
+        # the output before the setup is dropped: it also holds messages which are no LED state
+        # (e.g. the LEDs of another template)
         startup += port.take()
-        led_state(startup, leds, sysex_key_bytes)
+        if config.get("keep_startup_output", False):
+            led_state(startup, leds, sysex_key_bytes)
         # Bring the controller into a known state, e.g. a full redraw of the LEDs
         for step in config.get("setup", []):
             run_step(port, step, settle)
