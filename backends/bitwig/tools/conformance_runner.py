@@ -15,6 +15,7 @@
 # notes) and, optionally, the probe of the Rust extension (UDP 9100).
 #
 #   conformance_runner.py ports
+#   conformance_runner.py wait [--timeout 120] [--port "VirMIDI 5-2"]...
 #   conformance_runner.py record SCENARIOS.toml --label java|rust --port "VirMIDI 5-2" [--out DIR]
 #   conformance_runner.py compare ORACLE.json PORT.json
 #   conformance_runner.py pair SCENARIOS.toml... --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-3"
@@ -484,6 +485,31 @@ def pair(args):
     return 1 if failures else 0
 
 
+def wait_ready(args):
+    """Wait until Bitwig is ready: the OSC controller answers /refresh (port 8000) on port 9000 and
+    the MIDI ports of the controllers exist."""
+    import rtmidi
+
+    deadline = time.monotonic() + args.timeout
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", OSC_PORT))
+        sock.settimeout(1.0)
+        while time.monotonic() < deadline:
+            sock.sendto(build_message("/refresh", []), ("127.0.0.1", 8000))
+            try:
+                sock.recvfrom(65536)
+            except TimeoutError:
+                continue
+            ports = rtmidi.MidiOut().get_ports()
+            missing = [name for name in args.port if not any(name in port for port in ports)]
+            if not missing:
+                print("Bitwig is ready")
+                return 0
+            time.sleep(1.0)
+    print(f"Bitwig is not ready after {args.timeout} s", file=sys.stderr)
+    return 1
+
+
 def list_ports(_args):
     import rtmidi
 
@@ -496,6 +522,10 @@ def main():
     parser = argparse.ArgumentParser(description="Conformance scenario runner")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ports", help="list the MIDI ports").set_defaults(func=list_ports)
+    wait = commands.add_parser("wait", help="wait until Bitwig answers on OSC and has the MIDI ports")
+    wait.add_argument("--timeout", type=float, default=120)
+    wait.add_argument("--port", action="append", default=[], help="a MIDI port which must exist (repeatable)")
+    wait.set_defaults(func=wait_ready)
     rec = commands.add_parser("record", help="run the scenarios and write a trace")
     rec.add_argument("scenarios")
     rec.add_argument("--label", required=True, help="java or rust")
