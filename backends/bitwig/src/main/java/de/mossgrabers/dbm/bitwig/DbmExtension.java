@@ -187,7 +187,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         // The settings in Bitwig's UI; Bitwig keeps their values (the document settings in the
         // project), they replace the values the core loaded
         this.settings = new HostSettings (host, this.core.getSettings (), (id, value) -> {
-            this.record ("setting", id.toString (), value);
+            if (this.recorder != null)
+                this.recorder.setting (id.toString (), value);
             this.core.setSetting (id.intValue (), value);
         });
         this.core.takeSettingChanges ();

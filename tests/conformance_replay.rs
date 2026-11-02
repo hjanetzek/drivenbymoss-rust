@@ -166,8 +166,20 @@ fn replay(path: &Path) -> Vec<String> {
     let dir = std::env::temp_dir().join(format!("dbm-replay-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
+    // The files which settings name (the mapping of Generic Flexi), as they were when the controller
+    // started: copies in the folder of the replay, which replace the recorded paths
+    let mut files: Vec<(String, String)> = Vec::new();
+    for (index, event) in events.iter().filter(|e| e.kind == "file").enumerate() {
+        let original = event.fields[0].clone();
+        let name = Path::new(&original).file_name().map_or_else(|| "file".to_string(), |n| n.to_string_lossy().to_string());
+        let copy = dir.join(format!("{index}-{name}"));
+        std::fs::write(&copy, event.fields.get(1).map_or("", String::as_str)).unwrap();
+        files.push((original, copy.to_string_lossy().to_string()));
+    }
+    let replace_paths = |text: &str| files.iter().fold(text.to_string(), |text, (original, copy)| text.replace(original.as_str(), copy))
+        .to_string();
     for event in events.iter().filter(|e| e.kind == "config") {
-        std::fs::write(dir.join(&event.fields[0]), event.fields.get(1).map_or("", String::as_str)).unwrap();
+        std::fs::write(dir.join(&event.fields[0]), replace_paths(event.fields.get(1).map_or("", String::as_str))).unwrap();
     }
 
     let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
@@ -222,7 +234,7 @@ fn replay(path: &Path) -> Vec<String> {
         last_input = format!("{} at {} ms", event.kind, event.time);
         match event.kind.as_str() {
             "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),
-            "setting" => app.set_setting(event.fields[0].parse().unwrap_or(-1), event.fields.get(1).map_or("", String::as_str)),
+            "setting" => app.set_setting(event.fields[0].parse().unwrap_or(-1), &replace_paths(event.fields.get(1).map_or("", String::as_str))),
             "start" => app.start_infrastructure(),
             "model" => app.update_model(&event.fields[0]),
             "tick" => app.tick(),

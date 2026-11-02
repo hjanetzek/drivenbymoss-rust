@@ -90,19 +90,15 @@ steps = [
 id = "flexi.slot.absolute-toggle"
 bullet = "Knob Mode: Absolute (toggle button: 1st press > 0, 2nd press = 0)."
 before = [{ osc = "/track/5/mute 0" }]
-steps = [
-  { midi = "B0 4B 7F", note = "1st press" },
-  { midi = "B0 4B 00", note = "release (the button sends 0)" },
-]
+# A toggle button sends one message per press and none on release: every message is a press
+# (AbstractHandler.isButtonPressed), "Set Mute" takes its value
+steps = [{ midi = "B0 4B 7F", note = "1st press" }]
 expect.bitwig = { "/track/5/mute" = "1" }
 
 [[scenario]]
 id = "flexi.slot.absolute-toggle-second"
 bullet = "Knob Mode: Absolute (toggle button: 1st press > 0, 2nd press = 0)."
-steps = [
-  { midi = "B0 4B 7F", note = "2nd press" },
-  { midi = "B0 4B 00" },
-]
+steps = [{ midi = "B0 4B 00", note = "2nd press" }]
 expect.bitwig = { "/track/5/mute" = "0" }
 
 [[scenario]]

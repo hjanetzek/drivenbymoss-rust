@@ -108,15 +108,21 @@ steps = [
 ]
 expect.bitwig = { "/track/2/mute" = "1", "/track/2/solo" = "1", "/track/2/recarm" = "1" }
 
+# Monitor and auto monitor are one setting in Bitwig (the monitor mode): switching on one
+# switches off the other, so they are separate scenarios
 [[scenario]]
 id = "flexi.track.monitor"
-bullet = "Track N: Toggle Monitor, Toggle Auto Monitor"
+bullet = "Track N: Toggle Monitor"
 before = [{ osc = "/track/2/mute 0 | /track/2/solo 0 | /track/2/recarm 0 | /track/2/monitor 0 | /track/2/autoMonitor 0" }]
-steps = [
-  { midi = "B0 54 7F | B0 54 00", note = "monitor" },
-  { midi = "B0 55 7F | B0 55 00", note = "auto monitor" },
-]
-expect.bitwig = { "/track/2/monitor" = "1", "/track/2/autoMonitor" = "1" }
+steps = [{ midi = "B0 54 7F | B0 54 00", note = "monitor" }]
+expect.bitwig = { "/track/2/monitor" = "1" }
+
+[[scenario]]
+id = "flexi.track.auto-monitor"
+bullet = "Track N: Toggle Auto Monitor"
+before = [{ osc = "/track/2/monitor 0 | /track/2/autoMonitor 0" }]
+steps = [{ midi = "B0 55 7F | B0 55 00", note = "auto monitor" }]
+expect.bitwig = { "/track/2/autoMonitor" = "1" }
 
 [[scenario]]
 id = "flexi.track.knobs"
@@ -173,9 +179,8 @@ expect.bitwig = { "/track/5/activated" = "0" }
 id = "flexi.track.trackbank"
 bullet = "Track: ... The function Toggle trackbank allows to switch between the Instrument/Audio track bank and the Effect track bank."
 before = [{ osc = "/track/5/activated 1" }]
-steps = [
-  { midi = "B0 4C 7F | B0 4C 00", note = "toggle to the effect track bank" },
-  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
-]
+# The Java version selects the first effect track when it switches the bank (in the first run
+# 2026-11-02 "Track 1: Select" afterwards selected Synth again in Java, so it is left out)
+steps = [{ midi = "B0 4C 7F | B0 4C 00", note = "toggle to the effect track bank" }]
 # The last scenario: the bank of the controller stays the effect track bank until the restart
 expect.bitwig = { "/track/selected/name" = "FX 1" }

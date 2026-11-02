@@ -648,8 +648,13 @@ def pair(args):
             print(f"--- {Path(scenarios).stem}: {label} on {port}")
             result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project, restart=args.restart, flexi_mapping=args.flexi_mapping), listener)
             if result == 2:
-                return result
+                # Not ready (fixture, controller): the other scenario files may still run
+                print(f"--- {Path(scenarios).stem}: SKIPPED, {label} not ready")
+                break
             paths.append(Path(args.out) / (run_name(config, scenarios) + f"-{label}.json"))
+        if len(paths) < 2:
+            failures += 1
+            continue
         print(f"--- {Path(scenarios).stem}: compare")
         failures += compare(types.SimpleNamespace(oracle=paths[0], port=paths[1], ignore=args.ignore))
     return 1 if failures else 0

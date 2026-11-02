@@ -30,7 +30,9 @@ import java.util.stream.Stream;
  * <p>
  * Format: one event per line, "&lt;ms&gt;\t&lt;kind&gt;\t&lt;field&gt;...", fields with "\\", "\n" and
  * "\t" escaped. Kinds: init (core ID, application version), config (file name, content),
- * documentSettings (older recordings), setting (ID, value from Bitwig), start, model (lines),
+ * documentSettings (older recordings), setting (ID, value from Bitwig), file (path, content: a
+ * properties file which a setting names, e.g. the mapping of Generic Flexi, recorded before the
+ * setting so that a replay has it), start, model (lines),
  * tick, in, out (hex bytes), noArg, string, int, double
  * (processor, command, value), strings (processor, command, values...), delay, enable
  * (processor, 0/1), filters, keys, velocities (note input, values...), mark (begin/end, name).
@@ -115,6 +117,33 @@ final class ProtocolRecorder
         {
             this.event ("error", "Could not read the configuration: " + ex.getMessage ());
         }
+    }
+
+
+    /**
+     * Record a setting from Bitwig. If its value is the path of a properties file (the mapping file
+     * of Generic Flexi), the content of the file is recorded first: the replay uses it in place of
+     * the file, which the next scenario file of the runner overwrites.
+     *
+     * @param id The ID of the setting
+     * @param value The value
+     */
+    void setting (final String id, final String value)
+    {
+        if (value.endsWith (".properties"))
+        {
+            try
+            {
+                final Path path = Path.of (value);
+                if (Files.isRegularFile (path))
+                    this.event ("file", value, Files.readString (path, StandardCharsets.UTF_8));
+            }
+            catch (final IOException | java.nio.file.InvalidPathException ex)
+            {
+                this.event ("error", "Could not read " + value + ": " + ex.getMessage ());
+            }
+        }
+        this.event ("setting", id, value);
     }
 
 
