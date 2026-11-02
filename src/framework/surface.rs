@@ -171,6 +171,9 @@ pub struct Surface {
     /// The button which acts as the Shift button (e.g. the Maschine Mk2 uses Stop), see
     /// [`Surface::is_shift_pressed`].
     pub shift_button: ButtonId,
+    /// The buttons which are pressed on the other surfaces of the instance, if they share their
+    /// button states (see [`crate::framework::ctx::Ctx::share_button_states`]).
+    pub(crate) pressed_on_other_surfaces: std::collections::BTreeSet<ButtonId>,
 }
 
 impl Surface {
@@ -190,6 +193,7 @@ impl Surface {
             last_notification: None,
             button_press_count: 0,
             shift_button: ButtonId::Shift,
+            pressed_on_other_surfaces: std::collections::BTreeSet::new(),
         }
     }
 
@@ -315,7 +319,7 @@ impl Surface {
     }
 
     pub fn is_pressed(&self, id: ButtonId) -> bool {
-        self.buttons.get(&id).is_some_and(|b| b.is_pressed())
+        self.buttons.get(&id).is_some_and(|b| b.is_pressed()) || self.pressed_on_other_surfaces.contains(&id)
     }
 
     pub fn is_long_pressed(&self, id: ButtonId) -> bool {

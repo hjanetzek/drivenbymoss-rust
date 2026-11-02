@@ -54,12 +54,15 @@ pub struct Ctx {
     pub notify_view_change: bool,
     /// When the notification on the text display ends: checked against the time, not by counting
     /// the watch intervals, since the scheduled tasks only run with the ticks
-    notification_end: Option<Instant>,
+    pub(crate) notification_end: Option<Instant>,
     /// Controller specific state, use [`Ctx::ext`] to access it.
     pub ext: Box<dyn Any>,
     /// The text display of the controller, if any. Notifications are shown on it instead of
     /// the host.
     pub text_display: Option<super::display::TextDisplay>,
+    /// The other surfaces of an instance with several surfaces (e.g. MCU extenders), see
+    /// [`super::multi_surface`].
+    pub surfaces: super::multi_surface::SurfaceSet,
 }
 
 impl Ctx {
@@ -81,6 +84,7 @@ impl Ctx {
             notification_end: None,
             ext: Box::new(()),
             text_display: None,
+            surfaces: super::multi_surface::SurfaceSet::default(),
         }
     }
 
@@ -112,6 +116,11 @@ impl Ctx {
 
     /// Execute a task after the given delay in milliseconds.
     pub fn schedule(&mut self, delay_ms: u64, task: impl FnOnce(&mut Ctx) + 'static) {
+        // With several surfaces the task runs with the surface which is current now
+        if let Some(index) = self.surfaces.task_surface() {
+            self.scheduler.schedule(self.host.now(), delay_ms, move |ctx: &mut Ctx| ctx.with_surface(index, task));
+            return;
+        }
         self.scheduler.schedule(self.host.now(), delay_ms, task);
     }
 

@@ -46,6 +46,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     private static final boolean             RESTARTABLE        = System.getenv ("DBM_OSC_CONFORMANCE") != null && !System.getenv ("DBM_OSC_CONFORMANCE").isBlank ();
 
     private final DbmExtensionDefinition     definition;
+    /** The note inputs by port and index, see {@link #noteInputKey(int, int)}. */
     private final Map<Integer, NoteInput>    noteInputs         = new HashMap<> ();
     private final Set<String>                unhandledCommands  = new TreeSet<> ();
     private final ModelReporter              reporter           = new ModelReporter ();
@@ -53,8 +54,9 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     private BitwigModel                      model;
     private CommandHandler                   commands;
     private HostSettings                     settings;
-    private MidiIn                           midiIn;
-    private MidiOut                          midiOut;
+    /** The MIDI ports, one pair per surface of the controller (e.g. MCU extenders). */
+    private MidiIn []                        midiIns            = new MidiIn [0];
+    private MidiOut []                       midiOuts           = new MidiOut [0];
     private boolean                          isInitializing;
     private boolean                          isRunning;
 
@@ -150,15 +152,24 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             this.println ("Recording the protocol to " + this.recorder.getFile ());
         }
 
-        this.midiIn = host.getMidiInPort (0);
-        this.midiOut = host.getMidiOutPort (0);
-        this.midiIn.setMidiCallback ( (status, data1, data2) -> this.receiveMidi (new byte []
+        // One device ID per port: the index of the port (several for e.g. MCU extenders)
+        this.midiIns = new MidiIn [this.definition.getNumMidiInPorts ()];
+        this.midiOuts = new MidiOut [this.definition.getNumMidiOutPorts ()];
+        for (int i = 0; i < this.midiOuts.length; i++)
+            this.midiOuts[i] = host.getMidiOutPort (i);
+        for (int i = 0; i < this.midiIns.length; i++)
         {
-            (byte) status,
-            (byte) data1,
-            (byte) data2
-        }));
-        this.midiIn.setSysexCallback (data -> this.receiveMidi (HexFormat.of ().parseHex (data)));
+            final int port = i;
+            final MidiIn midiIn = host.getMidiInPort (port);
+            this.midiIns[port] = midiIn;
+            midiIn.setMidiCallback ( (status, data1, data2) -> this.receiveMidi (port, new byte []
+            {
+                (byte) status,
+                (byte) data1,
+                (byte) data2
+            }));
+            midiIn.setSysexCallback (data -> this.receiveMidi (port, HexFormat.of ().parseHex (data)));
+        }
         if (LOG_MIDI)
             this.println ("Logging MIDI to stderr (DBM_LOG_MIDI).");
 
@@ -212,10 +223,30 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     }
 
 
-    private void receiveMidi (final byte [] data)
+    /**
+     * The kind of a recorded MIDI event: "in" / "out" for the first port, "in1" / "out1" etc. for
+     * the others (the recordings of the controllers with one port stay the same).
+     *
+     * @param direction "in" or "out"
+     * @param port The index of the port
+     * @return The kind
+     */
+    private static Integer noteInputKey (final int port, final int noteInputIndex)
+    {
+        return Integer.valueOf (port * 1000 + noteInputIndex);
+    }
+
+
+    private static String midiKind (final String direction, final int port)
+    {
+        return port == 0 ? direction : direction + port;
+    }
+
+
+    private void receiveMidi (final int port, final byte [] data)
     {
         if (LOG_MIDI)
-            this.logMidi ("in ", data);
+            this.logMidi (midiKind ("in", port) + " ", data);
         // The conformance runner restarts the controller for a run from a fresh state
         if (RESTARTABLE && Arrays.equals (data, RESTART))
         {
@@ -228,10 +259,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             // A marker of the conformance runner is not for the core
             if (this.recorder.handleMarker (data))
                 return;
-            this.recorder.midi ("in", data);
+            this.recorder.midi (midiKind ("in", port), data);
         }
         if (this.core != null)
-            this.core.onMidiEvent (0, data);
+            this.core.onMidiEvent (port, data);
     }
 
 
@@ -383,7 +414,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public boolean openMidiInput (final int deviceId)
     {
-        return deviceId == 0 && this.midiIn != null;
+        return deviceId >= 0 && deviceId < this.midiIns.length && this.midiIns[deviceId] != null;
     }
 
 
@@ -391,7 +422,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public boolean openMidiOutput (final int deviceId)
     {
-        return deviceId == 0 && this.midiOut != null;
+        return deviceId >= 0 && deviceId < this.midiOuts.length && this.midiOuts[deviceId] != null;
     }
 
 
@@ -415,18 +446,21 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void sendMidiData (final int deviceId, final byte [] data)
     {
-        if (deviceId != 0 || this.midiOut == null || data.length == 0)
+        if (deviceId < 0 || deviceId >= this.midiOuts.length || data.length == 0)
+            return;
+        final MidiOut midiOut = this.midiOuts[deviceId];
+        if (midiOut == null)
             return;
         if (LOG_MIDI)
-            this.logMidi ("out", data);
+            this.logMidi (midiKind ("out", deviceId), data);
         if (this.recorder != null)
-            this.recorder.midi ("out", data);
+            this.recorder.midi (midiKind ("out", deviceId), data);
         if ((data[0] & 0xFF) == 0xF0)
-            this.midiOut.sendSysex (data);
+            midiOut.sendSysex (data);
         else if (data.length >= 3)
-            this.midiOut.sendMidi (data[0] & 0xFF, data[1] & 0xFF, data[2] & 0xFF);
+            midiOut.sendMidi (data[0] & 0xFF, data[1] & 0xFF, data[2] & 0xFF);
         else if (data.length == 2)
-            this.midiOut.sendMidi (data[0] & 0xFF, data[1] & 0xFF, 0);
+            midiOut.sendMidi (data[0] & 0xFF, data[1] & 0xFF, 0);
     }
 
 
@@ -439,19 +473,20 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             final String [] fields = new String [filters.length + 1];
             fields[0] = Integer.toString (noteInputIndex);
             System.arraycopy (filters, 0, fields, 1, filters.length);
-            this.recorder.event ("filters", fields);
+            this.recorder.event (midiKind ("filters", deviceId), fields);
         }
-        if (deviceId != 0 || this.midiIn == null)
+        if (deviceId < 0 || deviceId >= this.midiIns.length || this.midiIns[deviceId] == null)
             return;
         if (!this.isInitializing)
         {
             this.errorln ("Note input " + noteInputIndex + " can only be created while the extension starts.");
             return;
         }
-        final NoteInput noteInput = this.midiIn.createNoteInput (this.definition.getHardwareModel () + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1)), toBitwigMasks (filters));
+        final String name = this.definition.getHardwareModel () + (deviceId == 0 ? "" : " - Port " + (deviceId + 1)) + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1));
+        final NoteInput noteInput = this.midiIns[deviceId].createNoteInput (name, toBitwigMasks (filters));
         // The core needs to see the notes as well (e.g. to light the pads)
         noteInput.setShouldConsumeEvents (false);
-        this.noteInputs.put (Integer.valueOf (noteInputIndex), noteInput);
+        this.noteInputs.put (noteInputKey (deviceId, noteInputIndex), noteInput);
     }
 
 
@@ -463,8 +498,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void sendRawMidiEvent (final int deviceId, final int status, final int data1, final int data2)
     {
         if (this.recorder != null)
-            this.recorder.midi ("raw", new byte [] { (byte) status, (byte) data1, (byte) data2 });
-        final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (0));
+            this.recorder.midi (midiKind ("raw", deviceId), new byte [] { (byte) status, (byte) data1, (byte) data2 });
+        final NoteInput noteInput = this.noteInputs.get (noteInputKey (deviceId, 0));
         if (noteInput != null)
             noteInput.sendRawMidiEvent (status, data1, data2);
     }
@@ -475,8 +510,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void setNoteInputKeyTranslationTable (final int deviceId, final int noteInputIndex, final int [] table)
     {
         if (this.recorder != null)
-            this.recorder.ints ("keys", noteInputIndex, table);
-        final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (noteInputIndex));
+            this.recorder.ints (midiKind ("keys", deviceId), noteInputIndex, table);
+        final NoteInput noteInput = this.noteInputs.get (noteInputKey (deviceId, noteInputIndex));
         if (noteInput != null)
             noteInput.setKeyTranslationTable (toObjects (table));
     }
@@ -487,8 +522,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void setNoteInputVelocityTranslationTable (final int deviceId, final int noteInputIndex, final int [] table)
     {
         if (this.recorder != null)
-            this.recorder.ints ("velocities", noteInputIndex, table);
-        final NoteInput noteInput = this.noteInputs.get (Integer.valueOf (noteInputIndex));
+            this.recorder.ints (midiKind ("velocities", deviceId), noteInputIndex, table);
+        final NoteInput noteInput = this.noteInputs.get (noteInputKey (deviceId, noteInputIndex));
         if (noteInput != null)
             noteInput.setVelocityTranslationTable (toObjects (table));
     }
