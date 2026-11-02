@@ -63,6 +63,12 @@ pub fn navigate_clips(ctx: &mut Ctx, is_left: bool) {
     if send_to_host(ctx, "clips", is_left) {
         return;
     }
+    select_clip(ctx, is_left);
+}
+
+/// Select the previous or next slot of the cursor track, without the navigator of the host
+/// (former `getCursorTrack ().getSlotBank ().selectPrevious/NextItem ()`).
+pub fn select_clip(ctx: &mut Ctx, is_left: bool) {
     if !ctx.model.cursor_track_exists() {
         return;
     }

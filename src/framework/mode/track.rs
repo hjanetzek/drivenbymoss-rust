@@ -18,12 +18,13 @@
 //!   (`on_knob_value`, `knob_value`, `on_knob_touch`) work on the tracks directly.
 //! - The bank is always the current track bank of the model (Java switches it with a track bank
 //!   observer).
-//! - The clip launcher navigator is not used (it is only created on request of the model setup,
-//!   which none of the ported controllers does).
+//! - The clip launcher navigator (former `model.getClipLauncherNavigator ()`, only created on
+//!   request of the model setup) is given to the mode with [`DefaultTrackMode::set_navigator`].
 
 use std::marker::PhantomData;
 
 use crate::daw::bank::BankItem;
+use crate::framework::clip_launcher_navigator::{navigate_tracks, select_track, SharedNavigator};
 use crate::daw::track::Track;
 use crate::framework::commands::clip::NewCommand;
 use crate::framework::ctx::Ctx;
@@ -76,12 +77,14 @@ pub struct DefaultTrackMode<B: TrackModeBehavior> {
     pub scroll_bank: bool,
     /// The controls which are bound to the parameters of the provider of the behavior.
     pub binding: ParameterBinding,
+    /// The clip launcher navigator, if the controller uses one.
+    navigator: Option<SharedNavigator>,
     behavior: PhantomData<B>,
 }
 
 impl<B: TrackModeBehavior> DefaultTrackMode<B> {
     pub fn with_name(name: &str, is_absolute: bool, send_index: i32) -> Self {
-        DefaultTrackMode { name: name.to_string(), is_absolute, send_index, scroll_bank: false, binding: ParameterBinding::new(Vec::new()), behavior: PhantomData }
+        DefaultTrackMode { name: name.to_string(), is_absolute, send_index, scroll_bank: false, binding: ParameterBinding::new(Vec::new()), navigator: None, behavior: PhantomData }
     }
 
     /// A mode which binds the controls to the parameters of the provider of the behavior while
@@ -99,6 +102,11 @@ impl<B: TrackModeBehavior> DefaultTrackMode<B> {
 
     pub fn is_absolute(&self) -> bool {
         self.is_absolute
+    }
+
+    /// Select the tracks with the clip launcher navigator, which moves the selected slot as well.
+    pub fn set_navigator(&mut self, navigator: SharedNavigator) {
+        self.navigator = Some(navigator);
     }
 
     /// Former `AbstractParameterMode.setAbsolute` (used by Generic Flexi).
@@ -181,6 +189,10 @@ impl<B: TrackModeBehavior> Mode for DefaultTrackMode<B> {
     }
 
     fn select_item(&mut self, ctx: &mut Ctx, index: usize) {
+        if let Some(navigator) = &self.navigator {
+            select_track(navigator, ctx, index);
+            return;
+        }
         track_mut(ctx, index).select();
     }
 
@@ -194,6 +206,10 @@ impl<B: TrackModeBehavior> Mode for DefaultTrackMode<B> {
             self.select_previous_item_page(ctx);
             return;
         }
+        if let Some(navigator) = &self.navigator {
+            navigate_tracks(navigator, ctx, true);
+            return;
+        }
         let bank = ctx.model.current_track_bank_mut();
         if self.scroll_bank {
             bank.scroll_backwards();
@@ -205,6 +221,10 @@ impl<B: TrackModeBehavior> Mode for DefaultTrackMode<B> {
     fn select_next_item(&mut self, ctx: &mut Ctx) {
         if Self::is_alternative_function(ctx) {
             self.select_next_item_page(ctx);
+            return;
+        }
+        if let Some(navigator) = &self.navigator {
+            navigate_tracks(navigator, ctx, false);
             return;
         }
         let bank = ctx.model.current_track_bank_mut();

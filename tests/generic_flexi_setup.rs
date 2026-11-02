@@ -617,3 +617,24 @@ fn effect_track_bank() {
     let calls = flexi.take_calls();
     assert!(has_call(&calls, "fxtrack", "0/solo/toggle"), "{calls:?}");
 }
+
+/// The track modes select the tracks with the navigator of the host (DefaultTrackMode), the clip
+/// functions use the slot bank of the cursor track (ClipHandler), not the navigator.
+#[test]
+fn track_mode_uses_the_navigator_clip_functions_do_not() {
+    let slots = [Slot::new(TYPE_CC, 70, "Modes: Select Next Item"), Slot::new(TYPE_CC, 71, "Clip: Select next"), Slot::new(TYPE_CC, 72, "Clip: Select previous")];
+    let mut flexi = Flexi::start("navigator-modes", Some(&slots), "");
+    flexi.app.update_model("/host/features clipLauncherNavigator\n");
+    flexi.advance(100);
+    flexi.take_calls();
+    flexi.midi(&[0xB0, 70, 127]);
+    flexi.advance(100);
+    let calls = flexi.take_calls();
+    assert!(has_call(&calls, "navigator", "tracks/+"), "{calls:?}");
+
+    flexi.midi(&[0xB0, 71, 127]);
+    flexi.midi(&[0xB0, 72, 127]);
+    flexi.advance(100);
+    let calls = flexi.take_calls();
+    assert!(!calls.iter().any(|call| format!("{call:?}").contains("navigator")), "{calls:?}");
+}

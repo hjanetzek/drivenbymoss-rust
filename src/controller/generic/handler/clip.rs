@@ -7,7 +7,8 @@
 use super::{increase_knob_movement, is_absolute, is_button_pressed, is_increase, to_midi_value, unsupported};
 use crate::controller::generic::command::{CommandCategory, FlexiCommand};
 use crate::controller::generic::slot::{KnobMode, MidiValue};
-use crate::framework::clip_launcher_navigator::navigate_clips;
+// ClipHandler uses the slot bank of the cursor track, not the clip launcher navigator
+use crate::framework::clip_launcher_navigator::select_clip;
 use crate::framework::commands::clip::NewCommand;
 use crate::framework::ctx::Ctx;
 
@@ -42,12 +43,12 @@ pub fn handle(ctx: &mut Ctx, command: FlexiCommand, knob_mode: KnobMode, value: 
         }
         FlexiCommand::ClipPrevious => {
             if is_button_pressed {
-                navigate_clips(ctx, true);
+                select_clip(ctx, true);
             }
         }
         FlexiCommand::ClipNext => {
             if is_button_pressed {
-                navigate_clips(ctx, false);
+                select_clip(ctx, false);
             }
         }
         FlexiCommand::ClipScroll => scroll_clips(ctx, knob_mode, value),
@@ -96,5 +97,5 @@ fn scroll_clips(ctx: &mut Ctx, knob_mode: KnobMode, value: MidiValue) {
         return;
     }
     let increase = is_increase(ctx, knob_mode, value);
-    navigate_clips(ctx, !increase);
+    select_clip(ctx, !increase);
 }

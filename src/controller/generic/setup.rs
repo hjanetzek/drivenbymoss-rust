@@ -234,14 +234,20 @@ fn is_slot_editor_setting(id: SettingId) -> bool {
 
 /// Register the modes (former `createModes`).
 pub fn create_modes(ctx: &mut Ctx) {
-    let mode = TrackMode::new(ctx, true);
+    // The track modes select the tracks with the clip launcher navigator (DefaultTrackMode)
+    let navigator = flexi(ctx).navigator.clone();
+    let mut mode = TrackMode::new(ctx, true);
+    mode.set_navigator(navigator.clone());
     ctx.register_mode(Modes::Track, mode);
-    let mode = TrackVolumeMode::new(ctx, true);
+    let mut mode = TrackVolumeMode::new(ctx, true);
+    mode.set_navigator(navigator.clone());
     ctx.register_mode(Modes::Volume, mode);
-    let mode = TrackPanMode::new(ctx, true);
+    let mut mode = TrackPanMode::new(ctx, true);
+    mode.set_navigator(navigator.clone());
     ctx.register_mode(Modes::Pan, mode);
     for i in 0..8 {
-        let mode = TrackSendMode::new(i, ctx, true);
+        let mut mode = TrackSendMode::new(i, ctx, true);
+        mode.set_navigator(navigator.clone());
         ctx.register_mode(Modes::get(Modes::Send1, i as usize), mode);
     }
     // The alternative function is Shift (the default, former `surface::isShiftPressed`)
