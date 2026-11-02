@@ -17,5 +17,8 @@ Tracks, in this order, all in the root (no groups), not muted, not soloed, not a
 
 Effect tracks: `FX 1` and `FX 2` (the sends A and B of the Launch Control XL).
 
+Markers (only for `generic_flexi/marker.toml`, which checks them with `require`): two cue
+markers in the arranger, `M1` at bar 3 and `M2` at bar 5.
+
 The Java OSC controller sends to 127.0.0.1:9000 and receives on 8000; its MIDI port setting can
 be any unused device. See doc/CONFORMANCE_TESTING_PLAN.md for the rest of the setup.

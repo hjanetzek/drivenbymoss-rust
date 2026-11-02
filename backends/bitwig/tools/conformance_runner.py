@@ -19,9 +19,16 @@
 #   conformance_runner.py record SCENARIOS.toml --label java|rust --port "VirMIDI 5-2" [--out DIR]
 #   conformance_runner.py compare ORACLE.json PORT.json
 #   conformance_runner.py pair SCENARIOS.toml... --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-3"
+#   conformance_runner.py flexi-mapping SCENARIOS.toml OUT.properties
 #
 # "record" writes DIR/<controller>-<label>.json and checks the expectations of the scenarios;
 # "compare" compares the run of the port with the run of the oracle.
+#
+# Generic Flexi: a scenario file with a [mapping] table is a Flexi mapping (the slots and
+# options of tests/conformance/generic_flexi/*.toml). Before the restart of the controller the
+# runner writes it as a Flexi mapping file to the path of --flexi-mapping (or DBM_FLEXI_MAPPING),
+# the file which the "Filename" setting of both Flexi controllers in Bitwig names; both versions
+# load it 2 s after their startup. "flexi-mapping" writes the file of a scenario file by hand.
 
 import argparse
 import fnmatch
@@ -263,6 +270,118 @@ def restart_controller(port_name, timeout):
     return output
 
 
+# ------------------------------------------------------------------------------------------------
+# Generic Flexi mappings
+
+# The slot types (CommandSlot.TYPE_*) and the knob modes (KnobMode, in the order of the enum)
+FLEXI_TYPES = {"off": -1, "cc": 0, "note": 1, "pc": 2, "pitchbend": 3, "mmc": 4}
+FLEXI_KNOB_MODES = ["absolute", "relative_twos_complement", "relative_signed_bit", "relative_signed_bit_2", "relative_offset_binary", "absolute_toggle"]
+FLEXI_NUM_SLOTS = 300
+# Added to every mapping as the last slot: Flexi sends nothing without a slot which sends its
+# value to the device, and restart_controller waits until the controller has sent something. Its
+# value is sent right after the mapping is applied (the value cache starts at -1), so the
+# startup output also tells that the mapping is loaded. CC 119 on channel 16 is not used by the
+# scenarios.
+FLEXI_STARTUP_SLOT = {"type": "cc", "number": 119, "channel": 16, "command": "Master: Set Volume", "send_value": True}
+
+
+def properties_escape(text, is_key=False):
+    """Escape a key or value as java.util.Properties.store does (without the unicode escapes,
+    the mappings are ASCII)."""
+    out = []
+    for i, char in enumerate(text):
+        if char == "\\":
+            out.append("\\\\")
+        elif char == " " and (is_key or i == 0):
+            out.append("\\ ")
+        elif char in "=:#!":
+            out.append("\\" + char)
+        elif char == "\t":
+            out.append("\\t")
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def flexi_mapping_properties(mapping):
+    """The Flexi mapping file (GenericFlexiConfiguration.exportTo) for the [mapping] table of a
+    scenario file: "slots" (one inline table per slot: type, number, channel 1-16 or "all",
+    command, knob_mode, layer 1-10 or "all", high_res, send_value, send_value_when_received),
+    "actions" (the Bitwig action IDs of Action 1-8) and "keyboard" (channel "Off"/"1"-"16"/"All",
+    route_timbre, route_modulation, route_expression, route_sustain, route_program_change,
+    route_pitchbend: true/false, mpe, mpe_pitchbend_range)."""
+    slots = list(mapping.get("slots", []))
+    if len(slots) >= FLEXI_NUM_SLOTS:
+        raise ValueError(f"at most {FLEXI_NUM_SLOTS - 1} slots (the last one is the startup slot)")
+    lines = ["#Generic Flexi"]
+
+    def put(key, value):
+        lines.append(f"{properties_escape(key, True)}={properties_escape(str(value))}")
+
+    for index, slot in enumerate(slots + [None] * (FLEXI_NUM_SLOTS - 1 - len(slots)) + [FLEXI_STARTUP_SLOT]):
+        if slot is None:
+            continue
+        unknown = set(slot) - {"type", "number", "channel", "command", "knob_mode", "layer", "high_res", "send_value", "send_value_when_received", "note"}
+        if unknown:
+            raise ValueError(f"unknown keys {sorted(unknown)} in slot {slot}")
+        channel = slot.get("channel", 1)
+        layer = slot.get("layer", 1)
+        name = f"SLOT{index}_"
+        put(name + "TYPE", FLEXI_TYPES[slot["type"]])
+        put(name + "NUMBER", slot.get("number", 0))
+        # 0-15, 16 is "All"
+        put(name + "MIDI_CHANNEL", 16 if channel == "all" else channel - 1)
+        put(name + "RESOLUTION", str(slot.get("high_res", False)).lower())
+        put(name + "KNOB_MODE", FLEXI_KNOB_MODES.index(slot.get("knob_mode", "absolute")))
+        # 0-9, -1 is "All"
+        put(name + "FUNCTION_LAYER", -1 if layer == "all" else layer - 1)
+        put(name + "COMMAND", slot["command"])
+        put(name + "SEND_VALUE", str(slot.get("send_value", False)).lower())
+        put(name + "SEND_VALUE_WHEN_RECEIVED", str(slot.get("send_value_when_received", False)).lower())
+    actions = mapping.get("actions", [])
+    for i in range(8):
+        put(f"ASSIGNABLE_FUNCTION_ACTIONS{i}", actions[i] if i < len(actions) else "")
+    # The keyboard options are always written: the values of the previous mapping must not stay
+    keyboard = mapping.get("keyboard", {})
+    on_off = lambda key, default: "On" if keyboard.get(key, default) else "Off"
+    put("KEYBOARD_INPUT_NAME", "Generic Flexi")
+    put("KEYBOARD_CHANNEL", keyboard.get("channel", "Off"))
+    put("KEYBOARD_ROUTE_TIMBRE", on_off("route_timbre", False))
+    put("KEYBOARD_ROUTE_MODULATION", on_off("route_modulation", False))
+    put("KEYBOARD_ROUTE_EXPRESSION", on_off("route_expression", False))
+    put("KEYBOARD_ROUTE_SUSTAIN", on_off("route_sustain", False))
+    put("KEYBOARD_ROUTE_PROGRAMCHANGE", on_off("route_program_change", False))
+    put("KEYBOARD_ROUTE_PITCHBEND", on_off("route_pitchbend", False))
+    put("ENABLE_MPE", on_off("mpe", False))
+    put("MPE_PITCHBEND_RANGE", keyboard.get("mpe_pitchbend_range", 48))
+    return "\n".join(lines) + "\n"
+
+
+def write_flexi_mapping(config, args):
+    """Write the mapping of a scenario file for the next start of the Flexi controller. Returns
+    the number of restarts it needs: the keyboard options only take effect on the start after
+    the one which loaded them (GenericFlexiConfiguration reads them during init)."""
+    if "mapping" not in config:
+        return 1
+    path = getattr(args, "flexi_mapping", None) or os.environ.get("DBM_FLEXI_MAPPING")
+    if not path:
+        sys.exit("The scenario file has a Flexi mapping: give the path of the Filename setting with --flexi-mapping or DBM_FLEXI_MAPPING")
+    if not getattr(args, "restart", 0):
+        sys.exit("The scenario file has a Flexi mapping, which is loaded at the start of the controller: use --restart")
+    Path(path).expanduser().write_text(flexi_mapping_properties(config["mapping"]))
+    print(f"Flexi mapping written to {path}")
+    return 2 if "keyboard" in config["mapping"] else 1
+
+
+def write_flexi_mapping_file(args):
+    config = tomllib.loads(Path(args.scenarios).read_text())
+    if "mapping" not in config:
+        sys.exit(f"{args.scenarios} has no [mapping]")
+    Path(args.out).write_text(flexi_mapping_properties(config["mapping"]))
+    print(f"Written {args.out}")
+    return 0
+
+
 def stop_transport(listener):
     """Stop the transport until Bitwig reports it stopped (/stop of the OSC controller stops a
     playing transport, otherwise it stops and rewinds)."""
@@ -294,9 +413,13 @@ def record(args, listener=None):
     # A playing transport changes the startup output (e.g. the strips of the Maschine JAM show
     # the volume as dual values while playing)
     stop_transport(listener)
-    startup = restart_controller(args.port, restart) if restart else []
-    if startup is None:
-        return 2
+    # A Generic Flexi mapping is loaded at the start of the controller
+    restarts = write_flexi_mapping(config, args)
+    startup = []
+    for _ in range(restarts if restart else 0):
+        startup = restart_controller(args.port, restart)
+        if startup is None:
+            return 2
     port = MidiPort(args.port, config.get("stub", []))
     leds = {}
     name = run_name(config, args.scenarios) + f"-{args.label}"
@@ -519,7 +642,7 @@ def pair(args):
         config = tomllib.loads(Path(scenarios).read_text())
         for label, port in (("java", args.java_port), ("rust", args.rust_port)):
             print(f"--- {Path(scenarios).stem}: {label} on {port}")
-            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project, restart=args.restart), listener)
+            result = record(types.SimpleNamespace(scenarios=scenarios, label=label, port=port, out=args.out, fresh_project=args.fresh_project, restart=args.restart, flexi_mapping=args.flexi_mapping), listener)
             if result == 2:
                 return result
             paths.append(Path(args.out) / (run_name(config, scenarios) + f"-{label}.json"))
@@ -576,6 +699,7 @@ def main():
     rec.add_argument("--out", default="target/conformance")
     rec.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start with a new project from the default template (the fixture) and wait up to SECONDS until it has sent its startup output")
     rec.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (a system exclusive message which both extensions handle with DBM_OSC_CONFORMANCE) and wait up to SECONDS until it has sent its startup output")
+    rec.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING)")
     rec.set_defaults(func=record)
     both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
     both.add_argument("scenarios", nargs="+")
@@ -585,7 +709,12 @@ def main():
     both.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start each recording with a new project from the default template (the fixture) and wait up to SECONDS until it has sent its startup output")
     both.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (a system exclusive message which both extensions handle with DBM_OSC_CONFORMANCE) and wait up to SECONDS until it has sent its startup output")
     both.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
+    both.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING)")
     both.set_defaults(func=pair)
+    flexi = commands.add_parser("flexi-mapping", help="write the Generic Flexi mapping of a scenario file")
+    flexi.add_argument("scenarios")
+    flexi.add_argument("out")
+    flexi.set_defaults(func=write_flexi_mapping_file)
     cmp = commands.add_parser("compare", help="compare the trace of the port with the oracle")
     cmp.add_argument("oracle")
     cmp.add_argument("port")

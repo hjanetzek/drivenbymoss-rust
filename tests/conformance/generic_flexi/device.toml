@@ -1,0 +1,171 @@
+# Conformance scenarios: Generic Flexi, the Device, Instrument Device, EQ and Layer functions.
+# Fixture: tests/conformance/FIXTURE.md; setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#selected-slot---function"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth", "/track/3/name" = "Layers", "/track/4/name" = "EQ", "/primary/page/2/exists" = "1" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1 | /device/page/1/selected" },
+]
+
+[mapping]
+slots = [
+  { type = "cc", number = 70, command = "Device: Select Next Parameter Page" },
+  { type = "cc", number = 71, command = "Device: Select Previous Parameter Page" },
+  { type = "cc", number = 72, command = "Device: Select Parameter Page 2" },
+  { type = "cc", number = 73, command = "Device: Set Parameter 1" },
+  { type = "cc", number = 74, command = "Device: Reset Parameter 1" },
+  { type = "cc", number = 75, command = "Device: Toggle Parameter 1" },
+  { type = "cc", number = 76, command = "Device: Bypass" },
+  { type = "cc", number = 77, command = "Device: Expand" },
+  { type = "cc", number = 78, command = "Device: Parameters" },
+  { type = "cc", number = 79, command = "Device: Toggle Pin" },
+  { type = "cc", number = 80, command = "Device: Select Next" },
+  { type = "cc", number = 81, command = "Device: Select Previous" },
+  { type = "cc", number = 85, command = "Instrument Device: Set Parameter 1" },
+  { type = "cc", number = 86, command = "Instrument Device: Select Parameter Page 2" },
+  { type = "cc", number = 87, command = "Instrument Device: Select Previous Parameter Page" },
+  { type = "cc", number = 88, command = "Track Remotes: Select Next Page" },
+  { type = "cc", number = 89, command = "Project Remotes: Select Next Page" },
+  { type = "cc", number = 92, command = "EQ: Set Gain 1" },
+  { type = "cc", number = 93, command = "EQ: Set Type 1" },
+  { type = "cc", number = 94, command = "EQ: Set Freq 1" },
+  { type = "cc", number = 96, command = "Layer 2: Select" },
+  { type = "cc", number = 97, command = "Layer 1: Toggle Mute" },
+  { type = "cc", number = 98, command = "Layer 1: Set Volume" },
+  { type = "cc", number = 99, command = "Layer: Select Next Layer" },
+]
+
+[[scenario]]
+id = "flexi.device.page"
+bullet = "Device: Select Parameter Page N"
+before = [{ osc = "/track/1/select 1 | /device/page/1/selected" }]
+steps = [{ midi = "B0 48 7F | B0 48 00", note = "page 2" }]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.device.next-previous-page"
+bullet = "Device: Select Next Parameter Page, Select Previous Parameter Page"
+before = [{ osc = "/device/page/1/selected" }]
+steps = [
+  { midi = "B0 46 7F | B0 46 00", note = "next" },
+  { midi = "B0 46 7F | B0 46 00", note = "next" },
+  { midi = "B0 47 7F | B0 47 00", note = "previous" },
+]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.device.parameter"
+bullet = "Device: Set Parameter N, Reset Parameter N"
+before = [{ osc = "/device/page/1/selected | /device/param/1/value 100" }]
+steps = [
+  { midi = "B0 49 00", note = "set parameter 1 to 0" },
+  { midi = "B0 4A 7F | B0 4A 00", note = "reset parameter 1" },
+]
+
+[[scenario]]
+id = "flexi.device.parameter-set"
+bullet = "Device: Set Parameter N"
+before = [{ osc = "/device/param/1/value 100" }]
+steps = [{ midi = "B0 49 00", note = "set parameter 1 to 0" }]
+expect.bitwig = { "/device/param/1/value" = "0" }
+
+[[scenario]]
+id = "flexi.device.parameter-toggle"
+bullet = "Device: Toggle Parameter N"
+before = [{ osc = "/device/param/1/value 0" }]
+steps = [
+  { midi = "B0 4B 7F | B0 4B 00", note = "toggle" },
+  { midi = "B0 4B 7F | B0 4B 00", note = "toggle" },
+]
+
+[[scenario]]
+id = "flexi.device.bypass-expand-parameters"
+bullet = "Device: Bypass, Expand, Parameters (each toggled twice: OSC can only toggle them)"
+steps = [
+  { midi = "B0 4C 7F | B0 4C 00", note = "bypass" },
+  { midi = "B0 4C 7F | B0 4C 00", note = "bypass" },
+  { midi = "B0 4D 7F | B0 4D 00", note = "expand" },
+  { midi = "B0 4D 7F | B0 4D 00", note = "expand" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "parameters" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "parameters" },
+]
+
+[[scenario]]
+id = "flexi.device.pin"
+bullet = "Device: Toggle Pin"
+steps = [
+  { midi = "B0 4F 7F | B0 4F 00", note = "pin" },
+  { midi = "B0 4F 7F | B0 4F 00", note = "unpin: the following scenarios need a cursor which follows the selection" },
+]
+# The pin state is one of the cursor of each extension: OSC shows its own one, so this is compared only
+
+[[scenario]]
+id = "flexi.device.next-previous-device"
+bullet = "Device: Select Next, Select Previous (track Layers: the Instrument Layer, the Polysynths of its layers)"
+before = [{ osc = "/track/3/select 1" }]
+steps = [
+  { midi = "B0 50 7F | B0 50 00", note = "next" },
+  { midi = "B0 51 7F | B0 51 00", note = "previous" },
+]
+
+[[scenario]]
+id = "flexi.device.instrument"
+bullet = "Instrument Device: Set Parameter N, Select Parameter Page N (the first instrument of the track, also when another device is selected)"
+before = [{ osc = "/track/1/select 1 | /primary/page/1/selected | /primary/param/1/value 100" }]
+steps = [
+  { midi = "B0 55 00", note = "parameter 1 to 0" },
+  { midi = "B0 56 7F | B0 56 00", note = "page 2" },
+]
+expect.bitwig = { "/primary/param/1/value" = "0", "/primary/page/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.device.instrument-previous-page"
+bullet = "Instrument Device: Select Previous Parameter Page"
+steps = [{ midi = "B0 57 7F | B0 57 00" }]
+expect.bitwig = { "/primary/page/1/selected" = "1" }
+
+[[scenario]]
+id = "flexi.device.remotes"
+bullet = "Track Remotes, Project Remotes: Select Next Page (the fixture defines none: compared only)"
+steps = [
+  { midi = "B0 58 7F | B0 58 00", note = "track remotes" },
+  { midi = "B0 59 7F | B0 59 00", note = "project remotes" },
+]
+
+[[scenario]]
+id = "flexi.device.eq"
+bullet = "EQ: Set Gain N, Set Type N, Set Freq N (track EQ: the EQ+)"
+before = [{ osc = "/track/4/select 1" }]
+steps = [
+  { midi = "B0 5C 00", note = "gain 1 to the minimum" },
+  { midi = "B0 5D 40", note = "type 1" },
+  { midi = "B0 5E 40", note = "frequency 1" },
+]
+
+[[scenario]]
+id = "flexi.layer.select"
+bullet = "Layer N: Select (track Layers: the Instrument Layer with 2 layers)"
+before = [{ osc = "/track/3/select 1 | /device/layer/1/selected" }]
+steps = [{ midi = "B0 60 7F | B0 60 00" }]
+expect.bitwig = { "/device/layer/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.layer.mute-volume"
+bullet = "Layer N: Toggle Mute, Set Volume"
+before = [{ osc = "/track/3/select 1 | /device/layer/1/mute 0 | /device/layer/1/volume 100" }]
+steps = [
+  { midi = "B0 61 7F | B0 61 00", note = "mute layer 1" },
+  { midi = "B0 62 00", note = "volume of layer 1 to 0" },
+]
+expect.bitwig = { "/device/layer/1/mute" = "1", "/device/layer/1/volume" = "0" }
+
+[[scenario]]
+id = "flexi.layer.next"
+bullet = "Layer: Select Next Layer"
+before = [{ osc = "/device/layer/1/mute 0 | /device/layer/1/selected" }]
+steps = [{ midi = "B0 63 7F | B0 63 00" }]
+expect.bitwig = { "/device/layer/2/selected" = "1" }

@@ -1,0 +1,52 @@
+# Conformance scenarios: Generic Flexi, the Marker functions. They need the cue markers of the
+# fixture (tests/conformance/FIXTURE.md, "Markers"); setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+# No other ported controller uses the marker bank, so these are the first checks of it on Bitwig
+# (doc/STATUS.md).
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#selected-slot---function"
+settle_ms = 600
+
+require = { "/marker/1/exists" = "1", "/marker/1/name" = "M1", "/marker/2/name" = "M2" }
+
+setup = [
+  { osc = "/stop | /stop" },
+]
+
+[mapping]
+slots = [
+  { type = "cc", number = 70, command = "Marker 2: Launch Marker" },
+  { type = "cc", number = 71, command = "Marker 1: Launch Marker" },
+  { type = "cc", number = 72, command = "Marker: Select Next Bank" },
+  { type = "cc", number = 73, command = "Marker: Select Previous Bank" },
+]
+
+# The play position moves by itself while playing (DEFAULT_IGNORE of the runner leaves out
+# /beat* and /time*): the scenarios check that the playback starts, the position at the stop
+[[scenario]]
+id = "flexi.marker.launch"
+bullet = "Marker: Select a marker related function. (Marker N: Launch Marker)"
+before = [{ osc = "/stop | /stop" }]
+steps = [{ midi = "B0 46 7F | B0 46 00", note = "launch marker 2" }]
+expect.bitwig = { "/play" = "1" }
+
+[[scenario]]
+id = "flexi.marker.launch-stopped-position"
+bullet = "Marker N: Launch Marker (the position at the marker: stopped right after the launch)"
+before = [{ osc = "/stop | /stop" }]
+steps = [
+  { midi = "B0 47 7F | B0 47 00", note = "launch marker 1" },
+  { osc = "/stop", note = "stop at once: the position is at marker 1" },
+]
+expect.bitwig = { "/play" = "0" }
+
+[[scenario]]
+id = "flexi.marker.bank"
+bullet = "Marker: Select Next Bank, Select Previous Bank (fewer than 9 markers: the bank does not move; compared only)"
+before = [{ osc = "/stop | /stop" }]
+steps = [
+  { midi = "B0 48 7F | B0 48 00", note = "next bank" },
+  { midi = "B0 49 7F | B0 49 00", note = "previous bank" },
+  { midi = "B0 46 7F | B0 46 00", note = "launch marker 2" },
+  { osc = "/stop" },
+]

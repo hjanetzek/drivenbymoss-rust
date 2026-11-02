@@ -1,0 +1,57 @@
+# Conformance scenarios: Generic Flexi, the keyboard / pads: blocked mapped notes and the
+# transposition of the Note Input functions. The keyboard options of a mapping take effect at the
+# start after the one which loaded them: the runner restarts the controller twice. Fixture:
+# tests/conformance/FIXTURE.md; setup: tests/conformance/generic_flexi/CONFORMANCE.md. The notes
+# played into Bitwig come from the conformance module of the OSC controller
+# (/track/N/playingNotes, branch conformance-osc).
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#configure-the-keyboard--pads"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1 | /track/3/mute 0" },
+]
+
+[mapping]
+keyboard = { channel = "1" }
+slots = [
+  { type = "note", number = 60, command = "Track 3: Toggle Mute", note = "C4 on the keyboard channel: blocked" },
+  { type = "cc", number = 70, command = "Note Input: Transpose Octave Up" },
+  { type = "cc", number = 71, command = "Note Input: Transpose Octave Down" },
+]
+
+[[scenario]]
+id = "flexi.keyboard.mapped-note-blocked"
+bullet = "MIDI notes are blocked when mapped. If a MIDI note is mapped to a function on this MIDI channel, the note is blocked from being played."
+before = [{ osc = "/track/1/select 1 | /track/3/mute 0" }]
+steps = [
+  { midi = "90 3C 64", note = "C4 (mapped)" },
+  { midi = "90 3E 64", note = "D4 (not mapped)" },
+]
+expect.bitwig = { "/track/1/playingNotes" = "62:100", "/track/3/mute" = "1" }
+
+[[scenario]]
+id = "flexi.keyboard.transpose-up"
+bullet = "Note Input: Functions to control Note Repeat and Transposition of the attached keyboard/pads. (Transpose Octave Up)"
+before = [
+  { midi = "80 3C 00 | 80 3E 00", note = "release the notes of the previous scenario" },
+  { osc = "/track/3/mute 0" },
+]
+steps = [
+  { midi = "B0 46 7F | B0 46 00", note = "octave up" },
+  { midi = "90 3E 64", note = "D4" },
+]
+expect.bitwig = { "/track/1/playingNotes" = "74:100" }
+
+[[scenario]]
+id = "flexi.keyboard.transpose-down"
+bullet = "Note Input: Transpose Octave Down"
+before = [{ midi = "80 3E 00", note = "release" }]
+steps = [
+  { midi = "B0 47 7F | B0 47 00", note = "octave down (back to 0)" },
+  { midi = "90 3E 64", note = "D4" },
+  { midi = "80 3E 00", note = "release" },
+]

@@ -1,0 +1,181 @@
+# Conformance scenarios: Generic Flexi, the Track functions. Fixture: tests/conformance/FIXTURE.md;
+# setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#selected-slot---function"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth", "/track/2/name" = "Drums", "/track/5/exists" = "1", "/track/1/send/1/name" = "FX 1" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1" },
+]
+
+[mapping]
+slots = [
+  { type = "cc", number = 70, command = "Track: Select Next Track" },
+  { type = "cc", number = 71, command = "Track: Select Previous Track" },
+  { type = "cc", number = 72, command = "Track: Select Next Bank Page" },
+  { type = "cc", number = 73, command = "Track: Select Previous Bank Page" },
+  { type = "cc", number = 74, command = "Track: Scroll Bank Page by 1 right" },
+  { type = "cc", number = 75, command = "Track: Scroll Bank Page by 1 left" },
+  { type = "cc", number = 76, command = "Track: Toggle Trackbank" },
+  { type = "cc", number = 80, command = "Track 2: Select" },
+  { type = "cc", number = 81, command = "Track 2: Toggle Mute" },
+  { type = "cc", number = 82, command = "Track 2: Toggle Solo" },
+  { type = "cc", number = 83, command = "Track 2: Toggle Arm" },
+  { type = "cc", number = 84, command = "Track 2: Toggle Monitor" },
+  { type = "cc", number = 85, command = "Track 2: Toggle Auto Monitor" },
+  { type = "cc", number = 86, command = "Track 5: Toggle Active" },
+  { type = "cc", number = 87, command = "Track 2: Set Volume" },
+  { type = "cc", number = 88, command = "Track 2: Set Panning" },
+  { type = "cc", number = 89, command = "Track 2: Set Send 1" },
+  { type = "cc", number = 90, command = "Track Selected: Toggle Mute" },
+  { type = "cc", number = 91, command = "Track Selected: Toggle Pin" },
+  { type = "cc", number = 92, command = "Track 2: Set Mute" },
+  { type = "cc", number = 93, command = "Track Selected: Set Volume Track" },
+  { type = "cc", number = 94, command = "Track 1: Select" },
+]
+
+# The bank positions are not shared between the extensions: OSC shows its own bank. The bank
+# scenarios select the 1st track of the bank of Flexi afterwards, the selection is shared.
+
+[[scenario]]
+id = "flexi.track.select"
+bullet = "Track: Select a track related function. (Track N: Select)"
+before = [{ osc = "/track/1/select 1" }]
+steps = [{ midi = "B0 50 7F | B0 50 00" }]
+expect.bitwig = { "/track/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.track.next-previous"
+bullet = "Track: Select Next Track, Select Previous Track"
+before = [{ osc = "/track/2/select 1" }]
+steps = [
+  { midi = "B0 46 7F | B0 46 00", note = "next" },
+  { midi = "B0 46 7F | B0 46 00", note = "next" },
+  { midi = "B0 47 7F | B0 47 00", note = "previous" },
+]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "flexi.track.bank-page"
+bullet = "Track: Select Next Bank Page"
+before = [{ osc = "/track/1/select 1" }]
+steps = [
+  { midi = "B0 48 7F | B0 48 00", note = "next bank page" },
+  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
+]
+expect.bitwig = { "/track/selected/name" = "Audio 9" }
+
+[[scenario]]
+id = "flexi.track.bank-page-previous"
+bullet = "Track: Select Previous Bank Page"
+steps = [
+  { midi = "B0 49 7F | B0 49 00", note = "previous bank page" },
+  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
+]
+expect.bitwig = { "/track/selected/name" = "Synth" }
+
+[[scenario]]
+id = "flexi.track.scroll-by-1"
+bullet = "Track: Scroll Bank Page by 1 right, Scroll Bank Page by 1 left"
+steps = [
+  { midi = "B0 4A 7F | B0 4A 00", note = "right" },
+  { midi = "B0 4A 7F | B0 4A 00", note = "right" },
+  { midi = "B0 4B 7F | B0 4B 00", note = "left" },
+  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
+]
+expect.bitwig = { "/track/selected/name" = "Drums" }
+
+[[scenario]]
+id = "flexi.track.scroll-back"
+bullet = "Track: Scroll Bank Page by 1 left"
+steps = [
+  { midi = "B0 4B 7F | B0 4B 00", note = "left" },
+  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
+]
+expect.bitwig = { "/track/selected/name" = "Synth" }
+
+[[scenario]]
+id = "flexi.track.mute-solo-arm"
+bullet = "Track N: Toggle Mute, Toggle Solo, Toggle Arm"
+before = [{ osc = "/track/bank/page/- | /track/1/select 1 | /track/2/mute 0 | /track/2/solo 0 | /track/2/recarm 0" }]
+steps = [
+  { midi = "B0 51 7F | B0 51 00", note = "mute" },
+  { midi = "B0 52 7F | B0 52 00", note = "solo" },
+  { midi = "B0 53 7F | B0 53 00", note = "arm" },
+]
+expect.bitwig = { "/track/2/mute" = "1", "/track/2/solo" = "1", "/track/2/recarm" = "1" }
+
+[[scenario]]
+id = "flexi.track.monitor"
+bullet = "Track N: Toggle Monitor, Toggle Auto Monitor"
+before = [{ osc = "/track/2/mute 0 | /track/2/solo 0 | /track/2/recarm 0 | /track/2/monitor 0 | /track/2/autoMonitor 0" }]
+steps = [
+  { midi = "B0 54 7F | B0 54 00", note = "monitor" },
+  { midi = "B0 55 7F | B0 55 00", note = "auto monitor" },
+]
+expect.bitwig = { "/track/2/monitor" = "1", "/track/2/autoMonitor" = "1" }
+
+[[scenario]]
+id = "flexi.track.knobs"
+bullet = "Track N: Set Volume, Set Panning, Set Send 1"
+before = [{ osc = "/track/2/monitor 0 | /track/2/autoMonitor 0 | /track/2/volume 100 | /track/2/pan 64 | /track/2/send/1/volume 100" }]
+steps = [
+  { midi = "B0 57 00", note = "volume 0" },
+  { midi = "B0 58 00", note = "panning 0" },
+  { midi = "B0 59 00", note = "send 1 0" },
+]
+expect.bitwig = { "/track/2/volume" = "0", "/track/2/pan" = "0", "/track/2/send/1/volume" = "0" }
+
+[[scenario]]
+id = "flexi.track.selected-mute"
+bullet = "Track Selected: Toggle Mute"
+before = [{ osc = "/track/3/select 1 | /track/3/mute 0" }]
+steps = [{ midi = "B0 5A 7F | B0 5A 00" }]
+expect.bitwig = { "/track/3/mute" = "1" }
+
+[[scenario]]
+id = "flexi.track.selected-volume"
+bullet = "Track Selected: Set Volume Track"
+before = [{ osc = "/track/3/mute 0 | /track/3/volume 100" }]
+steps = [{ midi = "B0 5D 00" }]
+expect.bitwig = { "/track/3/volume" = "0" }
+
+[[scenario]]
+id = "flexi.track.set-mute"
+bullet = "Track N: Set Mute (a button: the value of the press sets the state; candidate A: the release)"
+before = [{ osc = "/track/2/mute 0" }]
+steps = [
+  { midi = "B0 5C 7F", note = "press" },
+  { midi = "B0 5C 00", note = "release" },
+]
+
+[[scenario]]
+id = "flexi.track.pin"
+bullet = "Track Selected: Toggle Pin"
+before = [{ osc = "/track/1/select 1" }]
+steps = [
+  { midi = "B0 5B 7F | B0 5B 00", note = "pin" },
+  { midi = "B0 5B 7F | B0 5B 00", note = "unpin: the following scenarios need a cursor which follows the selection" },
+]
+# The pin state is one of the cursor of each extension: OSC shows its own one, so this is compared only
+
+[[scenario]]
+id = "flexi.track.active"
+bullet = "Track N: Toggle Active"
+before = [{ osc = "/track/5/activated 1" }]
+steps = [{ midi = "B0 56 7F | B0 56 00" }]
+expect.bitwig = { "/track/5/activated" = "0" }
+
+[[scenario]]
+id = "flexi.track.trackbank"
+bullet = "Track: ... The function Toggle trackbank allows to switch between the Instrument/Audio track bank and the Effect track bank."
+before = [{ osc = "/track/5/activated 1" }]
+steps = [
+  { midi = "B0 4C 7F | B0 4C 00", note = "toggle to the effect track bank" },
+  { midi = "B0 5E 7F | B0 5E 00", note = "Track 1: Select" },
+]
+# The last scenario: the bank of the controller stays the effect track bank until the restart
+expect.bitwig = { "/track/selected/name" = "FX 1" }

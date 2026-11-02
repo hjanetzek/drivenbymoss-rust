@@ -1,0 +1,189 @@
+# Conformance scenarios: Generic Flexi, the modes (track, volume, panorama, send, device and
+# browser mode). Fixture: tests/conformance/FIXTURE.md; setup:
+# tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#features-of-modes"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ", "/track/1/send/1/name" = "FX 1", "/primary/page/2/exists" = "1" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1" },
+]
+
+# All on MIDI channel 2 (B1): the mode selection on CC 70-76, the 8 items (only 1-4 are used)
+# on CC 80-83, the item buttons and the navigation on CC 85-91
+[mapping]
+slots = [
+  { type = "cc", channel = 2, number = 70, command = "Modes: Select Track Mode" },
+  { type = "cc", channel = 2, number = 71, command = "Modes: Select Volume Mode" },
+  { type = "cc", channel = 2, number = 72, command = "Modes: Select Panning Mode" },
+  { type = "cc", channel = 2, number = 73, command = "Modes: Select Send 1 Mode" },
+  { type = "cc", channel = 2, number = 74, command = "Modes: Select Device Mode" },
+  { type = "cc", channel = 2, number = 75, command = "Modes: Select Next Mode" },
+  { type = "cc", channel = 2, number = 76, command = "Modes: Select Previous Mode" },
+  { type = "cc", channel = 2, number = 80, command = "Modes: Item 1: Set value" },
+  { type = "cc", channel = 2, number = 81, command = "Modes: Item 2: Set value" },
+  { type = "cc", channel = 2, number = 82, command = "Modes: Item 3: Set value" },
+  { type = "cc", channel = 2, number = 83, command = "Modes: Item 4: Set value" },
+  { type = "cc", channel = 2, number = 84, command = "Modes: Item 1: Select" },
+  { type = "cc", channel = 2, number = 85, command = "Modes: Item 2: Select" },
+  { type = "cc", channel = 2, number = 86, command = "Modes: Item 3: Select" },
+  { type = "cc", channel = 2, number = 87, command = "Modes: Select Next Item" },
+  { type = "cc", channel = 2, number = 88, command = "Modes: Select Previous Item" },
+  { type = "cc", channel = 2, number = 89, command = "Modes: Select Next Item Page" },
+  { type = "cc", channel = 2, number = 90, command = "Modes: Select Previous Item Page" },
+  { type = "cc", channel = 2, number = 91, command = "Modes: Start Browser: Browse Presets" },
+]
+
+[[scenario]]
+id = "flexi.modes.track-volume"
+bullet = "Track Mode: Set Item value 1-8: 1) Change Volume of selected track"
+before = [{ osc = "/track/1/select 1 | /track/1/volume 100" }]
+steps = [
+  { midi = "B1 46 7F | B1 46 00", note = "Track Mode" },
+  { midi = "B1 50 00", note = "item 1 = 0" },
+]
+expect.bitwig = { "/track/1/volume" = "0" }
+
+[[scenario]]
+id = "flexi.modes.track-pan"
+bullet = "Track Mode: Set Item value 1-8: 2) Change Panorama of selected track"
+before = [{ osc = "/track/1/select 1 | /track/1/pan 64" }]
+steps = [{ midi = "B1 51 00", note = "item 2 = 0" }]
+expect.bitwig = { "/track/1/pan" = "0" }
+
+[[scenario]]
+id = "flexi.modes.track-send"
+bullet = "Track Mode: Set Item value 1-8: 3-8) Change volume of Send 1-6"
+before = [{ osc = "/track/1/select 1 | /track/1/send/1/volume 100" }]
+steps = [{ midi = "B1 52 00", note = "item 3 = 0" }]
+expect.bitwig = { "/track/1/send/1/volume" = "0" }
+
+[[scenario]]
+id = "flexi.modes.track-select-item"
+bullet = "Track Mode: Select Item 1-8: Select track 1-8 in the current bank page"
+before = [{ osc = "/track/1/select 1" }]
+steps = [{ midi = "B1 56 7F | B1 56 00", note = "select item 3" }]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "flexi.modes.track-next-previous-item"
+bullet = "Track Mode: Select Next Item: Select the next track (if any). Select Previous Item: Select the previous track (if any)"
+before = [{ osc = "/track/3/select 1" }]
+steps = [
+  { midi = "B1 57 7F | B1 57 00", note = "next item" },
+  { midi = "B1 57 7F | B1 57 00", note = "next item" },
+  { midi = "B1 58 7F | B1 58 00", note = "previous item" },
+]
+expect.bitwig = { "/track/4/selected" = "1" }
+
+[[scenario]]
+id = "flexi.modes.track-next-page"
+bullet = "Track Mode: Select Next Item Page: Select the next page of the track bank. Select Previous Item Page: Select the previous page of the track bank"
+# The bank of Flexi is not the one of OSC: select item 1 of the page afterwards
+before = [{ osc = "/track/1/select 1" }]
+steps = [
+  { midi = "B1 59 7F | B1 59 00", note = "next item page" },
+  { midi = "B1 54 7F | B1 54 00", note = "select item 1" },
+]
+expect.bitwig = { "/track/selected/name" = "Audio 9" }
+
+[[scenario]]
+id = "flexi.modes.track-previous-page"
+bullet = "Track Mode: Select Previous Item Page: Select the previous page of the track bank"
+steps = [
+  { midi = "B1 5A 7F | B1 5A 00", note = "previous item page" },
+  { midi = "B1 54 7F | B1 54 00", note = "select item 1" },
+]
+expect.bitwig = { "/track/selected/name" = "Synth" }
+
+[[scenario]]
+id = "flexi.modes.volume"
+bullet = "Volume Mode: Set Item value 1-8: Change Volume of track 1-8 in the current bank page"
+before = [{ osc = "/track/bank/page/- | /track/1/select 1 | /track/3/volume 100" }]
+steps = [
+  { midi = "B1 47 7F | B1 47 00", note = "Volume Mode" },
+  { midi = "B1 52 00", note = "item 3 = 0" },
+]
+expect.bitwig = { "/track/3/volume" = "0" }
+
+[[scenario]]
+id = "flexi.modes.panorama"
+bullet = "Panorama Mode: Set Item value 1-8: Change Panorama of track 1-8 in the current bank page"
+before = [{ osc = "/track/4/pan 64" }]
+steps = [
+  { midi = "B1 48 7F | B1 48 00", note = "Panning Mode" },
+  { midi = "B1 53 00", note = "item 4 = 0" },
+]
+expect.bitwig = { "/track/4/pan" = "0" }
+
+[[scenario]]
+id = "flexi.modes.send"
+bullet = "Send 1-8 Mode: Set Item value 1-8: Change Volume of the Send X of track 1-8 in the current bank page"
+before = [{ osc = "/track/2/send/1/volume 100" }]
+steps = [
+  { midi = "B1 49 7F | B1 49 00", note = "Send 1 Mode" },
+  { midi = "B1 51 00", note = "item 2 = 0" },
+]
+expect.bitwig = { "/track/2/send/1/volume" = "0" }
+
+[[scenario]]
+id = "flexi.modes.next-previous-mode"
+bullet = "Furthermore, there are functions to select individual modes or to select the previous/next mode."
+before = [{ osc = "/track/1/volume 100 | /track/1/pan 64 | /track/3/volume 100" }]
+steps = [
+  { midi = "B1 46 7F | B1 46 00", note = "Track Mode" },
+  { midi = "B1 4B 7F | B1 4B 00", note = "next mode" },
+  { midi = "B1 52 00", note = "item 3 = 0" },
+  { midi = "B1 4C 7F | B1 4C 00", note = "previous mode" },
+  { midi = "B1 51 00", note = "item 2 = 0" },
+]
+
+[[scenario]]
+id = "flexi.modes.device-value"
+bullet = "Device Mode: Set Item value 1-8: Change the value of parameter 1-8 in the current bank page"
+before = [{ osc = "/track/1/select 1 | /device/page/1/selected | /device/param/1/value 100" }]
+steps = [
+  { midi = "B1 4A 7F | B1 4A 00", note = "Device Mode" },
+  { midi = "B1 50 00", note = "item 1 = 0" },
+]
+expect.bitwig = { "/device/param/1/value" = "0" }
+
+[[scenario]]
+id = "flexi.modes.device-select-page"
+bullet = "Device Mode: Select Item 1-8: Select parameter page 1-8"
+before = [{ osc = "/track/1/select 1 | /device/page/1/selected" }]
+steps = [{ midi = "B1 55 7F | B1 55 00", note = "select item 2" }]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.modes.device-next-page"
+bullet = "Device Mode: Select Next Item Page: Select the next page of parameters. Select Previous Item Page: Select the previous page of parameters"
+before = [{ osc = "/device/page/1/selected" }]
+steps = [
+  { midi = "B1 59 7F | B1 59 00", note = "next item page" },
+  { midi = "B1 59 7F | B1 59 00", note = "next item page" },
+  { midi = "B1 5A 7F | B1 5A 00", note = "previous item page" },
+]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+
+[[scenario]]
+id = "flexi.modes.device-next-device"
+bullet = "Device Mode: Select Next Item: Select the next device (if any). Select Previous Item: Select the previous device (if any)"
+before = [{ osc = "/track/1/select 1 | /device/page/1/selected" }]
+steps = [
+  { midi = "B1 57 7F | B1 57 00", note = "next item (Synth has one device: no change)" },
+  { midi = "B1 58 7F | B1 58 00", note = "previous item" },
+]
+
+[[scenario]]
+id = "flexi.modes.browser-discard"
+bullet = "Browser Mode: Select Previous Item Page: Discard the browser selection and close the browser"
+before = [{ osc = "/track/1/select 1" }]
+steps = [
+  { midi = "B1 5B 7F | B1 5B 00", note = "start the browser (presets of the device)", wait_ms = 1000 },
+  { midi = "B1 5A 7F | B1 5A 00", note = "previous item page: discard" },
+]
+expect.bitwig = { "/browser/isActive" = "0" }

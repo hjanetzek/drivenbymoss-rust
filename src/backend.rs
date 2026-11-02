@@ -198,6 +198,8 @@ pub struct RecordingBackend {
     pub calls: RefCell<Vec<BackendCall>>,
     pub inputs: Vec<(i32, String)>,
     pub outputs: Vec<(i32, String)>,
+    /// The log messages of the library (see [`Backend::log`]).
+    pub logs: RefCell<Vec<String>>,
 }
 
 impl RecordingBackend {
@@ -211,6 +213,10 @@ impl RecordingBackend {
 }
 
 impl Backend for RecordingBackend {
+    fn log(&self, message: &str) {
+        self.logs.borrow_mut().push(message.to_string());
+    }
+
     fn process_no_arg(&self, processor: &str, command: &str) {
         self.push(BackendCall::NoArg(processor.into(), command.into()));
     }

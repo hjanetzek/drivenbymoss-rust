@@ -1,0 +1,78 @@
+# Conformance scenarios: Generic Flexi, the function layers. Fixture: tests/conformance/FIXTURE.md;
+# setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#parameters-for-each-slot"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth", "/track/3/exists" = "1" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1" },
+]
+
+# The layer commands are on CC 80-82 with the layer "all" (CC 0-31 with "all" are 14 bit,
+# candidate M); CC 83 has a function in layer 1 and another one in layer 2.
+[mapping]
+slots = [
+  { type = "cc", number = 80, layer = "all", command = "Function Layers: Activate Layer 1" },
+  { type = "cc", number = 81, layer = "all", command = "Function Layers: Activate Layer 2" },
+  { type = "cc", number = 82, layer = "all", command = "Function Layers: Activate Layer 2 temporarily" },
+  { type = "cc", number = 83, layer = 1, command = "Track 1: Toggle Mute" },
+  { type = "cc", number = 83, layer = 2, command = "Track 2: Toggle Mute" },
+  { type = "cc", number = 84, layer = 2, command = "Track 3: Toggle Mute" },
+]
+
+[[scenario]]
+id = "flexi.layers.default"
+bullet = "Functions Layer: ... The function is only executed if the respective layer is active. Layer 1 is the default layer."
+before = [
+  { osc = "/track/1/mute 0 | /track/2/mute 0 | /track/3/mute 0" },
+  { midi = "B0 50 7F | B0 50 00", note = "layer 1" },
+]
+steps = [{ midi = "B0 53 7F", note = "CC 83" }, { midi = "B0 53 00" }]
+expect.bitwig = { "/track/1/mute" = "1", "/track/2/mute" = "0" }
+
+[[scenario]]
+id = "flexi.layers.inactive-layer"
+bullet = "Functions Layer: The function is only executed if the respective layer is active."
+before = [
+  { osc = "/track/1/mute 0 | /track/2/mute 0 | /track/3/mute 0" },
+  { midi = "B0 50 7F | B0 50 00", note = "layer 1" },
+]
+steps = [{ midi = "B0 54 7F", note = "CC 84: only in layer 2" }, { midi = "B0 54 00" }]
+expect.bitwig = { "/track/3/mute" = "0" }
+
+[[scenario]]
+id = "flexi.layers.activate"
+bullet = "Use the functions under Function Layers to temporarily or permanently activate a different layer."
+before = [
+  { osc = "/track/1/mute 0 | /track/2/mute 0 | /track/3/mute 0" },
+  { midi = "B0 50 7F | B0 50 00", note = "layer 1" },
+]
+steps = [
+  { midi = "B0 51 7F", note = "activate layer 2" },
+  { midi = "B0 51 00" },
+  { midi = "B0 53 7F", note = "CC 83" },
+  { midi = "B0 53 00" },
+  { midi = "B0 54 7F", note = "CC 84" },
+  { midi = "B0 54 00" },
+]
+expect.bitwig = { "/track/1/mute" = "0", "/track/2/mute" = "1", "/track/3/mute" = "1" }
+
+[[scenario]]
+id = "flexi.layers.temporary"
+bullet = "Use the functions under Function Layers to temporarily ... activate a different layer."
+before = [
+  { osc = "/track/1/mute 0 | /track/2/mute 0 | /track/3/mute 0" },
+  { midi = "B0 50 7F | B0 50 00", note = "layer 1" },
+]
+steps = [
+  { midi = "B0 52 7F", note = "hold: layer 2 temporarily" },
+  { midi = "B0 53 7F", note = "CC 83 in layer 2" },
+  { midi = "B0 53 00" },
+  { midi = "B0 52 00", note = "release: back to layer 1" },
+  { midi = "B0 53 7F", note = "CC 83 in layer 1" },
+  { midi = "B0 53 00" },
+]
+expect.bitwig = { "/track/1/mute" = "1", "/track/2/mute" = "1" }

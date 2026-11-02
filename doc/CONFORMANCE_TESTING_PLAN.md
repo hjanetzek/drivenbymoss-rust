@@ -16,7 +16,7 @@ Status: 2026-10-30, steps 1 and 2 done, step 3 in progress.
   (coverage, open and known differences, fixes). Launch Control XL: all five templates the same
   in Java and Rust (except known differences), replays recorded. Maschine JAM: global,
   transport, session, Note and Drum Sequencer, play modes the same, replays recorded. Maschine Mk2: global,
-  transport, group buttons, encoder modes, pad modes, all 27 scenarios the same, replays recorded. Next: the Mk2 pad modes, the Launchpad.
+  transport, group buttons, encoder modes, pad modes, all 27 scenarios the same, replays recorded. Next: the Mk2 pad modes, the Launchpad. Generic Flexi: 98 scenarios in 9 files with the mapping in the scenario file (`tests/conformance/generic_flexi/CONFORMANCE.md`), not yet run.
 
 Setup for a run (Linux):
 
@@ -147,6 +147,40 @@ For building the fixture, `DeviceModule` also has `/device/layer/{1-8}/browse`,
 creates a layer over OSC, so the Instrument Layer of the fixture comes from a preset.
 
 With it, the probe of the Rust extension is only needed for the Bitwig version.
+
+**DAWproject as a further observer (checked 2026-11-02, not used yet).** DAWproject
+(github.com/bitwig/dawproject, format 1.0) is the exchange format of Bitwig: a ZIP with
+`project.xml` (schema `Project.xsd`) and `metadata.xml`. Bitwig writes it itself, so like OSC it
+shares no code with either extension.
+
+- What it has which OSC does not report:
+  - All tracks (groups, effect tracks, master) with name, color, volume, pan, mute, solo and the
+    sends (volume, enable), not just the bank of 8.
+  - All clips, launcher (`Scenes`/`ClipSlot`) and arranger, with all notes (`time`,
+    `duration`, `channel`, `key`, `vel`, `rel`) and the note expressions as `Points` (gain, pan,
+    transpose, timbre, pressure). OSC and the probe only have the 64×128 grid of the cursor clip.
+  - Automation (`Points` with a `Target` parameter or expression): what an automation write
+    scenario recorded.
+  - Markers with their position (OSC has only name, color and exists), tempo and time
+    signature with their automation, clip play start/stop and loop.
+  - Devices: name, role, enabled. Whether Bitwig writes the parameter values of its own devices
+    or only a state file is to be checked with an export (plugins: the state is always a file).
+- What it does not have: the transport toggles (punch, overdub, metronome), groove, selections,
+  cursors and pins, remote control pages, layouts, the browser, note repeat.
+- How to get it: Bitwig 5.3.13 has the action `export_project` ("Export DAWproject…", in
+  `resources/localization`). The "…" means a save dialog: `/conformance/action` can start it
+  (with the action's ID; `/conformance/actions export` lists it), but the dialog has to be
+  filled in. `xdotool` is installed and would work if Bitwig runs under XWayland; not tried. An
+  export writes the whole project and takes seconds, so it is a snapshot per scenario or per file,
+  not per step.
+- Where it would pay off: scenarios whose result is project content. These are recorded notes and
+  automation, created or duplicated clips, note sequencer steps outside the probe grid, created
+  tracks and scenes (Flexi "Add ... Track", "Create Scene"), marker positions (Flexi
+  `marker.toml`).
+- Next step: one export of the fixture by hand, to see what Bitwig writes for its own devices and
+  for the launcher clips, and whether the dialog takes a typed path. Then decide on a
+  `snapshot = "dawproject"` option for scenarios, which compares the flattened XML without IDs and
+  file paths.
 
 ## 3. Scenarios
 

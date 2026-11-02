@@ -1,0 +1,118 @@
+# Conformance scenarios: Generic Flexi, the Global, Master, Scene, Clip and Layout functions.
+# Fixture: tests/conformance/FIXTURE.md; setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#selected-slot---function"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth", "/track/1/clip/1/hasContent" = "1" }
+
+setup = [
+  { osc = "/stop | /clip/stopall | /track/bank/page/- | /track/1/select 1 | /master/mute 0 | /layout/arrange" },
+]
+
+[mapping]
+slots = [
+  { type = "cc", number = 70, command = "Global: Undo" },
+  { type = "cc", number = 71, command = "Global: Redo" },
+  { type = "cc", number = 72, command = "Track 2: Toggle Mute" },
+  { type = "cc", number = 73, command = "Master: Toggle Mute" },
+  { type = "cc", number = 74, command = "Master: Set Panning" },
+  { type = "cc", number = 75, command = "Master: Select" },
+  { type = "cc", number = 76, command = "Scene 1: Launch Scene" },
+  { type = "cc", number = 77, command = "Clip: Stop All" },
+  { type = "cc", number = 78, command = "Clip: Toggle Pin" },
+  { type = "cc", number = 79, command = "Clip: Select next" },
+  { type = "cc", number = 80, command = "Clip: Select previous" },
+  { type = "cc", number = 81, command = "Layout: Set Mix Layout" },
+  { type = "cc", number = 82, command = "Layout: Set Arrange Layout" },
+  { type = "cc", number = 83, command = "Layout: Toggle Arranger Cue Markers" },
+  { type = "cc", number = 84, command = "Layout: Toggle Mixer Meter Section" },
+  { type = "cc", number = 85, command = "Scene: Create Scene" },
+  { type = "cc", number = 86, command = "Track 1: Select" },
+]
+
+[[scenario]]
+id = "flexi.global.undo-redo"
+bullet = "Global: Select global commands. (Undo, Redo)"
+before = [{ osc = "/track/2/mute 0" }]
+steps = [
+  { midi = "B0 48 7F | B0 48 00", note = "mute track 2" },
+  { midi = "B0 46 7F | B0 46 00", note = "undo" },
+  { midi = "B0 47 7F | B0 47 00", note = "redo" },
+]
+expect.bitwig = { "/track/2/mute" = "1" }
+
+[[scenario]]
+id = "flexi.master.mute"
+bullet = "Master: Select a function which is related to the Master track. (Toggle Mute)"
+before = [{ osc = "/track/2/mute 0 | /master/mute 0" }]
+steps = [{ midi = "B0 49 7F | B0 49 00" }]
+expect.bitwig = { "/master/mute" = "1" }
+
+[[scenario]]
+id = "flexi.master.panning-select"
+bullet = "Master: Set Panning, Select"
+before = [{ osc = "/master/mute 0 | /master/pan 64" }]
+steps = [
+  { midi = "B0 4A 00", note = "panning 0" },
+  { midi = "B0 4B 7F | B0 4B 00", note = "select the master" },
+]
+expect.bitwig = { "/master/pan" = "0", "/master/selected" = "1" }
+
+[[scenario]]
+id = "flexi.scene.launch"
+bullet = "Scene: Select a scene related function. (Scene 1: Launch Scene; the launcher clips in slot 1 of Synth and Drums)"
+before = [{ osc = "/master/pan 64 | /track/1/select 1 | /stop" }]
+steps = [{ midi = "B0 4C 7F | B0 4C 00", note = "launch scene 1", wait_ms = 1500 }]
+expect.bitwig = { "/play" = "1" }
+
+[[scenario]]
+id = "flexi.clip.stop-all"
+bullet = "Clip: Select a clip related function. (Stop All)"
+steps = [{ midi = "B0 4D 7F | B0 4D 00", note = "stop all clips", wait_ms = 1500 }]
+expect.bitwig = { "/track/1/clip/1/isPlaying" = "0" }
+
+[[scenario]]
+id = "flexi.clip.pin-select"
+bullet = "Clip: Toggle Pin, Select next, Select previous"
+before = [{ osc = "/stop | /track/1/clip/1/select" }]
+steps = [
+  { midi = "B0 4F 7F | B0 4F 00", note = "next" },
+  { midi = "B0 50 7F | B0 50 00", note = "previous" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "pin" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "unpin" },
+]
+# The pin state is one of the cursor of each extension: OSC shows its own one, so this is compared only
+
+[[scenario]]
+id = "flexi.layout.layouts"
+bullet = "Layout: Select layout related function. (Set Mix Layout, Set Arrange Layout)"
+before = [{ osc = "/layout/arrange" }]
+steps = [
+  { midi = "B0 51 7F | B0 51 00", note = "mix" },
+  { midi = "B0 52 7F | B0 52 00", note = "arrange" },
+]
+expect.bitwig = { "/layout" = "arrange" }
+
+[[scenario]]
+id = "flexi.layout.mix"
+bullet = "Layout: Set Mix Layout"
+steps = [{ midi = "B0 51 7F | B0 51 00" }]
+expect.bitwig = { "/layout" = "mix" }
+
+[[scenario]]
+id = "flexi.layout.visibility"
+bullet = "Layout: Toggle Arranger Cue Markers, Toggle Mixer Meter Section (each toggled twice)"
+before = [{ osc = "/layout/arrange" }]
+steps = [
+  { midi = "B0 53 7F | B0 53 00" },
+  { midi = "B0 53 7F | B0 53 00" },
+  { midi = "B0 54 7F | B0 54 00" },
+  { midi = "B0 54 7F | B0 54 00" },
+]
+
+[[scenario]]
+id = "flexi.scene.create"
+bullet = "Scene: Create Scene (the last scenario: it adds a scene to the project)"
+steps = [{ midi = "B0 55 7F | B0 55 00" }]

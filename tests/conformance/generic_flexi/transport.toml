@@ -1,0 +1,161 @@
+# Conformance scenarios: Generic Flexi, the Transport functions and the Shift button. Fixture:
+# tests/conformance/FIXTURE.md; setup: tests/conformance/generic_flexi/CONFORMANCE.md.
+
+controller = "Generic Flexi"
+manual = "Generic-Tools-Protocols/Generic-Flexi.md#global-shift-button"
+settle_ms = 600
+
+require = { "/track/1/name" = "Synth" }
+
+setup = [
+  { osc = "/stop | /repeat 0 | /click 0 | /punchIn 0 | /punchOut 0 | /tempo/raw 120 | /automationWriteMode latch | /track/bank/page/- | /track/1/select 1" },
+]
+
+[mapping]
+slots = [
+  { type = "cc", number = 70, command = "Global: Shift Button" },
+  { type = "cc", number = 71, command = "Transport: Play" },
+  { type = "cc", number = 72, command = "Transport: Stop" },
+  { type = "cc", number = 73, command = "Transport: Toggle Repeat" },
+  { type = "cc", number = 74, command = "Transport: Toggle Metronome" },
+  { type = "cc", number = 75, command = "Transport: Toggle Punch In" },
+  { type = "cc", number = 76, command = "Transport: Toggle Punch Out" },
+  { type = "cc", number = 77, command = "Transport: Toggle Arranger Overdub" },
+  { type = "cc", number = 78, command = "Transport: Toggle Clip Overdub" },
+  { type = "cc", number = 79, command = "Transport: Toggle Arranger Automation Write" },
+  { type = "cc", number = 80, command = "Transport: Toggle Clip Automation Write" },
+  { type = "cc", number = 81, command = "Transport: Set Write Mode: Latch" },
+  { type = "cc", number = 82, command = "Transport: Set Write Mode: Touch" },
+  { type = "cc", number = 83, command = "Transport: Set Write Mode: Write" },
+  { type = "cc", number = 84, command = "Transport: Set Tempo" },
+  { type = "cc", number = 85, command = "Transport: Set Metronome Volume" },
+  { type = "cc", number = 86, command = "Track Selected: Set Volume Track", knob_mode = "relative_twos_complement" },
+  { type = "cc", number = 87, command = "Transport: Toggle Metronome in Pre-roll" },
+]
+
+[[scenario]]
+id = "flexi.transport.play"
+bullet = "Transport: Select a transport related function. (Play)"
+before = [{ osc = "/stop" }]
+steps = [{ midi = "B0 47 7F | B0 47 00", note = "Play" }]
+expect.bitwig = { "/play" = "1" }
+
+[[scenario]]
+id = "flexi.transport.stop"
+bullet = "Transport: Select a transport related function. (Stop)"
+before = [{ osc = "/play 1" }]
+steps = [{ midi = "B0 48 7F | B0 48 00", note = "Stop" }]
+expect.bitwig = { "/play" = "0" }
+
+[[scenario]]
+id = "flexi.transport.shift-play"
+bullet = "Global: Shift Button ... Play: Toggles Repeat"
+before = [{ osc = "/stop | /repeat 0" }]
+steps = [
+  { midi = "B0 46 7F", note = "hold Shift" },
+  { midi = "B0 47 7F | B0 47 00", note = "Play" },
+  { midi = "B0 46 00", note = "release Shift" },
+]
+expect.bitwig = { "/repeat" = "1", "/play" = "0" }
+
+[[scenario]]
+id = "flexi.transport.repeat"
+bullet = "Transport: Toggle Repeat"
+before = [{ osc = "/repeat 0" }]
+steps = [{ midi = "B0 49 7F | B0 49 00" }]
+expect.bitwig = { "/repeat" = "1" }
+
+[[scenario]]
+id = "flexi.transport.metronome"
+bullet = "Transport: Toggle Metronome"
+before = [{ osc = "/repeat 0 | /click 0" }]
+steps = [{ midi = "B0 4A 7F | B0 4A 00" }]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "flexi.transport.punch"
+bullet = "Transport: Toggle Punch In, Toggle Punch Out"
+before = [{ osc = "/click 0 | /punchIn 0 | /punchOut 0" }]
+steps = [
+  { midi = "B0 4B 7F | B0 4B 00", note = "Punch In" },
+  { midi = "B0 4C 7F | B0 4C 00", note = "Punch Out" },
+]
+expect.bitwig = { "/punchIn" = "1", "/punchOut" = "1" }
+
+[[scenario]]
+id = "flexi.transport.overdub"
+bullet = "Transport: Toggle Arranger Overdub, Toggle Clip Overdub"
+before = [{ osc = "/punchIn 0 | /punchOut 0" }]
+# OSC can only toggle these: each is toggled twice, compared per step
+steps = [
+  { midi = "B0 4D 7F | B0 4D 00", note = "Arranger Overdub" },
+  { midi = "B0 4D 7F | B0 4D 00", note = "Arranger Overdub" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "Clip Overdub" },
+  { midi = "B0 4E 7F | B0 4E 00", note = "Clip Overdub" },
+]
+
+[[scenario]]
+id = "flexi.transport.automation-write"
+bullet = "Transport: Toggle Arranger Automation Write, Toggle Clip Automation Write"
+steps = [
+  { midi = "B0 4F 7F | B0 4F 00", note = "Arranger Automation Write" },
+  { midi = "B0 4F 7F | B0 4F 00", note = "Arranger Automation Write" },
+  { midi = "B0 50 7F | B0 50 00", note = "Clip Automation Write" },
+  { midi = "B0 50 7F | B0 50 00", note = "Clip Automation Write" },
+]
+
+[[scenario]]
+id = "flexi.transport.write-mode"
+bullet = "Transport: Set Write Mode: Latch, Touch, Write"
+before = [{ osc = "/automationWriteMode latch" }]
+steps = [
+  { midi = "B0 52 7F | B0 52 00", note = "Touch" },
+  { midi = "B0 53 7F | B0 53 00", note = "Write" },
+]
+expect.bitwig = { "/automationWriteMode" = "write" }
+
+[[scenario]]
+id = "flexi.transport.write-mode-latch"
+bullet = "Transport: Set Write Mode: Latch"
+steps = [{ midi = "B0 51 7F | B0 51 00", note = "Latch" }]
+expect.bitwig = { "/automationWriteMode" = "latch" }
+
+[[scenario]]
+id = "flexi.transport.tempo"
+bullet = "Transport: Set Tempo"
+before = [{ osc = "/tempo/raw 120" }]
+steps = [
+  { midi = "B0 54 00", note = "minimum" },
+  { midi = "B0 54 40", note = "center" },
+]
+
+[[scenario]]
+id = "flexi.transport.metronome-volume"
+bullet = "Transport: Set Metronome Volume"
+before = [{ osc = "/tempo/raw 120 | /click/volume 100" }]
+steps = [{ midi = "B0 55 00", note = "minimum" }]
+expect.bitwig = { "/click/volume" = "0" }
+
+[[scenario]]
+id = "flexi.transport.metronome-preroll"
+bullet = "Transport: Toggle Metronome in Pre-roll"
+steps = [
+  { midi = "B0 57 7F | B0 57 00" },
+  { midi = "B0 57 7F | B0 57 00" },
+]
+
+[[scenario]]
+id = "flexi.shift.knob-normal"
+bullet = "Knob Speed Normal: Adjust the speed of the knobs."
+before = [{ osc = "/track/1/select 1 | /track/1/volume 64" }]
+steps = [{ midi = "B0 56 0A", note = "+10 without Shift" }]
+
+[[scenario]]
+id = "flexi.shift.knob-slow"
+bullet = "Global: Shift Button: Using it in combination with a relative (!) knob, slows down the value change of this knob (see Knob Speed Normal/Slow settings below)."
+before = [{ osc = "/track/1/volume 64" }]
+steps = [
+  { midi = "B0 46 7F", note = "hold Shift" },
+  { midi = "B0 56 0A", note = "+10 with Shift" },
+  { midi = "B0 46 00", note = "release Shift" },
+]
