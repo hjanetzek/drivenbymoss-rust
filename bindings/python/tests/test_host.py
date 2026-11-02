@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dbm_host import TAKEOVER_CATCH, Banks, Bridge, CommandHandler, Parameter, Preferences, Reporter, SimDaw  # noqa: E402
+from dbm_host import TAKEOVER_CATCH, Banks, Bridge, CommandHandler, Device, Parameter, Preferences, Reporter, SimDaw  # noqa: E402
 from dbm_host.parameter import VOLUME_0DB, format_pan, format_volume, limit_text  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
 
@@ -534,6 +534,56 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(host.commands.unhandled, ["device param/<n>/value", "track <n>/mute", "frobnicate"])
         self.assertEqual(len(logs.output), 3, "Each once")
         self.assertIn("Not handled yet: device param/<n>/value", logs.output[0])
+
+
+class DeviceAndPreferencesTest(unittest.TestCase):
+
+    def test_auto_arm_follows_the_selection(self):
+        daw = project(preferences=Preferences(auto_arm=True))
+        synth, drums, eq = daw.tracks[0], daw.tracks[1], daw.tracks[3]
+        drums.select()
+        self.assertEqual((synth.arm, drums.arm), (False, True), "Only instrument tracks, the previous one is disarmed")
+        eq.set_arm(True)
+        eq.select()
+        self.assertTrue(eq.arm and not drums.arm)
+        synth.select()
+        self.assertTrue(eq.arm, "Armed by a command: stays armed")
+        self.assertTrue(synth.arm)
+
+    def test_edits_make_undo_possible(self):
+        host = Host()
+        app = host.daw.application
+        host.commands.handle("track", "0/select", 1.0)
+        self.assertFalse(app.can_undo, "A selection is no edit")
+        host.commands.handle("track", "0/mute", 0.0)
+        self.assertFalse(app.can_undo, "No change")
+        host.commands.handle("track", "0/mute", 1.0)
+        self.assertTrue(app.can_undo)
+        app.can_undo = False
+        host.commands.handle("track", "1/volume", 0.25)
+        self.assertTrue(app.can_undo)
+        self.assertIn("/project/canUndo 1", host.lines())
+
+    def test_device_reports_and_parameter_page(self):
+        daw = project()
+        daw.tracks[0].devices.add(Device("Polysynth", pages=["OSC1", "OSC2", "MIX"]))
+        daw.tracks[0].devices.add(Device("Delay", kind="audio_fx"))
+        host = Host(daw, {"numTracks": 8, "numParamPages": 2, "deviceIds": ["FIRST_INSTRUMENT"]})
+        report = host.report()
+        self.assertEqual((report["/device/exists"], report["/device/name"], report["/device/count"]), ("1", "Polysynth", "2"))
+        self.assertEqual((report["/device/sibling/2/name"], report["/device/sibling/1/selected"]), ("Delay", "1"))
+        self.assertEqual((report["/device/page/count"], report["/device/page/1/name"], report["/device/param/count"]), ("2", "OSC2", "16"))
+        self.assertEqual(report["/primary/name"], "Polysynth")
+        self.assertNotIn("/device/page/2/name", report, "Only numParamPages pages")
+        host.commands.handle("device", "parameterPage", 7.0)
+        self.assertEqual(daw.cursor_device.selected_page, 2, "Clamped")
+        self.assertEqual(host.report()["/primary/page/selected"], "2", "The same device")
+        host.commands.handle("primary", "parameterPage", 0.0)
+        self.assertEqual(host.report()["/device/page/selected"], "0")
+        daw.tracks[3].select()
+        report = host.report()
+        self.assertEqual((report["/device/exists"], report["/device/position"], report["/primary/exists"]), ("0", "-1", "0"))
+        self.assertEqual(host.commands.unhandled, [])
 
 
 class LaunchControlXLTest(unittest.TestCase):

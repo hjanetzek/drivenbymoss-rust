@@ -6,11 +6,12 @@ request, ``/host/features``.
 
 Implements HOST_BRIDGE_GUIDE.md §2 (the reporting protocol: lines and values, change-only
 reporting and dumps, the host features) with the addresses of §3.1 (transport), §3.3 (tracks,
-sends, effect tracks, master) and §3.4 (scenes, slots).
+sends, effect tracks, master), §3.4 (scenes, slots) and §3.5 (the cursor device and the first
+instrument: name, state, siblings, remote-control pages).
 
 Simulates the Bitwig extension of this repository: ``ModelReporter`` (the change tracking) and
 ``BitwigModel.collect`` (collectTransport, collectTracks, collectSlots, collectEffectTracks,
-collectScenes, collectMaster), which follow the Java ``TransportImpl``, ``TrackImpl``,
+collectScenes, collectMaster, collectDevice, ``SpecificDevice.collect``), which follow the Java ``TransportImpl``, ``TrackImpl``,
 ``ChannelImpl``, ``SendImpl``, ``SlotImpl``, ``SceneImpl`` of DrivenByMoss for Bitwig.
 
 Differences from the Bitwig extension:
@@ -21,9 +22,10 @@ Differences from the Bitwig extension:
   selected one ``select 1`` after ``/track/count`` (HOST_BRIDGE_GUIDE.md §2: deselect, then
   select, in one batch).
 - Not reported yet (later steps): the application (except undo/redo), arranger, mixer and
-  project flags, the crossfader, groove, the cursor device and its parameters, layers, drum
-  pads, the clip and its step grids, markers, the browser, note repeat, playing notes. They are
-  added as collectors (``Reporter.collectors``).
+  project flags, the crossfader, groove, device parameters (the pages are reported, their
+  parameters do not exist), layers, drum pads (``hasDrumPads`` and ``hasLayers`` are 0), the EQ,
+  the drum machine, the clip and its step grids, markers, the browser, note repeat, playing
+  notes. They are added as collectors (``Reporter.collectors``).
 """
 
 from typing import Callable
@@ -37,6 +39,10 @@ LIMITS = (6, 8)
 
 # The delay before the values of a commanded item are reported again (CommandHandler.reportAgain)
 REPORT_AGAIN_DELAY_MS = 300
+
+# BitwigModel: the sibling window of the cursor device, the parameters of a page
+NUM_SIBLINGS = 8
+PARAMS_PER_PAGE = 8
 
 
 def format_beats(beats: float, quarters_per_measure: int, offset: int) -> str:
@@ -105,6 +111,8 @@ class Reporter:
             Reporter.collect_effect_tracks,
             Reporter.collect_scenes,
             Reporter.collect_master,
+            Reporter.collect_device,
+            Reporter.collect_primary,
         ]
 
     # Change tracking (ModelReporter)
@@ -326,5 +334,75 @@ class Reporter:
         self.collect_vu("/master/", master)
         self.collect_channel("/master/", master)
 
+    # Devices (BitwigModel.collectDevice, SpecificDevice.collect)
 
-__all__ = ["LIMITS", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]
+    def num_param_pages(self) -> int:
+        return max(0, int(self.banks.setup.get("numParamPages", 8)))
+
+    def collect_pages(self, prefix: str, device) -> None:
+        """BitwigModel.collectPages and the page names: the parameters of the first
+        ``numParamPages`` pages as one flat list, the page names, the selected page. The
+        simulated devices have no parameters yet (see the module docstring)."""
+        num_pages = self.num_param_pages()
+        pages = device.pages if device is not None else []
+        used = min(len(pages), num_pages)
+        for index in range(num_pages * PARAMS_PER_PAGE):
+            param = f"{prefix}/param/{index}/"
+            self.put(param + "name", "")
+            self.put(param + "value", 0)
+            self.put_displayed(param + "value/str", "", ["", ""])
+            self.put(param + "steps", -1)
+            self.put(param + "modulated", 0)
+        self.put(prefix + "/param/count", used * PARAMS_PER_PAGE)
+        for index in range(used):
+            self.put(f"{prefix}/page/{index}/name", pages[index])
+        self.put(prefix + "/page/count", used)
+        self.put(prefix + "/page/selected", device.selected_page if device is not None else 0)
+
+    def collect_device(self) -> None:
+        """BitwigModel.collectDevice (and the device part of the cursor device's
+        SpecificDevice): the cursor device of the cursor track."""
+        channel = self.daw.cursor_channel
+        chain = channel.devices.devices if channel is not None else []
+        device = self.daw.cursor_device
+        exists = device is not None
+        position = chain.index(device) if exists else -1
+        self.put("/device/count", len(chain))
+        self.put("/device/exists", exists)
+        self.put("/device/position", position)
+        self.put("/device/name", device.name if exists else "")
+        self.put("/device/bypass", exists and not device.enabled)
+        self.put("/device/window", exists and device.window_open)
+        self.put("/device/pinned", False)
+        self.put("/device/expand", exists and device.expanded)
+        self.put("/device/parameters", exists)
+        self.put("/device/hasDrumPads", False)
+        self.put("/device/hasLayers", False)
+        for index in range(NUM_SIBLINGS):
+            sibling = chain[index] if index < len(chain) else None
+            prefix = f"/device/sibling/{index + 1}/"
+            self.put(prefix + "name", sibling.name if sibling is not None else "")
+            self.put(prefix + "bypass", sibling is not None and not sibling.enabled)
+            self.put(prefix + "position", index if sibling is not None else -1)
+            self.put(prefix + "selected", sibling is not None and index == position)
+        self.collect_pages("/device", device)
+
+    def collect_primary(self) -> None:
+        """SpecificDevice.collect for ``/primary`` (the first instrument of the cursor track), if
+        the controller asks for it (``deviceIds``)."""
+        if "FIRST_INSTRUMENT" not in self.banks.setup.get("deviceIds", []):
+            return
+        device = self.daw.primary_device
+        exists = device is not None
+        self.put("/primary/exists", exists)
+        self.put("/primary/name", device.name if exists else "")
+        self.put("/primary/bypass", exists and not device.enabled)
+        self.put("/primary/window", exists and device.window_open)
+        self.put("/primary/expand", exists and device.expanded)
+        self.put("/primary/parameters", exists)
+        self.put("/primary/hasDrumPads", False)
+        self.put("/primary/hasLayers", False)
+        self.collect_pages("/primary", device)
+
+
+__all__ = ["LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]

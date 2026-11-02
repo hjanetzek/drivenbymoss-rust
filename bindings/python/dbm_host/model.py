@@ -15,8 +15,9 @@ it: ``TransportImpl`` (Transport), ``ChannelImpl``, ``TrackImpl``, ``MasterTrack
 
 Extension points for the later steps (PYTHON_HOST_PLAN.md §5):
 
-- ``Track.devices``: the device chain of a track (``Device``: parameters, remote-control pages,
-  layers, drum pads), for ``/device``, ``/primary``, ``/eq``, ``/drum``.
+- ``Channel.devices``: the device chain of a channel (``device.DeviceChain``; the devices have
+  names and remote-control pages so far), for ``/device`` and ``/primary``. Parameters, layers and
+  drum pads (``/eq``, ``/drum``) come with step 4.
 - ``Slot.clip``: the clip of a slot (note grid, loop, play range), for ``/clip``.
 - ``SimDaw.markers``, ``SimDaw.browser``, ``SimDaw.project``, ``SimDaw.groove``: not modelled
   yet (None or empty); ``Application`` has only undo and redo.
@@ -31,11 +32,18 @@ Simplifications (each a deliberate choice, not a fit to a scenario):
 - The monitoring of AUTO is on while the track is armed.
 - New sends are disabled (``isEnabled`` 0), as Bitwig reported them for the fixture.
 - ``track addTrack``: the name and color are set at once (Bitwig: 300 ms later).
+- Undo: a change of mute, solo, a mixer value (volume, pan, send) or the tempo is an edit of the
+  project (``Application.edit``), which makes undo possible; the history is not simulated.
+- Auto-arm (``Preferences.auto_arm``): selecting a track which can hold notes arms it and
+  disarms the track it armed before; a track armed otherwise stays armed. Bitwig arms the
+  selected instrument track in the reference recordings (``osc:/track/N/recarm`` follows the
+  selection in ``target/conformance/*-java.json``); the exact rules of Bitwig are not public.
 """
 
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .device import DeviceChain
 from .parameter import (
     VOLUME_0DB,
     Parameter,
@@ -223,14 +231,22 @@ class Transport:
 
 class Application:
     """Undo and redo (ApplicationImpl, Bitwig ``Application``). The simulation has no undo
-    history: it counts the calls; a fixture sets ``can_undo`` and ``can_redo``. The panel layout
-    and the other application values come with a later step."""
+    history: an edit of the project (``edit``) makes undo possible, as in Bitwig; undo and redo
+    are counted. The panel layout and the other application values come with a later step."""
 
     def __init__(self):
         self.can_undo = False
         self.can_redo = False
         self.undos = 0
         self.redos = 0
+        self.edits = 0
+
+    def edit(self) -> None:
+        """An undoable change of the project (Bitwig adds it to the undo history and clears the
+        redo steps)."""
+        self.edits += 1
+        self.can_undo = True
+        self.can_redo = False
 
     def undo(self) -> None:
         self.undos += 1
@@ -276,6 +292,8 @@ class Channel:
         self.vu_left = 0.0
         self.vu_right = 0.0
         self.sends: list[Send] = []
+        self.devices = DeviceChain()
+        """The device chain (the selected device is the cursor device of the channel)."""
 
     @property
     def selected(self) -> bool:
@@ -291,11 +309,21 @@ class Channel:
         unsolos all other channels."""
         self.set_solo(not self.solo, exclusive=self.daw.preferences.exclusive_solo)
 
+    def set_mute(self, mute: bool) -> None:
+        """``mute.set``; a change is an edit of the project (undoable)."""
+        if self.mute != bool(mute):
+            self.mute = bool(mute)
+            self.daw.application.edit()
+
     def set_solo(self, solo: bool, exclusive: bool = False) -> None:
+        """``solo.set``; a change is an edit of the project (undoable)."""
+        before = [channel.solo for channel in self.daw.all_channels()]
         if solo and exclusive:
             for channel in self.daw.all_channels():
                 channel.solo = False
         self.solo = bool(solo)
+        if before != [channel.solo for channel in self.daw.all_channels()]:
+            self.daw.application.edit()
 
 
 class Track(Channel):
@@ -311,12 +339,17 @@ class Track(Channel):
         self.arm = False
         self.monitor_mode = MONITOR_AUTO
         self.slots: list[Slot] = []
-        self.devices: list = []
-        """The device chain; devices come with step 4 (PYTHON_HOST_PLAN.md §5)."""
+        self.auto_armed = False
+        """Armed by the auto-arm of the selection (Preferences.auto_arm)."""
 
     @property
     def is_effect(self) -> bool:
         return self.type == "EFFECT"
+
+    def set_arm(self, armed: bool) -> None:
+        """Arm or disarm (``arm.set``); the auto-arm no longer owns the arm."""
+        self.arm = bool(armed)
+        self.auto_armed = False
 
     @property
     def can_hold_notes(self) -> bool:
@@ -651,7 +684,34 @@ class SimDaw:
     # Selection and the cursor track
 
     def select_channel(self, channel: Channel | None) -> None:
+        """Select a channel in the editor; with the auto-arm preference the arm follows the
+        selection (see the module docstring)."""
+        previous = self.selected_channel
         self.selected_channel = channel
+        if not self.preferences.auto_arm or previous is channel:
+            return
+        if isinstance(previous, Track) and previous.auto_armed:
+            previous.arm = False
+            previous.auto_armed = False
+        if isinstance(channel, Track) and channel.can_hold_notes and not channel.arm:
+            channel.arm = True
+            channel.auto_armed = True
+
+    # Devices
+
+    @property
+    def cursor_device(self):
+        """The cursor device: the selected device of the cursor track (CursorDeviceImpl,
+        FOLLOW_SELECTION); None without one."""
+        channel = self.cursor_channel
+        return channel.devices.selected if channel is not None else None
+
+    @property
+    def primary_device(self):
+        """The first instrument of the cursor track (DeviceID.FIRST_INSTRUMENT); None without
+        one."""
+        channel = self.cursor_channel
+        return channel.devices.first_instrument() if channel is not None else None
 
     @property
     def cursor_channel(self) -> Channel | None:

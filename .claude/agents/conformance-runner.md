@@ -34,7 +34,10 @@ backends/bitwig/tools/conformance_all.sh [--no-replays] <setup>...
 
 Run it in the background and wait for it (Mk2 and Launch Control XL about 5 minutes each, JAM
 about 8); don't poll in a tight loop. `--no-replays` for investigation runs which must not touch
-the replay files. If you are asked to repeat runs, copy `target/conformance/*.json` and the
+the replay files. A helper loop which waits for the script must end with it: wait on the
+script's PID (`while kill -0 $PID`) or use `pgrep -f '[c]onformance_all.sh'`. A plain
+`pgrep -f conformance_all.sh` inside the loop matches the loop's own command line and never
+ends. If you are asked to repeat runs, copy `target/conformance/*.json` and the
 `run-<setup>.log` to `target/conformance/<name>-<n>/` after each run, the next run overwrites
 them.
 

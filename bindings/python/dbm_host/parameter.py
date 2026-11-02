@@ -54,6 +54,9 @@ class Preferences:
     """How a value set by a controller is taken: TAKEOVER_IMMEDIATE or TAKEOVER_CATCH."""
     exclusive_solo: bool = False
     """Soloing a channel with ``solo/toggle`` unsolos all others (Bitwig: "exclusive solo")."""
+    auto_arm: bool = False
+    """Selecting an instrument track arms it, and disarms the track it armed before (Bitwig's
+    auto-arm of the selected track for the keyboard input)."""
 
 
 def format_volume(value: float) -> str:

@@ -5,7 +5,7 @@
 
 Implements HOST_BRIDGE_GUIDE.md §4 (the command reference, core -> host): 4.1 the value command
 suffixes, 4.2 transport, the ``refresh`` and ``bank`` commands of 4.3, 4.4 tracks and master
-(and the effect tracks of §3.3), 4.5 slots and scenes; the processors as BACKEND_PROTOCOL.md §2.
+(and the effect tracks of §3.3), 4.5 slots and scenes, ``parameterPage`` of 4.6; the processors as BACKEND_PROTOCOL.md §2.
 
 Simulates the command handling of the Bitwig extension (``CommandHandler``, ``DbmExtension.
 unhandled``), which calls the Bitwig API as the Java DrivenByMoss for Bitwig does
@@ -17,9 +17,9 @@ Dispatch: one handler per processor (``CommandHandler.register``). A handler get
 as ``Not handled yet: <processor> <command>`` (digits replaced by ``<n>``, as the Bitwig
 extension) and kept in ``unhandled``. Each handler declares the host features
 (HOST_BRIDGE_GUIDE.md §2) it implements; ``host_features`` is reported as ``/host/features``.
-The later steps register the processors ``device``, ``primary``, ``drum``, ``eq``, ``clip``,
-``marker``, ``browser``, ``application``, ``arranger``, ``mixer``, ``project``, ``groove``,
-``noterepeat``, ``navigator``, ``undo``, ``redo``, ... the same way.
+The later steps extend ``device`` and ``primary`` and register the processors ``drum``, ``eq``,
+``clip``, ``marker``, ``browser``, ``application``, ``arranger``, ``mixer``, ``project``,
+``groove``, ``noterepeat``, ``navigator``, ``undo``, ``redo``, ... the same way.
 """
 
 import logging
@@ -130,6 +130,8 @@ class CommandHandler:
         self.register("master", self._master)
         self.register("scene", self._scene)
         self.register("action", self._action)
+        self.register("device", self._device)
+        self.register("primary", self._device)
 
     def register(self, processor: str, handler: Handler, features: tuple[str, ...] = ()) -> None:
         """Handle the commands of a processor; the handler implements the given host features."""
@@ -178,9 +180,16 @@ class CommandHandler:
 
     # Values
 
+    def set_value(self, parameter: Parameter, cmd: Command) -> None:
+        """Set, reset, change (``/inc``) or set immediately, as the command says; a change is an
+        edit of the project."""
+        before = parameter.value
+        self._apply_value(parameter, cmd)
+        if parameter.value != before:
+            self.daw.application.edit()
+
     @staticmethod
-    def set_value(parameter: Parameter, cmd: Command) -> None:
-        """Set, reset, change (``/inc``) or set immediately, as the command says."""
+    def _apply_value(parameter: Parameter, cmd: Command) -> None:
         if cmd.reset:
             parameter.reset()
         elif cmd.increment:
@@ -230,12 +239,15 @@ class CommandHandler:
             t.loop = not t.loop
         elif p == "tempo":
             delta = {"+": 0.01, "-": -0.01, "++": 1.0, "--": -1.0}
+            before = t.tempo
             if c == "" and cmd.value is not None:
                 t.set_tempo(cmd.number)
             elif c in delta:
                 t.change_tempo(delta[c])
             else:
                 return False
+            if t.tempo != before:
+                self.daw.application.edit()
         elif p == "time":
             if c == "signature":
                 value = int(cmd.number)
@@ -307,6 +319,19 @@ class CommandHandler:
         """``action <id>``: there are no actions in the simulation; unknown IDs are ignored, as
         the Java version."""
         return True
+
+    # Devices
+
+    def _device(self, cmd: Command) -> bool:
+        """``device|primary parameterPage <page>``: show the page in the DAW (CommandHandler.
+        handleDevice / handleSpecific: ``selectedPageIndex.set``, clamped). The other device
+        commands come with step 4 (PYTHON_HOST_PLAN.md §5)."""
+        device = self.daw.cursor_device if cmd.processor == "device" else self.daw.primary_device
+        if cmd.command == "parameterPage":
+            if device is not None and device.pages:
+                device.select_page(max(0, min(int(cmd.number), len(device.pages) - 1)))
+            return True
+        return False
 
     # Tracks
 
@@ -382,7 +407,7 @@ class CommandHandler:
         elif sub == ["scrollto"]:
             self.banks.scroll("fxtrack" if track.is_effect else "track", position)
         elif sub == ["recarm"]:
-            track.arm = cmd.flag
+            track.set_arm(cmd.flag)
         elif sub == ["monitor"]:
             track.monitor_mode = "ON" if cmd.flag else "OFF"
         elif sub == ["autoMonitor"]:
@@ -427,7 +452,7 @@ class CommandHandler:
             if cmd.flag:
                 channel.select()
         elif sub == ["mute"]:
-            channel.mute = cmd.flag
+            channel.set_mute(cmd.flag)
         elif sub == ["solo"]:
             channel.set_solo(cmd.flag)
         elif sub == ["solo", "toggle"]:

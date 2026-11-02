@@ -76,3 +76,24 @@ call sequence and the model data.
 cargo build
 python3 -m unittest discover -s bindings/python/tests
 ```
+
+## Conformance in process
+
+`conformance` runs the scenario files of `tests/conformance/<setup>/` against the reference host
+(`dbm_host`, a simulated DAW) and compares the results with those of the Java DrivenByMoss on
+Bitwig (doc/PYTHON_HOST_PLAN.md §4). From `bindings/python`, after `cargo build`:
+
+```sh
+python3 -m conformance launchcontrol_xl track_mix   # one file (a name of the setup or a path)
+python3 -m conformance launchcontrol_xl             # all files of a setup
+python3 -m conformance --all                        # all setups; -q: only the status lines
+python3 -m conformance.extract [setup ...]          # the references from target/conformance/*-java.json
+```
+
+It reuses the functions of `backends/bitwig/tools/conformance_runner.py` (scenario format, LED
+state, expectations, comparison, Flexi mapping) and the controller settings of the Bitwig
+profiles (`~/.local/share/dbm-conformance/profiles/<setup>/config`, or `DBM_PROFILE_DIR`; read
+only). A file fails on a difference, a failed expectation, an unhandled command or a core error;
+keys of the Java run which the state view does not model yet are counted as "not modelled".
+The references are `tests/conformance/<setup>/replay/<run>-java.ref.json`, extracted from clean
+Bitwig runs together with the replays.

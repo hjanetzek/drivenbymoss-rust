@@ -22,6 +22,7 @@ Usage::
 from .banks import Banks
 from .bridge import Bridge
 from .commands import Command, CommandHandler
+from .device import Device, DeviceChain
 from .model import Application, Channel, MasterTrack, Scene, Send, SimDaw, Slot, Track, Transport
 from .parameter import TAKEOVER_CATCH, TAKEOVER_IMMEDIATE, Parameter, Preferences
 from .reporter import Reporter
@@ -33,6 +34,8 @@ __all__ = [
     "Channel",
     "Command",
     "CommandHandler",
+    "Device",
+    "DeviceChain",
     "MasterTrack",
     "Parameter",
     "Preferences",
