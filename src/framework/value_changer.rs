@@ -9,6 +9,19 @@
 pub enum RelativeEncoding {
     /// Positive values 1..63 increase, 65..127 (= -63..-1) decrease.
     TwosComplement,
+    /// 64 is zero, above increases, below decreases (former `OffsetBinaryRelativeValueChanger`).
+    OffsetBinary,
+    /// 65..127 increase by 1..63, 1..63 decrease by 1..63 (former
+    /// `SignedBitRelativeValueChanger`).
+    SignedBit,
+    /// 1..63 increase by 1..63, 65..127 decrease by 1..63 (former
+    /// `SignedBit2RelativeValueChanger`).
+    SignedBit2,
+}
+
+impl RelativeEncoding {
+    /// All encodings, in the order of the Java enum.
+    pub const ALL: [RelativeEncoding; 4] = [RelativeEncoding::TwosComplement, RelativeEncoding::OffsetBinary, RelativeEncoding::SignedBit, RelativeEncoding::SignedBit2];
 }
 
 /// Value changer with a configurable upper bound (the DAW value range is [0..upper_bound-1]).
@@ -22,7 +35,23 @@ pub struct ValueChanger {
 
 impl ValueChanger {
     pub fn twos_complement(upper_bound: i32, step_size: i32) -> Self {
-        ValueChanger { upper_bound, step_size, sensitivity: 1.0, encoding: RelativeEncoding::TwosComplement }
+        Self::new(RelativeEncoding::TwosComplement, upper_bound, step_size)
+    }
+
+    /// A value changer with the given relative encoding (former `TwosComplementValueChanger`,
+    /// `OffsetBinaryRelativeValueChanger`, `SignedBitRelativeValueChanger`,
+    /// `SignedBit2RelativeValueChanger`).
+    pub fn new(encoding: RelativeEncoding, upper_bound: i32, step_size: i32) -> Self {
+        ValueChanger { upper_bound, step_size, sensitivity: 1.0, encoding }
+    }
+
+    /// The value changers of `RelativeValueChangers.get`: the range 0..127, step size 1.
+    pub fn relative(encoding: RelativeEncoding) -> Self {
+        Self::new(encoding, 128, 1)
+    }
+
+    pub fn encoding(&self) -> RelativeEncoding {
+        self.encoding
     }
 
     pub fn upper_bound(&self) -> i32 {
@@ -71,6 +100,23 @@ impl ValueChanger {
                     control - 128
                 }
             }
+            RelativeEncoding::OffsetBinary => control - 64,
+            RelativeEncoding::SignedBit => {
+                if control == 64 {
+                    0
+                } else if control > 64 {
+                    control - 64
+                } else {
+                    -control
+                }
+            }
+            RelativeEncoding::SignedBit2 => {
+                if control < 64 {
+                    control
+                } else {
+                    64 - control
+                }
+            }
         }
     }
 
@@ -79,6 +125,21 @@ impl ValueChanger {
             RelativeEncoding::TwosComplement => {
                 if speed < 0 {
                     speed + 128
+                } else {
+                    speed
+                }
+            }
+            RelativeEncoding::OffsetBinary => speed + 64,
+            RelativeEncoding::SignedBit => {
+                if speed < 0 {
+                    -speed
+                } else {
+                    speed + 64
+                }
+            }
+            RelativeEncoding::SignedBit2 => {
+                if speed <= 0 {
+                    64 + speed.abs()
                 } else {
                     speed
                 }
@@ -142,5 +203,15 @@ mod tests {
         assert_eq!(vc.change_value(1, 126), 127);
         assert_eq!(vc.change_value(1, 127), 127);
         assert_eq!(vc.change_value(127, 0), 0);
+    }
+
+    #[test]
+    fn relative_encodings() {
+        let ob = ValueChanger::relative(RelativeEncoding::OffsetBinary);
+        assert_eq!((ob.decode(65), ob.decode(63), ob.encode(-1)), (1, -1, 63));
+        let sb = ValueChanger::relative(RelativeEncoding::SignedBit);
+        assert_eq!((sb.decode(65), sb.decode(1), sb.decode(64), sb.encode(-1), sb.encode(1)), (1, -1, 0, 1, 65));
+        let sb2 = ValueChanger::relative(RelativeEncoding::SignedBit2);
+        assert_eq!((sb2.decode(1), sb2.decode(65), sb2.encode(-1), sb2.encode(0), sb2.encode(1)), (1, -1, 65, 64, 1));
     }
 }

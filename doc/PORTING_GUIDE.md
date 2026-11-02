@@ -179,7 +179,7 @@ configurations working.
 | `framework::display` | `TextDisplay`, `LineWriter`, `McuDisplay`, `Format` |
 | `framework::virtual_fader` | Virtual faders on pad columns |
 | `framework::chord_identifier` | Chord names from notes |
-| `framework::value_changer` | `ValueChanger`; only two's complement so far. Add the other `RelativeEncoding`s (signed bit, signed bit 2, offset binary) when needed. |
+| `framework::value_changer` | `ValueChanger` with all four `RelativeEncoding`s (`ValueChanger::new`, `ValueChanger::relative` = `RelativeValueChangers.get`) |
 | `framework::ids` | `ButtonId`, `ContinuousId`, `OutputId`, `Views`, `Modes`, generated from the Java enums |
 | `framework::color` | `ColorManager`, `BUTTON_STATE_*` |
 | `framework::color_ids` | Color ID constants of the generic views |
