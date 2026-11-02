@@ -1226,7 +1226,7 @@ pub enum FlexiCommand {
 use CommandCategory as C;
 
 /// Category, name and trigger flag of each command, indexed by the ordinal.
-const INFO: [(Option<CommandCategory>, &str, bool); 1122] = [
+static INFO: [(Option<CommandCategory>, &str, bool); 1122] = [
     (None, "Off", false),
     (Some(C::FunctionLayers), "Function Layers: Activate Layer 1", true),
     (Some(C::FunctionLayers), "Function Layers: Activate Layer 2", true),
