@@ -1,4 +1,5 @@
 de.mossgrabers.dbm.bitwig.ProbeExtensionDefinition
+de.mossgrabers.dbm.bitwig.definitions.GenericFlexiDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface1ExtenderDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface2ExtendersDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterfaceDefinition

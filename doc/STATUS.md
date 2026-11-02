@@ -50,6 +50,7 @@ MIDI mode).
 | NI Maschine | Mk2, Jam (Mk3, Mikro Mk3, Plus, Studio prepared, not registered) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_jam_setup.rs` (12) |
 | Mackie MCU | MCU with 0-3 extenders (`MCU1..4ControllerInstance`) | `src/controller/mackie/mcu/` | `mackie_mcu.rs` (9) |
 | Mackie HUI | HUI with 0-2 extenders (`HUI1..3ControllerInstance`) | `src/controller/mackie/hui/` | `mackie_hui.rs` (5) |
+| Generic Flexi | Flexi | `src/controller/generic/` | `generic_flexi_setup.rs` (14), `generic_flexi_touch.rs` (2) |
 
 There are also 125 unit tests in the sources.
 
@@ -60,6 +61,18 @@ current surface and swaps the others in (`framework/multi_surface.rs`, design in
 surface, the Bitwig extension opens all ports of a definition. Not tested with hardware yet. Not
 ported: the "Pin FX tracks to last device" option (needs an effect track bank, which Reaper has
 not; the Java version does not activate it in Reaper either).
+
+**Generic Flexi** (2026-11-02): all 1122 commands of the 21 Java handlers, the 300 command slots
+with CC (7 and 14 bit), note, program change, pitchbend and MMC triggers, the 10 function layers,
+the six knob modes, sending the values back to the device, the keyboard note input with its
+filters and the key translation of mapped notes, the program banks (`.programs` file next to the
+mapping) and the 12 modes. The mapping files use the Java format (`SLOT<n>_TYPE`, ...), so Java
+mappings load unchanged; all Java settings are activated with the same keys. The settings of the
+selected slot ("Selected Slot - ...") and the MIDI learn values are settings, so a host with a
+settings UI (Bitwig) can edit the mapping. Not ported: the file dialogs and the signal buttons
+("Set", "Save", "Load"; `editor::learn_set`, `mapping::save_file` and `mapping::load_file` are
+their functions) and the FX track commands (no effect track bank, as in the Java Reaper version).
+See the module documentation of `src/controller/generic/` for the deviations.
 
 Commits:
 

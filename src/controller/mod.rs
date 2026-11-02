@@ -4,6 +4,7 @@
 
 //! The supported controllers.
 
+pub mod generic;
 pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;
@@ -132,6 +133,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(maschine::factories());
     factories.extend(launchcontrol::factories());
     factories.extend(mackie::factories());
+    factories.extend(generic::factories());
     factories
 }
 

@@ -22,3 +22,4 @@ pub mod virtual_fader;
 pub mod display;
 pub mod parameterprovider;
 pub mod multi_surface;
+pub mod clip_launcher_navigator;
