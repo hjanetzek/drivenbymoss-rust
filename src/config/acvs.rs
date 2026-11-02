@@ -28,6 +28,8 @@ pub fn create(arpeggiator_modes: &[ArpeggiatorMode]) -> Configuration {
     // Hardware
     let devices: Vec<String> = AcvsDevice::ALL.iter().map(|d| d.name().to_string()).collect();
     base.activate_enum_setting(ACVS_DEVICE, global, CATEGORY_HARDWARE_SETUP, "Device", devices, AcvsDevice::MpcLiveOne.name(), false);
+    // Only displayed: the device reports itself
+    base.set_enabled(ACVS_DEVICE, false);
 
     // Session
     let options: Vec<String> = SCENE_CLIPS_OPTIONS.iter().map(|s| s.to_string()).collect();
@@ -95,5 +97,12 @@ mod tests {
         d.load(Scope::Global, &Properties::parse(&props.to_text()));
         assert_eq!(active_device(&d), AcvsDevice::Force);
         assert!(!is_launch_clips(&d));
+    }
+
+    #[test]
+    fn device_is_only_displayed() {
+        let mut c = for_reaper();
+        assert!(!c.is_enabled(ACVS_DEVICE));
+        assert!(c.take_state_changes().contains(&ACVS_DEVICE));
     }
 }

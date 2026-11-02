@@ -687,7 +687,11 @@ impl Configuration {
                 }
             }
             SettingId::START_WITH_SESSION_VIEW => self.start_with_session_view = is_on(value),
-            SettingId::ENABLED_MPE_ZONES => self.is_mpe_enabled = is_on(value),
+            SettingId::ENABLED_MPE_ZONES => {
+                self.is_mpe_enabled = is_on(value);
+                // The bend range only applies to MPE (the MPE observer of activateMPESetting)
+                self.set_enabled(SettingId::MPE_PITCHBEND_RANGE, self.is_mpe_enabled);
+            }
             SettingId::MPE_PITCHBEND_RANGE => self.mpe_pitch_bend_range = number,
             SettingId::SHOW_PLAYED_CHORDS => self.show_played_chords = is_on(value),
             SettingId::COLOR_TRACK_STATES => self.color_track_states = is_on(value),
@@ -1541,6 +1545,19 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mpe_bend_range_is_only_enabled_with_mpe() {
+        let mut c = Configuration::new(&REAPER_ARP_MODES);
+        c.activate_mpe_setting(Scope::Global, "Keyboard", false);
+        assert!(!c.is_enabled(SettingId::MPE_PITCHBEND_RANGE));
+        c.take_state_changes();
+        c.set_mpe_enabled(true);
+        assert!(c.is_enabled(SettingId::MPE_PITCHBEND_RANGE));
+        assert_eq!(c.take_state_changes(), [SettingId::MPE_PITCHBEND_RANGE]);
+        c.set_mpe_enabled(true);
+        assert!(c.take_state_changes().is_empty(), "no change");
+    }
 
     fn config() -> Configuration {
         let mut c = Configuration::new(&REAPER_ARP_MODES);

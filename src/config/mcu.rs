@@ -284,7 +284,8 @@ pub fn create(num_devices: usize, arpeggiator_modes: &[ArpeggiatorMode]) -> Conf
             scope: global,
             category: CATEGORY_ASSIGNABLE_BUTTONS.to_string(),
             label: format!("{name} - Action"),
-            kind: crate::config::SettingKind::Text,
+            // A host action (IActionSetting): Bitwig shows its action list, Reaper a text
+            kind: crate::config::SettingKind::Action,
             default_value: String::new(),
             observable: false,
         });
@@ -560,6 +561,14 @@ pub fn is_assignable_setting(id: SettingId) -> bool {
 mod tests {
     use super::*;
     use crate::config::Properties;
+
+    #[test]
+    fn assignable_actions_are_host_actions() {
+        let c = for_reaper(1);
+        let descriptor = c.descriptor(ASSIGNABLE_ACTION_1.offset(3)).unwrap();
+        assert_eq!(descriptor.kind, crate::config::SettingKind::Action);
+        assert_eq!(descriptor.label, "F2 - Action");
+    }
 
     #[test]
     fn defaults() {
