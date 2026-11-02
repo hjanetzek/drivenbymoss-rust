@@ -2,3 +2,4 @@
 Cargo.lock
 /backends/bitwig/target
 __pycache__/
+/tests/conformance/generic_flexi/flexi-mapping.properties

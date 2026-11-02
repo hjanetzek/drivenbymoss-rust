@@ -15,23 +15,24 @@ OSC controller, the fixture):
 
 1. Add the Java controller "Generic" → "Flexi" and the Rust one "Generic" → "Flexi (Rust)", each with its own
    free VirMIDI port as input and output (e.g. VirMIDI 5-2 and 5-3).
-2. In the settings of both set **Filename** (Load/Save) to the same file, e.g.
-   `/home/<user>/dbm-flexi-conformance.properties`. Both load it 2 s after their start and apply
-   it 1 s later.
+2. In the settings of both set **Filename** (Load/Save) to the same file, the mapping file in
+   this folder: `<checkout>/tests/conformance/generic_flexi/flexi-mapping.properties`. Both load
+   it 2 s after their start and apply it 1 s later. The runner rewrites it for every scenario file
+   (it is not under version control); it starts with the mapping of `slots.toml`.
 3. The OSC controller: **Value resolution** Low (128 values, the default); the scenarios set and
    expect values in 0-127.
 4. The fixture needs two cue markers for `marker.toml` (tests/conformance/FIXTURE.md).
-5. Run, with the path of step 2:
+5. Run:
 
    ```
    cd backends/bitwig/tools
    ./conformance_runner.py pair ../../../tests/conformance/generic_flexi/*.toml \
-       --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-3" --restart 15 --fresh-project 8 \
-       --flexi-mapping ~/dbm-flexi-conformance.properties
+       --java-port "VirMIDI 5-2" --rust-port "VirMIDI 5-3" --restart 15 --fresh-project 8
    ```
 
-   `--restart` is required: the runner writes the mapping of the scenario file to the
-   `--flexi-mapping` file before it restarts the controller. It adds a last slot which sends the
+   `--restart` is required: the runner writes the mapping of the scenario file to the mapping
+   file of step 2 (or to `--flexi-mapping <path>` / `DBM_FLEXI_MAPPING`) before it restarts the
+   controller. It adds a last slot which sends the
    master volume on CC 119, channel 16 (`FLEXI_STARTUP_SLOT`): without a slot which sends its
    value Flexi sends nothing at its start, and the restart waits for the startup output. Since
    the value is sent when the mapping is applied, the startup output also means "mapping loaded".

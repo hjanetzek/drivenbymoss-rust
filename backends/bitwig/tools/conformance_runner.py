@@ -26,9 +26,10 @@
 #
 # Generic Flexi: a scenario file with a [mapping] table is a Flexi mapping (the slots and
 # options of tests/conformance/generic_flexi/*.toml). Before the restart of the controller the
-# runner writes it as a Flexi mapping file to the path of --flexi-mapping (or DBM_FLEXI_MAPPING),
-# the file which the "Filename" setting of both Flexi controllers in Bitwig names; both versions
-# load it 2 s after their startup. "flexi-mapping" writes the file of a scenario file by hand.
+# runner writes it as a Flexi mapping file to the path of --flexi-mapping (or DBM_FLEXI_MAPPING,
+# default: flexi-mapping.properties next to the scenario file), the file which the "Filename"
+# setting of both Flexi controllers in Bitwig names; both versions load it 2 s after their
+# startup. "flexi-mapping" writes the file of a scenario file by hand.
 
 import argparse
 import fnmatch
@@ -277,6 +278,9 @@ def restart_controller(port_name, timeout):
 FLEXI_TYPES = {"off": -1, "cc": 0, "note": 1, "pc": 2, "pitchbend": 3, "mmc": 4}
 FLEXI_KNOB_MODES = ["absolute", "relative_twos_complement", "relative_signed_bit", "relative_signed_bit_2", "relative_offset_binary", "absolute_toggle"]
 FLEXI_NUM_SLOTS = 300
+# The default mapping file, next to the scenario files; the "Filename" setting of both Flexi
+# controllers in Bitwig names it
+FLEXI_MAPPING_FILE = "flexi-mapping.properties"
 # Added to every mapping as the last slot: Flexi sends nothing without a slot which sends its
 # value to the device, and restart_controller waits until the controller has sent something. Its
 # value is sent right after the mapping is applied (the value cache starts at -1), so the
@@ -363,9 +367,9 @@ def write_flexi_mapping(config, args):
     the one which loaded them (GenericFlexiConfiguration reads them during init)."""
     if "mapping" not in config:
         return 1
-    path = getattr(args, "flexi_mapping", None) or os.environ.get("DBM_FLEXI_MAPPING")
-    if not path:
-        sys.exit("The scenario file has a Flexi mapping: give the path of the Filename setting with --flexi-mapping or DBM_FLEXI_MAPPING")
+    # Default: next to the scenario file (tests/conformance/generic_flexi/flexi-mapping.properties,
+    # not under version control)
+    path = getattr(args, "flexi_mapping", None) or os.environ.get("DBM_FLEXI_MAPPING") or str(Path(args.scenarios).resolve().parent / FLEXI_MAPPING_FILE)
     if not getattr(args, "restart", 0):
         sys.exit("The scenario file has a Flexi mapping, which is loaded at the start of the controller: use --restart")
     Path(path).expanduser().write_text(flexi_mapping_properties(config["mapping"]))
@@ -699,7 +703,7 @@ def main():
     rec.add_argument("--out", default="target/conformance")
     rec.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start with a new project from the default template (the fixture) and wait up to SECONDS until it has sent its startup output")
     rec.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (a system exclusive message which both extensions handle with DBM_OSC_CONFORMANCE) and wait up to SECONDS until it has sent its startup output")
-    rec.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING)")
+    rec.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING, else flexi-mapping.properties next to the scenario file)")
     rec.set_defaults(func=record)
     both = commands.add_parser("pair", help="record the Java and the Rust extension, then compare")
     both.add_argument("scenarios", nargs="+")
@@ -709,7 +713,7 @@ def main():
     both.add_argument("--fresh-project", type=float, default=0, metavar="SECONDS", help="start each recording with a new project from the default template (the fixture) and wait up to SECONDS until it has sent its startup output")
     both.add_argument("--restart", type=float, default=0, metavar="SECONDS", help="restart the controller before each recording (a system exclusive message which both extensions handle with DBM_OSC_CONFORMANCE) and wait up to SECONDS until it has sent its startup output")
     both.add_argument("--ignore", action="append", help="address pattern to ignore (repeatable)")
-    both.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING)")
+    both.add_argument("--flexi-mapping", metavar="PATH", help="Generic Flexi: the mapping file which the Filename setting of the controller names; the [mapping] of a scenario file is written to it before the restart (default: DBM_FLEXI_MAPPING, else flexi-mapping.properties next to the scenario file)")
     both.set_defaults(func=pair)
     flexi = commands.add_parser("flexi-mapping", help="write the Generic Flexi mapping of a scenario file")
     flexi.add_argument("scenarios")
