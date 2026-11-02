@@ -12,9 +12,6 @@ use crate::config::apcmini;
 use crate::framework::color::ColorManager;
 use crate::framework::ctx::Ctx;
 use crate::framework::grid::PadGrid;
-use crate::framework::ids::ButtonId;
-use crate::framework::surface::ButtonAction;
-use crate::midi::BindType;
 
 // MIDI CC
 
@@ -81,27 +78,16 @@ pub fn create_pad_grid(colors: &ColorManager) -> PadGrid {
 /// send blink states).
 pub fn create_pads(ctx: &mut Ctx) {
     let has_brightness = definition(ctx).has_brightness();
-    for i in 0..64 {
-        let note = 36 + i;
-        let id = ButtonId::get(ButtonId::Pad1, i as usize);
-        let (channel, control) = translate_to_controller(note);
-        let button = ctx.surface.create_button(id, &format!("P {}", i + 1));
-        button.action = ButtonAction::GridNote(note);
-        ctx.surface.create_light(
-            None,
-            Some(id),
-            Rc::new(move |ctx: &Ctx| ctx.surface.grid_ref().light_info(note).encoded()),
-            Rc::new(move |ctx: &mut Ctx, _state| {
-                let color = ctx.surface.grid_ref().light_info(note).color.max(0);
-                let mut chn = channel;
-                if has_brightness {
-                    chn += apcmini::pad_brightness(&ctx.config);
-                }
-                ctx.surface.output.send_note_ex(chn, control, color);
-            }),
-        );
-        ctx.surface.bind_button(id, BindType::Note, channel, control, -1);
-    }
+    super::super::create_grid_pads(
+        ctx,
+        Rc::new(move |ctx: &Ctx, channel, note, info| {
+            let mut chn = channel;
+            if has_brightness {
+                chn += apcmini::pad_brightness(&ctx.config);
+            }
+            ctx.surface.output.send_note_ex(chn, note, info.color.max(0));
+        }),
+    );
 }
 
 /// Install the trigger sender: all buttons are notes (former `setTrigger`).

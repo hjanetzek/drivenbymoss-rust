@@ -22,3 +22,4 @@ pub mod virtual_fader;
 pub mod display;
 pub mod parameterprovider;
 pub mod setup_helpers;
+pub mod string_utils;

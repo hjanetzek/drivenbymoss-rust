@@ -1,4 +1,6 @@
 de.mossgrabers.dbm.bitwig.ProbeExtensionDefinition
+de.mossgrabers.dbm.bitwig.definitions.AkaiAPC40Definition
+de.mossgrabers.dbm.bitwig.definitions.AkaiAPC40MkIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk1Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk2Definition
 de.mossgrabers.dbm.bitwig.definitions.NativeInstrumentsMaschineJAMDefinition

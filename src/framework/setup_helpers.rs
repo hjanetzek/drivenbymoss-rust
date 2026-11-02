@@ -179,3 +179,31 @@ pub fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
     reset_drum_octave(ctx);
     update_mode(ctx);
 }
+
+/// React on a changed note repeat setting (former `createNoteRepeatObservers`; Reaper supports
+/// the period, length and mode, but not the octaves). Returns true if the setting was one of
+/// the note repeat settings.
+pub fn handle_note_repeat_setting(ctx: &mut Ctx, id: SettingId) -> bool {
+    match id {
+        SettingId::NOTEREPEAT_ACTIVE => {
+            let active = ctx.config.is_note_repeat_active();
+            ctx.surface.input.default_note_input_mut().note_repeat.set_active(active);
+        }
+        SettingId::NOTEREPEAT_PERIOD => {
+            let period = ctx.config.note_repeat_period().value();
+            ctx.surface.input.default_note_input_mut().note_repeat.set_period(period);
+        }
+        SettingId::NOTEREPEAT_LENGTH => {
+            let length = ctx.config.note_repeat_length().value();
+            ctx.surface.input.default_note_input_mut().note_repeat.set_note_length(length);
+        }
+        SettingId::NOTEREPEAT_MODE => {
+            let mode = ctx.config.note_repeat_mode().and_then(|mode| crate::config::values::REAPER_ARP_MODES.iter().position(|m| *m == mode));
+            if let Some(index) = mode {
+                ctx.surface.input.default_note_input_mut().note_repeat.set_mode(index);
+            }
+        }
+        _ => return false,
+    }
+    true
+}

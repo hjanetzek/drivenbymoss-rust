@@ -13,3 +13,5 @@ pub mod view;
 pub mod mode;
 pub mod transport_ext;
 pub mod misc;
+pub mod channel;
+pub mod device_nav;
