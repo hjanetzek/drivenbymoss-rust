@@ -27,6 +27,9 @@ use super::handler;
 use super::slot::{CommandSlot, KnobMode, MidiValue, ProgramBank, TYPE_CC, TYPE_MMC, TYPE_NOTE, TYPE_PITCH_BEND, TYPE_PROGRAM_CHANGE};
 use crate::config::generic_flexi::{self as cfg, NUM_SLOTS, OPTIONS_TYPE};
 use crate::framework::clip_launcher_navigator::{ClipLauncherNavigator, SharedNavigator};
+use crate::framework::command::{shared, SharedTrigger};
+use crate::framework::commands::transport::PlayCommand;
+use crate::framework::commands::transport_ext::WindCommand;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, Modes};
 use crate::framework::value_changer::{RelativeEncoding, ValueChanger};
@@ -101,6 +104,14 @@ pub struct FlexiState {
     pub browser_active: bool,
     /// The clip launcher navigator of the model (former `IClipLauncherNavigator`).
     pub navigator: SharedNavigator,
+
+    /// The commands of the transport handler (former `TransportHandler.playCommand`,
+    /// `rwdCommand` and `ffwdCommand`).
+    pub play_command: SharedTrigger,
+    pub rewind_command: SharedTrigger,
+    pub fast_forward_command: SharedTrigger,
+    /// An equalizer was requested by the equalizer handler (former `EqHandler.eqRequested`).
+    pub eq_requested: bool,
 }
 
 impl FlexiState {
@@ -129,6 +140,10 @@ impl FlexiState {
             bank_settings: Vec::new(),
             browser_active: false,
             navigator: Rc::new(std::cell::RefCell::new(ClipLauncherNavigator::default())),
+            play_command: shared(PlayCommand::new()),
+            rewind_command: shared(WindCommand::new(false)),
+            fast_forward_command: shared(WindCommand::new(true)),
+            eq_requested: false,
         }
     }
 
