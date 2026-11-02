@@ -20,11 +20,11 @@ listed under "Needs".
 
 | Controller | Java path | Java lines | Reaper instance classes | Needs (beyond what exists) | Suggested order |
 | --- | --- | --- | --- | --- | --- |
-| Akai APC mini Mk1/Mk2 | `akai/apcmini` | 2,747 | `APCminiMk1/Mk2ControllerInstance` | — | 1 |
+| Akai APC mini Mk1/Mk2 | `akai/apcmini` | 2,747 | `APCminiMk1/Mk2ControllerInstance` | **Ported** (`src/controller/akai/apcmini/`) | — |
 | Arturia Beatstep (+ Pro) | `arturia/beatstep` | 2,264 | `BeatstepControllerInstance` | — | 1 |
 | ESI Xjam | `esi/xjam` | 474 | `XjamControllerInstance` | — | 1 |
 | Yaeltex Turn | `yaeltex/turn` | 3,457 | `YaeltexTurnControllerInstance` | — | 1 |
-| Akai APC40 Mk1/Mk2 | `akai/apc` | 3,928 | `APC40mkI/mkIIControllerInstance` | — | 2 |
+| Akai APC40 Mk1/Mk2 | `akai/apc` | 3,928 | `APC40mkI/mkIIControllerInstance` | **Ported** (`src/controller/akai/apc/`) | — |
 | Intuitive Instruments Exquis | `intuitiveinstruments/exquis` | 2,568 | `ExquisControllerInstance` | — | 2 |
 | Faderfox EC4 | `faderfox/ec4` | 1,743 | `EC4ControllerInstance` | Text display | 2 |
 | Novation Launchkey Mk3 / Mini Mk3 | `novation/launchkey` | 5,674 | `LaunchkeyMk3`, `LaunchkeyMiniMk3ControllerInstance` | Text display | 2 |
@@ -32,10 +32,10 @@ listed under "Needs".
 | Novation SL Mk3 | `novation/slmkiii` | 5,201 | `SLMkIIIControllerInstance` | Text display (pixel display via sysex) | 3 |
 | Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
 | Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Ported (`src/controller/mackie/mcu/`) | — |
-| Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | Text display | 3 |
+| Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | **Ported** (`src/controller/akai/acvs/`; the second MIDI input is not opened) | — |
 | Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | Sysex/Lua protocol | 3 |
-| Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex) | 4 |
-| Akai Fire | `akai/fire` | 6,299 | `FireControllerInstance` | Graphics display (OLED via sysex) | 4 |
+| Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex): `framework::graphics` exists, the Oxi components are missing | 4 |
+| Akai Fire | `akai/fire` | 6,299 | `FireControllerInstance` | **Ported** (`src/controller/akai/fire/`, OLED with `framework::graphics`; the XoX drum view needs `AbstractDrumXoXView`) | — |
 | NI Kontrol Mk1 (S25–S88) | `ni/kontrol/mki` | part of 7,390 | `KontrolMkIS25/49/61/88ControllerInstance` | USB/HID (`Kontrol1UsbDevice`) | 5 |
 | NI Kontrol Mk2/Mk3 (protocol V1–V3) | `ni/kontrol/mkii` | part of 7,390 | `KontrolProtocolV1/V2/V3ControllerInstance` | — (NI Kontrol MIDI protocol, track/parameter names via sysex) | 2 |
 | NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
@@ -178,6 +178,9 @@ configurations working.
 | `framework::surface` | `Surface`, `HwButton`, `HwLight`, `HwContinuous`, `ButtonAction`, `TriggerSender` |
 | `framework::grid` | `PadGrid`, `LightInfo`, `BlinkMode::{Channels, Collect, Emulated}` |
 | `framework::display` | `TextDisplay`, `LineWriter`, `McuDisplay`, `Format` |
+| `framework::graphics` | Graphics displays without dependencies: `Bitmap` (RGB, `encode_bgra`, `to_ascii_art`), `GraphicsContext` (fill/stroke rectangle, line, text in bounds/height; no anti-aliasing), the embedded 5x8 bitmap `font` (integer scaling), `GraphicsConfiguration::chromatic`, `GraphicsDimensions`, `Component` (Label, List, TitleValue, TitleValueMenu, TitleChannels) and `GraphicDisplay` (renders only on changes, notifications); `Ctx::graphics_display` shows the notifications |
+| `framework::setup_helpers` | Scale, deactivated items and note repeat settings, `BrowserObserver`, track change handling |
+| `framework::string_utils` | `format_percentage`, `format_measures`, `pad` |
 | `framework::virtual_fader` | Virtual faders on pad columns |
 | `framework::clip_launcher_navigator` | `IClipLauncherNavigator` (Reaper `ClipLauncherNavigatorImpl`): track/scene/clip navigation which keeps the selected slot |
 | `framework::chord_identifier` | Chord names from notes |
@@ -215,6 +218,7 @@ configurations working.
 | `framework::mode::device` | `ParameterMode`, `SelectedDeviceMode`, `ProjectParamsMode` |
 | `framework::mode::{layer, master, sequencer, dummy, note_editor}` | `LayerMute/SoloMode`, `MasterAndFXVolumeMode`, `SequencerModeBase`, `DummyMode`, `NoteEditor` |
 | `framework::mode::browser` | `BrowserMode` (device browser: knobs select the filter columns and the result) |
+| `framework::mode::note_parameter` | `NoteAttribute`, `note_value`, `set_note_value`, `change_note_value` (former `NoteParameter`) |
 
 ### Views
 
@@ -237,6 +241,9 @@ configurations working.
 | `framework::commands::misc` | Overdub, Pane, Layout, PanelLayout, Browser, AddEffect, AddTrack, Convert, Double, StartScene, Footswitch |
 | `framework::commands::aftertouch` | AftertouchViewCommand |
 | `framework::commands::mv_helper` | Delayed notifications |
+| `framework::commands::channel` | Solo, Mute, RecArm, CrossfadeMode, Master, StopClip, StopAllClips, Redo, DeviceOnOff, PlayPosition, `Timeout` |
+| `framework::commands::device_nav` | DeviceLayerLeft/Right, SelectPrevious/NextDeviceOrParamPage |
+| `framework::commands::transport_more` | Record (with triggers), Restart, Load, Save, LoopPosition, LoopLength |
 | `framework::commands::general` | Nop, Shift, Save, Marker, Record (simple), AutomationMode, PunchIn/Out, ToggleTrackBanks, SelectTrack, TrackState (rec arm/solo/mute), RecArmAll, JogWheel; `FocusedParameter`, `ZoomParameter` |
 
 ### DAW model
@@ -261,9 +268,12 @@ Events are drained with `take_events()`. The Reaper message parser is in `src/pa
 
 These are not ported yet; port them when a controller needs them:
 
-- Graphics: `framework/graphics`, about 3,900 lines (bitmap, graphics context, display model and
-  layout), and the Reaper side (`reaper/framework/graphics`). Needed by Push 2/3, Fire and
-  Oxi One.
+- Graphics: the base exists (`framework::graphics`, used by the Fire). Missing: the components
+  of the large displays (Channel, Parameter, Sends, Options, Menu, ClipList, SceneList,
+  MidiClip, GraphOverlay, ChannelSelect), icons (SVG images), anti-aliased drawing, rounded
+  rectangles and vector fonts. Needed by Push 2/3 and Oxi One.
+- `AbstractDrumXoXView` (the XoX drum sequencer). Needed by the Fire (Views.DRUM).
+- A second MIDI input per port pair (the ACVS "Pads (Remote MIDI Port)").
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
 - OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.

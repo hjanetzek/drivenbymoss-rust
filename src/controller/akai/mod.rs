@@ -8,6 +8,7 @@
 pub mod acvs;
 pub mod apc;
 pub mod apcmini;
+pub mod fire;
 
 use std::rc::Rc;
 
@@ -23,6 +24,7 @@ pub fn factories() -> Vec<Box<dyn ControllerFactory>> {
     let mut factories = apcmini::factories();
     factories.extend(apc::factories());
     factories.extend(acvs::factories());
+    factories.extend(fire::factories());
     factories
 }
 

@@ -66,6 +66,9 @@ pub struct Ctx {
     /// The other surfaces of an instance with several surfaces (e.g. MCU extenders), see
     /// [`super::multi_surface`].
     pub surfaces: super::multi_surface::SurfaceSet,
+    /// The graphics display of the controller, if any (e.g. the Akai Fire OLED). Notifications
+    /// are shown on it and on the host.
+    pub graphics_display: Option<super::graphics::GraphicDisplay>,
 }
 
 impl Ctx {
@@ -89,6 +92,7 @@ impl Ctx {
             text_display: None,
             restart_requested: false,
             surfaces: super::multi_surface::SurfaceSet::default(),
+            graphics_display: None,
         }
     }
 
@@ -139,6 +143,12 @@ impl Ctx {
     /// Show a notification on the text display. Without a text display (e.g. the Launchpad) the
     /// notification is shown by the host.
     pub fn notify(&mut self, message: &str) {
+        // Former AbstractGraphicDisplay.notify: show it on the host and the display
+        if let Some(display) = &mut self.graphics_display {
+            display.set_notification_message(message, self.host.now());
+            self.host.show_notification(message);
+            return;
+        }
         if let Some(display) = &mut self.text_display {
             let start_timer = display.notify(message);
             self.notification_end = Some(self.host.now() + std::time::Duration::from_millis(super::display::NOTIFICATION_TIME as u64));

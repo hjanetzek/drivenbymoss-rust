@@ -8,6 +8,7 @@
 pub mod acvs;
 pub mod apc;
 pub mod apcmini;
+pub mod fire;
 pub mod configuration;
 pub mod hui;
 pub mod launchcontrol;

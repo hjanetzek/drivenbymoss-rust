@@ -51,6 +51,10 @@ MIDI mode).
 | Mackie MCU | MCU with 0-3 extenders (`MCU1..4ControllerInstance`) | `src/controller/mackie/mcu/` | `mackie_mcu.rs` (9) |
 | Mackie HUI | HUI with 0-2 extenders (`HUI1..3ControllerInstance`) | `src/controller/mackie/hui/` | `mackie_hui.rs` (5) |
 | Generic Flexi | Flexi | `src/controller/generic/` | `generic_flexi_setup.rs` (14), `generic_flexi_touch.rs` (2) |
+| Akai APC mini | Mk1, Mk2 | `src/controller/akai/apcmini/` | `akai_apcmini.rs` (9) |
+| Akai APC40 | Mk1, Mk2 | `src/controller/akai/apc/` | `akai_apc40.rs` (6) |
+| Akai MPC/Force (ACVS) | MPC Live I/II, One, X, Force | `src/controller/akai/acvs/` | `akai_acvs.rs` (4) |
+| Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 
 There are also 125 unit tests in the sources.
 
@@ -73,6 +77,18 @@ settings UI (Bitwig) can edit the mapping. Not ported: the file dialogs and the 
 ("Set", "Save", "Load"; `editor::learn_set`, `mapping::save_file` and `mapping::load_file` are
 their functions) and the FX track commands (no effect track bank, as in the Java Reaper version).
 See the module documentation of `src/controller/generic/` for the deviations.
+
+**Akai (2026-11-02):** APC mini Mk1/Mk2, APC40 Mk1/Mk2, MPC/Force over ACVS and the Fire.
+The Fire's 128x64 OLED is drawn with the new dependency-free graphics module
+(`src/framework/graphics/`: RGB bitmap, graphics context, embedded 5x8 bitmap font, the
+components of the small displays and a display with notifications) and sent as 1 bit stripes.
+Not tested with hardware yet. Not ported:
+- APC40: the track crossfade (Reaper has no crossfade parameter per track) and the simulator
+  colors.
+- ACVS: the second MIDI input of the MPC ("Pads (Remote MIDI Port)", one input per port pair).
+- Fire: the XoX drum view (needs `AbstractDrumXoXView`), pinning the cursor track and the knob
+  sensitivity in the browser.
+See the module documentation in `src/controller/akai/` for the details and the Java deviations.
 
 Commits:
 
@@ -103,7 +119,8 @@ The Linux guard of the Maschine factories is removed.
 **Not ported:**
 
 - The Swing/JavaFX UI and the simulator windows.
-- USB, HID, graphics displays, OSC and the gamepad.
+- USB, HID, OSC and the gamepad. Graphics displays: only the Akai Fire OLED (MIDI system
+  exclusive); the USB displays (Push 2/3) are not ported.
 - All controllers not listed above. See [PORTING_GUIDE.md](PORTING_GUIDE.md) for the
   remaining ones.
 
@@ -198,8 +215,10 @@ Open issues:
   MIDI → `SendMIDIEventsToOutputs`) still reaches the device at that point.
 - [ ] There is no UI. Configuration comes from the `.config` files, and `dbm_display_window` only
   prints the log. Decide whether a UI is needed.
-- [ ] Decide how to support USB/HID (Push 2/3 display, Kontrol Mk1) and graphics displays
-  (Push 2/3, Fire, Oxi One), and whether external crates are allowed for these.
+- [ ] Decide how to support USB/HID (Push 2/3 display, Kontrol Mk1) and whether external crates
+  are allowed for these. Graphics displays are drawn with `src/framework/graphics/` (bitmap font,
+  no anti-aliasing, only the components of the small displays; the Push components, icons and
+  anti-aliased drawing are missing).
 - [ ] Device browser: presets only, with no filter columns and no device database (DeviceManager).
   This limits device and drum-pad browsing (Maschine).
 - [ ] No parameter renaming or mapping (DeviceManager), and no device layers (Reaper has none).
