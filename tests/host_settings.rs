@@ -79,3 +79,29 @@ fn notifications() {
     assert_eq!(app.take_notifications(), "Selected Mode: Mixer");
     assert_eq!(app.take_notifications(), "");
 }
+
+/// The settings of Generic Flexi as the Bitwig extension creates them (HostSettings): the kinds it
+/// knows, enumeration defaults among the options, and no label twice in a category (Bitwig does
+/// not create a second setting with the same label in the same category).
+#[test]
+fn settings_of_generic_flexi() {
+    let dir = std::env::temp_dir().join(format!("dbm-test-host-settings-flexi-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let backend = Rc::new(RecordingBackend { inputs: vec![(0, "in".into())], outputs: vec![(0, "out".into())], ..Default::default() });
+    let mut app = App::new_single(backend, dir.to_str().unwrap(), "1B43F14F-CAAF-468A-9418-417C678653A0", "Bitwig Studio 5.3").expect("Generic Flexi");
+    app.start_infrastructure();
+    let settings = app.settings();
+    assert!(settings.lines().count() > 20, "Flexi has settings: {settings}");
+    let mut seen = std::collections::HashSet::new();
+    for line in settings.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert!(fields.len() >= 7, "fields of {line}");
+        assert!(["enum", "integer", "boolean", "text"].contains(&fields[2]), "kind of {line}");
+        if fields[2] == "enum" {
+            assert!(fields[7..].contains(&fields[5]), "the default of {} is one of the options", fields[4]);
+        }
+        assert!(seen.insert((fields[1], fields[3], fields[4])), "{} twice in the category {}", fields[4], fields[3]);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
