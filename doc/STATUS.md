@@ -1,13 +1,14 @@
 # DrivenByMoss4Reaper → Rust: Port Status
 
-As of 2026-10-29 · branch `rust-port`
+As of 2026-11-02 · branch `main`
 
 ## Summary
 
-Three controller families are ported: Novation Launchpad (5 models), Novation Launch Control XL,
-and NI Maschine Mk2 and Jam. The crate has about 56,000 lines of Rust in 217 files. 187 tests
-pass, 1 is ignored, and `cargo clippy --all-targets` reports 0 warnings. The release build
-produces `libdrivenbymoss.so` (about 2.2 MB), which exports the 16 `dbm_*` functions of the
+Seven controller families are ported: Novation Launchpad (5 models), Novation Launch Control XL,
+NI Maschine Mk2 and Jam, Mackie MCU and HUI (with extenders), Generic Flexi, and the Akai APC mini,
+APC40, MPC/Force (ACVS) and Fire. The crate has about 90,000 lines of Rust in 315 files. 372 tests
+pass, 2 are ignored, and `cargo clippy --all-targets` reports 0 warnings. The release build
+produces `libdrivenbymoss.so` (about 6.5 MB), which exports the 23 `dbm_*` functions of the
 handle-based C ABI.
 
 **First successful test in Reaper (2026-10-29):** the Reaper extension in `backends/reaper`,
@@ -56,7 +57,7 @@ MIDI mode).
 | Akai MPC/Force (ACVS) | MPC Live I/II, One, X, Force | `src/controller/akai/acvs/` | `akai_acvs.rs` (4) |
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 
-There are also 125 unit tests in the sources.
+There are also 220 unit tests in the sources.
 
 **Mackie MCU and HUI (2026-11-02):** the first controllers with several surfaces per instance
 (the main device and its extenders, each with its own MIDI port pair). The context keeps the
