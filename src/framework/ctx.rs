@@ -60,6 +60,9 @@ pub struct Ctx {
     /// The text display of the controller, if any. Notifications are shown on it instead of
     /// the host.
     pub text_display: Option<super::display::TextDisplay>,
+    /// Set by the controller to request a restart of its instance (former `IHost.restart`),
+    /// executed by the app after the current tick.
+    pub restart_requested: bool,
 }
 
 impl Ctx {
@@ -81,6 +84,7 @@ impl Ctx {
             notification_end: None,
             ext: Box::new(()),
             text_display: None,
+            restart_requested: false,
         }
     }
 

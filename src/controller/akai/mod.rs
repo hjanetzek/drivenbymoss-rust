@@ -3,8 +3,9 @@
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
 //! Support for the Akai controllers (former `controller.akai`): APC mini Mk1/Mk2, APC40
-//! Mk1/Mk2.
+//! Mk1/Mk2 and the MPC/Force (ACVS).
 
+pub mod acvs;
 pub mod apc;
 pub mod apcmini;
 
@@ -21,6 +22,7 @@ use crate::midi::BindType;
 pub fn factories() -> Vec<Box<dyn ControllerFactory>> {
     let mut factories = apcmini::factories();
     factories.extend(apc::factories());
+    factories.extend(acvs::factories());
     factories
 }
 
@@ -71,6 +73,32 @@ pub fn create_grid_pads(ctx: &mut Ctx, sender: PadSender) {
         );
         ctx.surface.bind_button(id, BindType::Note, channel, control, -1);
     }
+}
+
+/// A light which maps a state to a color ID (former `addButton` with color IDs): a negative
+/// state is `BUTTON_STATE_OFF`.
+pub fn state_light(color_ids: &'static [&'static str], state: impl Fn(&Ctx) -> i32 + 'static) -> crate::framework::surface::LightSupplier {
+    Rc::new(move |ctx: &Ctx| {
+        let state = state(ctx);
+        let id = if state < 0 { crate::framework::color::BUTTON_STATE_OFF } else { color_ids[(state as usize).min(color_ids.len() - 1)] };
+        ctx.colors.color_index(id)
+    })
+}
+
+/// The colors of a boolean light (former `addButton` with a `BooleanSupplier`).
+pub const ON_HI: &[&str] = &[crate::framework::color::BUTTON_STATE_ON, crate::framework::color::BUTTON_STATE_HI];
+
+/// A light for a boolean state with the colors `BUTTON_STATE_ON` and `BUTTON_STATE_HI` (former
+/// `addButton` with a `BooleanSupplier`).
+pub fn bool_light(is_on: impl Fn(&Ctx) -> bool + 'static) -> crate::framework::surface::LightSupplier {
+    state_light(ON_HI, move |ctx| i32::from(is_on(ctx)))
+}
+
+/// Add a button which has no light (former `addButton (..., hasLight = false, ...)`).
+pub fn add_button_without_light(ctx: &mut Ctx, id: ButtonId, label: &str, command: crate::framework::command::SharedTrigger, bind_type: BindType, channel: i32, control: i32) {
+    let button = ctx.surface.create_button(id, label);
+    button.action = ButtonAction::Command(command);
+    ctx.surface.bind_button(id, bind_type, channel, control, -1);
 }
 
 #[cfg(test)]

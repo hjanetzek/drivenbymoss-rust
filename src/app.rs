@@ -404,6 +404,13 @@ impl App {
             running.setup.handle_changes(&mut running.ctx);
             running.setup.flush(&mut running.ctx);
         }
+        // Restart the instances which requested it (former IHost.restart)
+        let restart: Vec<usize> =
+            (0..self.instances.len()).filter(|&index| self.instances[index].running.as_ref().is_some_and(|running| running.ctx.restart_requested)).collect();
+        for index in restart {
+            self.stop_instance(index);
+            self.start_instance(index);
+        }
     }
 
     /// Reset the document settings of all controllers to their defaults.

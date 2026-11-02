@@ -5,6 +5,7 @@
 //! The settings of the controllers (former `framework.configuration` and
 //! `reaper.framework.configuration` packages) without any UI.
 
+pub mod acvs;
 pub mod apc;
 pub mod apcmini;
 pub mod configuration;
