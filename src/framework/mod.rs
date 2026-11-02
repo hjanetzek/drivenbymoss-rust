@@ -21,3 +21,4 @@ pub mod chord_identifier;
 pub mod virtual_fader;
 pub mod display;
 pub mod parameterprovider;
+pub mod clip_launcher_navigator;

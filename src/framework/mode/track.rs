@@ -101,6 +101,11 @@ impl<B: TrackModeBehavior> DefaultTrackMode<B> {
         self.is_absolute
     }
 
+    /// Former `AbstractParameterMode.setAbsolute` (used by Generic Flexi).
+    pub fn set_absolute(&mut self, is_absolute: bool) {
+        self.is_absolute = is_absolute;
+    }
+
     /// Get the index of the track in the page; a negative index returns the selected track
     /// (former `getTrack`).
     pub fn track_index(ctx: &Ctx, index: i32) -> Option<usize> {
