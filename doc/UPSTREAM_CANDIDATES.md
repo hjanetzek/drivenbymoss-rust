@@ -3,7 +3,7 @@
 This document lists the changes that could become pull requests to upstream projects. Part 1 covers
 bug fixes for the Java DrivenByMoss (Bitwig). Part 2 plans a standalone repository for dbm-nihost.
 
-As of 2026-10-31. The Java line numbers refer to upstream `origin/master` of
+As of 2026-10-31, M and N added 2026-11-02. The Java line numbers refer to upstream `origin/master` of
 `~/bastel/github/DrivenByMoss` (4bbb242b), not to the local branches. Nothing here has been sent.
 
 ## Part 1: Bug fixes for the Java DrivenByMoss
@@ -380,6 +380,76 @@ Notes:
 - **Confidence:** high, a bug (the other Shift combinations consume Stop).
 - **Ready:** yes; the fix works on the Mk2 in both versions (2026-11-01).
 
+#### M. Generic Flexi: a 7-bit "All layers" slot on CC 0-31 is handled as 14 bit
+
+- **Where:** `src/main/java/de/mossgrabers/controller/generic/controller/GenericFlexiControlSurface.java:278`
+  (`handleCC`).
+- **What is wrong:** `&&` binds stronger than `||`:
+
+  ```java
+  if (fl < 0 || fl == this.functionLayer && commandSlot.getResolution ())
+  ```
+
+  reads as `fl < 0 || (fl == this.functionLayer && commandSlot.getResolution ())`. A slot with
+  the function layer "All layers" (`fl < 0`) on CC 0-31 is matched in the 14-bit branch even if
+  its resolution is 7 bit. Its value becomes `data2 * 128 + lastCCValues[data1 + 32]` with
+  `isHighResValue = true`, and the plain 7-bit path below is skipped. Only the last of several
+  such slots on the same CC gets the value. The branch for CC 32-63 next to it checks the
+  resolution (`... == this.functionLayer && commandSlot.getResolution ()`), so the intent is
+  clearly `(fl < 0 || fl == this.functionLayer) && commandSlot.getResolution ()`.
+- **Reproduce:** map two commands to CC 7 on the same channel, both 7 bit, function layer
+  "All layers". Turn the knob: only one of them follows. A value on CC 39 (= 7 + 32) from the
+  device is added as the low byte.
+- **Effect:** small for a single slot. The default function layer is 0 (`CommandSlot.java:36`),
+  so only slots explicitly set to "All layers" are affected, and with a stale low byte of 0 the
+  14-bit value equals the 7-bit one. Several slots on one CC, and devices which also send
+  CC n+32, behave wrongly.
+- **Evidence:** found while porting Generic Flexi (2026-11-02). The Rust port keeps the Java
+  precedence for parity, with a comment (`src/controller/generic/surface.rs:368-370`).
+- **Fix:**
+
+  ```diff
+  -                if (fl < 0 || fl == this.functionLayer && commandSlot.getResolution ())
+  +                if ((fl < 0 || fl == this.functionLayer) && commandSlot.getResolution ())
+  ```
+
+  Change the Rust port in the same way when upstream takes it.
+- **Confidence:** high that the expression is wrong; the visible effect is small.
+- **Ready:** yes, after a check with a Flexi mapping (no special hardware: any CC controller).
+
+#### N. MCU with 1 extender: the iCON QCon Pro X + XS1 pair is never discovered
+
+- **Where:** `src/main/java/de/mossgrabers/controller/mackie/mcu/MCUControllerDefinition.java:69-79`
+  (`getMidiDiscoveryPairs`, `case 2`).
+- **What is wrong:** `addDeviceDiscoveryPair (String [], String [])` only creates the pair
+  (`DefaultControllerDefinition.java:254-257`: `return new Pair<> (ins, outs);`), it does not add
+  it anywhere. `case 1` adds the created pairs with `pairs.addAll (...)`; `case 2` drops the
+  returned pair, so the MCU with 1 extender has no auto detection at all.
+- **Reproduce:** connect an iCON QCon Pro X and an XS1 extender and add the controller
+  "MCU - Control Universal + 1 Extender": the ports are not detected.
+- **Evidence:** found while porting the MCU (2026-11-02). The Rust port adds the pair
+  (`src/controller/mackie/mcu/definition.rs:34-47`, with a "Difference to Java" comment).
+- **Fix:**
+
+  ```diff
+               case 2:
+  -                this.addDeviceDiscoveryPair (new String []
+  +                pairs.add (this.addDeviceDiscoveryPair (new String []
+                   {
+                       I_CON_QCON_PRO_X_V1_15,
+                       "iCON QCON Pro XS1 V1.08"
+                   }, new String []
+                   {
+                       I_CON_QCON_PRO_X_V1_15,
+                       "iCON QCON Pro XS1 V1.08"
+  -                });
+  +                }));
+                   break;
+  ```
+
+- **Confidence:** high, a bug.
+- **Ready:** yes. Verifying the port names needs the hardware; the fix itself is mechanical.
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |
@@ -424,6 +494,8 @@ not contain test scaffolding.
 | 8. Maschine Mk2/JAM on Linux with dbm-nihost | J | after Part 2 |
 | 9. Chords which share notes: keep them until all are released | K | ready (the Rust fix checked on the JAM and Mk2) |
 | 10. Maschine Mk2: Shift + arrows does not also stop the transport | L | ready (`conformance-osc`) |
+| 11. Generic Flexi: operator precedence of the 14-bit check in `handleCC` | M | ready after a Flexi check |
+| 12. MCU: discovery pair of the QCon Pro X with the XS1 extender | N | ready |
 
 ## Part 2: dbm-nihost as its own repository
 
@@ -605,6 +677,8 @@ Options:
 | J | Maschine Mk2/JAM refuse Linux | `MaschineControllerSetup.java:180`, `MaschineJamControllerSetup.java:150` | intended restriction | high | after dbm-nihost (219204b8) |
 | K | releasing a chord ends the notes shared with a held chord | `AbstractChordView.java`, Maschine `PlayView.java` | bug | high | ready |
 | L | Shift (STEP LEFT) + arrows also runs Stop on release | `MaschineCursorCommand.java:61, 82` | bug | high | ready |
+| M | Flexi: a 7-bit "All layers" slot on CC 0-31 is handled as 14 bit | `GenericFlexiControlSurface.java:278` | bug (small effect) | high | Flexi check |
+| N | MCU + 1 extender: the QCon Pro X + XS1 pair is dropped | `MCUControllerDefinition.java:69-79` | bug | high | ready |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |
