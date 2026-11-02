@@ -39,7 +39,7 @@ listed under "Needs".
 | NI Kontrol Mk1 (S25–S88) | `ni/kontrol/mki` | part of 7,390 | `KontrolMkIS25/49/61/88ControllerInstance` | USB/HID (`Kontrol1UsbDevice`) | 5 |
 | NI Kontrol Mk2/Mk3 (protocol V1–V3) | `ni/kontrol/mkii` | part of 7,390 | `KontrolProtocolV1/V2/V3ControllerInstance` | — (NI Kontrol MIDI protocol, track/parameter names via sysex) | 2 |
 | NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
-| Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | Flexi handler system, user-defined mappings, many settings | 4 |
+| Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | **Ported** (`src/controller/generic/`, see STATUS.md) | — |
 | Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | Push 1: text display. Push 2/3: graphics rendering (`framework/graphics`, 3,939 lines + 1,618 Reaper side) and USB bulk transfer of the display | 5 |
 | OSC | `osc/**` | 3,801 | `OSCControllerInstance` | UDP networking, OSC encoding (`framework/osc`) | 4 |
 | Gamepad | `gamepad` | 291 | `GamepadControllerInstance` | Gamepad input (jamepad in Java): needs a native library | 5 |
@@ -178,6 +178,7 @@ configurations working.
 | `framework::grid` | `PadGrid`, `LightInfo`, `BlinkMode::{Channels, Collect, Emulated}` |
 | `framework::display` | `TextDisplay`, `LineWriter`, `McuDisplay`, `Format` |
 | `framework::virtual_fader` | Virtual faders on pad columns |
+| `framework::clip_launcher_navigator` | `IClipLauncherNavigator` (Reaper `ClipLauncherNavigatorImpl`): track/scene/clip navigation which keeps the selected slot |
 | `framework::chord_identifier` | Chord names from notes |
 | `framework::value_changer` | `ValueChanger` with all four `RelativeEncoding`s (`ValueChanger::new`, `ValueChanger::relative` = `RelativeValueChangers.get`) |
 | `framework::ids` | `ButtonId`, `ContinuousId`, `OutputId`, `Views`, `Modes`, generated from the Java enums |
@@ -212,6 +213,7 @@ configurations working.
 | `framework::mode::track` | Track select/mute/solo/rec arm/stop clip/volume/pan/send/track modes (`new` / `new_with_controls`) |
 | `framework::mode::device` | `ParameterMode`, `SelectedDeviceMode`, `ProjectParamsMode` |
 | `framework::mode::{layer, master, sequencer, dummy, note_editor}` | `LayerMute/SoloMode`, `MasterAndFXVolumeMode`, `SequencerModeBase`, `DummyMode`, `NoteEditor` |
+| `framework::mode::browser` | `BrowserMode` (device browser: knobs select the filter columns and the result) |
 
 ### Views
 
@@ -263,13 +265,18 @@ These are not ported yet; port them when a controller needs them:
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
 - OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.
-- Flexi handlers: `controller/generic/flexihandler`. Needed by Generic Flexi.
 - Multiple surfaces per controller instance (MCU/HUI extenders). `Ctx` currently holds one
   `Surface`. Design this before porting MCU/HUI: either one `Ctx` per surface with a shared
   model, or a `Vec<Surface>` with a surface index in the call paths.
 - Device browser filter columns and the device database (DeviceManager), and parameter
   mapping/renaming.
-- Knob sensitivity (slow mode).
+- Knob sensitivity (slow mode) of the model's value changer: the `DawContext` holds a copy of the
+  value changer per parameter, so the sensitivity cannot be changed at runtime. Generic Flexi keeps
+  its own copies of the relative value changers with the sensitivity and passes them to
+  `Parameter::change_value_with`; modes which call `change_value` (e.g. Flexi's "Modes: Item"
+  commands) still use the model's value changer without sensitivity.
+- The effect track bank: the model has none (as Reaper), so the Flexi "FX Track" commands do
+  nothing.
 
 ## 6. Testing requirements
 

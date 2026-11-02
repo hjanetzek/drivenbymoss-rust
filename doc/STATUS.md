@@ -48,8 +48,21 @@ MIDI mode).
 | Novation Launchpad | MkII, Pro, Pro Mk3, X, Mini MkIII | `src/controller/launchpad/` | `launchpad_smoke.rs` (2), `launchpad_setup.rs` (10), `launchpad_views.rs` (11) |
 | Novation Launch Control XL | XL | `src/controller/launchcontrol/` | `launchcontrol_xl.rs` (12) |
 | NI Maschine | Mk2, Jam (Mk3, Mikro Mk3, Plus, Studio prepared, not registered) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_jam_setup.rs` (12) |
+| Generic Flexi | Flexi | `src/controller/generic/` | `generic_flexi_setup.rs` (14), `generic_flexi_touch.rs` (2) |
 
 There are also 125 unit tests in the sources.
+
+**Generic Flexi** (2026-11-02): all 1122 commands of the 21 Java handlers, the 300 command slots
+with CC (7 and 14 bit), note, program change, pitchbend and MMC triggers, the 10 function layers,
+the six knob modes, sending the values back to the device, the keyboard note input with its
+filters and the key translation of mapped notes, the program banks (`.programs` file next to the
+mapping) and the 12 modes. The mapping files use the Java format (`SLOT<n>_TYPE`, ...), so Java
+mappings load unchanged; all Java settings are activated with the same keys. The settings of the
+selected slot ("Selected Slot - ...") and the MIDI learn values are settings, so a host with a
+settings UI (Bitwig) can edit the mapping. Not ported: the file dialogs and the signal buttons
+("Set", "Save", "Load"; `editor::learn_set`, `mapping::save_file` and `mapping::load_file` are
+their functions) and the FX track commands (no effect track bank, as in the Java Reaper version).
+See the module documentation of `src/controller/generic/` for the deviations.
 
 Commits:
 
