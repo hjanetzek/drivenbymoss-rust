@@ -48,8 +48,18 @@ MIDI mode).
 | Novation Launchpad | MkII, Pro, Pro Mk3, X, Mini MkIII | `src/controller/launchpad/` | `launchpad_smoke.rs` (2), `launchpad_setup.rs` (10), `launchpad_views.rs` (11) |
 | Novation Launch Control XL | XL | `src/controller/launchcontrol/` | `launchcontrol_xl.rs` (12) |
 | NI Maschine | Mk2, Jam (Mk3, Mikro Mk3, Plus, Studio prepared, not registered) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_jam_setup.rs` (12) |
+| Mackie MCU | MCU with 0-3 extenders (`MCU1..4ControllerInstance`) | `src/controller/mackie/mcu/` | `mackie_mcu.rs` (9) |
+| Mackie HUI | HUI with 0-2 extenders (`HUI1..3ControllerInstance`) | `src/controller/mackie/hui/` | `mackie_hui.rs` (5) |
 
 There are also 125 unit tests in the sources.
+
+**Mackie MCU and HUI (2026-11-02):** the first controllers with several surfaces per instance
+(the main device and its extenders, each with its own MIDI port pair). The context keeps the
+current surface and swaps the others in (`framework/multi_surface.rs`, design in
+[MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md)); the app resolves and opens one port pair per
+surface, the Bitwig extension opens all ports of a definition. Not tested with hardware yet. Not
+ported: the "Pin FX tracks to last device" option (needs an effect track bank, which Reaper has
+not; the Java version does not activate it in Reaper either).
 
 Commits:
 
@@ -150,6 +160,8 @@ All paths are under `rust/`.
 | `src/controller/launchpad/` | `controller/novation/launchpad/**` | Done |
 | `src/controller/launchcontrol/` | `controller/novation/launchcontrol/**` | Done |
 | `src/controller/maschine/{core,mk,jam}/` | `controller/ni/maschine/**` | Mk2 and Jam done |
+| `src/controller/mackie/{mcu,hui}/` | `controller/mackie/**` | Done (MCU 1-4 devices, HUI 1-3 devices) |
+| `src/framework/multi_surface.rs` | `AbstractControllerSetup.surfaces`, connected mode managers | Done |
 | `bindings/cpp/` | — | Header-only C++ wrapper (`dbm::App`, `dbm::Backend`) and its test |
 | `tests/` | — | Integration tests per controller |
 | `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |

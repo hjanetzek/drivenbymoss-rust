@@ -30,8 +30,8 @@ listed under "Needs".
 | Novation Launchkey Mk3 / Mini Mk3 | `novation/launchkey` | 5,674 | `LaunchkeyMk3`, `LaunchkeyMiniMk3ControllerInstance` | Text display | 2 |
 | Novation SL Mk1/Mk2 | `novation/sl` | 3,754 | `SLMkI/SLMkIIControllerInstance` | Text display | 3 |
 | Novation SL Mk3 | `novation/slmkiii` | 5,201 | `SLMkIIIControllerInstance` | Text display (pixel display via sysex) | 3 |
-| Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Text display, multiple surfaces (extenders) | 3 |
-| Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Text display (`McuDisplay` exists), multiple surfaces (extenders), many settings | 3 |
+| Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
+| Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Ported (`src/controller/mackie/mcu/`) | — |
 | Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | Text display | 3 |
 | Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | Sysex/Lua protocol | 3 |
 | Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex) | 4 |
@@ -172,6 +172,7 @@ configurations working.
 | Module | Contents |
 | --- | --- |
 | `framework::ctx` | `Ctx` |
+| `framework::multi_surface` | Several surfaces per instance (MCU/HUI extenders): `add_surface`, `select_surface`, `with_surface`, `for_each_surface`, `share_button_states`, `connect_surface_mode_managers`; see [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md) |
 | `framework::feature` | `View`/`Mode` traits, managers, `ScrollStates`, `impl_as_any!` |
 | `framework::command` | `TriggerCommand`, `ContinuousCommand`, `AftertouchCommand`, `PitchbendCommand`, `shared`, `FnTrigger`, `FnContinuous` |
 | `framework::surface` | `Surface`, `HwButton`, `HwLight`, `HwContinuous`, `ButtonAction`, `TriggerSender` |
@@ -217,7 +218,7 @@ configurations working.
 
 | Module | Contents |
 | --- | --- |
-| `framework::view` | `base` (`ViewBase`, `on_scene_button`), `play_view` (`PlayViewBase`, `ChordViewBase`, `draw_piano_grid`), `session_view`, `scene_play_view`, `shift_view`, `browser_view`, `drum64_view`, `number_display_view` (tempo/shuffle), `transpose_view`, `deferred` |
+| `framework::view` | `base` (`ViewBase`, `on_scene_button`), `play_view` (`PlayViewBase`, `ChordViewBase`, `draw_piano_grid`), `session_view`, `scene_play_view`, `shift_view`, `browser_view`, `drum64_view`, `number_display_view` (tempo/shuffle), `transpose_view`, `deferred`, `control_only_view` (`ControlOnlyView`) |
 | `framework::view::sequencer` | `SequencerBase`, `NoteSequencerBase`, `PolySequencerBase`, `RaindropsBase`, `DrumBase` (incl. DrumEx), `DrumLaneBase` (Drum4/8), `ClipLengthView` |
 
 ### Commands
@@ -234,6 +235,7 @@ configurations working.
 | `framework::commands::misc` | Overdub, Pane, Layout, PanelLayout, Browser, AddEffect, AddTrack, Convert, Double, StartScene, Footswitch |
 | `framework::commands::aftertouch` | AftertouchViewCommand |
 | `framework::commands::mv_helper` | Delayed notifications |
+| `framework::commands::general` | Nop, Shift, Save, Marker, Record (simple), AutomationMode, PunchIn/Out, ToggleTrackBanks, SelectTrack, TrackState (rec arm/solo/mute), RecArmAll, JogWheel; `FocusedParameter`, `ZoomParameter` |
 
 ### DAW model
 
@@ -264,9 +266,9 @@ These are not ported yet; port them when a controller needs them:
   Kontrol Mk1.
 - OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.
 - Flexi handlers: `controller/generic/flexihandler`. Needed by Generic Flexi.
-- Multiple surfaces per controller instance (MCU/HUI extenders). `Ctx` currently holds one
-  `Surface`. Design this before porting MCU/HUI: either one `Ctx` per surface with a shared
-  model, or a `Vec<Surface>` with a surface index in the call paths.
+- ~~Multiple surfaces per controller instance~~: done (`framework::multi_surface`, see
+  [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md)). A factory declares `num_port_pairs()` and
+  implements `create_with_ports`; the context swaps the current surface in.
 - Device browser filter columns and the device database (DeviceManager), and parameter
   mapping/renaming.
 - Knob sensitivity (slow mode).
