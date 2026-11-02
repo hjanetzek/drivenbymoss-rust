@@ -225,6 +225,7 @@ pages should report `/host/features`, even an empty list.
 | `transportCommands` | Bitwig's transport commands, the metronome volume of the transport | `transport play\|stop\|restart\|stopAndRewind` (the `play`/`stop`/`record` processors, `time 0`), `transport togglePunchIn\|togglePunchOut\|toggleFill\|toggleMetronomeTicks`, `transport punchIn\|punchOut <0\|1>` without the Reaper punch mode, `transport fill\|metronomeTicks <0\|1>` (nothing), `transport metronomeVolume[/inc]` with the default 0.8 (`metro_vol`, `metro_vol +\|-`) |
 | `deviceCommands` | Commands to the device itself instead of the sibling index | `device\|primary\|drum\|eq window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select`, `device sibling/<i+1>/bypass\|remove\|duplicate\|select` (`device <index+1>/…`, `device window <0\|1>`), `drum\|primary pad/<p>/select` (nothing) |
 | `layoutStep` | Previous/next panel layout of the host | `application layout/-\|+` (`application layout <index>`) |
+| `clipLauncherNavigator` | The host's clip launcher navigator (only reported if the model setup has `wantsClipLauncherNavigator`; Bitwig: `ClipLauncherNavigatorImpl` of the Java version, a bank of one track following its own cursor track with one scene, its slot selected, the scene window following its scene) | `navigator selectTrack <position>` (then `track <p>/select`), `navigator tracks\|clips\|scenes/-\|+` (the core selects the slot of the new track itself, as the Reaper version) |
 
 Features detected from their own reports need no name (table above): paging, the automation and
 overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
@@ -333,6 +334,15 @@ Track addresses are `/track/<p>/<field>` with the absolute position. Bitwig repo
 | `/track/fx/page/count`, `/track/fx/page/selected`, `/track/fx/page/<i>/name` | (feature) the named pages of the cursor track's remote controls; the page selected in the host is shown | `pageNames`, `selectedPageIndex` of the following cursor of the cursor track | O |
 | `/master/<field>` | same fields as a track (`name`, `color`, `select`, `volume`, `pan` + texts, `mute`, `solo`, `active`, `vu*`) | `createMasterTrack(0)` | Rec |
 | `/master/fx/param/<i>/…`, `/master/fx/param/count` | master FX (also the crossfader from param 0, unless `/crossfade` is reported) | – (Reaper) | O |
+
+**Effect tracks** (Bitwig's effect track bank, `createEffectTrackBank` with `numFxTracks` of the
+model setup, -1 = `numTracks`): `/fxtrack/count`, `/fxtrack/offset` (the core pages them with
+`bank fxtrack <offset>`) and `/fxtrack/<p>/<field>` with the fields of a track except slots and
+VU (`exists`, `number`, `type`, `select`, `recarm`, `monitor`, `autoMonitor`, `canHoldNotes`,
+`canHoldAudio`, the channel fields, `send/<s>/…`, `send/count`). Commands as for tracks with the
+processor `fxtrack` (`fxtrack <p>/select|mute|solo|volume|send/<s>/volume…`, `fxtrack indicate`).
+A host without them has no effect track bank (Reaper); the core's "toggle track bank" then does
+nothing.
 
 ### 3.4 Clip launcher: slots and scenes
 

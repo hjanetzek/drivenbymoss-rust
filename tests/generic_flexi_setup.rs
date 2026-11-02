@@ -585,3 +585,35 @@ fn track_selection_uses_the_navigator_of_the_host() {
     assert!(has_call(&calls, "track", "1/select"), "{calls:?}");
     assert!(has_call(&calls, "navigator", "tracks/+"), "{calls:?}");
 }
+
+/// The effect track bank which the host reports (`/fxtrack/…`, Bitwig): the FX Track functions
+/// act on it, and after "Track: Toggle Trackbank" the track functions too.
+#[test]
+fn effect_track_bank() {
+    let mut slots = vec![Slot::new(TYPE_CC, 70, "FX Track 2: Toggle Mute"), Slot::new(TYPE_CC, 71, "Track: Toggle Trackbank"), Slot::new(TYPE_CC, 72, "Track 1: Toggle Solo")];
+    let mut send = Slot::new(TYPE_CC, 73, "FX Track 1: Set Send 1");
+    send.knob_mode = KnobMode::Absolute;
+    slots.push(send);
+    let mut flexi = Flexi::start("fxtrack", Some(&slots), "");
+    flexi.app.update_model("/fxtrack/offset 0\n/fxtrack/count 2\n/fxtrack/0/exists 1\n/fxtrack/0/name FX 1\n/fxtrack/0/send/0/name FX 2\n/fxtrack/0/send/0/volume 0.5\n/fxtrack/0/send/count 1\n/fxtrack/1/exists 1\n/fxtrack/1/name FX 2\n");
+    flexi.advance(100);
+    flexi.take_calls();
+
+    flexi.midi(&[0xB0, 70, 127]);
+    flexi.advance(100);
+    assert!(has_call(&flexi.take_calls(), "fxtrack", "1/mute"));
+
+    flexi.midi(&[0xB0, 73, 0]);
+    flexi.advance(100);
+    assert!(double_arg(&flexi.take_calls(), "fxtrack", "0/send/0/volume").is_some());
+
+    flexi.midi(&[0xB0, 71, 127]);
+    flexi.advance(100);
+    assert!(flexi.ctx().model.is_effect_track_bank_active());
+    flexi.take_calls();
+    flexi.midi(&[0xB0, 72, 127]);
+    flexi.advance(100);
+    // The solo toggle of the host (a paging host without /host/features supports all forms)
+    let calls = flexi.take_calls();
+    assert!(has_call(&calls, "fxtrack", "0/solo/toggle"), "{calls:?}");
+}

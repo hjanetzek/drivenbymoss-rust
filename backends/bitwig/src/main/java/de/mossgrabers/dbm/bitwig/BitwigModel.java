@@ -123,6 +123,10 @@ public final class BitwigModel
     final SpecificDevice     drumDevice;
     /** The first instrument of the cursor track, null if the controller does not need it. */
     final SpecificDevice     firstInstrument;
+    /** The effect tracks (ModelImpl: createEffectTrackBank with numFxTracks, -1 = numTracks). */
+    final TrackBank          effectTrackBank;
+    final int                numFxTracks;
+    private final boolean [] fxTrackSelected;
     /** The clip launcher navigator, null if the controller does not want it. */
     final ClipLauncherNavigator navigator;
     /** The layers of the cursor device (and its hasLayers / hasDrumPads). */
@@ -184,6 +188,10 @@ public final class BitwigModel
             this.trackBank = host.createMainTrackBank (this.numTracks, this.numSends, this.numScenes);
         this.largeTrackBank = host.createTrackBank (NUM_LARGE_TRACKS, 0, 0, true);
         this.sceneBank = this.trackBank.sceneBank ();
+        final int fxTracks = getInt (modelSetup, "numFxTracks", -1);
+        this.numFxTracks = fxTracks < 0 ? this.numTracks : fxTracks;
+        this.effectTrackBank = host.createEffectTrackBank (this.numFxTracks, this.numSends, 0);
+        this.fxTrackSelected = new boolean [this.numFxTracks];
         this.project = host.getProject ();
         // As ProjectImpl: the remote controls of the root track group, in pages as for devices
         final int numProjectPages = getInt (modelSetup, "numParams", 8) > 0 ? numParamPages : 0;
@@ -363,6 +371,31 @@ public final class BitwigModel
             }
         }
 
+        this.effectTrackBank.itemCount ().markInterested ();
+        this.effectTrackBank.scrollPosition ().markInterested ();
+        for (int i = 0; i < this.numFxTracks; i++)
+        {
+            final Track track = this.effectTrackBank.getItemAt (i);
+            final int index = i;
+            markChannel (track);
+            track.arm ().markInterested ();
+            track.monitorMode ().markInterested ();
+            track.isMonitoring ().markInterested ();
+            track.canHoldNoteData ().markInterested ();
+            track.canHoldAudioData ().markInterested ();
+            track.addIsSelectedInEditorObserver (selected -> this.fxTrackSelected[index] = selected);
+            track.sendBank ().itemCount ().markInterested ();
+            for (int s = 0; s < this.numSends; s++)
+            {
+                final Send send = track.sendBank ().getItemAt (s);
+                send.exists ().markInterested ();
+                send.name ().markInterested ();
+                send.value ().markInterested ();
+                send.displayedValue ().markInterested ();
+                send.isEnabled ().markInterested ();
+            }
+        }
+
         this.sceneBank.itemCount ().markInterested ();
         this.sceneBank.scrollPosition ().markInterested ();
         for (int i = 0; i < this.numScenes; i++)
@@ -503,6 +536,7 @@ public final class BitwigModel
         reporter.put ("/host/features", this.navigator == null ? HOST_FEATURES : HOST_FEATURES + " " + HOST_FEATURE_NAVIGATOR);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
+        this.collectEffectTracks (reporter);
         if (this.trackPages.length > 0)
         {
             collectPages (reporter, "/track/fx", this.trackPages);
@@ -847,6 +881,58 @@ public final class BitwigModel
      * @param position The position
      * @return The track or null
      */
+    /**
+     * Report the effect tracks of the window as "/fxtrack/&lt;position&gt;/…" (the attributes of the
+     * tracks without slots and VU), "/fxtrack/count" and "/fxtrack/offset" (the core pages them).
+     */
+    private void collectEffectTracks (final ModelReporter reporter)
+    {
+        final int offset = this.effectTrackBank.scrollPosition ().get ();
+        final int total = this.effectTrackBank.itemCount ().get ();
+        reporter.put ("/fxtrack/offset", offset);
+        for (int i = 0; i < this.numFxTracks; i++)
+        {
+            final int position = offset + i;
+            if (position >= total)
+                break;
+            final Track track = this.effectTrackBank.getItemAt (i);
+            final String prefix = "/fxtrack/" + position + "/";
+            reporter.put (prefix + "exists", 1);
+            reporter.put (prefix + "number", position);
+            reporter.put (prefix + "type", trackType (track));
+            reporter.put (prefix + "select", this.fxTrackSelected[i]);
+            reporter.put (prefix + "recarm", track.arm ().get ());
+            reporter.put (prefix + "monitor", track.isMonitoring ().get ());
+            reporter.put (prefix + "autoMonitor", "AUTO".equals (track.monitorMode ().get ()));
+            reporter.put (prefix + "canHoldNotes", track.canHoldNoteData ().get ());
+            reporter.put (prefix + "canHoldAudio", track.canHoldAudioData ().get ());
+            collectChannel (reporter, prefix, track, true);
+            final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
+            for (int s = 0; s < sendCount; s++)
+            {
+                final Send send = track.sendBank ().getItemAt (s);
+                final String sendPrefix = prefix + "send/" + s + "/";
+                reporter.put (sendPrefix + "name", send.name ().get ());
+                reporter.put (sendPrefix + "volume", send.value ().get ());
+                putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
+                reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+            }
+            reporter.put (prefix + "send/count", sendCount);
+        }
+        reporter.put ("/fxtrack/count", total);
+    }
+
+
+    /**
+     * Get the effect track at the absolute position if it is in the window.
+     */
+    Track getEffectTrack (final int position)
+    {
+        final int index = position - this.effectTrackBank.scrollPosition ().get ();
+        return index >= 0 && index < this.numFxTracks ? this.effectTrackBank.getItemAt (index) : null;
+    }
+
+
     Track getTrack (final int position)
     {
         final Track track = this.getWindowTrack (position);

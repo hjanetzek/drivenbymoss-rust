@@ -59,6 +59,11 @@ pub struct Model {
     groove: Groove,
     marker_bank: MarkerBank,
     track_bank: TrackBank,
+    /// The effect tracks; only available when the host reported them (`/fxtrack/…`).
+    effect_track_bank: TrackBank,
+    effect_track_bank_reported: bool,
+    /// The current track bank is the effect track bank (ModelImpl.toggleCurrentTrackBank).
+    is_effect_track_bank_active: bool,
     pinned_track: Option<TrackRef>,
     /// `cursorTrack.hasPrevious ()`, `hasNext ()` reported by the host (Bitwig).
     host_cursor_track_neighbours: Option<(bool, bool)>,
@@ -120,7 +125,15 @@ impl Model {
         track_bank.recalc_if_dirty();
         track_bank.scene_bank_unguarded_mut().set_locator(bank_locator(|m: &mut Model| Some(&mut **m.track_bank_mut().scene_bank_unguarded_mut())));
 
+        // The effect tracks (ModelImpl: createEffectTrackBank with numFxTracks, -1 = numTracks);
+        // available once the host reports them (Bitwig), Reaper has none
+        let num_fx_tracks = if setup.num_fx_tracks < 0 { setup.num_tracks } else { setup.num_fx_tracks as usize };
+        let effect_track_bank = TrackBank::new_effect_bank(ctx.clone(), num_fx_tracks, num_sends);
+
         Model {
+            effect_track_bank,
+            effect_track_bank_reported: false,
+            is_effect_track_bank_active: false,
             application: Application::new(ctx.clone()),
             arranger: Arranger::new(ctx.clone()),
             mixer: Mixer::new(ctx.clone()),
@@ -333,24 +346,51 @@ impl Model {
 
     /// The current track bank (there are no effect track banks in Reaper, therefore always the
     /// track bank).
+    /// The current track bank: the effect track bank after [`Self::toggle_current_track_bank`],
+    /// otherwise the bank of the audio and instrument tracks.
     pub fn current_track_bank(&self) -> &TrackBank {
-        &self.track_bank
+        if self.is_effect_track_bank_active() {
+            &self.effect_track_bank
+        } else {
+            &self.track_bank
+        }
     }
 
     pub fn current_track_bank_mut(&mut self) -> &mut TrackBank {
-        &mut self.track_bank
+        if self.is_effect_track_bank_active() {
+            &mut self.effect_track_bank
+        } else {
+            &mut self.track_bank
+        }
     }
 
-    /// Reaper has no effect track bank.
+    /// The effect tracks, None if the host has no effect track bank (Reaper).
     pub fn effect_track_bank(&self) -> Option<&TrackBank> {
-        None
+        self.effect_track_bank_reported.then_some(&self.effect_track_bank)
     }
 
-    /// No effect track bank in Reaper; does nothing.
-    pub fn toggle_current_track_bank(&mut self) {}
+    pub fn effect_track_bank_mut(&mut self) -> Option<&mut TrackBank> {
+        self.effect_track_bank_reported.then_some(&mut self.effect_track_bank)
+    }
+
+    /// The effect track bank for the values the host reports (`/fxtrack/…`): from now on it is
+    /// available.
+    pub(crate) fn reported_effect_track_bank_mut(&mut self) -> &mut TrackBank {
+        self.effect_track_bank_reported = true;
+        &mut self.effect_track_bank
+    }
+
+    /// Switch between the audio/instrument and the effect track bank (ModelImpl
+    /// .toggleCurrentTrackBank); nothing without an effect track bank (Reaper).
+    pub fn toggle_current_track_bank(&mut self) {
+        if self.effect_track_bank_reported {
+            self.is_effect_track_bank_active = !self.is_effect_track_bank_active;
+            self.ctx.post_event(ModelEvent::TrackBankPageChanged);
+        }
+    }
 
     pub fn is_effect_track_bank_active(&self) -> bool {
-        false
+        self.effect_track_bank_reported && self.is_effect_track_bank_active
     }
 
     pub fn master_track(&self) -> &Track {

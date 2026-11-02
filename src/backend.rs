@@ -48,6 +48,8 @@ pub enum Processor {
     Primary,
     /// The clip launcher navigator of the host (see `HostFeature::ClipLauncherNavigator`).
     Navigator,
+    /// The effect tracks (Bitwig's effect track bank; commands as for `track`).
+    FxTrack,
 }
 
 impl Processor {
@@ -91,6 +93,7 @@ impl Processor {
             Processor::Drum => "drum",
             Processor::Primary => "primary",
             Processor::Navigator => "navigator",
+            Processor::FxTrack => "fxtrack",
         }
     }
 }

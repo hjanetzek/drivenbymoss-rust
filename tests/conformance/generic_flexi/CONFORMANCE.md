@@ -164,6 +164,13 @@ in the replay test, the four recordings copied by hand from this clean run.
 Remaining differences:
 
 - `flexi.track.trackbank`: no effect track bank in the core.
+Fixed afterwards (to be checked by the next run): the core has an effect track bank (reported
+by the Bitwig extension as `/fxtrack/…`, the FX Track functions and "Toggle Trackbank" use it),
+and the Bitwig extension has the clip launcher navigator of the Java Bitwig version (host
+feature `clipLauncherNavigator`).
+
+Before these fixes:
+
 - The selected clip slot (`/track/N/clip/1/isSelected`) in `modes.track-next-previous-item`,
   `modes.track-previous-page`, `slot.send-value-when-received`, `track.bank-page-previous`,
   `track.scroll-back`. The port's clip launcher navigator is the one of the Java Reaper version

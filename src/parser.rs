@@ -265,6 +265,8 @@ impl Parser {
             }
             "click" => Self::parse_click(model, &mut parts, value),
             "track" => self.parse_track(model, &mut parts, value),
+            // The effect tracks (Bitwig's effect track bank): count, offset and the track values
+            "fxtrack" => self.parse_effect_track(model, &mut parts, value),
             "master" => self.parse_master_track_value(model, &mut parts, value),
             "device" => self.parse_device_of(model, DeviceTarget::Cursor, value, &mut parts),
             "primary" => self.parse_device_of(model, DeviceTarget::Specific(DeviceId::FirstInstrument), value, &mut parts),
@@ -607,6 +609,27 @@ impl Parser {
         }
     }
 
+    /// `/fxtrack/count`, `/fxtrack/offset` and `/fxtrack/<position>/<attribute>` (the attributes
+    /// of `/track/<position>/…`), the effect track bank of the host.
+    fn parse_effect_track(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
+        let part = parts.poll().unwrap_or("");
+        match part {
+            "offset" => model.reported_effect_track_bank_mut().enable_host_paging(),
+            TAG_COUNT => {
+                if let Some(count) = parse_int(value) {
+                    let tb = model.reported_effect_track_bank_mut();
+                    tb.set_item_count(count.max(0) as usize);
+                    tb.mark_dirty();
+                    self.rebind_knobs();
+                }
+            }
+            _ => match parse_index(part) {
+                Some(position) => self.parse_track_value_in(model, true, TrackRef::Position(position), parts, value),
+                None => Self::error(model, &format!("Unhandled effect track command: {part}")),
+            },
+        }
+    }
+
     fn parse_master_track_value(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
         if parts.peek() == Some("fx") {
             parts.poll();
@@ -653,11 +676,16 @@ impl Parser {
     }
 
     fn parse_track_value(&mut self, model: &mut Model, track_ref: TrackRef, parts: &mut Parts, value: &str) {
+        self.parse_track_value_in(model, false, track_ref, parts, value);
+    }
+
+    /// A value of a track of the track bank or (`effect`) of the effect track bank.
+    fn parse_track_value_in(&mut self, model: &mut Model, effect: bool, track_ref: TrackRef, parts: &mut Parts, value: &str) {
         let command = parts.poll().unwrap_or("");
         let d = parse_double(value);
         let color = if command == TAG_COLOR { Some(model.parse_color(value).unwrap_or(ColorEx::GRAY.to_double_rgb())) } else { None };
         let host = model.host().clone();
-        let tb = model.track_bank_mut();
+        let tb = if effect { model.reported_effect_track_bank_mut() } else { model.track_bank_mut() };
         let track: &mut Track = tb.track_mut(track_ref);
         match command {
             TAG_EXISTS => {

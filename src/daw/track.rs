@@ -76,6 +76,11 @@ impl Track {
     }
 
     /// Create the master track.
+    /// The processor of the track: `track`, or `fxtrack` for an effect track.
+    pub(crate) fn set_processor(&mut self, processor: Processor) {
+        self.channel.set_track_owner(processor);
+    }
+
     pub fn new_master(ctx: DawContext, num_sends: usize, num_params: usize) -> Self {
         let channel = Channel::new(ctx.clone(), ChannelKind::Master, 0, 0, num_sends);
         let mut track = Self::with_channel(ctx.clone(), channel, 0, num_params);

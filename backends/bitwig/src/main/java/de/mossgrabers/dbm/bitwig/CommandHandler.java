@@ -104,6 +104,7 @@ public final class CommandHandler
             case "redo" -> this.model.application.redo ();
             case "tempo" -> this.changeTempo (command);
             case "track" -> this.handleTrack (command, 1, null);
+            case "fxtrack" -> this.handleEffectTrack (command, 1, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 1, null);
             case "device" -> this.handleDevice (command, 1);
             case "navigator" -> this.handleNavigator (command, 0);
@@ -145,6 +146,7 @@ public final class CommandHandler
             case "time" -> this.handleTime (command, value);
             case "beats" -> this.handleBeats (command, value);
             case "track" -> this.handleTrack (command, value, null);
+            case "fxtrack" -> this.handleEffectTrack (command, value, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
             case "navigator" -> this.handleNavigator (command, value);
@@ -276,6 +278,7 @@ public final class CommandHandler
         switch (processor)
         {
             case "track" -> this.handleTrack (command, 0, value);
+            case "fxtrack" -> this.handleEffectTrack (command, 0, value);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 0, value);
             case "scene" -> this.handleScene (command, value);
             // ApplicationImpl.setRecordQuantizationGrid
@@ -752,6 +755,7 @@ public final class CommandHandler
         {
             case "track" -> this.model.trackBank.scrollPosition ().set (Math.max (0, offset));
             case "scene" -> this.model.sceneBank.scrollPosition ().set (Math.max (0, offset));
+            case "fxtrack" -> this.model.effectTrackBank.scrollPosition ().set (Math.max (0, offset));
             default -> this.unhandled.accept ("bank " + command);
         }
     }
@@ -1063,6 +1067,53 @@ public final class CommandHandler
      * Track commands: "&lt;position&gt;/&lt;command&gt;" with the absolute track position. Tracks
      * outside of the window come from the large bank, without sends and slots.
      */
+    /**
+     * The effect tracks (the core's effect track bank): "indicate" and "&lt;position&gt;/…" with
+     * the commands of the tracks which exist for effect tracks.
+     */
+    private void handleEffectTrack (final String command, final double value, final String text)
+    {
+        if ("indicate".equals (command))
+        {
+            this.model.effectTrackBank.setShouldShowClipLauncherFeedback (value > 0);
+            return;
+        }
+        final int slash = command.indexOf ('/');
+        final int position = slash > 0 ? parseIndex (command.substring (0, slash)) : -1;
+        final Track track = this.model.getEffectTrack (position);
+        if (track == null)
+        {
+            this.unhandled.accept ("fxtrack " + command);
+            return;
+        }
+        final String subCommand = command.substring (slash + 1);
+        switch (subCommand)
+        {
+            case "select" ->
+            {
+                if (value > 0)
+                    selectChannel (track);
+            }
+            case "scrollto" -> this.model.effectTrackBank.scrollPosition ().set (position);
+            case "recarm" -> track.arm ().set (value > 0);
+            case "monitor" -> track.monitorMode ().set (value > 0 ? "ON" : "OFF");
+            case "autoMonitor" -> track.monitorMode ().set (value > 0 ? "AUTO" : "OFF");
+            case "name" ->
+            {
+                if (text != null)
+                    track.name ().set (text);
+            }
+            default ->
+            {
+                if (subCommand.startsWith ("send/"))
+                    this.handleSend (track, subCommand, value);
+                else
+                    this.handleChannel (track, subCommand, value, text);
+            }
+        }
+    }
+
+
     private void handleTrack (final String command, final double value, final String text)
     {
         switch (command)

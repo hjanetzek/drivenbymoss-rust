@@ -21,7 +21,7 @@ use crate::framework::ctx::Ctx;
 
 /// A state of a track which can be toggled or set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrackState {
+pub(super) enum TrackState {
     Active,
     Mute,
     Solo,
@@ -31,7 +31,7 @@ enum TrackState {
 }
 
 impl TrackState {
-    fn get(self, track: &Track) -> bool {
+    pub(super) fn get(self, track: &Track) -> bool {
         match self {
             TrackState::Active => track.is_activated(),
             TrackState::Mute => track.is_mute(),
@@ -42,7 +42,7 @@ impl TrackState {
         }
     }
 
-    fn toggle(self, track: &mut Track) {
+    pub(super) fn toggle(self, track: &mut Track) {
         match self {
             TrackState::Active => track.toggle_is_activated(),
             TrackState::Mute => track.toggle_mute(),
@@ -53,7 +53,7 @@ impl TrackState {
         }
     }
 
-    fn set(self, track: &mut Track, enable: bool) {
+    pub(super) fn set(self, track: &mut Track, enable: bool) {
         match self {
             TrackState::Active => track.set_is_activated(enable),
             TrackState::Mute => track.set_mute(enable),

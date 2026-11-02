@@ -79,6 +79,9 @@ pub struct Parameter {
     /// The value is sent to be applied immediately, without the takeover mode of the host
     /// (see [`Parameter::set_value_immediatly`]).
     immediately: bool,
+    /// The processor of the track volume, panorama and sends: `track`, or `fxtrack` for the
+    /// effect tracks.
+    track_processor: Processor,
 }
 
 impl Parameter {
@@ -97,6 +100,7 @@ impl Parameter {
             value_str: String::new(),
             is_being_touched: false,
             immediately: false,
+            track_processor: Processor::Track,
             value: 0.0,
             last_received_value: -1.0,
             number_of_steps: 0,
@@ -265,6 +269,11 @@ impl Parameter {
         self.set_normalized_value((self.internal_value() + offset).clamp(0.0, 1.0));
     }
 
+    /// The processor of a track parameter (volume, panorama, send), see `track_processor`.
+    pub(crate) fn set_track_processor(&mut self, processor: Processor) {
+        self.track_processor = processor;
+    }
+
     /// Set the value (in the range of the value changer).
     pub fn set_value(&mut self, value: i32) {
         let normalized = self.vc().to_normalized_value(value as f64);
@@ -273,7 +282,7 @@ impl Parameter {
                 return;
             }
             if self.ctx.is_automation_rec_active() {
-                self.ctx.delay_updates(Processor::Track);
+                self.ctx.delay_updates(self.track_processor);
             }
             self.value = normalized;
             self.send_value();
@@ -326,8 +335,8 @@ impl Parameter {
     pub fn touch_value(&mut self, is_being_touched: bool) {
         let touch = if is_being_touched { 1 } else { 0 };
         match self.kind {
-            ParameterKind::TrackVolume => self.ctx.send_int(Processor::Track, &format!("{}/volume/touch", self.index), touch),
-            ParameterKind::TrackPan => self.ctx.send_int(Processor::Track, &format!("{}/pan/touch", self.index), touch),
+            ParameterKind::TrackVolume => self.ctx.send_int(self.track_processor, &format!("{}/volume/touch", self.index), touch),
+            ParameterKind::TrackPan => self.ctx.send_int(self.track_processor, &format!("{}/pan/touch", self.index), touch),
             ParameterKind::MasterVolume => self.ctx.send_int(Processor::Master, "volume/touch", touch),
             ParameterKind::MasterPan => self.ctx.send_int(Processor::Master, "pan/touch", touch),
             ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
@@ -378,13 +387,13 @@ impl Parameter {
                 }
                 (processor, cmd)
             }
-            ParameterKind::TrackVolume => (Processor::Track, format!("{}/volume", self.index)),
-            ParameterKind::TrackPan => (Processor::Track, format!("{}/pan", self.index)),
+            ParameterKind::TrackVolume => (self.track_processor, format!("{}/volume", self.index)),
+            ParameterKind::TrackPan => (self.track_processor, format!("{}/pan", self.index)),
             ParameterKind::DeviceChannelVolume(processor, prefix) => (processor, format!("{prefix}/{}/volume", self.index)),
             ParameterKind::DeviceChannelPan(processor, prefix) => (processor, format!("{prefix}/{}/pan", self.index)),
             ParameterKind::MasterVolume => (Processor::Master, "volume".into()),
             ParameterKind::MasterPan => (Processor::Master, "pan".into()),
-            ParameterKind::Send { channel_position } => (Processor::Track, format!("{}/send/{}/volume", channel_position, self.position)),
+            ParameterKind::Send { channel_position } => (self.track_processor, format!("{}/send/{}/volume", channel_position, self.position)),
             ParameterKind::MasterCrossfader => (Processor::Master, "user/param/0/value".into()),
             ParameterKind::HostCrossfade => (Processor::Transport, "crossfade".into()),
             ParameterKind::ProjectCue(name) => (Processor::Project, name.into()),
@@ -408,7 +417,7 @@ impl Parameter {
             return;
         };
         match self.kind {
-            ParameterKind::TrackVolume | ParameterKind::TrackPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(Processor::Track),
+            ParameterKind::TrackVolume | ParameterKind::TrackPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(self.track_processor),
             ParameterKind::MasterVolume | ParameterKind::MasterPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(Processor::Master),
             _ => {}
         }
@@ -521,6 +530,11 @@ pub struct Send {
 }
 
 impl Send {
+    /// The processor of the track of the send (`track` or `fxtrack`).
+    pub(crate) fn set_track_processor(&mut self, processor: Processor) {
+        self.param.set_track_processor(processor);
+    }
+
     pub fn new(ctx: DawContext, channel_position: i32, index: i32, position: i32) -> Self {
         let mut param = Parameter::new(ctx, ParameterKind::Send { channel_position }, index, 0.0);
         param.set_position(position);
@@ -544,7 +558,7 @@ impl Send {
     pub fn toggle_enabled(&mut self) {
         if let ParameterKind::Send { channel_position } = self.param.kind {
             let cmd = format!("{}/send/{}/active", channel_position, self.param.position);
-            self.param.ctx.send_double(Processor::Track, &cmd, self.param.value);
+            self.param.ctx.send_double(self.param.track_processor, &cmd, self.param.value);
         }
     }
 

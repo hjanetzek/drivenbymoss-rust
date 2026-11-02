@@ -6,6 +6,7 @@
 //! track and drum pads, and the bank of its sends (former `ISendBank` / `SendBankImpl`).
 
 use std::cell::Cell;
+use std::rc::Rc;
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
@@ -41,23 +42,37 @@ pub enum ChannelKind {
 /// The sends of a channel. Derefs (mutably) to [`PagedBank<Send>`].
 pub struct SendBank {
     bank: PagedBank<Send>,
+    /// The processor of the track (`track` or `fxtrack`), also for the sends created later.
+    processor: Rc<Cell<Processor>>,
 }
 
 impl SendBank {
     pub fn new(ctx: DawContext, num_sends: usize, channel_position: i32) -> Self {
         let item_ctx = ctx.clone();
         let empty_ctx = ctx.clone();
+        let processor = Rc::new(Cell::new(Processor::Track));
+        let item_processor = processor.clone();
         let mut bank = PagedBank::new(
             ctx,
             num_sends,
             move |position| {
                 let index = if num_sends == 0 { 0 } else { position % num_sends };
-                Send::new(item_ctx.clone(), channel_position, index as i32, position as i32)
+                let mut send = Send::new(item_ctx.clone(), channel_position, index as i32, position as i32);
+                send.set_track_processor(item_processor.get());
+                send
             },
             move || Send::empty(&empty_ctx),
         );
         bank.set_page_event(ModelEvent::SendBankPageChanged { track_position: channel_position });
-        SendBank { bank }
+        SendBank { bank, processor }
+    }
+
+    /// The processor of the track of the sends (`track` or `fxtrack`).
+    pub(crate) fn set_processor(&mut self, processor: Processor) {
+        self.processor.set(processor);
+        for send in self.bank.all_items_mut() {
+            send.set_track_processor(processor);
+        }
     }
 
     pub(crate) fn set_channel_position(&mut self, channel_position: i32) {
@@ -153,6 +168,7 @@ impl Channel {
             pan,
             owner: match kind {
                 ChannelKind::Layer => Processor::Primary,
+                ChannelKind::Track => Processor::Track,
                 _ => Processor::Drum,
             },
         }
@@ -165,6 +181,15 @@ impl Channel {
         self.volume.set_kind(ParameterKind::DeviceChannelVolume(owner, prefix));
         self.pan.set_kind(ParameterKind::DeviceChannelPan(owner, prefix));
         self
+    }
+
+    /// Set the processor of a track: `track`, or `fxtrack` for an effect track (its commands, volume
+    /// and panorama go there).
+    pub(crate) fn set_track_owner(&mut self, owner: Processor) {
+        self.owner = owner;
+        self.volume.set_track_processor(owner);
+        self.pan.set_track_processor(owner);
+        self.send_bank.set_processor(owner);
     }
 
     /// Create a placeholder for a non-existing channel.
@@ -371,7 +396,7 @@ impl Channel {
 
     pub fn set_mute(&mut self, value: bool) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Track);
+            self.ctx.delay_updates(if self.kind == ChannelKind::Track { self.owner } else { Processor::Track });
         }
         self.set_mute_state(value);
         self.send_bool("mute", value);
@@ -525,7 +550,8 @@ impl Channel {
         match self.kind {
             ChannelKind::Master => Processor::Master,
             // Drum pads and layers have their own commands (protocol v2); Reaper ignores them
-            ChannelKind::DrumPad | ChannelKind::Layer => self.owner,
+            // Tracks: `track`, effect tracks `fxtrack`
+            ChannelKind::DrumPad | ChannelKind::Layer | ChannelKind::Track => self.owner,
             _ => Processor::Track,
         }
     }

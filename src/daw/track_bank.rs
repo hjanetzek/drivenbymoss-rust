@@ -74,6 +74,8 @@ pub struct TrackBank {
     /// `project.hasSoloedTracks ()` / `hasMutedTracks ()` reported by the host (Bitwig).
     host_project_solo: Option<bool>,
     host_project_mute: Option<bool>,
+    /// The processor of the tracks: `track`, or `fxtrack` for the effect track bank.
+    processor: Processor,
 }
 
 impl TrackBank {
@@ -93,6 +95,7 @@ impl TrackBank {
             scene_bank: SceneBank::new(ctx.clone(), num_scenes),
             host_project_solo: None,
             host_project_mute: None,
+            processor: Processor::Track,
             ctx,
             tracks: Vec::new(),
             page_size: num_tracks,
@@ -114,9 +117,22 @@ impl TrackBank {
         }
     }
 
+    /// The bank of the effect tracks (Bitwig's effect track bank): its tracks and commands use the
+    /// `fxtrack` processor.
+    pub fn new_effect_bank(ctx: DawContext, num_tracks: usize, num_sends: usize) -> Self {
+        let mut bank = Self::new(ctx, num_tracks, 0, num_sends, 0, true, false);
+        bank.processor = Processor::FxTrack;
+        bank
+    }
+
+    /// The processor of the tracks (`track` or `fxtrack`).
+    pub fn processor(&self) -> Processor {
+        self.processor
+    }
+
     /// Enable or disable the updates of the track data.
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(Processor::Track, enable);
+        self.ctx.enable_updates(self.processor, enable);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -210,6 +226,9 @@ impl TrackBank {
             let position = self.tracks.len();
             let ps = self.page_size.max(1);
             let mut track = Track::new(self.ctx.clone(), (position % ps) as i32, position as i32, self.num_sends, self.num_scenes, self.num_params);
+            if self.processor != Processor::Track {
+                track.set_processor(self.processor);
+            }
             track.slot_bank_mut().set_bank_offset(offset);
             self.tracks.push(track);
         }
@@ -324,7 +343,7 @@ impl TrackBank {
         }
         let ps = self.page_size.max(1);
         let pos = if adjust_page { position / ps * ps } else { position };
-        self.ctx.send(Processor::Track, &format!("{pos}/scrollto"));
+        self.ctx.send(self.processor, &format!("{pos}/scrollto"));
     }
 
     fn scroll_page_backwards(&mut self) {
@@ -346,10 +365,10 @@ impl TrackBank {
         }
         if let Some(selected) = self.selected_item() {
             let pos = selected.position();
-            self.ctx.send_int(Processor::Track, &format!("{pos}/select"), 0);
+            self.ctx.send_int(self.processor, &format!("{pos}/select"), 0);
         }
         let sel_pos = self.item(sel_index).position();
-        self.ctx.send_int(Processor::Track, &format!("{sel_pos}/select"), 1);
+        self.ctx.send_int(self.processor, &format!("{sel_pos}/select"), 1);
     }
 
     /// Set the position of the first track of the page (clamped).
@@ -358,7 +377,7 @@ impl TrackBank {
         let old_offset = self.bank_offset;
         self.bank_offset = bank_offset.clamp(0, max) as usize;
         if self.host_paged && self.bank_offset != old_offset {
-            self.ctx.send_int(Processor::Bank, "track", self.bank_offset as i32);
+            self.ctx.send_int(Processor::Bank, self.processor.id(), self.bank_offset as i32);
         }
         self.ctx.post_event(ModelEvent::TrackBankPageChanged);
     }
@@ -369,7 +388,7 @@ impl TrackBank {
         if !self.host_paged {
             self.host_paged = true;
             self.ctx.set_host_paging();
-            self.ctx.send_int(Processor::Bank, "track", self.bank_offset as i32);
+            self.ctx.send_int(Processor::Bank, self.processor.id(), self.bank_offset as i32);
         }
     }
 
@@ -583,7 +602,7 @@ impl TrackBank {
     /// Bitwig (`track indicate <0|1>`).
     pub fn set_indication(&mut self, enable: bool) {
         if self.ctx.host_supports(HostFeature::Indication) {
-            self.ctx.send_bool(Processor::Track, "indicate", enable);
+            self.ctx.send_bool(self.processor, "indicate", enable);
         }
     }
 
