@@ -21,26 +21,39 @@ Usage::
 
 from .banks import Banks
 from .bridge import Bridge
+from .clip import Clip, Note, NoteGrid
 from .commands import Command, CommandHandler
-from .device import Device, DeviceChain
-from .model import Application, Channel, MasterTrack, Scene, Send, SimDaw, Slot, Track, Transport
+from .device import Device, DeviceChain, RemoteControl
+from .layer import Layer
+from .marker import Marker, Markers
+from .model import Application, Arranger, Channel, MasterTrack, Mixer, NoteInput, Scene, Send, SimDaw, Slot, Track, Transport
 from .navigator import ClipLauncherNavigator
 from .parameter import TAKEOVER_CATCH, TAKEOVER_IMMEDIATE, Parameter, Preferences
 from .reporter import Reporter
 
 __all__ = [
     "Application",
+    "Arranger",
     "Banks",
     "Bridge",
     "Channel",
+    "Clip",
     "ClipLauncherNavigator",
     "Command",
     "CommandHandler",
     "Device",
     "DeviceChain",
+    "Layer",
+    "Marker",
+    "Markers",
     "MasterTrack",
+    "Mixer",
+    "Note",
+    "NoteGrid",
+    "NoteInput",
     "Parameter",
     "Preferences",
+    "RemoteControl",
     "Reporter",
     "Scene",
     "Send",

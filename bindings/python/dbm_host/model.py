@@ -15,12 +15,15 @@ it: ``TransportImpl`` (Transport), ``ChannelImpl``, ``TrackImpl``, ``MasterTrack
 
 Extension points for the later steps (PYTHON_HOST_PLAN.md §5):
 
-- ``Channel.devices``: the device chain of a channel (``device.DeviceChain``; the devices have
-  names and remote-control pages so far), for ``/device`` and ``/primary``. Parameters, layers and
-  drum pads (``/eq``, ``/drum``) come with step 4.
-- ``Slot.clip``: the clip of a slot (note grid, loop, play range), for ``/clip``.
-- ``SimDaw.markers``, ``SimDaw.browser``, ``SimDaw.project``, ``SimDaw.groove``: not modelled
-  yet (None or empty); ``Application`` has only undo and redo.
+- ``Channel.devices``: the device chain of a channel (``device.DeviceChain``: names,
+  remote-control pages, layers and drum pads, the EQ+), for ``/device``, ``/primary``, ``/drum``
+  and ``/eq``.
+- ``Slot.clip``: the clip of a slot (``clip.Clip``: notes, loop, play range), for ``/clip``; the
+  cursor clip (``SimDaw.cursor_clip``) is shown in the step grids (``clip.NoteGrid``).
+- ``SimDaw.markers``: the cue markers (``marker.Markers``).
+- ``SimDaw.browser``, ``SimDaw.project``, ``SimDaw.groove``: not modelled yet (None).
+- ``SimDaw.application`` has the undo history and the panel layout, ``SimDaw.arranger`` and
+  ``SimDaw.mixer`` their visibility flags.
 - ``SimDaw.note_input``: the default note input of the controller with its arpeggiator (the note
   repeat).
 - ``SimDaw.add_time_listener``: called by ``advance`` with the elapsed time, e.g. for the VU and
@@ -36,16 +39,36 @@ Simplifications (each a deliberate choice, not a fit to a scenario):
 - ``track addTrack``: the name and color are set at once (Bitwig: 300 ms later).
 - Undo: a change of mute, solo, a mixer value (volume, pan, send) or the tempo is an edit of the
   project (``Application.edit``), which makes undo possible; the history is not simulated.
+- The cursor clip (Bitwig's launcher cursor clip of the cursor track) is the clip of the
+  selected slot if that is on the cursor track, else of the slot last selected on the track,
+  else of the first slot with a clip. Known only from the Java traces: ``osc:/clip/exists`` and
+  ``color`` followed the selected track to its clip in slot 1 while slot 1 of another track was
+  selected (generic_flexi track, ``flexi.track.select``; launchcontrol_xl track_mix,
+  ``lcxl.mix.track-page``).
 - Auto-arm (``Preferences.auto_arm``): selecting a track which can hold notes arms it and
-  disarms the track it armed before; a track armed otherwise stays armed. Bitwig arms the
-  selected instrument track in the reference recordings (``osc:/track/N/recarm`` follows the
-  selection in ``target/conformance/*-java.json``); the exact rules of Bitwig are not public.
+  disarms the track the auto-arm armed before; selecting any other channel (an audio or effect
+  track, the master) changes no arm, the instrument track stays armed. A track armed otherwise
+  is not disarmed by the auto-arm. Bitwig does not document its rules; they are derived from all
+  selection changes of the Java traces (target/conformance/*-java.json, ``osc:/track/selected/
+  name`` and ``osc:/track/N/recarm``, 2026-11-02):
+
+  | Selection | Armed before | Armed after | Example |
+  | --- | --- | --- | --- |
+  | instrument -> instrument | old | new | flexi.track.next-previous (Drums -> Layers) |
+  | instrument -> audio | old | old | flexi.modes.track-next-previous-item (Layers -> EQ) |
+  | instrument -> effect | old | old | flexi.track.trackbank (Synth -> FX 1) |
+  | instrument -> master | old | old | flexi.master.panning-select (Synth -> Master) |
+  | audio -> audio | Layers | Layers | flexi.modes.track-next-previous-item (EQ -> Audio 5) |
+  | audio -> instrument | Layers | Synth | flexi.modes.track-next-page (EQ -> Synth) |
+  | instrument -> instrument, both armed | Synth, Drums | Synth | mk2.keyboard.play (Drums -> Synth) |
 """
 
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .clip import Clip
 from .device import DeviceChain
+from .marker import Markers
 from .parameter import (
     VOLUME_0DB,
     Parameter,
@@ -142,7 +165,13 @@ class Transport:
             self.playing = True
 
     def stop(self) -> None:
-        """Stop; the play position returns to the play start position."""
+        """Stop; the play position returns to the play start position. Stopping a playing
+        transport switches the automation writing of the arranger and the launcher off (known
+        only from the recordings: ``/automode/arranger 0``, ``/automode/launcher 0`` right after
+        ``transport stop`` in tests/conformance/generic_flexi/replay/
+        generic_flexi-transport-rust.rec, ``osc:/autowrite 0`` in the Java trace)."""
+        if self.playing:
+            self.automation_arranger = self.automation_launcher = False
         self.playing = False
         self.position = self.play_start
 
@@ -232,29 +261,103 @@ class Transport:
 
 
 class Application:
-    """Undo and redo (ApplicationImpl, Bitwig ``Application``). The simulation has no undo
-    history: an edit of the project (``edit``) makes undo possible, as in Bitwig; undo and redo
-    are counted. The panel layout and the other application values come with a later step."""
+    """Undo and redo (ApplicationImpl, Bitwig ``Application``): the undo history of the project.
+
+    An edit (``edit``) is an entry with the functions which undo and redo it; ``undo`` and
+    ``redo`` move the last entry between the two stacks, ``canUndo`` and ``canRedo`` say whether
+    they are empty. Consecutive edits of the same value (the same ``key``, e.g. the steps of a
+    knob turn) are one entry, a simplification: Bitwig's grouping of edits is not documented.
+    Edits without functions (e.g. of layers) only make undo possible. The panel layout and the
+    other application values are not simulated.
+    """
 
     def __init__(self):
-        self.can_undo = False
-        self.can_redo = False
+        self.panel_layout = "ARRANGE"
+        """The panel layout (``panelLayout``, one of PANEL_LAYOUTS)."""
+        self.undo_stack: list[tuple[object, Callable[[], None] | None, Callable[[], None] | None]] = []
+        self.redo_stack: list[tuple[object, Callable[[], None] | None, Callable[[], None] | None]] = []
         self.undos = 0
         self.redos = 0
         self.edits = 0
 
-    def edit(self) -> None:
+    @property
+    def can_undo(self) -> bool:
+        return bool(self.undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self.redo_stack)
+
+    def edit(self, key: object = None, undo: Callable[[], None] | None = None, redo: Callable[[], None] | None = None) -> None:
         """An undoable change of the project (Bitwig adds it to the undo history and clears the
         redo steps)."""
         self.edits += 1
-        self.can_undo = True
-        self.can_redo = False
+        self.redo_stack.clear()
+        if key is not None and self.undo_stack and self.undo_stack[-1][0] == key:
+            previous_key, previous_undo, _ = self.undo_stack[-1]
+            self.undo_stack[-1] = (previous_key, previous_undo, redo)
+            return
+        self.undo_stack.append((key, undo, redo))
+
+    def edit_value(self, key: object, setter: Callable[[object], None], before: object, after: object) -> None:
+        """An edit which set a value from ``before`` to ``after`` with the setter."""
+        self.edit(key, lambda: setter(before), lambda: setter(after))
 
     def undo(self) -> None:
         self.undos += 1
+        if self.undo_stack:
+            entry = self.undo_stack.pop()
+            if entry[1] is not None:
+                entry[1]()
+            self.redo_stack.append(entry)
 
     def redo(self) -> None:
         self.redos += 1
+        if self.redo_stack:
+            entry = self.redo_stack.pop()
+            if entry[2] is not None:
+                entry[2]()
+            self.undo_stack.append(entry)
+
+
+# The panel layouts of Bitwig by the index of the core (CommandHandler.PANEL_LAYOUTS)
+PANEL_LAYOUTS = ("ARRANGE", "MIX", "EDIT", "PLAY")
+
+
+@dataclass
+class Arranger:
+    """The visibility flags of the arranger (ArrangerImpl, Bitwig ``Arranger``); the defaults
+    are Bitwig's of the fixture (``osc:/arranger/…`` of the Java traces)."""
+
+    cue_markers: bool = True
+    playback_follow: bool = True
+    double_row_track_height: bool = True
+    clip_launcher: bool = True
+    timeline: bool = True
+    io_section: bool = False
+    effect_tracks: bool = True
+
+
+@dataclass
+class Mixer:
+    """The visibility flags of the mixer (MixerImpl, Bitwig ``Mixer``); the defaults are
+    Bitwig's of the fixture (``osc:/mixer/…`` of the Java traces)."""
+
+    clip_launcher_section: bool = True
+    cross_fade_section: bool = False
+    device_section: bool = True
+    io_section: bool = True
+    meter_section: bool = False
+    send_section: bool = True
+
+
+# The toggles of the arranger and the mixer (CommandHandler.handleArranger / handleMixer)
+ARRANGER_TOGGLES = {"toggleCueMarkers": "cue_markers", "togglePlaybackFollow": "playback_follow", "toggleTrackRowHeight": "double_row_track_height",
+                    "toggleClipLauncher": "clip_launcher", "toggleTimeLine": "timeline", "toggleIoSection": "io_section",
+                    "toggleEffectTracks": "effect_tracks"}
+MIXER_TOGGLES = {"toggleClipLauncherSection": "clip_launcher_section", "toggleCrossFadeSection": "cross_fade_section",
+                 "toggleDeviceSection": "device_section", "toggleIoSection": "io_section", "toggleMeterSection": "meter_section",
+                 "toggleSendsSection": "send_section"}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -301,12 +404,40 @@ class Arpeggiator:
 
 class NoteInput:
     """A note input of the controller's MIDI input (Bitwig ``NoteInput``, created by
-    ``MidiIn.createNoteInput``). Only its arpeggiator is simulated; the MIDI the core plays is
-    kept by the bridge."""
+    ``MidiIn.createNoteInput`` with masks, ``setKeyTranslationTable``,
+    ``setVelocityTranslationTable``, ``sendRawMidiEvent``) and its arpeggiator.
 
-    def __init__(self, name: str = ""):
+    The masks are hex strings with ``?`` for any digit, padded to 6 digits
+    (DbmExtension.toBitwigMasks). The notes it lets through play on the tracks which monitor
+    their input (``SimDaw.play_live_note``); a raw event is not translated (the further notes of
+    a chord arrive with their pitch: ``raw 90 28 7F`` after the pad 90 24 in
+    tests/conformance/maschine_mk2/replay/native_instruments_maschine_mk2-pad_modes-rust.rec,
+    and the observer showed the pitches 36 40 43)."""
+
+    def __init__(self, name: str = "", filters: list[str] | None = None):
         self.name = name
         self.arpeggiator = Arpeggiator()
+        self.filters = [(mask + "??????")[: max(6, len(mask))].upper() for mask in filters or []]
+        self.key_table: list[int] | None = None
+        self.velocity_table: list[int] | None = None
+
+    def matches(self, data: bytes) -> bool:
+        text = data.hex().upper()
+        return any(len(text) >= len(mask) and all(m == "?" or m == c for m, c in zip(mask, text)) for mask in self.filters)
+
+    def translate(self, data: bytes) -> tuple[int, int, int] | None:
+        """The note event the input lets through (status, key, velocity) after the translation
+        tables, None if it is not a note or the key is blocked (-1)."""
+        if len(data) < 3 or data[0] & 0xF0 not in (0x80, 0x90) or not self.matches(data):
+            return None
+        status, key, velocity = data[0], data[1], data[2]
+        if self.key_table is not None and key < len(self.key_table):
+            key = self.key_table[key]
+            if key < 0:
+                return None
+        if self.velocity_table is not None and velocity < len(self.velocity_table) and status & 0xF0 == 0x90:
+            velocity = self.velocity_table[velocity]
+        return status, key, velocity
 
 
 # ---------------------------------------------------------------------------------------------
@@ -315,12 +446,21 @@ class NoteInput:
 
 class Send:
     """A send of a channel to an effect track (SendImpl, Bitwig ``Send``). The name and color are
-    the effect track's."""
+    the effect track's.
+
+    A send is enabled when its volume is raised above 0 and stays enabled (known only from the
+    Java traces: ``osc:/track/1/send/1/activated`` 0 -> 1 after ``/track/1/send/1/volume 100``,
+    and 1 after the volume went back to 0; flexi.modes.track-send, flexi.track.knobs)."""
 
     def __init__(self, preferences: Preferences, target: "Track"):
         self.target = target
         self.volume = Parameter(preferences, 0.0, formatter=format_volume, name="Send")
         self.enabled = False
+        self.volume.listeners.append(self._on_volume)
+
+    def _on_volume(self, value: float) -> None:
+        if value > 0:
+            self.enabled = True
 
     @property
     def name(self) -> str:
@@ -367,17 +507,22 @@ class Channel:
         """``mute.set``; a change is an edit of the project (undoable)."""
         if self.mute != bool(mute):
             self.mute = bool(mute)
-            self.daw.application.edit()
+            self.daw.application.edit_value(("mute", id(self)), lambda value: setattr(self, "mute", value), not self.mute, self.mute)
 
     def set_solo(self, solo: bool, exclusive: bool = False) -> None:
         """``solo.set``; a change is an edit of the project (undoable)."""
-        before = [channel.solo for channel in self.daw.all_channels()]
+        channels = self.daw.all_channels()
+        before = [channel.solo for channel in channels]
         if solo and exclusive:
-            for channel in self.daw.all_channels():
+            for channel in channels:
                 channel.solo = False
         self.solo = bool(solo)
-        if before != [channel.solo for channel in self.daw.all_channels()]:
-            self.daw.application.edit()
+        after = [channel.solo for channel in channels]
+        if before != after:
+            def restore(values):
+                for channel, value in zip(channels, values):
+                    channel.solo = value
+            self.daw.application.edit_value(("solo", id(self)), restore, before, after)
 
 
 class Track(Channel):
@@ -393,8 +538,13 @@ class Track(Channel):
         self.arm = False
         self.monitor_mode = MONITOR_AUTO
         self.slots: list[Slot] = []
+        self.last_selected_slot: "Slot | None" = None
+        """The slot last selected on this track (for the cursor clip)."""
         self.auto_armed = False
         """Armed by the auto-arm of the selection (Preferences.auto_arm)."""
+        self.playing_notes: dict[int, int] = {}
+        """The notes which play on the track: key -> velocity, in the order they started
+        (``playingNotes``; only live notes, the clips play nothing)."""
 
     @property
     def is_effect(self) -> bool:
@@ -472,8 +622,10 @@ class Slot:
         self.play_queued = False
         self.rec_queued = False
         self.stop_queued = False
-        self.clip = None
-        """The clip of the slot; clips come with step 4 (PYTHON_HOST_PLAN.md §5)."""
+        self.clip: Clip | None = None
+        """The clip of the slot (None without content)."""
+        self.play_start_beat = 0.0
+        """The transport position at which the slot started to play (for the playing step)."""
 
     @property
     def index(self) -> int:
@@ -492,12 +644,14 @@ class Slot:
 
     def select(self) -> None:
         self.track.daw.selected_slot = self
+        self.track.last_selected_slot = self
 
     def create_clip(self, length_beats: float = 4.0) -> None:
-        """``createNewLauncherClip``: an empty clip with the color of the track."""
+        """``createNewLauncherClip``: an empty clip of the length with the color of the track."""
         self.has_content = True
         self.clip_color = self.track.color
         self.name = ""
+        self.clip = Clip(self.track.daw.preferences, length_beats if length_beats > 0 else 4.0)
 
     def delete(self) -> None:
         """``deleteObject``."""
@@ -505,11 +659,13 @@ class Slot:
         self.play_queued = self.rec_queued = self.stop_queued = False
         self.name = ""
         self.clip_color = NO_COLOR
+        self.clip = None
 
     def copy_from(self, other: "Slot") -> None:
         self.has_content = other.has_content
         self.name = other.name
         self.clip_color = other.clip_color
+        self.clip = other.clip.copy() if other.clip is not None else None
 
     def duplicate(self) -> None:
         """``duplicateClip``: a copy into the slot below (if there is one)."""
@@ -551,12 +707,14 @@ class Slot:
             if slot is not self:
                 slot.playing = slot.recording = slot.stop_queued = False
         self.play_queued = self.stop_queued = False
+        self.play_start_beat = self.track.daw.transport.position
         if self.rec_queued or not self.has_content:
             self.rec_queued = False
             self.recording = True
             self.playing = False
             self.has_content = True
             self.clip_color = self.track.color
+            self.clip = Clip(self.track.daw.preferences, self.track.daw.transport.quarters_per_measure)
         else:
             self.playing = True
             self.recording = False
@@ -586,8 +744,11 @@ class Scene:
         return self.daw.selected_scene is self
 
     def select(self) -> None:
-        """``selectInEditor``."""
+        """``selectInEditor``: the scene is selected instead of a slot (the observer showed the
+        selected slot deselected after a scene selection: mk2.scene.select of maschine_mk2
+        pad_modes, flexi.scene.launch of generic_flexi project)."""
         self.daw.selected_scene = self
+        self.daw.selected_slot = None
 
     def slots(self) -> list[Slot]:
         index = self.index
@@ -611,6 +772,12 @@ class CursorTrack:
 
     pinned: bool = False
     pinned_channel: Channel | None = None
+    device_pinned: bool = False
+    """The cursor device is pinned (``PinnableCursorDevice.isPinned``)."""
+    pinned_device: object = None
+    clip_pinned: bool = False
+    """The cursor clip is pinned (``PinnableCursorClip.isPinned``)."""
+    pinned_slot: object = None
 
 
 @dataclass
@@ -631,7 +798,6 @@ class SimDaw:
     """The default note input of the controller (the first one the core creates); its
     arpeggiator is the note repeat. None until the core creates one."""
     # Not modelled yet (later steps)
-    markers: list = field(default_factory=list)
     browser: object = None
     project: object = None
     groove: object = None
@@ -639,6 +805,10 @@ class SimDaw:
     def __post_init__(self):
         self.transport = Transport(self.preferences)
         self.application = Application()
+        self.arranger = Arranger()
+        self.mixer = Mixer()
+        self.markers = Markers(self.transport)
+        """The cue markers of the arranger (marker.py)."""
         self.master = MasterTrack(self)
         self._time_listeners: list[Callable[[float], None]] = []
         self._color_index = 0
@@ -742,15 +912,18 @@ class SimDaw:
 
     def select_channel(self, channel: Channel | None) -> None:
         """Select a channel in the editor; with the auto-arm preference the arm follows the
-        selection (see the module docstring)."""
+        selection of the tracks which can hold notes (see the module docstring)."""
         previous = self.selected_channel
         self.selected_channel = channel
         if not self.preferences.auto_arm or previous is channel:
             return
-        if isinstance(previous, Track) and previous.auto_armed:
-            previous.arm = False
-            previous.auto_armed = False
-        if isinstance(channel, Track) and channel.can_hold_notes and not channel.arm:
+        if not (isinstance(channel, Track) and channel.can_hold_notes):
+            return
+        for track in self.tracks + self.effect_tracks:
+            if track is not channel and track.auto_armed:
+                track.arm = False
+                track.auto_armed = False
+        if not channel.arm:
             channel.arm = True
             channel.auto_armed = True
 
@@ -759,9 +932,80 @@ class SimDaw:
     @property
     def cursor_device(self):
         """The cursor device: the selected device of the cursor track (CursorDeviceImpl,
-        FOLLOW_SELECTION); None without one."""
+        FOLLOW_SELECTION), or the pinned device; None without one."""
+        if self.cursor.device_pinned and self.device_chain_of(self.cursor.pinned_device) is not None:
+            return self.cursor.pinned_device
         channel = self.cursor_channel
         return channel.devices.selected if channel is not None else None
+
+    @property
+    def cursor_device_chain(self):
+        """The device chain of the cursor device (its siblings); the chain of the cursor track
+        without a cursor device."""
+        chain = self.device_chain_of(self.cursor_device)
+        if chain is not None:
+            return chain
+        channel = self.cursor_channel
+        return channel.devices if channel is not None else None
+
+    def device_chain_of(self, device):
+        """The chain which holds the device, None if it holds no chain."""
+        if device is None:
+            return None
+        return next((channel.devices for channel in self.all_channels() if device in channel.devices.devices), None)
+
+    def set_cursor_device_pinned(self, pinned: bool) -> None:
+        """``cursorDevice.isPinned ().set``: pin the current cursor device (see device.py)."""
+        if pinned and not self.cursor.device_pinned:
+            self.cursor.pinned_device = self.cursor_device
+        self.cursor.device_pinned = bool(pinned) and self.cursor.pinned_device is not None
+        if not self.cursor.device_pinned:
+            self.cursor.pinned_device = None
+
+    # The cursor clip
+
+    @property
+    def cursor_clip_slot(self) -> "Slot | None":
+        """The slot of the cursor clip (see the module docstring), the pinned one while the
+        cursor clip is pinned; None without a clip."""
+        if self.cursor.clip_pinned and self.cursor.pinned_slot is not None:
+            slot = self.cursor.pinned_slot
+            return slot if slot.has_content and slot.track in self.tracks + self.effect_tracks else None
+        return self.clip_slot_of(self.cursor_channel)
+
+    def clip_slot_of(self, channel) -> "Slot | None":
+        """The slot of the launcher cursor clip of a cursor track on the channel (see the module
+        docstring); None without a clip."""
+        if not isinstance(channel, Track):
+            return None
+        for slot in (self.selected_slot, channel.last_selected_slot):
+            if slot is not None and slot.track is channel and slot in channel.slots and slot.has_content:
+                return slot
+        return next((slot for slot in channel.slots if slot.has_content), None)
+
+    @property
+    def cursor_clip(self) -> Clip | None:
+        slot = self.cursor_clip_slot
+        if slot is None:
+            return None
+        if slot.clip is None:
+            slot.clip = Clip(self.preferences)
+        return slot.clip
+
+    def set_cursor_clip_pinned(self, pinned: bool) -> None:
+        """``isPinned ().set`` of the cursor clips."""
+        if pinned and not self.cursor.clip_pinned:
+            self.cursor.pinned_slot = self.cursor_clip_slot
+        self.cursor.clip_pinned = bool(pinned) and self.cursor.pinned_slot is not None
+        if not self.cursor.clip_pinned:
+            self.cursor.pinned_slot = None
+
+    @property
+    def drum_device(self):
+        """The first Drum Machine of the cursor track (BitwigModel.drumDevice, the Bitwig device
+        matcher of the Drum Machine); None without one."""
+        channel = self.cursor_channel
+        return channel.devices.first_drum_machine() if channel is not None else None
 
     @property
     def primary_device(self):
@@ -808,11 +1052,29 @@ class SimDaw:
 
     # Note inputs
 
-    def create_note_input(self, name: str = "") -> NoteInput:
+    def create_note_input(self, name: str = "", filters: list[str] | None = None, default: bool = True) -> NoteInput:
         """``MidiIn.createNoteInput``: a new note input with a new arpeggiator (its defaults, see
-        Arpeggiator); it becomes the default note input."""
-        self.note_input = NoteInput(name)
-        return self.note_input
+        Arpeggiator); the first one of the controller is the default note input."""
+        note_input = NoteInput(name, filters)
+        if default:
+            self.note_input = note_input
+        return note_input
+
+    def play_live_note(self, status: int, key: int, velocity: int) -> None:
+        """A note from a note input: it plays on every note track which monitors its input
+        (monitor on, or auto and armed: Bitwig's input monitoring). The observer saw the notes of
+        the Maschine Mk2 on Synth and Drums, both armed by the auto-arm, while Drums was
+        selected (target/conformance/native_instruments_maschine_mk2-pad_modes-java.json,
+        ``osc:/track/1/playingNotes``, ``osc:/track/2/playingNotes``)."""
+        if not 0 <= key < 128:
+            return
+        on = status & 0xF0 == 0x90 and velocity > 0
+        for track in self.tracks:
+            if on and track.can_hold_notes and track.monitoring:
+                track.playing_notes.pop(key, None)
+                track.playing_notes[key] = velocity
+            elif not on:
+                track.playing_notes.pop(key, None)
 
     # Scenes
 
@@ -859,6 +1121,7 @@ class SimDaw:
         """Move the simulated time: the play position, queued clips start at the next bar."""
         self.time_ms += ms
         if self.transport.advance(ms):
+            self.markers.on_bar()
             for track in self.tracks + self.effect_tracks:
                 for slot in track.slots:
                     slot.on_bar()
@@ -883,6 +1146,9 @@ __all__ = [
     "AUTOMATION_MODES",
     "Application",
     "Arpeggiator",
+    "Arranger",
+    "Mixer",
+    "PANEL_LAYOUTS",
     "Channel",
     "CursorTrack",
     "MasterTrack",

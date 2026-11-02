@@ -302,9 +302,12 @@ class ReporterTest(unittest.TestCase):
     def test_dump_then_only_changes(self):
         host = Host()
         first = host.lines()
-        self.assertEqual(first[0], "/host/features valueInc valueReset immediately indication soloToggle transportCommands")
+        self.assertEqual(first[0], "/host/features valueInc valueReset immediately indication soloToggle transportCommands deviceCommands")
         values = dict(line.split(" ", 1) for line in first)
-        self.assertEqual(len(values), len(first), "Every address once")
+        addresses = [line.split(" ", 1)[0] for line in first]
+        twice = sorted({address for address in addresses if addresses.count(address) > 1})
+        self.assertEqual(twice, ["/device/bypass", "/device/exists", "/device/expand", "/device/name", "/device/window"],
+                         "Every address once, except the cursor device's (collectDevice and its layers, as BitwigModel)")
         self.assertEqual(values["/track/count"], "8")
         self.assertEqual(values["/track/7/type"], "MASTER")
         self.assertEqual(values["/track/5/type"], "EFFECT")
@@ -334,10 +337,11 @@ class ReporterTest(unittest.TestCase):
         host = Host()
         host.lines()
         host.daw.tracks[3].select()
-        self.assertEqual(host.lines(), ["/track/hasPrevious 1", "/track/0/select 0", "/track/3/select 1"])
+        self.assertEqual(host.lines(), ["/track/hasPrevious 1", "/track/0/select 0", "/track/3/select 1", "/track/3/playingnotes "],
+                         "The notes of the new cursor track are reported again")
         host.daw.master.select()
         lines = host.lines()
-        self.assertEqual(lines, ["/track/hasNext 0", "/track/3/select 0", "/track/7/select 1", "/master/select 1"])
+        self.assertEqual(lines, ["/track/hasNext 0", "/track/3/select 0", "/track/7/select 1", "/track/7/playingnotes ", "/master/select 1"])
 
     def test_removed_selected_track_is_deselected(self):
         host = Host(setup={"numSends": 2})
@@ -537,13 +541,13 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(host.report()["/track/offset"], "8")
 
         with self.assertLogs("dbm_host", "INFO") as logs:
-            host.commands.handle("device", "sibling/3/bypass", 1)
-            host.commands.handle("device", "sibling/4/bypass", 1)
+            host.commands.handle("device", "sibling/3/frobnicate", 1)
+            host.commands.handle("device", "sibling/4/frobnicate", 1)
             host.commands.handle("track", "99/mute", 1)
             host.commands.handle("frobnicate", "", None)
-        self.assertEqual(host.commands.unhandled, ["device sibling/<n>/bypass", "track <n>/mute", "frobnicate"])
+        self.assertEqual(host.commands.unhandled, ["device sibling/<n>/frobnicate", "track <n>/mute", "frobnicate"])
         self.assertEqual(len(logs.output), 3, "Each once")
-        self.assertIn("Not handled yet: device sibling/<n>/bypass", logs.output[0])
+        self.assertIn("Not handled yet: device sibling/<n>/frobnicate", logs.output[0])
 
 
 class DeviceAndPreferencesTest(unittest.TestCase):
@@ -553,12 +557,15 @@ class DeviceAndPreferencesTest(unittest.TestCase):
         synth, drums, eq = daw.tracks[0], daw.tracks[1], daw.tracks[3]
         drums.select()
         self.assertEqual((synth.arm, drums.arm), (False, True), "Only instrument tracks, the previous one is disarmed")
-        eq.set_arm(True)
         eq.select()
-        self.assertTrue(eq.arm and not drums.arm)
+        self.assertEqual((drums.arm, eq.arm), (True, False), "An audio track: the instrument track stays armed")
+        daw.effect_tracks[0].select()
+        daw.master.select()
+        self.assertTrue(drums.arm, "Also for an effect track and the master")
+        eq.set_arm(True)
         synth.select()
+        self.assertEqual((synth.arm, drums.arm), (True, False), "The next instrument track takes the arm")
         self.assertTrue(eq.arm, "Armed by a command: stays armed")
-        self.assertTrue(synth.arm)
 
     def test_edits_make_undo_possible(self):
         host = Host()
@@ -569,10 +576,22 @@ class DeviceAndPreferencesTest(unittest.TestCase):
         self.assertFalse(app.can_undo, "No change")
         host.commands.handle("track", "0/mute", 1.0)
         self.assertTrue(app.can_undo)
-        app.can_undo = False
-        host.commands.handle("track", "1/volume", 0.25)
-        self.assertTrue(app.can_undo)
         self.assertIn("/project/canUndo 1", host.lines())
+        host.commands.handle("track", "1/volume", 0.25)
+        host.commands.handle("track", "1/volume", 0.3)
+        self.assertEqual(len(app.undo_stack), 2, "The changes of one value are one edit")
+        track0, track1 = host.daw.tracks[0], host.daw.tracks[1]
+        host.commands.handle("undo", "", None)
+        self.assertEqual(track1.volume.value, track1.volume.default)
+        self.assertTrue(track0.mute)
+        host.commands.handle("undo", "", None)
+        self.assertFalse(track0.mute)
+        self.assertEqual((app.can_undo, app.can_redo), (False, True))
+        self.assertIn("/project/canUndo 0", host.lines())
+        host.commands.handle("redo", "", None)
+        self.assertTrue(track0.mute)
+        host.commands.handle("track", "0/solo", 1.0)
+        self.assertFalse(app.can_redo, "An edit clears the redo steps")
 
     def test_device_reports_and_parameter_page(self):
         daw = project()

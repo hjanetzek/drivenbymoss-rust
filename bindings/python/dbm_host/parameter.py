@@ -113,6 +113,36 @@ def format_metronome_volume(value: float) -> str:
     return f"{(value - 1.0) * 48.0:.1f} dB"
 
 
+def format_percent_three_digits(value: float) -> str:
+    """A value 0..1 as percent with three significant digits (``0.00 %``, ``50.0 %``, ``100 %``),
+    the format of many of Bitwig's device parameters."""
+    return format_three_digits(value * 100.0) + " %"
+
+
+def format_semitones(range_semitones: float) -> Callable[[float], str]:
+    """A bipolar pitch of +-range semitones with a sign and two decimals (``-7.00 st``,
+    ``+4.02 st``, ``0.00 st``): the Osc1Pitch of the Polysynth (7 semitones) as Bitwig showed it
+    (``/device/param/0/value/str`` of tests/conformance/generic_flexi/replay/
+    generic_flexi-device-rust.rec at 0, 0.787402, 0.5 and 1)."""
+    def format_value(value: float) -> str:
+        semitones = (value - 0.5) * 2.0 * range_semitones
+        return "0.00 st" if abs(semitones) < 0.005 else f"{semitones:+.2f} st"
+    return format_value
+
+
+def recorded_formatter(recorded_value: float, recorded_text: str, formatter: Callable[[float], str] | None = None) -> Callable[[float], str]:
+    """The displayed value of a parameter whose curve is known only at one point (the value of
+    the fixture): the recorded text at the recorded value, else the formatter (by default the
+    percent of ``format_percent_three_digits``, which is only a guess for other units)."""
+    fallback = formatter or format_percent_three_digits
+
+    def format_value(value: float) -> str:
+        if abs(value - recorded_value) < 1e-6:
+            return recorded_text
+        return fallback(value)
+    return format_value
+
+
 def limit_text(text: str, limit: int) -> str:
     """A displayed value shortened to the limit, as Bitwig's getLimited (see the module
     docstring)."""
@@ -137,12 +167,26 @@ class Parameter:
         self.name = name
         self.touched = False
         self.indicated = False
+        self.listeners: list[Callable[[float], None]] = []
+        """Called with the new value after every change (also by the takeover mode and undo)."""
         # The last value of the control which set this value (for the takeover mode catch)
         self._control: float | None = None
 
     @staticmethod
     def _clamp(value: float) -> float:
         return min(1.0, max(0.0, float(value)))
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @value.setter
+    def value(self, value: float) -> None:
+        changed = getattr(self, "_value", None) != value
+        self._value = value
+        if changed:
+            for listener in getattr(self, "listeners", []):
+                listener(value)
 
     def set(self, value: float) -> bool:
         """Set the value from a control, with the takeover mode of the preferences. Returns

@@ -23,9 +23,12 @@ markers in the arranger, `M1` at bar 3 and `M2` at bar 5.
 Bitwig behaviour the recorded results depend on, without a scenario saying so (the Python
 reference host simulates both, `bindings/python/conformance/fixture.py`):
 
-- **Auto-arm:** Bitwig arms the selected instrument track and disarms it when another track is
-  selected (the default preference). `/track/N/recarm` and `monitor` and the record-arm LEDs of
-  the Launch Control XL follow the selection because of it.
+- **Auto-arm:** Bitwig arms the selected instrument track. When another track which can hold
+  notes is selected, the arm moves to it; when an audio or effect track or the master is
+  selected, the instrument track stays armed. `/track/N/recarm` and `monitor` and the
+  record-arm LEDs of the Launch Control XL follow the selection because of it. The rule comes
+  from all selection changes of the Java traces (the table in
+  `bindings/python/dbm_host/model.py`).
 - **Undo history:** the changes of the setup steps (mute, solo, mixer values, tempo) make undo
   possible. The Launch Control XL shows it (Undo LED on Track Focus 5 while Record Arm is held).
 - **Takeover mode:** Catch for the Launch Control XL, Maschine Mk2 and JAM, Immediate for Generic

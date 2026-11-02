@@ -26,7 +26,7 @@ import drivenbymoss
 
 from .banks import Banks
 from .commands import CommandHandler
-from .model import SimDaw
+from .model import NoteInput, SimDaw
 from .reporter import Reporter
 
 logger = logging.getLogger("dbm_host")
@@ -62,7 +62,8 @@ class Bridge(drivenbymoss.Backend):
         """Called with every message to the controller (e.g. a device stub which answers)."""
         self.played_notes: list[tuple[int, int, int]] = []
         """The MIDI the core played into the DAW (process_midi_arg)."""
-        self.note_inputs: dict[int, dict] = {}
+        self.note_inputs: dict[int, "NoteInput"] = {}
+        """The note inputs of the controller by their index (``set_note_input_filters``)."""
         self._initializing = False
         self.logs: list[str] = []
         self.notifications: list[str] = []
@@ -78,6 +79,7 @@ class Bridge(drivenbymoss.Backend):
         # The note inputs can only be created while the controller starts (DbmExtension.init)
         self._initializing = True
         self.daw.note_input = None
+        self.note_inputs = {}
         try:
             self.app.start_infrastructure()
         finally:
@@ -102,8 +104,13 @@ class Bridge(drivenbymoss.Backend):
     # The loop
 
     def receive(self, data: bytes | Iterable[int]) -> None:
-        """MIDI from the controller (sent to the core with the next step)."""
-        self.midi_in.append(bytes(data))
+        """MIDI from the controller (sent to the core with the next step). A short message has
+        three bytes, as Bitwig's MIDI callback gives it to DbmExtension (``(status, data1,
+        data2)``: a program change ``C0 05`` arrives as ``C0 05 00``)."""
+        data = bytes(data)
+        if data and data[0] != 0xF0 and len(data) < 3:
+            data = data + bytes(3 - len(data))
+        self.midi_in.append(data)
 
     def report(self) -> str:
         """Collect the changes of the DAW and send them to the core."""
@@ -119,6 +126,7 @@ class Bridge(drivenbymoss.Backend):
         pending, self.midi_in = self.midi_in, []
         for data in pending:
             self.app.on_midi_event(DEVICE, data)
+            self.to_note_inputs(data)
         self.app.tick()
         self.report()
         self.notifications.extend(self.app.take_notifications())
@@ -166,8 +174,20 @@ class Bridge(drivenbymoss.Backend):
         if self.on_midi_out is not None:
             self.on_midi_out(data)
 
+    def to_note_inputs(self, data: bytes) -> None:
+        """MIDI from the controller also goes to the note inputs, which do not consume it
+        (``setShouldConsumeEvents (false)``): their notes play in the DAW."""
+        for note_input in self.note_inputs.values():
+            event = note_input.translate(data)
+            if event is not None:
+                self.daw.play_live_note(*event)
+
     def process_midi_arg(self, device_id: int, status: int, data1: int, data2: int) -> None:
+        """DbmExtension.sendRawMidiEvent: a MIDI event into the default note input, untranslated
+        (e.g. the further notes of a chord)."""
         self.played_notes.append((status, data1, data2))
+        if device_id == DEVICE and 0 in self.note_inputs and status & 0xF0 in (0x80, 0x90):
+            self.daw.play_live_note(status, data1, data2)
 
     def set_note_input_filters(self, device_id: int, note_input_index: int, filters: list[str]) -> None:
         """Create a note input (DbmExtension.setNoteInputFilters): only while the controller
@@ -176,15 +196,17 @@ class Bridge(drivenbymoss.Backend):
         whose arpeggiator is the note repeat."""
         if device_id != DEVICE or not self._initializing or not filters:
             return
-        self.note_inputs.setdefault(note_input_index, {})["filters"] = filters
-        if note_input_index == 0:
-            self.daw.create_note_input("controller")
+        self.note_inputs[note_input_index] = self.daw.create_note_input("controller", filters, default=note_input_index == 0)
 
     def set_note_input_key_translation_table(self, device_id: int, note_input_index: int, table: list[int]) -> None:
-        self.note_inputs.setdefault(note_input_index, {})["keys"] = table
+        note_input = self.note_inputs.get(note_input_index) if device_id == DEVICE else None
+        if note_input is not None:
+            note_input.key_table = list(table)
 
     def set_note_input_velocity_translation_table(self, device_id: int, note_input_index: int, table: list[int]) -> None:
-        self.note_inputs.setdefault(note_input_index, {})["velocities"] = table
+        note_input = self.note_inputs.get(note_input_index) if device_id == DEVICE else None
+        if note_input is not None:
+            note_input.velocity_table = list(table)
 
     def log(self, message: str) -> None:
         self.logs.append(message)

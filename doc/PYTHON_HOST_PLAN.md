@@ -1,10 +1,13 @@
 # Python bindings and a reference host: plan
 
-Status: 2026-11-02, steps 1–3 implemented: the binding, the reference host and the in-process
-conformance runner (`python3 -m conformance`). Compare the same as Java: Launch Control XL
-`track_mix`, `equalizer`; Maschine JAM `global`, `session`; Generic Flexi `function_layers`
-(the list in `ci/linux.sh`). Of steps 4–7: note repeat, the device parameter commands, the
-panorama text, the clip launcher navigator, the EQ+.
+Status: 2026-11-02, steps 1–7 implemented: the binding, the reference host and the in-process
+conformance runner (`python3 -m conformance`). All 21 scenario files of the four setups (195
+scenarios) compare the same as Java on Bitwig (the list in `ci/linux.sh`). The model has the
+devices with their remote controls, layers and drum pads, the clips with their step grids, the
+note inputs and the playing notes, the markers, the undo history, the panel layout and the
+arranger and mixer flags. Not simulated yet: the browser, groove, the project and track remote
+controls, the crossfader, the sends of layers; the state view still leaves keys of the Java
+traces out ("not modelled", e.g. `/device/drumpad`, `/vkb_midi`).
 
 **Goal.** A Python binding of the C ABI, and on top of it a reference host for DAWs that want to
 include DrivenByMoss. The reference host is a bridge with a simulated DAW, written in plain

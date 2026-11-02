@@ -12,7 +12,7 @@ The sequence follows ``record`` (``conformance_all.sh`` runs it with ``--fresh-p
 1. The Flexi mapping of the file (``write_flexi_mapping``) and the controller settings of the
    profile (``fixture.copy_profile_config``) in a temporary config folder.
 2. The restarts (``restart_controller``): a new ``App`` each, without the device stubs, then
-   ``RESTART_MS`` of time; the fresh project (``FRESH_PROJECT_MS``); the marker pause (1 s).
+   the waits of ``restart_controller`` (``RESTART_*``); the fresh project (``FRESH_PROJECT_MS``); the marker pause (1 s).
    The fixture is built once, before the first start.
 3. The ``setup`` steps; their output is the start of the LED state (``led_state``), or the
    startup output too with ``keep_startup_output``.
@@ -45,8 +45,12 @@ from .fixture import Setup, build_fixture, copy_profile_config
 from .state import OscController
 
 # The pauses of record (in ms of simulated time)
-RESTART_MS = 4000
-"""restart_controller: 3 s, then the rest of the startup output (1 s)."""
+RESTART_WAIT_MS = 3000
+RESTART_REST_MS = 1000
+RESTART_TIMEOUT_MS = 15000
+"""restart_controller: 3 s, then until the controller sent something (at most the timeout of
+``--restart 15``), then the rest of the startup output (1 s). For Generic Flexi the first output
+comes after the mapping is applied (``FLEXI_MAPPING_FILE``)."""
 FRESH_PROJECT_MS = 10000
 """--fresh-project 8: the wait for the new project, the engine, the stops (about 10 s)."""
 MARKER_MS = 1000
@@ -188,7 +192,12 @@ def record(setup: Setup, scenario_file: Path, config: dict, work_dir: Path) -> t
     for _ in range(restarts):
         session.stubs = []
         session.start()
-        session.advance(RESTART_MS)
+        session.advance(RESTART_WAIT_MS)
+        waited = RESTART_WAIT_MS
+        while not session.received and waited < RESTART_TIMEOUT_MS:
+            session.advance(100)
+            waited += 100
+        session.advance(RESTART_REST_MS)
         startup = session.take()
     session.stubs = config.get("stub", [])
     session.advance(FRESH_PROJECT_MS + MARKER_MS)

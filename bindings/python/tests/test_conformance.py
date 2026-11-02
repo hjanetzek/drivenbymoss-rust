@@ -105,7 +105,7 @@ class OscTableTest(unittest.TestCase):
 
     def test_unknown(self):
         with self.assertRaises(osc.UnknownOscCommand):
-            Observer().run("/layout/arrange")
+            Observer().run("/browser/tag/1")
 
 
 class StateViewTest(unittest.TestCase):
@@ -130,9 +130,12 @@ class StateViewTest(unittest.TestCase):
 
     def test_is_modelled(self):
         for key in ("osc:/track/3/selected", "osc:/track/selected/recarm", "osc:/device/page/2/selected", "osc:/device/page/1/", "osc:/click", "osc:/track/1/send/8/volumeStr",
-                    "osc:/eq/type/8/value", "osc:/eq/freq/1/valueStr", "osc:/eq/parameters"):
+                    "osc:/eq/type/8/value", "osc:/eq/freq/1/valueStr", "osc:/eq/parameters", "osc:/device/param/1/value", "osc:/clip/exists",
+                    "osc:/clip/step/0/12/41", "osc:/device/layer/2/selected", "osc:/device/layer/selected/volumeStr",
+                    "osc:/conformance/primary/drumpad/16/mute", "osc:/track/1/playingNotes", "osc:/marker/2/name", "osc:/layout"):
             self.assertTrue(is_modelled(key), key)
-        for key in ("osc:/track/selected/selected", "osc:/device/param/1/value", "osc:/track/1/vu", "osc:/clip/exists", "probe:/track/1/name", "osc:/track/0/name"):
+        for key in ("osc:/track/selected/selected", "osc:/device/lastparam/value", "osc:/track/1/vu", "osc:/clip/pinned", "osc:/device/drumpad/1/name",
+                    "osc:/device/layer/1/send/1/name", "probe:/track/1/name", "osc:/track/0/name"):
             self.assertFalse(is_modelled(key), key)
 
     def test_the_bank_follows_the_cursor_track(self):
@@ -166,8 +169,8 @@ class ReferenceTest(unittest.TestCase):
         def step(bitwig, leds):
             return {"input": {}, "bitwig": bitwig, "leds": leds}
         trace = {"controller": "X", "label": "java", "scenarios": [
-            {"id": "a", "initial": {"leds": {"90 01": "01"}}, "start": {"osc:/click": "0", "osc:/device/param/1/value": "3"},
-             "steps": [step({"osc:/click": "1", "osc:/device/param/1/value": "4", "osc:/track/1/vu": "9"}, {"90 01": "02"})]},
+            {"id": "a", "initial": {"leds": {"90 01": "01"}}, "start": {"osc:/click": "0", "osc:/device/lastparam/value": "3"},
+             "steps": [step({"osc:/click": "1", "osc:/device/lastparam/value": "4", "osc:/track/1/vu": "9"}, {"90 01": "02"})]},
             {"id": "b", "initial": {"leds": {"90 01": "02", "90 02": "7F"}}, "start": {"osc:/click": "0"},
              "steps": [step({}, {"90 01": "02", "90 02": "00"})]},
         ]}
@@ -175,10 +178,10 @@ class ReferenceTest(unittest.TestCase):
         self.assertEqual(ref["leds"], {"90 01": "01"})
         first, second = ref["scenarios"]
         self.assertEqual(first["start"], {"osc:/click": "0"})
-        self.assertEqual(first["steps"][0], {"leds": {"90 01": "02"}, "bitwig": {"osc:/click": "1"}, "not_modelled": ["osc:/device/param/1/value"]})
+        self.assertEqual(first["steps"][0], {"leds": {"90 01": "02"}, "bitwig": {"osc:/click": "1"}, "not_modelled": ["osc:/device/lastparam/value"]})
         self.assertEqual(second["leds"], {"90 02": "7F"})
         self.assertEqual(second["start"], {"osc:/click": "0"}, "The change since the end of the previous scenario")
-        self.assertEqual(reference.not_modelled(ref), {"a": ["osc:/device/param/1/value"]})
+        self.assertEqual(reference.not_modelled(ref), {"a": ["osc:/device/lastparam/value"]})
         oracle = reference.expand(json.loads(reference.dumps(ref)))
         self.assertEqual(oracle["scenarios"][1]["start"], {"osc:/click": "0"})
         self.assertEqual(oracle["scenarios"][1]["steps"][0]["leds"], {"90 01": "02", "90 02": "00"})
@@ -211,6 +214,9 @@ class TrackMixTest(unittest.TestCase):
         r = self.result
         java = reference.load(reference.path_for(self.file, r.run))["scenarios"][0]["start"]
         sim = json.loads((Path(self.temp.name) / f"{r.run}-sim.json").read_text())["scenarios"][0]["start"]
+        # The observer reports a step which became empty once as "0" and the trace keeps it: the
+        # Java run starts with the empty steps of earlier runs
+        java = {k: v for k, v in java.items() if not (k.startswith("osc:/clip/step/") and v == "0")}
         self.assertEqual(set(sim), set(java))
         self.assertEqual({k: v for k, v in sim.items() if java[k] != v}, {})
 

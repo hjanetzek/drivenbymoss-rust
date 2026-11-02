@@ -4,23 +4,28 @@
 """Executes the commands of the core (processor, command, value) on the simulated DAW.
 
 Implements HOST_BRIDGE_GUIDE.md §4 (the command reference, core -> host): 4.1 the value command
-suffixes, 4.2 transport and ``noterepeat``, the ``refresh`` and ``bank`` commands of 4.3, 4.4
-tracks and master (and the effect tracks of §3.3), 4.5 slots and scenes, of 4.6
-``parameterPage``, ``param/<n>/…`` and ``eq``; ``navigator`` (§2, the host feature
-clipLauncherNavigator, ``navigator.py``); the processors as BACKEND_PROTOCOL.md §2.
+suffixes, 4.2 transport, ``noterepeat``, ``application layout``, ``arranger``, ``mixer``,
+``project createScene``, the ``refresh`` and ``bank`` commands of 4.3, 4.4 tracks and master
+(and the effect tracks of §3.3), 4.5 slots and scenes, 4.6 the devices (``device``, ``primary``,
+``drum``: the cursor device, its siblings and layers, the pads and layers of the specific
+devices, ``param/<n>/…``, ``eq``), 4.7 the cursor clip and its step grids (``clip``,
+``quantize``), 4.8 the markers; ``navigator`` (§2, the host feature clipLauncherNavigator,
+``navigator.py``); the processors as BACKEND_PROTOCOL.md §2.
 
 Simulates the command handling of the Bitwig extension (``CommandHandler``, ``DbmExtension.
 unhandled``), which calls the Bitwig API as the Java DrivenByMoss for Bitwig does
 (``TransportImpl``, ``ChannelImpl``, ``TrackImpl``, ``SendImpl``, ``SlotImpl``, ``SceneImpl``,
-``CursorTrackImpl``, ``AbstractTrackBankImpl``, ``NoteRepeatImpl``, ``EqualizerDeviceImpl``).
+``CursorTrackImpl``, ``AbstractTrackBankImpl``, ``NoteRepeatImpl``, ``CursorDeviceImpl``,
+``SpecificDeviceImpl``, ``DrumPadImpl``, ``LayerImpl``, ``EqualizerDeviceImpl``,
+``CursorClipImpl``, ``MarkerImpl``, ``ApplicationImpl``).
 
 Dispatch: one handler per processor (``CommandHandler.register``). A handler gets a parsed
 ``Command`` and returns False if it does not know the command; the command is then logged once
 as ``Not handled yet: <processor> <command>`` (digits replaced by ``<n>``, as the Bitwig
 extension) and kept in ``unhandled``. Each handler declares the host features
 (HOST_BRIDGE_GUIDE.md §2) it implements; ``host_features`` is reported as ``/host/features``.
-The later steps extend ``device`` and ``primary`` and register the processors ``drum``, ``clip``, ``marker``, ``browser``, ``application``, ``arranger``, ``mixer``, ``project``,
-``groove``, ``undo``, ``redo``, ... the same way.
+The processors which are not simulated yet (``browser``, ``groove``) are registered the same
+way.
 """
 
 import logging
@@ -29,17 +34,21 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .banks import Banks
+from .clip import ATTRIBUTES, NoteGrid, set_attribute, update_from_wire
 from .device import EQ_NUM_BANDS, PARAMS_PER_PAGE, eq_plus
-from .model import PREROLLS, Channel, SimDaw, Track, color_from_command
+from .model import ARRANGER_TOGGLES, MIXER_TOGGLES, PANEL_LAYOUTS, PREROLLS, Channel, SimDaw, Track, color_from_command
 from .navigator import ClipLauncherNavigator
 from .parameter import Parameter
-from .reporter import Reporter
+from .reporter import NUM_DRUM_PADS, NUM_LAYERS, NUM_MARKERS, NUM_SIBLINGS, Reporter
 
 logger = logging.getLogger("dbm_host")
 
 # The order of HostFeature::ALL in src/daw/context.rs
 FEATURE_ORDER = ("valueInc", "valueReset", "immediately", "indication", "soloToggle", "transportCommands",
                  "deviceCommands", "layoutStep", "clipLauncherNavigator")
+
+# The commands of a device on the device itself (CommandHandler.handleOwnDevice)
+OWN_DEVICE_COMMANDS = ("window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select")
 
 IMMEDIATELY = "/immediately"
 INCREMENT = "/inc"
@@ -124,6 +133,8 @@ class CommandHandler:
         self._unhandled_keys: set[str] = set()
         self.navigator: ClipLauncherNavigator | None = None
         """The clip launcher navigator, if the controller wants it (``configure``)."""
+        self.note_grids: list[NoteGrid] = []
+        """The step grids of the note clips (``configure``)."""
 
         self.register("refresh", self._refresh)
         self.register("bank", self._bank)
@@ -135,17 +146,28 @@ class CommandHandler:
         self.register("master", self._master)
         self.register("scene", self._scene)
         self.register("action", self._action)
-        self.register("device", self._device)
-        self.register("primary", self._device)
+        self.register("device", self._device, ("deviceCommands",))
+        self.register("primary", self._specific)
+        self.register("drum", self._specific)
         self.register("noterepeat", self._note_repeat)
         self.register("eq", self._equalizer)
         self.register("navigator", self._navigator, ("clipLauncherNavigator",))
+        self.register("clip", self._clip)
+        self.register("project", self._project)
+        self.register("marker", self._marker)
+        self.register("application", self._application)
+        self.register("arranger", self._panel_toggle)
+        self.register("mixer", self._panel_toggle)
+        self.register("quantize", self._quantize)
 
     def configure(self) -> None:
         """Create the objects which depend on the model setup of the controller (after
         ``Banks.configure``): the clip launcher navigator (BitwigModel: only if the model setup
-        has ``wantsClipLauncherNavigator``)."""
+        has ``wantsClipLauncherNavigator``), the step grids of the note clips (``noteClips``, one
+        per size, as BitwigModel)."""
         self.navigator = ClipLauncherNavigator(self.daw, self.banks) if self.banks.wants_clip_launcher_navigator else None
+        self.note_grids = [NoteGrid(int(steps), int(rows), lambda: self.daw.cursor_clip) for steps, rows in self.banks.setup.get("noteClips", [])]
+        self.reporter.note_grids = self.note_grids
 
     def register(self, processor: str, handler: Handler, features: tuple[str, ...] = ()) -> None:
         """Handle the commands of a processor; the handler implements the given host features."""
@@ -202,7 +224,7 @@ class CommandHandler:
         before = parameter.value
         self._apply_value(parameter, cmd)
         if parameter.value != before:
-            self.daw.application.edit()
+            self.daw.application.edit_value(("value", id(parameter)), lambda value: setattr(parameter, "value", value), before, parameter.value)
 
     @staticmethod
     def _apply_value(parameter: Parameter, cmd: Command) -> None:
@@ -263,7 +285,7 @@ class CommandHandler:
             else:
                 return False
             if t.tempo != before:
-                self.daw.application.edit()
+                self.daw.application.edit_value("tempo", t.set_tempo, before, t.tempo)
         elif p == "time":
             if c == "signature":
                 value = int(cmd.number)
@@ -336,6 +358,196 @@ class CommandHandler:
         the Java version."""
         return True
 
+    # Application, arranger, mixer
+
+    def _application(self, cmd: Command) -> bool:
+        """``application layout <index>`` (ApplicationImpl.setPanelLayout; the other application
+        commands act on Bitwig's UI, which is not simulated)."""
+        if cmd.command == "layout" and cmd.value is not None:
+            index = int(cmd.number)
+            if 0 <= index < len(PANEL_LAYOUTS):
+                self.daw.application.panel_layout = PANEL_LAYOUTS[index]
+            return True
+        return False
+
+    def _panel_toggle(self, cmd: Command) -> bool:
+        """``arranger|mixer toggle…``: the visibility flags (CommandHandler.handleArranger,
+        handleMixer)."""
+        target, toggles = (self.daw.arranger, ARRANGER_TOGGLES) if cmd.processor == "arranger" else (self.daw.mixer, MIXER_TOGGLES)
+        attribute = toggles.get(cmd.command)
+        if attribute is None:
+            return False
+        setattr(target, attribute, not getattr(target, attribute))
+        return True
+
+    # Markers
+
+    def _marker(self, cmd: Command) -> bool:
+        """``marker add|previous|next``, ``marker <i>/launch|select|remove`` (CommandHandler.
+        handleMarker; ``select`` and ``previous|next`` set the play start position as
+        TransportImpl.setPosition). Unknown without a marker bank (``numMarkers``)."""
+        daw = self.daw
+        markers = daw.markers
+        has_bank = int(self.banks.setup.get("numMarkers", 0)) > 0
+        c = cmd.command
+        if c == "add":
+            markers.add_at_playback_position()
+        elif c in ("previous", "next"):
+            marker = markers.find(c == "next")
+            if marker is not None:
+                daw.transport.set_position(marker.position)
+        else:
+            parts = cmd.parts
+            index = parse_index(parts[0]) if len(parts) == 2 else -1
+            if not has_bank or not 0 <= index < NUM_MARKERS or parts[1] not in ("launch", "select", "remove"):
+                return False
+            if index >= len(markers.items):
+                return True
+            marker = markers.items[index]
+            if parts[1] == "launch":
+                markers.launch(marker)
+            elif parts[1] == "select":
+                daw.transport.set_position(marker.position)
+            else:
+                markers.remove(marker)
+        return True
+
+    # The project
+
+    def _project(self, cmd: Command) -> bool:
+        """``project createScene``: a new empty scene at the end, selected
+        (CommandHandler.handleProject, ``Project.createScene``; that Bitwig selects it is known
+        only from the observer, which showed the selected slot deselected, flexi.scene.create of
+        generic_flexi project). The other project commands (cue, remote controls, …) are not
+        simulated."""
+        if cmd.command == "createScene":
+            self.daw.add_scene().select()
+            return True
+        return False
+
+    # The cursor clip and its step grids
+
+    def _clip(self, cmd: Command) -> bool:
+        """``clip …``: the cursor clip (CommandHandler.handleClip of the Bitwig extension): the
+        clip properties, ``grid/<id>/…`` on a step grid (``grid_command``). The commands of the
+        Reaper note list (``note/<pitch>/…``, sent only without a host grid) are unknown, as
+        there."""
+        daw = self.daw
+        clip = daw.cursor_clip
+        slot = daw.cursor_clip_slot
+        c = cmd.command
+        parts = cmd.parts
+        if c == "name":
+            if clip is not None:
+                clip.name = slot.name = cmd.text or ""
+        elif c == "color":
+            color = color_from_command(cmd.text)
+            if color is not None and slot is not None:
+                slot.clip_color = color
+        elif c in ("start", "end", "loopStart", "loopLength"):
+            if clip is not None:
+                attribute = {"start": "play_start", "end": "play_stop", "loopStart": "loop_start", "loopLength": "loop_length"}[c]
+                value = getattr(clip, attribute) + cmd.number if cmd.increment else cmd.number
+                setattr(clip, attribute, max(0.0, value))
+        elif c in ("loop", "shuffle"):
+            if clip is not None:
+                setattr(clip, c, cmd.flag)
+        elif c == "accent":
+            if clip is not None:
+                self.set_value(clip.accent, cmd)
+        elif c == "duplicate":
+            if slot is not None:
+                slot.duplicate()
+        elif c == "duplicateContent":
+            if clip is not None:
+                clip.duplicate_content()
+        elif c == "clear":
+            if clip is not None:
+                clip.notes.clear()
+        elif c == "pinned":
+            daw.set_cursor_clip_pinned(cmd.flag)
+        elif c == "transpose":
+            # CursorClipImpl: only on tracks with notes
+            if clip is not None and slot.track.can_hold_notes:
+                clip.transpose(int(cmd.number))
+        elif len(parts) >= 3 and parts[0] == "grid":
+            grid = next((grid for grid in self.note_grids if grid.id == parts[1]), None)
+            return grid is not None and self.grid_command(grid, parts[2:], cmd)
+        else:
+            return False
+        return True
+
+    @staticmethod
+    def grid_command(grid: NoteGrid, parts: list[str], cmd: Command) -> bool:
+        """BitwigNoteClip.handle: ``stepSize``, ``scroll``, ``page/+|-``, ``clearAll``,
+        ``clearRow/<ch>/<row>``, ``clearColumn/<ch>/<step>``, ``step/<ch>/<x>/<y>/toggle|set|
+        setFrom|update|clear|moveY|<attribute>``."""
+        name = parts[0]
+        if name == "stepSize" and len(parts) == 1:
+            grid.set_step_size(cmd.number)
+        elif name == "scroll" and len(parts) == 1:
+            grid.scroll_to(int(cmd.number))
+        elif name == "page" and len(parts) == 2:
+            grid.scroll_page(1 if parts[1] == "+" else -1)
+        elif name == "clearAll" and len(parts) == 1:
+            grid.clear_all()
+        elif name in ("clearRow", "clearColumn") and len(parts) == 3:
+            channel, index = parse_index(parts[1]), parse_index(parts[2])
+            if name == "clearRow":
+                grid.clear_row(channel, index)
+            else:
+                grid.clear_column(channel, index)
+        elif name == "step" and len(parts) == 5:
+            channel, x, y = (parse_index(part) for part in parts[1:4])
+            action = parts[4]
+            values = (cmd.text or "").split()
+            if action == "toggle":
+                grid.toggle(channel, x, y, int(cmd.number))
+            elif action == "clear":
+                grid.clear(channel, x, y)
+            elif action == "moveY":
+                grid.move_y(channel, x, y, int(cmd.number))
+            elif action == "set":
+                if len(values) < 2:
+                    return False
+                grid.set(channel, x, y, int(float(values[0])), float(values[1]))
+            elif action == "setFrom":
+                # CursorClipImpl.setStep (NotePosition, IStepInfo): the note, then its values
+                # (Bitwig extension: 100 ms later; here at once, clip.py)
+                if len(values) < 24:
+                    return False
+                note = grid.set(channel, x, y, int(float(values[4]) * 127), float(values[3]))
+                if note is not None:
+                    for attribute, index in (("velocity", 4), ("gain", 11), ("pan", 9), ("pressure", 7), ("releaseVelocity", 6), ("timbre", 8), ("transpose", 10)):
+                        set_attribute(note, attribute, float(values[index]))
+            elif action == "update":
+                if len(values) < 24:
+                    return False
+                note = grid.note(channel, x, y)
+                if note is not None:
+                    update_from_wire(note, values)
+            elif action in ATTRIBUTES:
+                note = grid.note(channel, x, y)
+                if note is not None:
+                    set_attribute(note, action, cmd.number)
+            else:
+                return False
+        else:
+            return False
+        return True
+
+    def _quantize(self, cmd: Command) -> bool:
+        """``quantize <amount>``: ``cursorClip.quantize`` if 0 < amount <= 1 (the note starts move
+        towards the steps of 1/16 by the amount; Bitwig's grid of the quantization is not
+        simulated)."""
+        clip = self.daw.cursor_clip
+        amount = cmd.number
+        if clip is not None and 0 < amount <= 1:
+            for note in clip.notes:
+                target = round(note.start / 0.25) * 0.25
+                note.start += (target - note.start) * amount
+        return True
+
     # The clip launcher navigator
 
     def _navigator(self, cmd: Command) -> bool:
@@ -373,19 +585,173 @@ class CommandHandler:
     # Devices
 
     def _device(self, cmd: Command) -> bool:
-        """``device|primary parameterPage <page>``: show the page in the DAW (CommandHandler.
-        handleDevice / handleSpecific: ``selectedPageIndex.set``, clamped);
-        ``param/<index>/…`` (parameter_command). The other device commands come with step 4
-        (PYTHON_HOST_PLAN.md §5)."""
-        device = self.daw.cursor_device if cmd.processor == "device" else self.daw.primary_device
+        """``device …``: the cursor device (CommandHandler.handleDevice of the Bitwig extension;
+        device positions are 1-based): ``+``, ``-`` (selectNext / selectPrevious), ``page/+``,
+        ``page/-`` (the sibling window), ``selected <n>`` (select the n-th sibling),
+        ``parameterPage``, ``window``, ``pinned``, ``expand``, the commands of the device itself
+        (``own_device_command``), ``preset`` (ignored), ``param/<n>/…``, ``layer/<n>/…`` (the
+        layers of the cursor device, ``numDeviceLayers``), ``sibling/<n>/…``,
+        ``<position>/bypass|remove|duplicate|movePrev|moveNext``."""
+        daw = self.daw
+        device = daw.cursor_device
+        chain = daw.cursor_device_chain
+        c = cmd.command
         parts = cmd.parts
-        if cmd.command == "parameterPage":
+        if c in ("+", "-"):
+            if device is not None and chain is not None:
+                chain.select(device)
+                chain.select_neighbour(1 if c == "+" else -1)
+                if daw.cursor.device_pinned:
+                    daw.cursor.pinned_device = chain.selected
+        elif c in ("page/+", "page/-"):
+            if chain is not None:
+                chain.scroll_siblings(1 if c == "page/+" else -1, NUM_SIBLINGS)
+        elif c == "selected":
+            index = int(cmd.number) - 1
+            if chain is not None and 0 <= index < NUM_SIBLINGS and chain.sibling_offset + index < len(chain.devices):
+                chain.select_index(chain.sibling_offset + index)
+        elif c == "parameterPage":
+            pages = device.page_names(cursor=True) if device is not None else []
+            if pages:
+                device.select_page(max(0, min(int(cmd.number), len(pages) - 1)), cursor=True)
+        elif c in ("window", "expand"):
+            if device is not None:
+                setattr(device, "window_open" if c == "window" else "expanded", cmd.flag)
+        elif c == "pinned":
+            daw.set_cursor_device_pinned(cmd.flag)
+        elif c == "preset":
+            pass  # Reaper's preset browser; Bitwig reports its own browser
+        elif self.own_device_command(device, c):
+            pass
+        elif len(parts) == 3 and parts[0] == "param":
+            return self.parameter_command(device, parts, cmd, cursor=True)
+        elif len(parts) == 3 and parts[0] == "layer":
+            return self.layer_command(device, parts, cmd, 0, self.num_device_layers())
+        elif len(parts) == 3 and parts[0] == "sibling":
+            index = parse_index(parts[1]) - 1
+            if not 0 <= index < NUM_SIBLINGS or parts[2] not in OWN_DEVICE_COMMANDS:
+                return False
+            position = (chain.sibling_offset if chain is not None else 0) + index
+            sibling = chain.devices[position] if chain is not None and position < len(chain.devices) else None
+            return self.own_device_command(sibling, parts[2])
+        elif len(parts) == 2 and parts[1] in ("movePrev", "moveNext"):
+            self.move_cursor_device(-1 if parts[1] == "movePrev" else 1)
+        elif len(parts) == 2 and parts[1] in ("bypass", "remove", "duplicate"):
+            position = parse_index(parts[0]) - 1
+            sibling = self.find_sibling(position)
+            if sibling is None:
+                return False
+            if parts[1] == "bypass":
+                # As Reaper's DeviceProcessor: the value is the new bypass state
+                sibling.enabled = cmd.number <= 0
+            elif parts[1] == "remove":
+                chain.remove(sibling)
+            else:
+                chain.duplicate(sibling)
+        else:
+            return False
+        return True
+
+    def find_sibling(self, position: int):
+        """CommandHandler.findSibling: the device of the chain position among the siblings of the
+        window, None if it is not there."""
+        chain = self.daw.cursor_device_chain
+        if chain is None or position < 0:
+            return None
+        if chain.sibling_offset <= position < chain.sibling_offset + NUM_SIBLINGS and position < len(chain.devices):
+            return chain.devices[position]
+        return None
+
+    def move_cursor_device(self, direction: int) -> None:
+        """CommandHandler.moveCursorDevice (CursorDeviceImpl.swapWithPrevious / swapWithNext):
+        swap the cursor device with its neighbour and select the neighbour."""
+        device = self.daw.cursor_device
+        chain = self.daw.cursor_device_chain
+        if device is None or chain is None:
+            return
+        index = chain.devices.index(device)
+        other = index + direction
+        if 0 <= other < len(chain.devices):
+            neighbour = chain.devices[other]
+            chain.devices[index], chain.devices[other] = neighbour, device
+            chain.select(neighbour)
+
+    def num_device_layers(self) -> int:
+        return max(0, int(self.banks.setup.get("numDeviceLayers", 8)))
+
+    def _specific(self, cmd: Command) -> bool:
+        """``primary …`` (the first instrument of the cursor track, if the controller asks for
+        it in ``deviceIds``) and ``drum …`` (its first Drum Machine, unless ``wantsDrumDevice``
+        is false), as CommandHandler.handleSpecific: ``clearMute``, ``clearSolo``, ``indicate``
+        (of the drum pads), ``window``, ``expand``, the commands of the device itself,
+        ``parameterPage`` and ``param/<n>/…`` (only the first instrument has pages),
+        ``pad/<n>/…`` (128 pads), ``layer/<n>/…`` (32 layers of the first instrument)."""
+        if cmd.processor == "primary":
+            if not self.wants_device("FIRST_INSTRUMENT"):
+                return True  # Bitwig extension: no device, the command is dropped
+            device, num_layers, has_pages = self.daw.primary_device, NUM_LAYERS, True
+        else:
+            if not bool(self.banks.setup.get("wantsDrumDevice", True)):
+                return True
+            device, num_layers, has_pages = self.daw.drum_device, 0, False
+        c = cmd.command
+        parts = cmd.parts
+        if c == "clearMute":
+            if device is not None:
+                device.clear_muted_pads()
+        elif c == "clearSolo":
+            if device is not None:
+                device.clear_soloed_pads()
+        elif c == "indicate":
+            if device is not None:
+                device.drum_pad_indication = cmd.flag
+        elif c in ("window", "expand"):
+            if device is not None:
+                setattr(device, "window_open" if c == "window" else "expanded", cmd.flag)
+        elif self.own_device_command(device, c):
+            pass
+        elif c == "parameterPage":
+            if not has_pages:
+                return False
             if device is not None and device.pages:
                 device.select_page(max(0, min(int(cmd.number), len(device.pages) - 1)))
-            return True
-        if len(parts) == 3 and parts[0] == "param":
+        elif len(parts) == 3 and parts[0] == "param":
+            if not has_pages:
+                return True  # No page cursors: an index beyond them is ignored
             return self.parameter_command(device, parts, cmd)
-        return False
+        elif len(parts) >= 3 and parts[0] in ("pad", "layer"):
+            # As handleSpecific (split ("/", 3)): the rest is a channel command, e.g. solo/toggle
+            return self.layer_command(device, parts, cmd, NUM_DRUM_PADS, num_layers)
+        else:
+            return False
+        return True
+
+    def layer_command(self, device, parts: list[str], cmd: Command, num_pads: int, num_layers: int) -> bool:
+        """``pad/<n>/<command>``, ``layer/<n>/<command>``: the channel commands on a drum pad or
+        layer (CommandHandler.handleSpecific); ``select`` selects in the editor. Unknown beyond
+        the bank sizes; nothing happens to an item without a device."""
+        index = parse_index(parts[1])
+        size = num_pads if parts[0] == "pad" else num_layers
+        if not 0 <= index < size:
+            return False
+        if device is None:
+            items = []
+        elif parts[0] == "pad":
+            items = device.drum_pads or []
+        else:
+            items = device.layer_list()
+        item = items[index] if index < len(items) else None
+        sub = parts[2:]
+        command = sub[0]
+        if command not in ("select", "mute", "solo", "active", "color", "volume", "pan"):
+            return False
+        if item is None or not item.exists:
+            return True
+        if command == "select":
+            if cmd.flag:
+                item.select()
+            return True
+        return self.channel_command(item, sub, cmd)
 
     def wants_device(self, device_id: str) -> bool:
         """The controller asks for the specific device (``deviceIds`` of the model setup)."""
@@ -396,11 +762,11 @@ class CommandHandler:
         ``window/toggle``, ``expand/toggle``, ``parameters/toggle``, ``bypass`` (a toggle),
         ``remove``, ``duplicate``, ``select``; False if unknown. Nothing happens without the
         device (Bitwig ignores the commands of a device which does not exist)."""
-        if command not in ("window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select"):
+        if command not in OWN_DEVICE_COMMANDS:
             return False
         if device is None:
             return True
-        chain = next((channel.devices for channel in self.daw.all_channels() if device in channel.devices.devices), None)
+        chain = self.daw.device_chain_of(device)
         if command == "window/toggle":
             device.window_open = not device.window_open
         elif command == "expand/toggle":
@@ -462,7 +828,7 @@ class CommandHandler:
             return False
         return True
 
-    def parameter_command(self, device, parts: list[str], cmd: Command) -> bool:
+    def parameter_command(self, device, parts: list[str], cmd: Command, cursor: bool = False) -> bool:
         """``param/<index>/value|touch|indicate`` on the flat parameter list of the page cursors
         (CommandHandler.handleParameter): an index beyond the ``numParamPages`` page cursors or of
         a page the device does not have is ignored."""
@@ -470,7 +836,7 @@ class CommandHandler:
         if parts[2] not in ("value", "touch", "indicate"):
             return False
         num_pages = max(0, int(self.banks.setup.get("numParamPages", 8)))
-        parameter = device.parameter(index, self.daw.preferences) if device is not None and 0 <= index < num_pages * PARAMS_PER_PAGE else None
+        parameter = device.parameter(index, self.daw.preferences, cursor) if device is not None and 0 <= index < num_pages * PARAMS_PER_PAGE else None
         if parameter is not None:
             self.value_command(parameter, [] if parts[2] == "value" else [parts[2]], cmd)
         return True

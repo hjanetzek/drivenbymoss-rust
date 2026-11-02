@@ -5,14 +5,17 @@
 request, ``/host/features``.
 
 Implements HOST_BRIDGE_GUIDE.md §2 (the reporting protocol: lines and values, change-only
-reporting and dumps, the host features) with the addresses of §3.1 (transport), §3.3 (tracks,
-sends, effect tracks, master), §3.4 (scenes, slots) and §3.5 (the cursor device and the first
-instrument: name, state, siblings, remote-control pages; the EQ+), the note repeat.
+reporting and dumps, the host features) with the addresses of §3.1 (transport, application,
+arranger, mixer), §3.3 (tracks, sends, effect tracks, master, the playing notes of the cursor
+track), §3.4 (scenes, slots), the markers, §3.5 (the cursor device, its siblings, remote
+controls and layers; the drum machine and the first instrument with their pads and layers; the
+EQ+), §3.6 (the cursor clip and its step grids), the note repeat.
 
 Simulates the Bitwig extension of this repository: ``ModelReporter`` (the change tracking) and
 ``BitwigModel.collect`` (collectTransport, collectTracks, collectSlots, collectEffectTracks,
-collectScenes, collectMaster, collectDevice, ``SpecificDevice.collect``, collectNoteRepeat,
-``EqualizerDevice.collect``), which follow the Java ``TransportImpl``, ``TrackImpl``,
+collectMarkers, collectScenes, collectMaster, collectDevice, ``SpecificDevice.collect`` (the layers of the cursor
+device, the drum machine, the first instrument), collectNoteRepeat,
+``EqualizerDevice.collect``, ``BitwigNoteClip.collectClip``, ``collectGrid``), which follow the Java ``TransportImpl``, ``TrackImpl``,
 ``ChannelImpl``, ``SendImpl``, ``SlotImpl``, ``SceneImpl`` of DrivenByMoss for Bitwig.
 
 Differences from the Bitwig extension:
@@ -22,10 +25,8 @@ Differences from the Bitwig extension:
 - The selection is reported after the tracks: the old track ``select 0`` within the list, the
   selected one ``select 1`` after ``/track/count`` (HOST_BRIDGE_GUIDE.md §2: deselect, then
   select, in one batch).
-- Not reported yet (later steps): the application (except undo/redo), arranger, mixer and
-  project flags, the crossfader, groove, device parameters (the pages are reported, their
-  parameters do not exist), layers, drum pads (``hasDrumPads`` and ``hasLayers`` are 0),
-  the drum machine, the clip and its step grids, markers, the browser, playing notes. They are added as collectors (``Reporter.collectors``).
+- Not reported yet (later steps): the application (except undo/redo and the panel layout), the
+  project flags, the crossfader, groove, the sends of layers and pads, the browser. They are added as collectors (``Reporter.collectors``).
 """
 
 from typing import Callable
@@ -41,9 +42,13 @@ LIMITS = (6, 8)
 # The delay before the values of a commanded item are reported again (CommandHandler.reportAgain)
 REPORT_AGAIN_DELAY_MS = 300
 
-# BitwigModel: the sibling window of the cursor device, the parameters of a page
+# BitwigModel: the sibling window of the cursor device, the parameters of a page, the pads and
+# layers of the specific devices
 NUM_SIBLINGS = 8
 PARAMS_PER_PAGE = 8
+NUM_DRUM_PADS = 128
+NUM_LAYERS = 32
+NUM_MARKERS = 100
 
 
 def format_beats(beats: float, quarters_per_measure: int, offset: int) -> str:
@@ -105,17 +110,27 @@ class Reporter:
         self.dump_all = True
         self.pending: dict[str, float] = {}
         self._last_selected: int = -1
+        self._last_cursor: int = -1
+        self.note_grids: list = []
+        """The step grids of the cursor clip (``clip.NoteGrid``, from the model setup's
+        ``noteClips``; set by ``CommandHandler.configure``)."""
+        self._grid_steps: dict[str, set[str]] = {}
         self.collectors: list[Callable[["Reporter"], None]] = [
             Reporter.collect_host_features,
             Reporter.collect_transport,
             Reporter.collect_tracks,
             Reporter.collect_effect_tracks,
+            Reporter.collect_markers,
             Reporter.collect_scenes,
             Reporter.collect_master,
             Reporter.collect_device,
+            Reporter.collect_device_layers,
             Reporter.collect_note_repeat,
+            Reporter.collect_drum,
             Reporter.collect_primary,
             Reporter.collect_eq,
+            Reporter.collect_clip,
+            Reporter.collect_grids,
         ]
 
     # Change tracking (ModelReporter)
@@ -216,6 +231,23 @@ class Reporter:
         self.put("/fill", t.fill)
         self.put("/project/canUndo", self.daw.application.can_undo)
         self.put("/project/canRedo", self.daw.application.can_redo)
+        self.collect_application()
+
+    def collect_application(self) -> None:
+        """BitwigModel.collectApplication (the simulated part): the panel layout, the visibility
+        flags of the arranger and the mixer."""
+        daw = self.daw
+        self.put("/layout", daw.application.panel_layout)
+        self.put("/followPlayback", daw.arranger.playback_follow)
+        arranger, mixer = daw.arranger, daw.mixer
+        for name, value in (("cueMarkers", arranger.cue_markers), ("doubleRowTrackHeight", arranger.double_row_track_height),
+                            ("clipLauncher", arranger.clip_launcher), ("timeline", arranger.timeline), ("ioSection", arranger.io_section),
+                            ("effectTracks", arranger.effect_tracks)):
+            self.put("/arranger/" + name, value)
+        for name, value in (("clipLauncherSection", mixer.clip_launcher_section), ("crossFadeSection", mixer.cross_fade_section),
+                            ("deviceSection", mixer.device_section), ("ioSection", mixer.io_section), ("meterSection", mixer.meter_section),
+                            ("sendSection", mixer.send_section)):
+            self.put("/mixer/" + name, value)
 
     def track_list(self) -> list[Channel]:
         return self.daw.track_list(self.banks.full_flat_track_list)
@@ -295,6 +327,14 @@ class Reporter:
         self.put("/track/count", len(tracks))
         if selected >= 0:
             self.put(f"/track/{selected}/select", True)
+        # The notes which play on the cursor track, in the note format of the core; the core
+        # keeps one note cache: the notes of a new cursor track are reported again
+        if cursor != self._last_cursor:
+            self._last_cursor = cursor
+            self.forget(f"/track/{cursor}/playingnotes")
+        if cursor >= 0:
+            notes = getattr(tracks[cursor], "playing_notes", {})
+            self.put(f"/track/{cursor}/playingnotes", ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in notes.items()))
 
     def collect_slot(self, prefix: str, slot) -> None:
         self.put(prefix + "exists", slot is not None)
@@ -318,6 +358,24 @@ class Reporter:
             self.collect_channel(prefix, track)
             self.collect_sends(prefix, track, with_color=False)
         self.put("/fxtrack/count", len(self.daw.effect_tracks))
+
+    def collect_markers(self) -> None:
+        """BitwigModel.collectMarkers (if the model setup has ``numMarkers`` > 0): the markers of
+        the bank of 100 with their absolute positions, the position in beats."""
+        if int(self.banks.setup.get("numMarkers", 0)) <= 0:
+            return
+        markers = self.daw.markers.items
+        for index in range(NUM_MARKERS):
+            marker = markers[index] if index < len(markers) else None
+            prefix = f"/marker/{index}/"
+            self.put(prefix + "exists", marker is not None)
+            if marker is None:
+                continue
+            self.put(prefix + "number", index)
+            self.put(prefix + "name", marker.name)
+            self.put(prefix + "color", marker.color)
+            self.put(prefix + "position", float(marker.position))
+        self.put("/marker/count", min(len(markers), NUM_MARKERS))
 
     def collect_scenes(self) -> None:
         """BitwigModel.collectScenes, for all scenes."""
@@ -357,72 +415,178 @@ class Reporter:
     def num_param_pages(self) -> int:
         return max(0, int(self.banks.setup.get("numParamPages", 8)))
 
-    def collect_pages(self, prefix: str, device) -> None:
+    def collect_pages(self, prefix: str, device, cursor: bool = False) -> None:
         """BitwigModel.collectPages and the page names: the parameters of the first
         ``numParamPages`` pages as one flat list, the page names, the selected page. The
-        simulated parameters have no names and texts yet (device.py); the value of a parameter
-        which a command set is reported."""
+        simulated parameters have no names and texts (device.py); the value of a parameter
+        which a command set is reported. ``cursor``: the pages as the cursor device shows
+        them."""
         num_pages = self.num_param_pages()
-        pages = device.pages if device is not None else []
+        pages = device.page_names(cursor) if device is not None else []
         used = min(len(pages), num_pages)
         for index in range(num_pages * PARAMS_PER_PAGE):
             param = f"{prefix}/param/{index}/"
-            parameter = device.parameters.get(index) if device is not None and index < used * PARAMS_PER_PAGE else None
-            self.put(param + "name", "")
-            self.put(param + "value", parameter.value if parameter is not None else 0)
-            self.put_displayed(param + "value/str", "", ["", ""])
+            in_use = device is not None and index < used * PARAMS_PER_PAGE
+            control = device.remote_control(index) if in_use and device.remote_controls else None
+            if control is not None:
+                parameter = control.parameter
+                self.put(param + "name", control.name)
+                self.put(param + "value", parameter.value)
+                self.put_parameter_text(param + "value/str", parameter)
+            else:
+                parameter = device.parameters.get(index) if in_use and not device.remote_controls else None
+                self.put(param + "name", "")
+                self.put(param + "value", parameter.value if parameter is not None else 0)
+                self.put_displayed(param + "value/str", "", ["", ""])
             self.put(param + "steps", -1)
-            self.put(param + "modulated", 0)
+            self.put(param + "modulated", parameter.value if parameter is not None else 0)
         self.put(prefix + "/param/count", used * PARAMS_PER_PAGE)
         for index in range(used):
             self.put(f"{prefix}/page/{index}/name", pages[index])
         self.put(prefix + "/page/count", used)
-        self.put(prefix + "/page/selected", device.selected_page if device is not None else 0)
+        self.put(prefix + "/page/selected", device.selected_page if device is not None else -1)
 
     def collect_device(self) -> None:
-        """BitwigModel.collectDevice (and the device part of the cursor device's
-        SpecificDevice): the cursor device of the cursor track."""
-        channel = self.daw.cursor_channel
-        chain = channel.devices.devices if channel is not None else []
+        """BitwigModel.collectDevice: the cursor device of the cursor track, its siblings (the
+        window at ``DeviceChain.sibling_offset``) and pages."""
+        chain = self.daw.cursor_device_chain
+        devices = chain.devices if chain is not None else []
         device = self.daw.cursor_device
         exists = device is not None
-        position = chain.index(device) if exists else -1
-        self.put("/device/count", len(chain))
+        position = devices.index(device) if exists else -1
+        self.put("/device/count", len(devices))
         self.put("/device/exists", exists)
         self.put("/device/position", position)
         self.put("/device/name", device.name if exists else "")
         self.put("/device/bypass", exists and not device.enabled)
         self.put("/device/window", exists and device.window_open)
-        self.put("/device/pinned", False)
+        self.put("/device/pinned", self.daw.cursor.device_pinned)
         self.put("/device/expand", exists and device.expanded)
-        self.put("/device/parameters", exists)
-        self.put("/device/hasDrumPads", False)
-        self.put("/device/hasLayers", False)
+        offset = chain.sibling_offset if chain is not None else 0
         for index in range(NUM_SIBLINGS):
-            sibling = chain[index] if index < len(chain) else None
+            sibling_position = offset + index
+            sibling = devices[sibling_position] if sibling_position < len(devices) else None
             prefix = f"/device/sibling/{index + 1}/"
             self.put(prefix + "name", sibling.name if sibling is not None else "")
             self.put(prefix + "bypass", sibling is not None and not sibling.enabled)
-            self.put(prefix + "position", index if sibling is not None else -1)
-            self.put(prefix + "selected", sibling is not None and index == position)
-        self.collect_pages("/device", device)
+            self.put(prefix + "position", sibling_position if sibling is not None else -1)
+            self.put(prefix + "selected", sibling is not None and sibling_position == position)
+        self.collect_pages("/device", device, cursor=True)
+
+    def num_device_layers(self) -> int:
+        return max(0, int(self.banks.setup.get("numDeviceLayers", 8)))
+
+    def collect_specific(self, prefix: str, device, num_pads: int, num_layers: int, pages: bool, cursor: bool = False) -> None:
+        """SpecificDevice.collect of the Bitwig extension: the device, its pages (``pages``),
+        ``num_pads`` drum pads and ``num_layers`` layers (as the bank sizes of the Bitwig
+        extension, all items reported)."""
+        exists = device is not None
+        self.put(prefix + "/exists", exists)
+        self.put(prefix + "/name", device.name if exists else "")
+        self.put(prefix + "/bypass", exists and not device.enabled)
+        self.put(prefix + "/window", exists and device.window_open)
+        self.put(prefix + "/expand", exists and device.expanded)
+        self.put(prefix + "/parameters", exists and device.parameters_visible)
+        self.put(prefix + "/hasDrumPads", exists and device.has_drum_pads)
+        self.put(prefix + "/hasLayers", exists and device.has_layers)
+        if pages:
+            self.collect_pages(prefix, device, cursor)
+        if num_pads > 0:
+            self.put(prefix + "/hasMutedPads", exists and device.has_muted_pads)
+            self.put(prefix + "/hasSoloedPads", exists and device.has_soloed_pads)
+            pads = device.drum_pads if exists and device.drum_pads is not None else []
+            for index in range(num_pads):
+                self.collect_layer(f"{prefix}/pad/{index}/", pads[index] if index < len(pads) else None)
+        if num_layers <= 0:
+            return
+        layers = device.layer_list() if exists else []
+        self.put(prefix + "/layer/count", min(len(layers), num_layers))
+        for index in range(num_layers):
+            self.collect_layer(f"{prefix}/layer/{index}/", layers[index] if index < len(layers) else None)
+
+    def collect_layer(self, prefix: str, layer) -> None:
+        """SpecificDevice.collectItem: an empty item has the values of an empty Bitwig channel
+        (layer.py)."""
+        exists = layer is not None and layer.exists
+        self.put(prefix + "exists", exists)
+        self.put(prefix + "select", exists and layer.selected)
+        self.put(prefix + "name", layer.name if exists else "")
+        self.put(prefix + "color", layer.color if exists else (0, 0, 0))
+        self.put(prefix + "mute", exists and layer.mute)
+        self.put(prefix + "solo", exists and layer.solo)
+        self.put(prefix + "active", layer.activated if exists else True)
+        self.put(prefix + "volume", layer.volume.value if exists else 0.0)
+        self.put(prefix + "volume/str", layer.volume.displayed() if exists else "")
+        self.put(prefix + "pan", layer.pan.value if exists else 0.0)
+        self.put(prefix + "pan/str", layer.pan.displayed() if exists else "")
+
+    def collect_device_layers(self) -> None:
+        """``cursorDeviceLayers.collect``: the layers of the cursor device (``numDeviceLayers``),
+        no pads, no pages."""
+        self.collect_specific("/device", self.daw.cursor_device, 0, self.num_device_layers(), pages=False)
+
+    def collect_drum(self) -> None:
+        """The first Drum Machine of the cursor track (``drumDevice``, if the model setup does not
+        say ``wantsDrumDevice`` false): 128 pads, no layers, no pages."""
+        if not bool(self.banks.setup.get("wantsDrumDevice", True)):
+            return
+        self.collect_specific("/drum", self.daw.drum_device, NUM_DRUM_PADS, 0, pages=False)
 
     def collect_primary(self) -> None:
-        """SpecificDevice.collect for ``/primary`` (the first instrument of the cursor track), if
-        the controller asks for it (``deviceIds``)."""
+        """SpecificDevice.collect for ``/primary`` (the first instrument of the cursor track: its
+        pages, 128 pads, 32 layers), if the controller asks for it (``deviceIds``)."""
         if "FIRST_INSTRUMENT" not in self.banks.setup.get("deviceIds", []):
             return
-        device = self.daw.primary_device
-        exists = device is not None
-        self.put("/primary/exists", exists)
-        self.put("/primary/name", device.name if exists else "")
-        self.put("/primary/bypass", exists and not device.enabled)
-        self.put("/primary/window", exists and device.window_open)
-        self.put("/primary/expand", exists and device.expanded)
-        self.put("/primary/parameters", exists)
-        self.put("/primary/hasDrumPads", False)
-        self.put("/primary/hasLayers", False)
-        self.collect_pages("/primary", device)
+        self.collect_specific("/primary", self.daw.primary_device, NUM_DRUM_PADS, NUM_LAYERS, pages=True)
+
+    # The cursor clip (BitwigNoteClip)
+
+    def collect_clip(self) -> None:
+        """BitwigNoteClip.collectClip: the properties of the cursor clip (a clip which does not
+        exist: 0 / off, start and loop start unchanged, as Bitwig reported it, clip.py)."""
+        daw = self.daw
+        slot = daw.cursor_clip_slot
+        clip = daw.cursor_clip
+        exists = clip is not None
+        self.put("/clip/exists", exists)
+        if exists:
+            self.put("/clip/start", float(clip.play_start))
+        self.put("/clip/end", float(clip.play_stop) if exists else 0.0)
+        self.put("/clip/loop", exists and clip.loop)
+        if exists:
+            self.put("/clip/loopStart", float(clip.loop_start))
+        self.put("/clip/loopLength", float(clip.loop_length) if exists else 0.0)
+        self.put("/clip/shuffle", exists and clip.shuffle)
+        self.put("/clip/accent", clip.accent.value if exists else 0.0)
+        self.put("/clip/pinned", daw.cursor.clip_pinned)
+        self.put("/clip/color", slot.clip_color if exists else (0, 0, 0))
+
+    def playing_step(self, grid) -> int:
+        """The step of the play position of the cursor clip in the grid, -1 if it does not play
+        (clip.py)."""
+        slot = self.daw.cursor_clip_slot
+        clip = slot.clip if slot is not None else None
+        if clip is None or not slot.playing or grid.step_size <= 0:
+            return -1
+        position = clip.play_start + max(0.0, self.daw.transport.position - slot.play_start_beat)
+        loop_end = clip.loop_start + clip.loop_length
+        if clip.loop and clip.loop_length > 0 and position >= loop_end:
+            position = clip.loop_start + (position - loop_end) % clip.loop_length
+        return int(position // grid.step_size) - grid.scroll
+
+    def collect_grids(self) -> None:
+        """BitwigNoteClip.collectGrid: per grid the playing step and the steps which are not
+        empty; a step which became empty is reported once as ``0``."""
+        for grid in self.note_grids:
+            prefix = f"/clip/grid/{grid.id}/"
+            self.put(prefix + "playingStep", self.playing_step(grid))
+            current = {f"{prefix}step/{channel}/{x}/{y}": line for (channel, x, y), line in grid.steps().items()}
+            for address, line in current.items():
+                self.put(address, line)
+            reported = self._grid_steps.get(grid.id, set())
+            for address in sorted(reported - set(current)):
+                self.put(address, "0")
+            self._grid_steps[grid.id] = set(current)
 
     def collect_eq(self) -> None:
         """EqualizerDevice.collect of the Bitwig extension: the first EQ+ of the cursor track in

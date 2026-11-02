@@ -17,10 +17,25 @@ instrument of the cursor track), ``DeviceBankImpl`` (the siblings), ``ParameterP
 
 Simplifications (each a deliberate choice, not a fit to a scenario):
 
-- A device has page names; its parameters are created when a command uses them (value 0, no
-  name, no displayed text: the fixture does not describe them yet, step 4 of
-  PYTHON_HOST_PLAN.md §5 adds them, with layers and drum pads). The pages are reported with
-  parameters without names.
+- A device has page names and remote controls (``RemoteControl``: the name of the slot and its
+  parameter; a slot without a parameter is empty). The same parameter can be on several pages
+  (the EQ+ bands are the parameters of ``Equalizer``). A device without remote controls (no
+  fixture data) creates its parameters when a command uses them (value 0, no name, no
+  displayed text).
+- The cursor device may show fewer pages than the device has (``Device.cursor_pages``): Bitwig
+  showed only the page "Perform" of the fixture's Drum Machine as the cursor device
+  (``/device/page/count 1``), but "Perform" and "Default" as the first instrument
+  (``/primary/page/count 2``), in all recordings (tests/conformance/*/replay/*-rust.rec, the
+  model lines after the fresh project) and all Java traces (``osc:/device/page/2/exists 0``,
+  ``osc:/primary/page/2/exists 1`` while the Drum Machine is selected). Bitwig does not say why.
+- The layers (an Instrument Layer) and drum pads (a Drum Machine) are ``layer.Layer`` objects;
+  the layers of a Drum Machine are its pads with a device (see layer.py).
+- ``selectNext`` / ``selectPrevious`` move in the device chain of the track and stop at its
+  ends; they do not enter nested chains (the Polysynths in the layers of the fixture's
+  Instrument Layer: neither Bitwig nor the OSC observer reported a change,
+  ``flexi.device.next-previous-device`` of generic_flexi-device).
+- The pinned cursor device stays on its device when the selection changes; the cursor track is
+  not pinned with it.
 - Every track remembers its selected device (Bitwig does); a new track selects its first device.
 - Each device remembers its selected page (Bitwig does); selecting a page out of the range is
   ignored.
@@ -34,6 +49,7 @@ import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 
+from .layer import FIRST_KIT_PAD, NUM_DRUM_PADS, Layer, empty_pad
 from .parameter import Parameter, Preferences, format_three_digits
 
 # The parameters of a remote-control page (BitwigModel.PARAMS_PER_PAGE)
@@ -131,6 +147,15 @@ class Equalizer:
         self.types[band] = EQ_TYPES[EQ_REAPER_TYPES.index(reaper_type)]
         return True
 
+@dataclass
+class RemoteControl:
+    """A slot of a remote-control page (Bitwig ``RemoteControl``): its own name and the parameter
+    of the device it controls."""
+
+    name: str
+    parameter: Parameter
+
+
 INSTRUMENT = "instrument"
 AUDIO_FX = "audio_fx"
 NOTE_FX = "note_fx"
@@ -154,31 +179,111 @@ class Device:
     equalizer: "Equalizer | None" = None
     """The bands of an EQ+ (None for other devices)."""
     parameters: dict[int, Parameter] = field(default_factory=dict)
-    """The remote-control parameters which a command used, by their index in the flat list of
-    the pages (page * PARAMS_PER_PAGE + index)."""
+    """Without remote controls: the parameters which a command used, by their index in the flat
+    list of the pages (page * PARAMS_PER_PAGE + index)."""
+    remote_controls: list[RemoteControl | None] = field(default_factory=list)
+    """The slots of all pages as one flat list (page * PARAMS_PER_PAGE + index); None for an
+    empty slot."""
+    cursor_pages: list[str] | None = None
+    """The page names as the cursor device shows them, if they differ from ``pages`` (see the
+    module docstring)."""
+    layers: list[Layer] = field(default_factory=list)
+    """The layers of a layered device (an Instrument Layer); see ``layer_list`` for a Drum
+    Machine."""
+    drum_pads: list[Layer] | None = None
+    """The 128 pads of a Drum Machine (index = note), None for other devices."""
+    drum_pad_indication: bool = False
+    """``drumPadBank.setIndication``."""
 
-    def parameter(self, index: int, preferences: Preferences) -> Parameter | None:
+    def page_names(self, cursor: bool = False) -> list[str]:
+        """The page names; as the cursor device shows them with ``cursor``."""
+        return self.cursor_pages if cursor and self.cursor_pages is not None else self.pages
+
+    def parameter(self, index: int, preferences: Preferences, cursor: bool = False) -> Parameter | None:
         """The parameter of the flat index (``page * 8 + n``), None if its page does not exist
         (Bitwig: a parameter of a page cursor without a page, which ignores the commands)."""
-        if not 0 <= index < len(self.pages) * PARAMS_PER_PAGE:
+        if not 0 <= index < len(self.page_names(cursor)) * PARAMS_PER_PAGE:
             return None
+        if self.remote_controls:
+            control = self.remote_control(index)
+            return control.parameter if control is not None else None
         if index not in self.parameters:
             self.parameters[index] = Parameter(preferences, 0.0, name="")
         return self.parameters[index]
 
-    def select_page(self, index: int) -> None:
+    def remote_control(self, index: int) -> RemoteControl | None:
+        """The slot of the flat index, None if it is empty or does not exist."""
+        return self.remote_controls[index] if 0 <= index < len(self.remote_controls) else None
+
+    def select_page(self, index: int, cursor: bool = False) -> None:
         """``selectedPageIndex.set``: ignored out of the range."""
-        if 0 <= index < len(self.pages):
+        if 0 <= index < len(self.page_names(cursor)):
             self.selected_page = index
 
+    def selected_page_name(self, cursor: bool = False) -> str:
+        pages = self.page_names(cursor)
+        return pages[self.selected_page] if 0 <= self.selected_page < len(pages) else ""
+
+    # Layers and drum pads (LayerBankImpl, DrumPadBankImpl)
+
     @property
-    def selected_page_name(self) -> str:
-        return self.pages[self.selected_page] if 0 <= self.selected_page < len(self.pages) else ""
+    def has_drum_pads(self) -> bool:
+        return self.drum_pads is not None
+
+    @property
+    def has_layers(self) -> bool:
+        """A Drum Machine and an Instrument Layer have layers (Bitwig ``hasLayers``)."""
+        return self.has_drum_pads or bool(self.layers)
+
+    def layer_list(self) -> list[Layer]:
+        """The layers: the pads with a device of a Drum Machine, else ``layers``."""
+        if self.drum_pads is not None:
+            return [pad for pad in self.drum_pads if pad.exists]
+        return list(self.layers)
+
+    def add_layer(self, layer: Layer) -> Layer:
+        layer.device = self
+        self.layers.append(layer)
+        return layer
+
+    def make_drum_machine(self, preferences: Preferences, pads: dict[int, Layer]) -> None:
+        """Give the device the 128 pads; ``pads`` are the pads with a device by their note, the
+        others are empty."""
+        self.drum_pads = [pads.get(note) or empty_pad(preferences) for note in range(NUM_DRUM_PADS)]
+        for pad in self.drum_pads:
+            pad.device = self
+
+    def select_layer(self, layer: Layer) -> None:
+        """Select a layer or pad in the editor: the only selected one of the device."""
+        for other in self.layers + (self.drum_pads or []):
+            other.selected = other is layer
+
+    @property
+    def has_muted_pads(self) -> bool:
+        return any(pad.exists and pad.mute for pad in self.drum_pads or [])
+
+    @property
+    def has_soloed_pads(self) -> bool:
+        return any(pad.exists and pad.solo for pad in self.drum_pads or [])
+
+    def clear_muted_pads(self) -> None:
+        for pad in self.drum_pads or []:
+            pad.set_mute(False)
+
+    def clear_soloed_pads(self) -> None:
+        for pad in self.drum_pads or []:
+            pad.set_solo(False)
 
 
 def eq_plus(preferences: Preferences) -> Device:
-    """A new EQ+ with its defaults (``insertBitwigDevice (EQ+)``)."""
-    return Device(EQ_PLUS, AUDIO_FX, list(EQ_PLUS_PAGES), equalizer=Equalizer(preferences))
+    """A new EQ+ with its defaults (``insertBitwigDevice (EQ+)``): the pages Gains, Freqs, Qs
+    control the bands, named ``<band> Gain|Freq|Q`` (as Bitwig named the slots of the fixture's
+    EQ+, ``/device/param/<n>/name`` in tests/conformance/*/replay/*-rust.rec)."""
+    equalizer = Equalizer(preferences)
+    controls = [RemoteControl(f"{band + 1} {kind}", parameters[band])
+                for kind, parameters in (("Gain", equalizer.gains), ("Freq", equalizer.frequencies), ("Q", equalizer.qs))
+                for band in range(EQ_NUM_BANDS)]
+    return Device(EQ_PLUS, AUDIO_FX, list(EQ_PLUS_PAGES), equalizer=equalizer, remote_controls=controls)
 
 
 class DeviceChain:
@@ -187,6 +292,8 @@ class DeviceChain:
     def __init__(self):
         self.devices: list[Device] = []
         self.selected_index = 0
+        self.sibling_offset = 0
+        """The first device of the sibling window (``DeviceBank.scrollPosition``)."""
 
     def add(self, device: Device) -> Device:
         self.devices.append(device)
@@ -207,6 +314,25 @@ class DeviceChain:
             self.selected_index = index
             return True
         return False
+
+    def select_neighbour(self, direction: int) -> None:
+        """``selectPrevious`` (-1) / ``selectNext`` (+1): stops at the ends of the chain (see the
+        module docstring)."""
+        if self.selected is not None:
+            self.select_index(self.selected_index + direction)
+
+    def scroll_siblings(self, direction: int, page_size: int) -> None:
+        """``scrollPageBackwards`` / ``scrollPageForwards`` of the sibling window: a page if
+        there are devices on it."""
+        offset = self.sibling_offset + direction * page_size
+        if 0 <= offset < len(self.devices):
+            self.sibling_offset = offset
+        elif direction < 0:
+            self.sibling_offset = 0
+
+    def first_drum_machine(self) -> Device | None:
+        """The first Drum Machine (the device matcher of BitwigModel.drumDevice)."""
+        return next((device for device in self.devices if device.has_drum_pads), None)
 
     def first_instrument(self) -> Device | None:
         return next((device for device in self.devices if device.kind == INSTRUMENT), None)
@@ -236,5 +362,5 @@ class DeviceChain:
         return self.devices.index(device) if device in self.devices else -1
 
 
-__all__ = ["AUDIO_FX", "Device", "DeviceChain", "EQ_NUM_BANDS", "EQ_PLUS", "EQ_TYPES", "Equalizer", "INSTRUMENT", "NOTE_FX", "PARAMS_PER_PAGE",
-           "eq_plus", "format_eq_frequency", "format_eq_gain", "format_eq_q"]
+__all__ = ["AUDIO_FX", "Device", "DeviceChain", "RemoteControl", "EQ_NUM_BANDS", "EQ_PLUS", "EQ_TYPES", "Equalizer", "FIRST_KIT_PAD", "INSTRUMENT", "NOTE_FX",
+           "PARAMS_PER_PAGE", "eq_plus", "format_eq_frequency", "format_eq_gain", "format_eq_q"]

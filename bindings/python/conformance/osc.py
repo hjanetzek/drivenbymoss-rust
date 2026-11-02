@@ -7,7 +7,8 @@ operations of the simulated DAW.
 In the Bitwig runs these commands go to the OSC controller of the Java DrivenByMoss
 (``conformance_runner.send_osc``, receive port 8000), which executes them on Bitwig. Here each
 address maps to a ``SimDaw`` call, with the semantics of the Java modules
-(``controller/osc/module/TrackModule``, ``TransportModule``, ``DeviceModule``) and the Bitwig
+(``controller/osc/module/TrackModule``, ``TransportModule``, ``DeviceModule``, ``LayoutModule``,
+``ClipModule``) and the Bitwig
 implementation behind them (``bitwig/framework/daw/data/TrackImpl``, ``ChannelImpl``,
 ``TransportImpl``, ``ParameterPageBankImpl``):
 
@@ -18,6 +19,8 @@ implementation behind them (``bitwig/framework/daw/data/TrackImpl``, ``ChannelIm
   (``RangedValueImpl.setValue``: ``set (value, 128)``).
 - ``/track/N/monitor <v>`` always switches the monitoring on, whatever the value
   (``TrackImpl.setMonitor`` ignores it).
+- The device commands act on the observer's cursor device and first instrument, which follow
+  the selection (``OscController.cursor_device``), the layers on its page of 8.
 
 The values are typed as the runner sends them (``osc_monitor.build_message``: an integer, else
 a float, else a string). An address the table does not know raises ``UnknownOscCommand``; the
@@ -83,7 +86,7 @@ def set_value(osc: OscController, parameter, value) -> None:
     before = parameter.value
     parameter.set(to_number(value) / 127.0)
     if parameter.value != before:
-        osc.daw.application.edit()
+        osc.daw.application.edit_value(("value", id(parameter)), lambda v: setattr(parameter, "value", v), before, parameter.value)
 
 
 def set_flag(current: bool, value) -> bool:
@@ -130,7 +133,25 @@ def _tempo(osc, match, value):
     before = t.tempo
     t.set_tempo(to_number(value))
     if t.tempo != before:
-        osc.daw.application.edit()
+        osc.daw.application.edit_value("tempo", t.set_tempo, before, t.tempo)
+
+
+@command(r"/automationWriteMode")
+def _automation_write_mode(osc, match, value):
+    """TransportImpl.setAutomationWriteMode (``AutomationMode.valueOf``): Read and Trim/Read
+    switch the arranger and launcher automation writing off, the others on, Latch Preview is
+    Latch."""
+    if value is None:
+        return
+    mode = str(value).strip().lower()
+    t = osc.daw.transport
+    if mode in ("read", "trim_read"):
+        t.automation_arranger = t.automation_launcher = False
+    elif mode in ("write", "touch", "latch", "latch_preview"):
+        t.automation_arranger = t.automation_launcher = True
+        t.automation_mode = "latch" if mode == "latch_preview" else mode
+    else:
+        raise UnknownOscCommand(f"automation write mode {value}")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -240,17 +261,66 @@ def _master_value(osc, match, value):
 def _device_page(osc, match, value):
     """``page/<n>`` (and ``page/<n>/selected``: the number counts) selects the n-th page of the
     page bank (``ParameterPageBankImpl.selectPage``)."""
-    device = osc.daw.cursor_device if match.group(1) == "device" else osc.daw.primary_device
+    device = osc.cursor_device if match.group(1) == "device" else osc.primary_device
     if device is not None:
-        device.select_page(int(match.group(2)) - 1)
+        device.select_page(int(match.group(2)) - 1, cursor=match.group(1) == "device")
 
 
 @command(r"/(device|primary)/page/(select|selected)")
 def _device_page_value(osc, match, value):
     """``page/selected <n>``: the 1-based page as the value."""
-    device = osc.daw.cursor_device if match.group(1) == "device" else osc.daw.primary_device
+    device = osc.cursor_device if match.group(1) == "device" else osc.primary_device
     if device is not None:
-        device.select_page(int(to_number(value)) - 1)
+        device.select_page(int(to_number(value)) - 1, cursor=match.group(1) == "device")
+
+
+@command(r"/layout/(arrange|mix|edit|play)")
+def _layout(osc, match, value):
+    """LayoutModule: the panel layout."""
+    osc.daw.application.panel_layout = match.group(1).upper()
+
+
+@command(r"/clip/stopall")
+def _clip_stop_all(osc, match, value):
+    """ClipModule ``stopall``: stop the clips of all tracks (``sceneBank.stop``)."""
+    osc.daw.stop_all_clips()
+
+
+@command(r"/(device|primary)/param/([1-9]\d*)/value")
+def _device_parameter(osc, match, value):
+    """``param/<n>/value``: the n-th parameter of the selected page of the observer's parameter
+    bank (DeviceModule.parseDeviceValue, ``IParameterBank.getItem``: the page follows the page
+    selected in the DAW)."""
+    cursor = match.group(1) == "device"
+    device = osc.cursor_device if cursor else osc.primary_device
+    number = int(match.group(2))
+    if device is None or number > 8:
+        return
+    parameter = device.parameter(device.selected_page * 8 + number - 1, osc.daw.preferences, cursor)
+    if parameter is not None:
+        set_value(osc, parameter, value)
+
+
+@command(r"/device/layer/([1-9]\d*)/(select|selected|mute|solo|volume|pan)")
+def _device_layer(osc, match, value):
+    """The layers of the observer's cursor device, page of 8 at offset 0
+    (DeviceModule.parseDeviceLayerValue): ``select`` selects whatever the value, ``mute`` and
+    ``solo`` toggle without a value, volume and panorama are 0..127."""
+    device = osc.cursor_device
+    number = int(match.group(1))
+    layers = device.layer_list() if device is not None else []
+    if number > 8 or number > len(layers):
+        return
+    layer = layers[number - 1]
+    name = match.group(2)
+    if name in ("select", "selected"):
+        layer.select()
+    elif name == "mute":
+        layer.set_mute(set_flag(layer.mute, value))
+    elif name == "solo":
+        layer.set_solo(set_flag(layer.solo, value))
+    else:
+        set_value(osc, layer.volume if name == "volume" else layer.pan, value)
 
 
 __all__ = ["TABLE", "UnknownOscCommand", "execute", "is_trigger", "parse"]
