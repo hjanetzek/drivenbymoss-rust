@@ -7,18 +7,22 @@
 //! (main device and extenders), each with its own MIDI port pair, see
 //! `doc/MULTI_SURFACE_PLAN.md`.
 
+pub mod hui;
 pub mod mcu;
 
 use crate::config::values::fix_ascii;
 use crate::controller::ControllerFactory;
 use crate::daw::util::optimize_name;
 
-/// The factories of all supported Mackie models: MCU with 0-3 extenders (as the Reaper
-/// instance classes).
+/// The factories of all supported Mackie models: MCU with 0-3 extenders and HUI with 0-2
+/// extenders (as the Reaper instance classes).
 pub fn factories() -> Vec<Box<dyn ControllerFactory>> {
     let mut factories: Vec<Box<dyn ControllerFactory>> = Vec::new();
     for extenders in 0..4 {
         factories.push(Box::new(mcu::McuFactory::new(extenders)));
+    }
+    for extenders in 0..3 {
+        factories.push(Box::new(hui::HuiFactory::new(extenders)));
     }
     factories
 }
@@ -61,8 +65,10 @@ mod tests {
     #[test]
     fn registered() {
         let factories = factories();
-        assert_eq!(factories.len(), 4);
+        assert_eq!(factories.len(), 7);
         assert_eq!(factories[3].java_class_name(), "de.mossgrabers.reaper.controller.mackie.mcu.MCU4ControllerInstance");
         assert_eq!(factories[3].num_port_pairs(), 4);
+        assert_eq!(factories[6].java_class_name(), "de.mossgrabers.reaper.controller.mackie.hui.HUI3ControllerInstance");
+        assert_eq!(factories[6].num_port_pairs(), 3);
     }
 }

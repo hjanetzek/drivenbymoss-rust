@@ -1,4 +1,7 @@
 de.mossgrabers.dbm.bitwig.ProbeExtensionDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface1ExtenderDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface2ExtendersDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterfaceDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal1ExtenderDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal2ExtendersDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal3ExtendersDefinition

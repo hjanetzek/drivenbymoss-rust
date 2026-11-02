@@ -6,6 +6,7 @@
 //! `reaper.framework.configuration` packages) without any UI.
 
 pub mod configuration;
+pub mod hui;
 pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;
