@@ -191,6 +191,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             this.core.setSetting (id.intValue (), value);
         });
         this.core.takeSettingChanges ();
+        // Hidden and disabled settings (e.g. the slot settings of Generic Flexi)
+        this.settings.applyStates (this.core.takeSettingStates ());
         this.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
         this.isRunning = true;
         host.scheduleTask (this::tickLoop, TICK_INTERVAL);
@@ -301,6 +303,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.record ("tick");
         this.core.tick ();
         this.settings.apply (this.core.takeSettingChanges ());
+        this.settings.applyStates (this.core.takeSettingStates ());
         for (final String notification: this.core.takeNotifications ().split ("\n"))
         {
             if (!notification.isEmpty ())

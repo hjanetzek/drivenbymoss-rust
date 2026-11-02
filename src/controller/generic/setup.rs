@@ -241,22 +241,49 @@ pub fn create_modes(ctx: &mut Ctx) {
     ctx.modes.set_default_id(Modes::Volume);
 }
 
+/// Configure the MPE zones of the device after a change of the MPE setting.
+fn schedule_mpe_configuration(ctx: &mut Ctx) {
+    ctx.schedule(MPE_DELAY_MS, |ctx| {
+        let mpe_enabled = ctx.config.is_mpe_enabled();
+        // Enable MPE zone 1 with all 15 channels
+        configure_mpe(ctx, ZONE_1, if mpe_enabled { 15 } else { 0 });
+        // Disable MPE zone
+        configure_mpe(ctx, ZONE_2, 0);
+    });
+}
+
 /// React on a changed setting (former `createObservers` and the setting observers of the
 /// configuration).
 fn handle_setting_change(ctx: &mut Ctx, id: SettingId) {
+    // On every change of the type, also from the editor itself (the type observer of Java)
+    if id == cfg::SLOT_TYPE {
+        cfg::update_slot_visibility(&mut ctx.config);
+    }
     if editor::handle_setting_change(ctx, id) || mapping::handle_bank_setting_change(ctx, id) {
         return;
     }
     match id {
+        // The buttons (signal settings); without a file dialog Save and Load use the file of the
+        // Filename setting
+        cfg::BUTTON_SET => editor::learn_set(ctx),
+        cfg::BUTTON_SAVE => {
+            let filename = cfg::filename(&ctx.config);
+            if filename.trim().is_empty() {
+                ctx.host.show_notification("No file name set.");
+            } else {
+                mapping::save_file(ctx, &filename);
+            }
+        }
+        cfg::BUTTON_LOAD => {
+            let filename = cfg::filename(&ctx.config);
+            mapping::load_and_select_file(ctx, &filename);
+        }
         cfg::SLOT_CHANGE => fs::update_key_translation(ctx),
         cfg::SELECTED_MODE => select_mode(ctx),
-        SettingId::ENABLED_MPE_ZONES => ctx.schedule(MPE_DELAY_MS, |ctx| {
-            let mpe_enabled = ctx.config.is_mpe_enabled();
-            // Enable MPE zone 1 with all 15 channels
-            configure_mpe(ctx, ZONE_1, if mpe_enabled { 15 } else { 0 });
-            // Disable MPE zone
-            configure_mpe(ctx, ZONE_2, 0);
-        }),
+        SettingId::ENABLED_MPE_ZONES => {
+            cfg::update_mpe_dependent_settings(&mut ctx.config);
+            schedule_mpe_configuration(ctx);
+        }
         SettingId::MPE_PITCHBEND_RANGE => ctx.schedule(MPE_DELAY_MS, |ctx| {
             let range = ctx.config.mpe_pitch_bend_range();
             send_mpe_pitchbend_range(ctx, ZONE_1, range);

@@ -485,8 +485,10 @@ impl App {
 
     /// All settings of the controller in the order of their activation, one line per setting with
     /// tab separated fields: ID, scope (`global`, `document`), kind (`enum`, `integer`,
-    /// `boolean`, `text`), category, label, default value, current value, then the options of an
-    /// enumeration or the minimum and maximum of an integer.
+    /// `boolean`, `text`, `action`, `signal`), category, label, default value, current value, then the
+    /// options of an enumeration, the minimum and maximum of an integer or the button text of a
+    /// signal. An `action` value is the ID of a host action; a `signal` has no value, the host
+    /// sets it (to any value) when the button is pressed.
     pub fn settings(&mut self) -> String {
         self.enter();
         let Some(running) = self.first_running() else {
@@ -504,6 +506,8 @@ impl App {
                 SettingKind::Integer { min, max } => ("integer", vec![min.to_string(), max.to_string()]),
                 SettingKind::Boolean => ("boolean", Vec::new()),
                 SettingKind::Text => ("text", Vec::new()),
+                SettingKind::Action => ("action", Vec::new()),
+                SettingKind::Signal { button } => ("signal", vec![button.clone()]),
             };
             let value = config.value(descriptor.id).unwrap_or_default();
             let mut fields = vec![descriptor.id.0.to_string(), scope.to_string(), kind.to_string(), descriptor.category.clone(), descriptor.label.clone(), descriptor.default_value.clone(), value];
@@ -535,6 +539,19 @@ impl App {
         let config = &mut running.ctx.config;
         let changes = config.take_host_changes();
         changes.iter().filter_map(|&id| config.value(id).map(|value| format!("{}\t{value}", id.0))).collect::<Vec<_>>().join("\n")
+    }
+
+    /// The settings whose visibility or enabled state changed since the last call, one per line:
+    /// ID, visible (1/0), enabled (1/0), tab separated. The first call after the start of the
+    /// controller reports the states its configuration set while it was created.
+    pub fn take_setting_states(&mut self) -> String {
+        self.enter();
+        let Some(running) = self.first_running() else {
+            return String::new();
+        };
+        let config = &mut running.ctx.config;
+        let changes = config.take_state_changes();
+        changes.iter().map(|&id| format!("{}\t{}\t{}", id.0, u8::from(config.is_visible(id)), u8::from(config.is_enabled(id)))).collect::<Vec<_>>().join("\n")
     }
 
     /// The notifications since the last call, one per line (popup notifications of the host).

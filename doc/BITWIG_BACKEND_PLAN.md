@@ -75,7 +75,9 @@ extension instance is one controller with fixed ports, which the user assigns in
     `host.getDocumentState()` settings, sends Bitwig's values to the core (`dbm_set_setting`) and
     sets the changes of the core in Bitwig (`dbm_take_setting_changes`). Bitwig keeps the values;
     the document settings replace `dbm_get/set_formatted_document_settings`. The `.config` file
-    is still written but Bitwig's values win on start.
+    is still written but Bitwig's values win on start. Action settings use Bitwig's action list
+    (category and action, as the Java version), signal settings are buttons, and
+    `dbm_take_setting_states` hides, shows, disables and enables settings (2026-11-02).
 - **Notifications:** the core queues them (`Host::show_notification`), the extension shows them
   with `showPopupNotification` after each tick (`dbm_take_notifications`).
 

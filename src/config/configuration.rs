@@ -82,6 +82,11 @@ pub struct Configuration {
     /// The settings whose value changed since the host last asked for them, for hosts which show
     /// the settings in their own UI (Bitwig), see [`Self::take_host_changes`].
     host_changes: Vec<SettingId>,
+    /// The settings which are hidden / disabled in the UI of the host (`ISetting.setVisible`,
+    /// `setEnabled`), and the settings whose state changed, see [`Self::take_state_changes`].
+    hidden: HashSet<SettingId>,
+    disabled: HashSet<SettingId>,
+    state_changes: Vec<SettingId>,
     dont_notify_all: HashSet<SettingId>,
     dirty: bool,
     /// Values of controller specific settings (IDs >= NEXT_SETTING_ID), stored as text.
@@ -161,6 +166,9 @@ impl Configuration {
             descriptor_index: HashMap::new(),
             changed: Vec::new(),
             host_changes: Vec::new(),
+            hidden: HashSet::new(),
+            disabled: HashSet::new(),
+            state_changes: Vec::new(),
             dont_notify_all: HashSet::new(),
             dirty: false,
             custom_values: HashMap::new(),
@@ -333,10 +341,49 @@ impl Configuration {
     /// values (not one of the options, out of range) are ignored. Returns true if the value
     /// changed.
     pub fn set_value(&mut self, id: SettingId, value: &str) -> bool {
-        let Some(normalized) = self.descriptor(id).and_then(|d| d.normalize(value)) else {
+        let Some(descriptor) = self.descriptor(id) else {
+            return false;
+        };
+        // A button has no value: each press is a change (the signal observers of Java)
+        if matches!(descriptor.kind, SettingKind::Signal { .. }) {
+            self.mark_changed(id);
+            return true;
+        }
+        let Some(normalized) = descriptor.normalize(value) else {
             return false;
         };
         self.apply(id, &normalized)
+    }
+
+    /// Show or hide a setting in the UI of the host (`ISetting.setVisible`).
+    pub fn set_visible(&mut self, id: SettingId, visible: bool) {
+        let changed = if visible { self.hidden.remove(&id) } else { self.hidden.insert(id) };
+        if changed && !self.state_changes.contains(&id) {
+            self.state_changes.push(id);
+        }
+    }
+
+    /// Enable or disable (grey out) a setting in the UI of the host (`ISetting.setEnabled`).
+    pub fn set_enabled(&mut self, id: SettingId, enabled: bool) {
+        let changed = if enabled { self.disabled.remove(&id) } else { self.disabled.insert(id) };
+        if changed && !self.state_changes.contains(&id) {
+            self.state_changes.push(id);
+        }
+    }
+
+    pub fn is_visible(&self, id: SettingId) -> bool {
+        !self.hidden.contains(&id)
+    }
+
+    pub fn is_enabled(&self, id: SettingId) -> bool {
+        !self.disabled.contains(&id)
+    }
+
+    /// Get (and clear) the IDs of the settings whose visibility or enabled state changed since
+    /// the last call, for a host which shows the settings in its own UI. The states set while the
+    /// controller is created are reported on the first call.
+    pub fn take_state_changes(&mut self) -> Vec<SettingId> {
+        std::mem::take(&mut self.state_changes)
     }
 
     fn apply(&mut self, id: SettingId, normalized: &str) -> bool {
@@ -377,7 +424,7 @@ impl Configuration {
         let entries: Vec<(SettingId, String)> = self
             .descriptors
             .iter()
-            .filter(|d| d.scope == scope)
+            .filter(|d| d.scope == scope && d.is_stored())
             .map(|d| {
                 let value = properties.get_string(&d.key()).and_then(|v| d.normalize(v)).unwrap_or_else(|| d.default_value.clone());
                 (d.id, value)
@@ -394,7 +441,7 @@ impl Configuration {
     /// Store the values of all activated settings of the given scope. Other entries of the
     /// properties are kept (e.g. the MIDI port names).
     pub fn store(&self, scope: Scope, properties: &mut Properties) {
-        for descriptor in self.descriptors.iter().filter(|d| d.scope == scope) {
+        for descriptor in self.descriptors.iter().filter(|d| d.scope == scope && d.is_stored()) {
             properties.put(&descriptor.key(), &self.read_field(descriptor.id));
         }
     }

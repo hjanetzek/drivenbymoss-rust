@@ -110,6 +110,12 @@ pub enum SettingKind {
     Boolean,
     /// A free text (`IStringSetting`).
     Text,
+    /// A host action, stored as its ID (`IActionSetting`). A host with its own action list shows
+    /// a selection of it (Bitwig: a category and the actions of the category), others a text.
+    Action,
+    /// A button (`ISignalSetting`) with the given text. It has no value and is not stored; every
+    /// press is recorded as a change of the setting.
+    Signal { button: String },
 }
 
 /// Describes an activated setting.
@@ -141,8 +147,14 @@ impl SettingDescriptor {
                 value.trim().parse::<i32>().ok().filter(|v| (*min..=*max).contains(v)).map(|v| v.to_string())
             }
             SettingKind::Boolean => Some(if value.eq_ignore_ascii_case("true") { "true" } else { "false" }.to_string()),
-            SettingKind::Text => Some(value.to_string()),
+            SettingKind::Text | SettingKind::Action => Some(value.to_string()),
+            SettingKind::Signal { .. } => Some(String::new()),
         }
+    }
+
+    /// False for a button, which has no value to store.
+    pub fn is_stored(&self) -> bool {
+        !matches!(self.kind, SettingKind::Signal { .. })
     }
 
     /// The options of an enumeration setting (empty for other kinds).

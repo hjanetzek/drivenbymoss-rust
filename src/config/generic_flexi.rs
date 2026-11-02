@@ -14,9 +14,10 @@
 //! the command slots and is in `controller::generic::editor`.
 //!
 //! Differences to Java:
-//! - The signal settings (the buttons "Set", "Save" and "Load") are not settings here (there is
-//!   no UI). Their functions are `editor::learn_set`, `mapping::save_file` and
-//!   `mapping::load_file`.
+//! - The buttons "Set", "Save" and "Load" are signal settings, shown by a host with a settings UI
+//!   (Bitwig). Without a file dialog "Save" and "Load" use the file of the "Filename" setting.
+//!   Their functions are `editor::learn_set`, `mapping::save_file` and
+//!   `mapping::load_and_select_file`.
 //! - The settings which have no ID in Java got one (see the constants).
 
 use super::configuration::{Configuration, NoteRepeatCapabilities};
@@ -28,14 +29,17 @@ use crate::controller::generic::slot::KnobMode;
 /// The name of the controller, the default name of the keyboard input.
 pub const GENERIC_FLEXI_NAME: &str = "Generic Flexi";
 
-/// Export signal (not a setting in Rust, see the module documentation).
+/// Export signal (the button "Save").
 pub const BUTTON_SAVE: SettingId = SettingId::NEXT_SETTING_ID;
-/// Import signal (not a setting in Rust).
+/// Import signal (the button "Load").
 pub const BUTTON_LOAD: SettingId = SettingId::NEXT_SETTING_ID.offset(1);
 /// Enable MMC (unused, as in Java).
 pub const ENABLE_MMC: SettingId = SettingId::NEXT_SETTING_ID.offset(2);
 /// The selected mode.
 pub const SELECTED_MODE: SettingId = SettingId::NEXT_SETTING_ID.offset(3);
+
+/// The button "Set" of the MIDI learn section (a signal without an ID in Java).
+pub const BUTTON_SET: SettingId = SettingId::NEXT_SETTING_ID.offset(4);
 
 /// The selected slot of the slot editor.
 pub const SLOT_SELECTED: SettingId = SettingId::NEXT_SETTING_ID.offset(10);
@@ -67,7 +71,7 @@ pub const KEYBOARD_ROUTE_EXPRESSION: SettingId = SettingId::NEXT_SETTING_ID.offs
 pub const KEYBOARD_ROUTE_SUSTAIN: SettingId = SettingId::NEXT_SETTING_ID.offset(66);
 pub const KEYBOARD_ROUTE_PROGRAM_CHANGE: SettingId = SettingId::NEXT_SETTING_ID.offset(67);
 pub const KEYBOARD_ROUTE_PITCHBEND: SettingId = SettingId::NEXT_SETTING_ID.offset(68);
-/// The 8 assignable actions (Reaper action IDs), see [`action_setting`].
+/// The 8 assignable actions (action IDs of the host), see [`action_setting`].
 pub const ACTION_FIRST: SettingId = SettingId::NEXT_SETTING_ID.offset(70);
 /// The number of assignable actions.
 pub const NUM_ACTIONS: usize = 8;
@@ -275,6 +279,10 @@ fn activate_text_setting(config: &mut Configuration, id: SettingId, category: &s
     });
 }
 
+fn activate_kind(config: &mut Configuration, id: SettingId, category: &str, label: &str, kind: SettingKind) {
+    config.activate_setting(SettingDescriptor { id, scope: Scope::Global, category: category.to_string(), label: label.to_string(), kind, default_value: String::new(), observable: false });
+}
+
 fn activate_enum(config: &mut Configuration, id: SettingId, category: &str, label: &str, options: Vec<String>, default_index: usize) {
     let default_value = options[default_index].clone();
     config.activate_enum_setting(id, Scope::Global, category, label, options, &default_value, false);
@@ -293,6 +301,11 @@ pub fn create_configuration(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: 
     activate_enum(&mut config, LEARN_NUMBER, CATEGORY_LEARN, "Number:", to_options(&NUMBER_NAMES), 0);
     activate_enum(&mut config, LEARN_MIDI_CHANNEL, CATEGORY_LEARN, "Midi Channel:", midi_channel_options(), 0);
     activate_enum(&mut config, LEARN_RESOLUTION, CATEGORY_LEARN, "Resolution:", to_options(&OPTIONS_RESOLUTION), 0);
+    // The received values are only displayed
+    for id in [LEARN_TYPE, LEARN_NUMBER, LEARN_MIDI_CHANNEL, LEARN_RESOLUTION] {
+        config.set_enabled(id, false);
+    }
+    activate_kind(&mut config, BUTTON_SET, CATEGORY_LEARN, " ", SettingKind::Signal { button: "Set".to_string() });
 
     // Selected Slot - MIDI trigger
     activate_enum(&mut config, SLOT_TYPE, CATEGORY_SLOT_TRIGGER, "Type:", to_options(&OPTIONS_TYPE), 0);
@@ -312,8 +325,17 @@ pub fn create_configuration(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: 
         activate_enum(&mut config, function_setting(category), CATEGORY_SLOT_FUNCTION, &label, function_options(category), 0);
     }
 
+    // The slot settings are hidden while the type of the selected slot is "Off" (the first slot
+    // at the start, former updateVisibility on the initial value of the type)
+    update_slot_visibility(&mut config);
+
     // Export/Import section: the file to auto-load
     activate_text_setting(&mut config, FILENAME, CATEGORY_LOAD_SAVE, "Filename", "");
+    // The different blank labels are necessary to distinguish the widgets (as in Java)
+    activate_kind(&mut config, BUTTON_SAVE, CATEGORY_LOAD_SAVE, "  ", SettingKind::Signal { button: "Save".to_string() });
+    activate_kind(&mut config, BUTTON_LOAD, CATEGORY_LOAD_SAVE, "   ", SettingKind::Signal { button: "Load".to_string() });
+    config.add_dont_notify_all(BUTTON_SAVE);
+    config.add_dont_notify_all(BUTTON_LOAD);
 
     // Keyboard / Pads
     activate_text_setting(&mut config, KEYBOARD_INPUT_NAME, CATEGORY_KEYBOARD, "Input Name", GENERIC_FLEXI_NAME);
@@ -329,7 +351,7 @@ pub fn create_configuration(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: 
     // Options
     config.activate_enum_setting(SELECTED_MODE, global, CATEGORY_OPTIONS, "Selected Mode", to_options(&MODES), MODES[0], true);
     for i in 0..NUM_ACTIONS {
-        activate_text_setting(&mut config, action_setting(i), CATEGORY_OPTIONS, &format!("Action {}", i + 1), "");
+        activate_kind(&mut config, action_setting(i), CATEGORY_OPTIONS, &format!("Action {}", i + 1), SettingKind::Action);
     }
 
     // Workflow
@@ -343,6 +365,24 @@ pub fn create_configuration(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: 
     config.activate_behaviour_on_stop_setting(global);
 
     config
+}
+
+/// Show the settings of the selected slot only if its type is not "Off" (former
+/// `updateVisibility`).
+pub fn update_slot_visibility(config: &mut Configuration) {
+    let visible = config.value(SLOT_TYPE).is_some_and(|value| value != OPTIONS_TYPE[0]);
+    let ids = [SLOT_NUMBER, SLOT_MIDI_CHANNEL, SLOT_RESOLUTION, SLOT_KNOB_MODE, SLOT_FUNCTION_LAYER, SLOT_SEND_VALUE, SLOT_SEND_VALUE_WHEN_RECEIVED];
+    for id in ids.into_iter().chain(CommandCategory::ALL.into_iter().map(function_setting)) {
+        config.set_visible(id, visible);
+    }
+}
+
+/// The keyboard channel and the routing of pitchbend cannot be changed while MPE is enabled (the
+/// MPE observer of the former `init`).
+pub fn update_mpe_dependent_settings(config: &mut Configuration) {
+    let is_mpe_enabled = config.is_mpe_enabled();
+    config.set_enabled(KEYBOARD_CHANNEL, !is_mpe_enabled);
+    config.set_enabled(KEYBOARD_ROUTE_PITCHBEND, !is_mpe_enabled);
 }
 
 /// Create the configuration with the Reaper arpeggiator modes and note repeat capabilities.

@@ -77,19 +77,28 @@ value the reference bridge reads or calls.
    (initial LEDs etc.) runs in the first `tick` 1 s later (`STARTUP_DELAY_MS`).
 4. `dbm_get_model_setup` (empty before step 3) and create all DAW objects from it (below).
 5. Settings: `dbm_get_settings` → build the DAW's settings UI; push the stored values with
-   `dbm_set_setting(id, value)`; discard `dbm_take_setting_changes` once.
+   `dbm_set_setting(id, value)`; discard `dbm_take_setting_changes` once; apply
+   `dbm_take_setting_states` (hidden and disabled settings).
 6. Every 30 ms: collect the state → `dbm_update_model(lines)` (skip if empty) → `dbm_tick` →
-   apply `dbm_take_setting_changes` to the UI → show `dbm_take_notifications` (one per line) as
-   popups.
+   apply `dbm_take_setting_changes` and `dbm_take_setting_states` to the UI → show
+   `dbm_take_notifications` (one per line) as popups.
 7. Exit: `dbm_destroy` (stops the controller, which writes its final MIDI and the `.config`
    file). Not from within a callback. `close_midi_*` are called; Bitwig ignores them (the ports
    are Bitwig's).
 
 Settings: `dbm_get_settings` returns one tab separated line per setting: ID, scope (`global` /
-`document`), kind (`enum`, `integer`, `boolean`, `text`), category, label, default, current
-value, then the enum options or integer min/max. `dbm_set_setting` changes are not echoed by
+`document`), kind (`enum`, `integer`, `boolean`, `text`, `action`, `signal`), category, label,
+default, current value, then the enum options, the integer min/max or the button text of a signal.
+An `action` value is the ID of a DAW action (Bitwig: shown as a category and the actions of the
+category, as `SettingsUIImpl.getActionSetting` of the Java version; a DAW without an action list
+shows a text). A `signal` is a button without a value: on a press the bridge calls
+`dbm_set_setting(id, "")`. `dbm_set_setting` changes are not echoed by
 `dbm_take_setting_changes`, which returns `ID<tab>value` lines of changes made by the controller
-(e.g. a scale chosen on the device). The bridge stores global settings in the DAW preferences and
+(e.g. a scale chosen on the device). `dbm_take_setting_states` returns `ID<tab>visible<tab>enabled`
+lines (1 or 0) of the settings whose state changed (Java `setVisible` / `setEnabled`, e.g. the
+slot settings of Generic Flexi, hidden while the slot is off); the first call reports the states
+set during the creation of the controller. A host without these functions in an older core sees
+all settings visible and enabled. The bridge stores global settings in the DAW preferences and
 document settings in the project (`HostSettings`). The alternative used by Reaper is
 `dbm_set_default_document_settings` / `dbm_get_formatted_document_settings` /
 `dbm_set_formatted_document_settings` (one opaque text per project). The core also keeps a

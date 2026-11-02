@@ -210,8 +210,10 @@ char *dbm_get_formatted_document_settings(struct DbmApp *app);
 
 // All settings of the controller in the order of their activation, for hosts which show them in
 // their own UI (Bitwig). One line per setting with tab separated fields: ID, scope (`global`,
-// `document`), kind (`enum`, `integer`, `boolean`, `text`), category, label, default value,
-// current value, then the options of an enumeration or the minimum and maximum of an integer.
+// `document`), kind (`enum`, `integer`, `boolean`, `text`, `action`, `signal`), category, label,
+// default value, current value, then the options of an enumeration, the minimum and maximum of an
+// integer or the button text of a signal. An `action` value is the ID of a host action; a
+// `signal` has no value, the host sets it (to any value) when the button is pressed.
 // Empty until [`dbm_start_infrastructure`] started the controller. Release the result with
 // [`dbm_free_string`].
 //
@@ -232,6 +234,15 @@ void dbm_set_setting(struct DbmApp *app, int id, const char *value);
 // # Safety
 // `app` must be a valid handle (or null).
 char *dbm_take_setting_changes(struct DbmApp *app);
+
+// The settings whose visibility or enabled state changed since the last call, one
+// `ID<tab>visible<tab>enabled` per line (1 or 0). The first call after the start reports the
+// states which the controller set while it was created. Release the result with
+// [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_take_setting_states(struct DbmApp *app);
 
 // The notifications since the last call, one per line. Release the result with
 // [`dbm_free_string`].

@@ -97,11 +97,50 @@ fn settings_of_generic_flexi() {
     for line in settings.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
         assert!(fields.len() >= 7, "fields of {line}");
-        assert!(["enum", "integer", "boolean", "text"].contains(&fields[2]), "kind of {line}");
+        assert!(["enum", "integer", "boolean", "text", "action", "signal"].contains(&fields[2]), "kind of {line}");
         if fields[2] == "enum" {
             assert!(fields[7..].contains(&fields[5]), "the default of {} is one of the options", fields[4]);
         }
         assert!(seen.insert((fields[1], fields[3], fields[4])), "{} twice in the category {}", fields[4], fields[3]);
     }
+
+    // As GenericFlexiConfiguration on Bitwig: the actions are action settings, Set/Save/Load
+    // buttons
+    let action = fields(&settings, "Action 1");
+    assert_eq!(action[2..4], ["action", "Options"]);
+    let save = fields(&settings, "  ");
+    assert_eq!(save[2..4], ["signal", "Load / Save"]);
+    assert_eq!(save[7], "Save");
+    assert_eq!(fields(&settings, "   ")[7], "Load");
+    let set = fields(&settings, " ");
+    assert_eq!(set[2..4], ["signal", "Use a knob/fader/button then click Set..."]);
+    assert_eq!(set[7], "Set");
+
+    // The first states: the learn values are disabled, the settings of the selected slot (type
+    // "Off") hidden
+    let states: Vec<Vec<String>> = app.take_setting_states().lines().map(|l| l.split('\t').map(str::to_string).collect()).collect();
+    let state_of = |label: &str, category: &str| {
+        let line = settings.lines().find(|l| l.split('\t').nth(4) == Some(label) && l.split('\t').nth(3) == Some(category)).unwrap_or_else(|| panic!("{label}"));
+        let id = line.split('\t').next().unwrap().to_string();
+        states.iter().find(|s| s[0] == id).map(|s| (s[1].clone(), s[2].clone()))
+    };
+    assert_eq!(state_of("Type:", "Use a knob/fader/button then click Set..."), Some(("1".into(), "0".into())));
+    assert_eq!(state_of("Number:", "Selected Slot - MIDI trigger"), Some(("0".into(), "1".into())));
+    assert_eq!(state_of("Track:", "Selected Slot - Function"), Some(("0".into(), "1".into())));
+    assert_eq!(state_of("Type:", "Selected Slot - MIDI trigger"), None, "the type stays visible");
+    assert!(app.take_setting_states().is_empty(), "reported once");
+
+    // A slot type other than Off shows them
+    let type_id: i32 = settings.lines().find(|l| l.split('\t').nth(4) == Some("Type:") && l.split('\t').nth(3) == Some("Selected Slot - MIDI trigger")).unwrap().split('\t').next().unwrap().parse().unwrap();
+    app.set_setting(type_id, "CC");
+    app.tick();
+    let shown = app.take_setting_states();
+    assert!(shown.lines().count() >= 7 && shown.lines().all(|l| l.ends_with("\t1\t1")), "{shown}");
+
+    // A button press is a change of the setting (here "Save" without a file name)
+    let save_id: i32 = save[0].parse().unwrap();
+    app.set_setting(save_id, "");
+    app.tick();
+    assert!(app.take_notifications().contains("No file name set."));
     let _ = std::fs::remove_dir_all(&dir);
 }

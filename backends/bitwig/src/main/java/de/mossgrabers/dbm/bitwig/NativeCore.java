@@ -94,6 +94,8 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  getSettings;
     private final MethodHandle  setSetting;
     private final MethodHandle  takeSettingChanges;
+    /** Null for a core before 2026-11-02 (dev mode can load an older library). */
+    private final MethodHandle  takeSettingStates;
     private final MethodHandle  takeNotifications;
     private final MethodHandle  freeString;
     private final MemorySegment callbackTable;
@@ -123,6 +125,7 @@ public final class NativeCore implements AutoCloseable
         this.getSettings = downcall (lookup, "dbm_get_settings", FunctionDescriptor.of (ADDRESS, ADDRESS));
         this.setSetting = downcall (lookup, "dbm_set_setting", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, ADDRESS));
         this.takeSettingChanges = downcall (lookup, "dbm_take_setting_changes", FunctionDescriptor.of (ADDRESS, ADDRESS));
+        this.takeSettingStates = lookup.find ("dbm_take_setting_states").map (symbol -> LINKER.downcallHandle (symbol, FunctionDescriptor.of (ADDRESS, ADDRESS))).orElse (null);
         this.takeNotifications = downcall (lookup, "dbm_take_notifications", FunctionDescriptor.of (ADDRESS, ADDRESS));
         this.freeString = downcall (lookup, "dbm_free_string", FunctionDescriptor.ofVoid (ADDRESS));
 
@@ -294,6 +297,18 @@ public final class NativeCore implements AutoCloseable
     public String takeSettingChanges ()
     {
         return this.isValid () ? this.takeString ((MemorySegment) invoke (this.takeSettingChanges, this.app)) : "";
+    }
+
+
+    /**
+     * Get the settings whose visibility or enabled state changed since the last call.
+     *
+     * @return One "ID&lt;tab&gt;visible&lt;tab&gt;enabled" per line (1 or 0), empty for an older
+     *         core
+     */
+    public String takeSettingStates ()
+    {
+        return this.isValid () && this.takeSettingStates != null ? this.takeString ((MemorySegment) invoke (this.takeSettingStates, this.app)) : "";
     }
 
 
