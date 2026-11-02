@@ -125,12 +125,18 @@ pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Confi
     let mut model = Model::new(host.clone(), sender.clone(), model_setup, value_changer.clone(), scales);
     model.track_bank_mut().set_indication(true);
 
-    // createSurface: the name of the note input is not used by Reaper (an empty filter list
-    // uses the default filters, as in the Java Reaper version)
+    // createSurface: without a keyboard channel and MPE no note input, as the Java version on
+    // Bitwig (the Java Reaper version creates the default note input with its default filters,
+    // which passes all notes also with the keyboard off; the manual says the keyboard channel can
+    // be turned off)
     let output = MidiOutput::new(sender.clone(), Some(ports.output));
     let filters = midi_filters(&configuration);
-    let filters: Vec<&str> = filters.iter().map(String::as_str).collect();
-    let input = MidiInput::new(sender.clone(), Some(ports.input), &filters)?;
+    let input = if filters.is_empty() {
+        MidiInput::without_note_input(sender.clone(), Some(ports.input))
+    } else {
+        let filters: Vec<&str> = filters.iter().map(String::as_str).collect();
+        MidiInput::new(sender.clone(), Some(ports.input), &filters)?
+    };
     let mut surface = Surface::new(output, input, None);
     // The virtual Shift button (see the surface module)
     surface.create_button(ButtonId::Shift, "Shift");

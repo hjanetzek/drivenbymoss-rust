@@ -519,3 +519,51 @@ fn mpe_configuration_only_with_the_keyboard() {
     without.advance(2500);
     assert!(!midi_out(&without.take_calls()).iter().any(is_rpn), "no MPE configuration without the note input");
 }
+
+/// The layer commands act on the layers of the cursor device, which the host reports as
+/// `/device/hasLayers` and `/device/layer/<i>/…` (the Bitwig extension since 2026-11-02).
+#[test]
+fn layer_commands_use_the_layers_of_the_cursor_device() {
+    let slots = [Slot::new(TYPE_CC, 70, "Layer 2: Select"), Slot::new(TYPE_CC, 71, "Layer 1: Toggle Mute")];
+    let mut flexi = Flexi::start("layers", Some(&slots), "");
+    flexi.app.update_model("/device/hasLayers 1\n/device/layer/count 2\n/device/layer/0/exists 1\n/device/layer/0/name A\n/device/layer/0/select 1\n/device/layer/1/exists 1\n/device/layer/1/name B\n");
+    flexi.advance(100);
+    flexi.take_calls();
+    flexi.midi(&[0xB0, 70, 127]);
+    flexi.midi(&[0xB0, 71, 127]);
+    flexi.advance(100);
+    let calls = flexi.take_calls();
+    assert!(has_call(&calls, "device", "layer/1/select"), "{calls:?}");
+    assert!(has_call(&calls, "device", "layer/0/mute"), "{calls:?}");
+}
+
+/// Without a keyboard channel (and MPE) the controller has no note input: an empty filter list,
+/// as the Java version on Bitwig (no note input), so the notes do not reach the track.
+#[test]
+fn no_note_input_without_the_keyboard() {
+    let filters = |flexi: &Flexi| -> Vec<Vec<String>> {
+        flexi.backend.calls.borrow().iter().filter_map(|c| match c {
+            BackendCall::NoteInputFilters(IN, 0, f) => Some(f.clone()),
+            _ => None,
+        }).collect()
+    };
+    let without = Flexi::start("no-note-input", None, "KEYBOARD_/_PADS_(REQUIRES_RESTART)_MIDI_CHANNEL=Off\n");
+    assert_eq!(filters(&without), vec![Vec::<String>::new()]);
+    let with = Flexi::start("note-input", None, "");
+    assert!(filters(&with).iter().all(|f| f.iter().any(|f| f.starts_with("90"))), "{:?}", filters(&with));
+}
+
+/// "Device: Parameters" toggles the remote controls section of the cursor device on a host with
+/// the device commands (Bitwig; Reaper has no such section).
+#[test]
+fn device_parameters_toggles_the_remote_controls_section() {
+    let slots = [Slot::new(TYPE_CC, 70, "Device: Parameters")];
+    let mut flexi = Flexi::start("device-parameters", Some(&slots), "");
+    flexi.app.update_model("/host/features deviceCommands\n/device/parameters 1\n");
+    flexi.advance(100);
+    flexi.take_calls();
+    flexi.midi(&[0xB0, 70, 127]);
+    flexi.advance(100);
+    let calls = flexi.take_calls();
+    assert!(has_call(&calls, "device", "parameters/toggle"), "{calls:?}");
+}

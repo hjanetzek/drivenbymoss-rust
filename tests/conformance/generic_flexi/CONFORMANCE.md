@@ -1,6 +1,6 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-02, first run done (setup works), fixes from it not yet checked by a second run.
+Status: 2026-11-02, two runs; the fixes after the second run are not yet checked on Bitwig.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so
@@ -22,7 +22,12 @@ OSC controller, the fixture):
 3. The OSC controller: **Value resolution** Low (128 values, the default); the scenarios set and
    expect values in 0-127.
 4. The fixture needs two cue markers for `marker.toml` (tests/conformance/FIXTURE.md).
-5. Run:
+5. Bitwig's takeover mode (a global preference) set to **Immediate**. With the default "Catch" an
+   absolute value only applies once it passes the current one, so the scenarios which set a
+   volume or pan to 0 (and the values the `before` steps set over OSC) change nothing. The
+   profile of this setup is `generic_flexi_immediate` (`generic_flexi` is a link to it, the
+   script uses the setup name as the profile name); `flexi` is the same with "Catch".
+6. Run:
 
    ```
    cd backends/bitwig/tools
@@ -55,8 +60,8 @@ errors. All 121 function names of the files also exist in the Java `FlexiCommand
 | `function_layers.toml` | Functions Layer: default layer, inactive layer, activate, temporary | 4 |
 | `modes.toml` | Features of Modes: Track, Volume, Panorama, Send, Device and Browser mode, next/previous mode | 16 |
 | `transport.toml` | Global: Shift Button (Play with Shift, slow knob), Transport functions | 15 |
-| `track.toml` | Track functions: selection, bank paging, the effect track bank, mute/solo/arm/monitor, volume/pan/send, Track Selected, pin, activation | 15 |
-| `device.toml` | Device, Instrument Device, Track/Project Remotes, EQ, Layer functions | 15 |
+| `track.toml` | Track functions: selection, bank paging, the effect track bank, mute/solo/arm/monitor, volume/pan/send, Track Selected, pin, activation | 16 |
+| `device.toml` | Device, Instrument Device, Track/Project Remotes, EQ, Layer functions | 16 |
 | `project.toml` | Global (undo/redo), Master, Scene, Clip, Layout functions | 10 |
 | `marker.toml` | Marker functions | 3 |
 | `keyboard.toml` | Configure the keyboard / pads: blocked mapped notes, Note Input transposition | 3 |
@@ -118,10 +123,32 @@ Open:
 
 - **Absolute values had no effect in both versions** (track volume and pan to 0 from Flexi, also
   the `before` values set with OSC), relative changes worked. Probably Bitwig's takeover mode
-  (Preferences → Controllers) is not "Immediate" in the profile; with "Immediate" the
-  expectations should hold. Device parameters: Rust set them, Java did not (to be understood).
+  (a global preference) was "Catch" (the default) in the profile; the second run uses a profile
+  with "Immediate". Device parameters: Rust set them, Java did not (to be understood).
 - **Effect track bank:** the core has none (the model was written for Reaper), so "Track: Toggle
   Trackbank" and the FX Track functions do nothing in the port; Java on Bitwig switches to the
   effect tracks. `flexi.track.trackbank` fails in Rust until the core gets an effect track bank.
 - The startup output (not compared) also differs in the RPN messages; after the fix both send them
   only with the keyboard.
+
+### Second run, 2026-11-02 (takeover "Immediate")
+
+88 of 99 scenarios the same, 11 DIFF, 6 failed expectations; replays copied for function_layers,
+keyboard, marker, project, transport (later removed again: the note input change below changes
+their outputs, the next run records them again). The absolute values now apply in both, the MPE
+messages and the note blocking of keyboard.toml are the same.
+
+Fixed afterwards (to be checked by the next run):
+
+- `flexi.device.instrument` checked parameter 1 after the page change: split into two scenarios.
+- Bitwig extension: the cursor device reported `hasLayers` but not its layers; it now reports its
+  layer bank (`/device/layer/<i>/…`, numDeviceLayers) and handles `device layer/<i>/…`.
+- Core: without a keyboard channel (and MPE) no note input, as the Java version on Bitwig (it
+  passed all notes with the default filters, `flexi.slot.note`). The Java Reaper version has the
+  default note input there; the port now follows Bitwig and the manual ("can be turned off").
+- Core: the 0x0 cursor clip of `ensure_clip` was left out of the model setup, so the Bitwig
+  extension created no launcher cursor clip (the clip selection still did not follow the track).
+- "Device: Parameters" toggles the remote controls section (`parameters/toggle`, reported as
+  `/device/parameters`); it did nothing in the port.
+
+Still open: the effect track bank (`flexi.track.trackbank`).

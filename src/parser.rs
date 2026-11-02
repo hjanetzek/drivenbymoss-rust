@@ -337,6 +337,7 @@ impl Parser {
             "bypass" => device.set_enabled(!flag.unwrap_or(false)),
             "window" => device.set_window_open(flag.unwrap_or(false)),
             "expand" => device.set_expanded(flag.unwrap_or(false)),
+            "parameters" => device.set_parameter_page_section_visible(flag.unwrap_or(true)),
             "hasDrumPads" => device.set_has_drum_pads(flag.unwrap_or(false)),
             "hasLayers" => device.set_has_layers(flag.unwrap_or(false)),
             "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(flag.unwrap_or(false)),
@@ -917,6 +918,11 @@ impl Parser {
             "expand" => {
                 if let Some(v) = parse_double(value) {
                     device.set_expanded(v > 0.0);
+                }
+            }
+            "parameters" => {
+                if let Some(v) = parse_double(value) {
+                    device.set_parameter_page_section_visible(v > 0.0);
                 }
             }
             "sibling" => {

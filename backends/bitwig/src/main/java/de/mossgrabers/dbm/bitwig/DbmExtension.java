@@ -486,6 +486,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             this.errorln ("Note input " + noteInputIndex + " can only be created while the extension starts.");
             return;
         }
+        // No filters: the controller wants no note input (e.g. Generic Flexi without a keyboard
+        // channel, as MidiInputImpl of the Java version with the name null)
+        if (filters.length == 0)
+            return;
         final String name = this.definition.getHardwareModel () + (deviceId == 0 ? "" : " - Port " + (deviceId + 1)) + (noteInputIndex == 0 ? "" : " " + (noteInputIndex + 1));
         final NoteInput noteInput = this.midiIns[deviceId].createNoteInput (name, toBitwigMasks (filters));
         // The core needs to see the notes as well (e.g. to light the pads)

@@ -59,7 +59,8 @@ final class SpecificDevice
         this.remoteControls = numParamPages > 0 ? device.createCursorRemoteControlsPage (BitwigModel.PARAMS_PER_PAGE) : null;
 
         this.numPads = numPads;
-        this.drumPadBank = device.createDrumPadBank (numPads);
+        // No pads for the layers of the cursor device (see BitwigModel)
+        this.drumPadBank = numPads > 0 ? device.createDrumPadBank (numPads) : null;
         this.padFirstDevices = new Device [numPads];
         this.padSelected = new boolean [numPads];
         for (int i = 0; i < numPads; i++)
@@ -83,6 +84,7 @@ final class SpecificDevice
         this.device.isEnabled ().markInterested ();
         this.device.isWindowOpen ().markInterested ();
         this.device.isExpanded ().markInterested ();
+        this.device.isRemoteControlsSectionVisible ().markInterested ();
         this.device.hasDrumPads ().markInterested ();
         this.device.hasLayers ().markInterested ();
 
@@ -95,8 +97,11 @@ final class SpecificDevice
             this.remoteControls.selectedPageIndex ().markInterested ();
         }
 
-        this.drumPadBank.hasMutedPads ().markInterested ();
-        this.drumPadBank.hasSoloedPads ().markInterested ();
+        if (this.drumPadBank != null)
+        {
+            this.drumPadBank.hasMutedPads ().markInterested ();
+            this.drumPadBank.hasSoloedPads ().markInterested ();
+        }
         for (int i = 0; i < this.numPads; i++)
         {
             final DrumPad pad = this.drumPadBank.getItemAt (i);
@@ -134,6 +139,7 @@ final class SpecificDevice
         reporter.put (this.prefix + "/bypass", exists && !this.device.isEnabled ().get ());
         reporter.put (this.prefix + "/window", exists && this.device.isWindowOpen ().get ());
         reporter.put (this.prefix + "/expand", exists && this.device.isExpanded ().get ());
+        reporter.put (this.prefix + "/parameters", exists && this.device.isRemoteControlsSectionVisible ().get ());
         reporter.put (this.prefix + "/hasDrumPads", exists && this.device.hasDrumPads ().get ());
         reporter.put (this.prefix + "/hasLayers", exists && this.device.hasLayers ().get ());
 
@@ -148,8 +154,11 @@ final class SpecificDevice
             reporter.put (this.prefix + "/page/selected", this.remoteControls.selectedPageIndex ().get ());
         }
 
-        reporter.put (this.prefix + "/hasMutedPads", exists && this.drumPadBank.hasMutedPads ().get ());
-        reporter.put (this.prefix + "/hasSoloedPads", exists && this.drumPadBank.hasSoloedPads ().get ());
+        if (this.drumPadBank != null)
+        {
+            reporter.put (this.prefix + "/hasMutedPads", exists && this.drumPadBank.hasMutedPads ().get ());
+            reporter.put (this.prefix + "/hasSoloedPads", exists && this.drumPadBank.hasSoloedPads ().get ());
+        }
         for (int i = 0; i < this.numPads; i++)
             this.collectItem (reporter, this.prefix + "/pad/" + i + "/", this.drumPadBank.getItemAt (i), exists && this.padFirstDevices[i].exists ().get (), this.padSelected[i]);
 

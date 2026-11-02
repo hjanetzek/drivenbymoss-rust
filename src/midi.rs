@@ -182,6 +182,16 @@ impl NoteInput {
         Ok(NoteInput { note_repeat: NoteRepeat::new(sender.clone()), sender, device_id, index })
     }
 
+    /// A note input which passes nothing: an empty filter list for the host (Bitwig then creates
+    /// no note input, Reaper passes no message). The default note input of a controller without a
+    /// keyboard (the Java version on Bitwig creates none).
+    pub fn without_filters(sender: Sender, device_id: Option<i32>, index: i32) -> Self {
+        if let Some(id) = device_id {
+            sender.backend().set_note_input_filters(id, index, &[]);
+        }
+        NoteInput { note_repeat: NoteRepeat::new(sender.clone()), sender, device_id, index }
+    }
+
     fn create_backend_filters(filters: &[&str]) -> Result<BTreeSet<String>, String> {
         let mut backend_filters = BTreeSet::new();
         if filters.is_empty() {
@@ -279,7 +289,17 @@ pub struct MidiInput {
 impl MidiInput {
     pub fn new(sender: Sender, device_id: Option<i32>, filters: &[&str]) -> Result<Self, String> {
         let default_input = NoteInput::new(sender.clone(), device_id, 0, filters)?;
-        Ok(MidiInput {
+        Ok(Self::with_default_input(sender, device_id, default_input))
+    }
+
+    /// A MIDI input whose default note input passes nothing (see [`NoteInput::without_filters`]).
+    pub fn without_note_input(sender: Sender, device_id: Option<i32>) -> Self {
+        let default_input = NoteInput::without_filters(sender.clone(), device_id, 0);
+        Self::with_default_input(sender, device_id, default_input)
+    }
+
+    fn with_default_input(sender: Sender, device_id: Option<i32>, default_input: NoteInput) -> Self {
+        MidiInput {
             sender,
             device_id,
             note_inputs: vec![default_input],
@@ -290,7 +310,7 @@ impl MidiInput {
             cc_touch: HashMap::new(),
             note_touch: HashMap::new(),
             last_cc_values: [0; 32],
-        })
+        }
     }
 
     pub fn device_id(&self) -> Option<i32> {

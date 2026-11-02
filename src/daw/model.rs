@@ -169,10 +169,11 @@ impl Model {
     }
 
     /// The setup as JSON for the host (see [`ModelSetup::to_json`]), with the sizes of the note
-    /// clips which were created so far.
+    /// clips which were created so far, also the 0x0 clip of [`Self::ensure_clip`] (Bitwig: a
+    /// launcher cursor clip without a step grid, which follows the selection as in Java).
     pub fn setup_json(&self) -> String {
         let mut setup = self.setup.clone();
-        setup.note_clips = self.cursor_clips.iter().map(|(key, _)| *key).filter(|(cols, rows)| *cols > 0 && *rows > 0).collect();
+        setup.note_clips = self.cursor_clips.iter().map(|(key, _)| *key).collect();
         setup.to_json()
     }
 

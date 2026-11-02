@@ -114,13 +114,17 @@ steps = [
 
 [[scenario]]
 id = "flexi.device.instrument"
-bullet = "Instrument Device: Set Parameter N, Select Parameter Page N (the first instrument of the track, also when another device is selected)"
+bullet = "Instrument Device: Set Parameter N (the first instrument of the track, also when another device is selected)"
 before = [{ osc = "/track/1/select 1 | /primary/page/1/selected | /primary/param/1/value 100" }]
-steps = [
-  { midi = "B0 55 00", note = "parameter 1 to 0" },
-  { midi = "B0 56 7F | B0 56 00", note = "page 2" },
-]
-expect.bitwig = { "/primary/param/1/value" = "0", "/primary/page/2/selected" = "1" }
+steps = [{ midi = "B0 55 00", note = "parameter 1 to 0" }]
+expect.bitwig = { "/primary/param/1/value" = "0" }
+
+# Separate: after the page change parameter 1 is the first of page 2
+[[scenario]]
+id = "flexi.device.instrument-page"
+bullet = "Instrument Device: Select Parameter Page N"
+steps = [{ midi = "B0 56 7F | B0 56 00", note = "page 2" }]
+expect.bitwig = { "/primary/page/2/selected" = "1" }
 
 [[scenario]]
 id = "flexi.device.instrument-previous-page"

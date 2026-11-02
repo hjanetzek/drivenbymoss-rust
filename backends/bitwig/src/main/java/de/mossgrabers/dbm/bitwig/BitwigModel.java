@@ -121,6 +121,8 @@ public final class BitwigModel
     final SpecificDevice     drumDevice;
     /** The first instrument of the cursor track, null if the controller does not need it. */
     final SpecificDevice     firstInstrument;
+    /** The layers of the cursor device (and its hasLayers / hasDrumPads). */
+    final SpecificDevice     cursorDeviceLayers;
     /** The first EQ+ of the cursor track; null if the controller does not use it. */
     final EqualizerDevice    eqDevice;
     /** The popup browser, null if the controller does not need it. */
@@ -191,6 +193,9 @@ public final class BitwigModel
         this.masterTrack = host.createMasterTrack (0);
         this.cursorDevice = this.cursorTrack.createCursorDevice ("DBM_CURSOR_DEVICE", "Cursor device", 0, CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
+        // The layers of the cursor device (CursorDeviceImpl: layer bank of numDeviceLayers), with
+        // hasLayers / hasDrumPads, which the layer commands of the controllers check
+        this.cursorDeviceLayers = new SpecificDevice (this.cursorDevice, "/device", 0, 0, Math.max (0, getInt (modelSetup, "numDeviceLayers", 8)));
         this.largeDeviceBank = this.cursorDevice.channel ().createDeviceBank (NUM_LARGE_DEVICES);
         this.remoteControls = this.cursorDevice.createCursorRemoteControlsPage (PARAMS_PER_PAGE);
         // CursorTrackImpl: the remote controls of the cursor track, in pages as for devices
@@ -376,9 +381,6 @@ public final class BitwigModel
         this.cursorDevice.isWindowOpen ().markInterested ();
         this.cursorDevice.isPinned ().markInterested ();
         this.cursorDevice.isExpanded ().markInterested ();
-        // The layer commands of the controllers check them (CursorDeviceImpl.hasLayers)
-        this.cursorDevice.hasLayers ().markInterested ();
-        this.cursorDevice.hasDrumPads ().markInterested ();
         this.siblings.itemCount ().markInterested ();
         for (int i = 0; i < NUM_SIBLINGS; i++)
         {
@@ -504,6 +506,7 @@ public final class BitwigModel
         this.collectScenes (reporter);
         this.collectMaster (reporter);
         this.collectDevice (reporter);
+        this.cursorDeviceLayers.collect (reporter);
         this.collectNoteRepeat (reporter);
         if (this.drumDevice != null)
             this.drumDevice.collect (reporter);
@@ -968,8 +971,6 @@ public final class BitwigModel
         reporter.put ("/device/window", this.cursorDevice.isWindowOpen ().get ());
         reporter.put ("/device/pinned", this.cursorDevice.isPinned ().get ());
         reporter.put ("/device/expand", this.cursorDevice.isExpanded ().get ());
-        reporter.put ("/device/hasLayers", this.cursorDevice.exists ().get () && this.cursorDevice.hasLayers ().get ());
-        reporter.put ("/device/hasDrumPads", this.cursorDevice.exists ().get () && this.cursorDevice.hasDrumPads ().get ());
 
         for (int i = 0; i < NUM_SIBLINGS; i++)
         {

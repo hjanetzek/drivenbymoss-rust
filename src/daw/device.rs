@@ -630,6 +630,9 @@ pub struct SpecificDevice {
     /// cursor device is always pinned).
     pinned: Option<bool>,
     is_expanded: bool,
+    /// The remote controls section in the device chain (Bitwig `isRemoteControlsSectionVisible`;
+    /// always shown for a host which does not report it).
+    is_parameter_page_section_visible: bool,
     parameter_bank: Option<ParameterBank>,
     drum_pad_bank: DrumPadBank,
     layer_bank: LayerBank,
@@ -678,6 +681,7 @@ impl SpecificDevice {
             is_window_open: false,
             pinned: None,
             is_expanded: false,
+            is_parameter_page_section_visible: true,
             device_count: 0,
             last_touched_parameter_index: -1,
             eq_band_types: [EqualizerBandType::Off; EQ_NUMBER_OF_BANDS],
@@ -772,7 +776,7 @@ impl SpecificDevice {
     }
 
     pub fn is_parameter_page_section_visible(&self) -> bool {
-        true
+        self.is_parameter_page_section_visible
     }
 
     pub fn is_window_open(&self) -> bool {
@@ -858,7 +862,11 @@ impl SpecificDevice {
         self.ctx.send_bool(Processor::Device, "expand", self.is_expanded);
     }
 
-    pub fn toggle_parameter_page_section_visible(&mut self) {}
+    /// SpecificDeviceImpl.toggleParameterPageSectionVisible: `isRemoteControlsSectionVisible ().toggle ()`;
+    /// nothing without the device commands of the host (Reaper has no such section).
+    pub fn toggle_parameter_page_section_visible(&mut self) {
+        self.send_own("parameters/toggle");
+    }
 
     /// Toggle the bypass state (DeviceImpl.toggleEnabledState: `device.isEnabled ().toggle ()`).
     pub fn toggle_enabled_state(&mut self) {
@@ -1104,6 +1112,10 @@ impl SpecificDevice {
 
     pub fn set_expanded(&mut self, expanded: bool) {
         self.is_expanded = expanded;
+    }
+
+    pub fn set_parameter_page_section_visible(&mut self, visible: bool) {
+        self.is_parameter_page_section_visible = visible;
     }
 
     pub fn set_parameter_count(&mut self, count: usize) {

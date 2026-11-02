@@ -338,7 +338,7 @@ public final class CommandHandler
             case "indicate" -> device.drumPadBank.setIndication (value > 0);
             case "window" -> device.device.isWindowOpen ().set (value > 0);
             case "expand" -> device.device.isExpanded ().set (value > 0);
-            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (device.device, command);
+            case "window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (device.device, command);
             case "parameterPage" ->
             {
                 // Show the page in Bitwig as well (ParameterPageBankImpl.scrollTo)
@@ -408,7 +408,7 @@ public final class CommandHandler
             case "add" -> this.model.cursorTrack.endOfDeviceChainInsertionPoint ().insertBitwigDevice (EqualizerDevice.ID_BITWIG_EQ_PLUS);
             case "window" -> eq.device.isWindowOpen ().set (value > 0);
             case "expand" -> eq.device.isExpanded ().set (value > 0);
-            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (eq.device, command);
+            case "window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (eq.device, command);
             default ->
             {
                 final String [] parts = command.split ("/");
@@ -1400,7 +1400,7 @@ public final class CommandHandler
             case "window" -> this.model.cursorDevice.isWindowOpen ().set (value > 0);
             case "pinned" -> this.model.cursorDevice.isPinned ().set (value > 0);
             case "expand" -> this.model.cursorDevice.isExpanded ().set (value > 0);
-            case "window/toggle", "expand/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (this.model.cursorDevice, command);
+            case "window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select" -> handleOwnDevice (this.model.cursorDevice, command);
             // "preset <index>": the result of Reaper's preset browser, only sent without the
             // host's browser (which Bitwig always reports)
             case "preset" ->
@@ -1420,6 +1420,12 @@ public final class CommandHandler
         {
             if (!this.handleParameter (this.model.pages, parts, value))
                 this.unhandled.accept ("device " + command);
+            return;
+        }
+        // layer/<index>/...: the layers of the cursor device, as for the specific devices
+        if (parts.length == 3 && "layer".equals (parts[0]))
+        {
+            this.handleSpecific (this.model.cursorDeviceLayers, "device", command, value, null);
             return;
         }
         // sibling/<index+1>/bypass|remove|duplicate|select: the sibling of the window (DeviceImpl)
@@ -1519,6 +1525,7 @@ public final class CommandHandler
         {
             case "window/toggle" -> device.isWindowOpen ().toggle ();
             case "expand/toggle" -> device.isExpanded ().toggle ();
+            case "parameters/toggle" -> device.isRemoteControlsSectionVisible ().toggle ();
             case "bypass" -> device.isEnabled ().toggle ();
             case "remove" -> device.deleteObject ();
             case "duplicate" -> device.afterDeviceInsertionPoint ().copyDevices (device);
