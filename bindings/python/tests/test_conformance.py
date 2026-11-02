@@ -129,7 +129,8 @@ class StateViewTest(unittest.TestCase):
         self.assertTrue(all(is_modelled(key) for key in state))
 
     def test_is_modelled(self):
-        for key in ("osc:/track/3/selected", "osc:/track/selected/recarm", "osc:/device/page/2/selected", "osc:/device/page/1/", "osc:/click", "osc:/track/1/send/8/volumeStr"):
+        for key in ("osc:/track/3/selected", "osc:/track/selected/recarm", "osc:/device/page/2/selected", "osc:/device/page/1/", "osc:/click", "osc:/track/1/send/8/volumeStr",
+                    "osc:/eq/type/8/value", "osc:/eq/freq/1/valueStr", "osc:/eq/parameters"):
             self.assertTrue(is_modelled(key), key)
         for key in ("osc:/track/selected/selected", "osc:/device/param/1/value", "osc:/track/1/vu", "osc:/clip/exists", "probe:/track/1/name", "osc:/track/0/name"):
             self.assertFalse(is_modelled(key), key)
@@ -147,6 +148,16 @@ class StateViewTest(unittest.TestCase):
         o.daw.tracks[2].select()
         self.assertEqual(o.state("/track/1/name"), "Synth")
         self.assertEqual(o.state("/track/3/recarm"), "1", "An instrument track is auto-armed")
+
+    def test_the_eq_of_the_fixture(self):
+        """The EQ+ of track EQ as the observer of the Java runs reported it."""
+        o = Observer()
+        self.assertEqual((o.state("/eq/exists"), o.state("/eq/bypass"), o.state("/eq/type/1/value"), o.state("/eq/gain/1/valueStr")), ("0", "1", "off", ""))
+        o.run("/track/4/select 1")
+        self.assertEqual((o.state("/eq/exists"), o.state("/eq/name"), o.state("/eq/expand"), o.state("/eq/parameters")), ("1", "EQ+", "1", "0"))
+        self.assertEqual([o.state(f"/eq/freq/{n}/value") for n in range(1, 9)], ["25", "38", "51", "64", "76", "89", "102", "114"])
+        self.assertEqual((o.state("/eq/freq/5/valueStr"), o.state("/eq/gain/2/valueStr"), o.state("/eq/q/3/valueStr")), ("1.28 kHz", "0.0 dB", "1.00"))
+        self.assertEqual(o.state("/eq/q/8/name"), "Band 8 Q")
 
 
 class ReferenceTest(unittest.TestCase):

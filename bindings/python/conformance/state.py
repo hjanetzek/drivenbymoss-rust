@@ -24,8 +24,8 @@ Value formats (``AbstractOpenSoundControlWriter``, ``osc_monitor.parse_message``
 
 Modelled (step 3 of PYTHON_HOST_PLAN.md §5): the transport switches and the tempo, the tracks of
 the bank with sends and slots, the cursor track (``/track/selected``), the master, the scenes,
-the cursor device and the first instrument with their siblings and pages. Not modelled yet:
-device parameters, layers, drum pads, the EQ, the clip and its steps, markers, the project and
+the cursor device and the first instrument with their siblings and pages, the EQ+. Not
+modelled yet: device parameters, layers, drum pads, the clip and its steps, markers, the project and
 track remote controls, the browser, the layout and panels, the crossfader, the playing notes,
 the ``/conformance`` values, ``/vkb_midi``, VU meters (ignored by the comparison anyway).
 
@@ -44,6 +44,7 @@ import struct
 from collections.abc import Callable
 
 from dbm_host import SimDaw
+from dbm_host.device import EQ_NUM_BANDS
 from dbm_host.model import Channel, MasterTrack, Track
 
 PAGE_SIZE = 8
@@ -68,6 +69,7 @@ MODELLED = [
     rf"/scene/{_N}/(exists|name|color|selected)",
     rf"/(device|primary)/{_DEVICE}",
     rf"/device/sibling/{_N}/(exists|name|selected|bypass)",
+    rf"/eq/(exists|name|bypass|expand|parameters|window|type/{_N}/value|(gain|freq|q)/{_N}/(exists|name|value|valueStr|modulatedValue))",
 ]
 _MODELLED = re.compile("|".join(f"(?:{pattern})" for pattern in MODELLED))
 
@@ -191,6 +193,7 @@ class OscController:
         self._scenes(put)
         self._device(put, "/device/", self.daw.cursor_device, siblings=True)
         self._device(put, "/primary/", self.daw.primary_device, siblings=False)
+        self._equalizer(put)
         return state
 
     def _position(self, channel: Channel | None) -> int:
@@ -309,6 +312,31 @@ class OscController:
             put(page_prefix + "name", name)
             put(page_prefix + "selected", flag(selected == number - 1))
         put(prefix + "page/selected/name", device.selected_page_name if exists else "")
+
+    def _equalizer(self, put) -> None:
+        """DeviceModule.flushDevice for ``/eq/`` (the first EQ+ of the cursor track,
+        EqualizerDeviceImpl): the device, the type of each band (EqualizerBandType, lower case)
+        and its gain, frequency and Q (flushParameterData). Without an EQ+ the parameters are
+        empty and the types ``off``, as the Java traces show."""
+        device = self.daw.eq_device
+        exists = device is not None
+        put("/eq/exists", flag(exists))
+        put("/eq/name", device.name if exists else "")
+        put("/eq/bypass", flag(not (exists and device.enabled)))
+        put("/eq/expand", flag(exists and device.expanded))
+        put("/eq/parameters", flag(exists and device.parameters_visible))
+        put("/eq/window", flag(exists and device.window_open))
+        for band in range(EQ_NUM_BANDS):
+            number = band + 1
+            put(f"/eq/type/{number}/value", device.equalizer.types[band] if exists else "off")
+            for kind, parameters in (("gain", "gains"), ("freq", "frequencies"), ("q", "qs")):
+                parameter = getattr(device.equalizer, parameters)[band] if exists else None
+                prefix = f"/eq/{kind}/{number}/"
+                put(prefix + "exists", flag(parameter is not None))
+                put(prefix + "name", parameter.name if parameter is not None else "")
+                put(prefix + "value", value127(parameter.value) if parameter is not None else "0")
+                put(prefix + "valueStr", parameter.displayed() if parameter is not None else "")
+                put(prefix + "modulatedValue", value127(parameter.value) if parameter is not None else "0")
 
 
 __all__ = ["MODELLED", "OscController", "PAGE_SIZE", "is_modelled", "number", "rgb", "value127"]

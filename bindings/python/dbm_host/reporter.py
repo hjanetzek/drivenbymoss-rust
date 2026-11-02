@@ -7,11 +7,12 @@ request, ``/host/features``.
 Implements HOST_BRIDGE_GUIDE.md §2 (the reporting protocol: lines and values, change-only
 reporting and dumps, the host features) with the addresses of §3.1 (transport), §3.3 (tracks,
 sends, effect tracks, master), §3.4 (scenes, slots) and §3.5 (the cursor device and the first
-instrument: name, state, siblings, remote-control pages).
+instrument: name, state, siblings, remote-control pages; the EQ+), the note repeat.
 
 Simulates the Bitwig extension of this repository: ``ModelReporter`` (the change tracking) and
 ``BitwigModel.collect`` (collectTransport, collectTracks, collectSlots, collectEffectTracks,
-collectScenes, collectMaster, collectDevice, ``SpecificDevice.collect``), which follow the Java ``TransportImpl``, ``TrackImpl``,
+collectScenes, collectMaster, collectDevice, ``SpecificDevice.collect``, collectNoteRepeat,
+``EqualizerDevice.collect``), which follow the Java ``TransportImpl``, ``TrackImpl``,
 ``ChannelImpl``, ``SendImpl``, ``SlotImpl``, ``SceneImpl`` of DrivenByMoss for Bitwig.
 
 Differences from the Bitwig extension:
@@ -23,14 +24,14 @@ Differences from the Bitwig extension:
   select, in one batch).
 - Not reported yet (later steps): the application (except undo/redo), arranger, mixer and
   project flags, the crossfader, groove, device parameters (the pages are reported, their
-  parameters do not exist), layers, drum pads (``hasDrumPads`` and ``hasLayers`` are 0), the EQ,
-  the drum machine, the clip and its step grids, markers, the browser, note repeat, playing
-  notes. They are added as collectors (``Reporter.collectors``).
+  parameters do not exist), layers, drum pads (``hasDrumPads`` and ``hasLayers`` are 0),
+  the drum machine, the clip and its step grids, markers, the browser, playing notes. They are added as collectors (``Reporter.collectors``).
 """
 
 from typing import Callable
 
 from .banks import Banks
+from .device import EQ_NUM_BANDS
 from .model import PREROLLS, Channel, SimDaw
 from .parameter import Parameter
 
@@ -112,7 +113,9 @@ class Reporter:
             Reporter.collect_scenes,
             Reporter.collect_master,
             Reporter.collect_device,
+            Reporter.collect_note_repeat,
             Reporter.collect_primary,
+            Reporter.collect_eq,
         ]
 
     # Change tracking (ModelReporter)
@@ -334,6 +337,21 @@ class Reporter:
         self.collect_vu("/master/", master)
         self.collect_channel("/master/", master)
 
+    def collect_note_repeat(self) -> None:
+        """BitwigModel.collectNoteRepeat: the arpeggiator of the default note input (nothing
+        without one); ``period`` is the inverse of the rate in beats, ``mode`` the index of the
+        core's modes."""
+        note_input = self.daw.note_input
+        if note_input is None:
+            return
+        arpeggiator = note_input.arpeggiator
+        self.put("/noterepeat/active", arpeggiator.enabled)
+        if arpeggiator.rate > 0:
+            self.put("/noterepeat/period", 1.0 / arpeggiator.rate)
+        self.put("/noterepeat/notelength", float(arpeggiator.gate_length))
+        self.put("/noterepeat/mode", arpeggiator.mode_index)
+        self.put("/noterepeat/velocity", arpeggiator.use_pressure_to_velocity)
+
     # Devices (BitwigModel.collectDevice, SpecificDevice.collect)
 
     def num_param_pages(self) -> int:
@@ -342,14 +360,16 @@ class Reporter:
     def collect_pages(self, prefix: str, device) -> None:
         """BitwigModel.collectPages and the page names: the parameters of the first
         ``numParamPages`` pages as one flat list, the page names, the selected page. The
-        simulated devices have no parameters yet (see the module docstring)."""
+        simulated parameters have no names and texts yet (device.py); the value of a parameter
+        which a command set is reported."""
         num_pages = self.num_param_pages()
         pages = device.pages if device is not None else []
         used = min(len(pages), num_pages)
         for index in range(num_pages * PARAMS_PER_PAGE):
             param = f"{prefix}/param/{index}/"
+            parameter = device.parameters.get(index) if device is not None and index < used * PARAMS_PER_PAGE else None
             self.put(param + "name", "")
-            self.put(param + "value", 0)
+            self.put(param + "value", parameter.value if parameter is not None else 0)
             self.put_displayed(param + "value/str", "", ["", ""])
             self.put(param + "steps", -1)
             self.put(param + "modulated", 0)
@@ -403,6 +423,35 @@ class Reporter:
         self.put("/primary/hasDrumPads", False)
         self.put("/primary/hasLayers", False)
         self.collect_pages("/primary", device)
+
+    def collect_eq(self) -> None:
+        """EqualizerDevice.collect of the Bitwig extension: the first EQ+ of the cursor track in
+        the layout of the Reaper EQ (``/eq/param/<3 * band + 0|1|2>/…``: frequency, gain, Q;
+        ``/eq/band/<band>/value``: the type as the index of the Reaper EQ), if the controller
+        asks for it (``deviceIds``)."""
+        if "EQ" not in self.banks.setup.get("deviceIds", []):
+            return
+        device = self.daw.eq_device
+        exists = device is not None
+        self.put("/eq/exists", exists)
+        self.put("/eq/name", device.name if exists else "")
+        self.put("/eq/bypass", exists and not device.enabled)
+        self.put("/eq/window", exists and device.window_open)
+        self.put("/eq/expand", exists and device.expanded)
+        for index in range(3 * EQ_NUM_BANDS):
+            parameter = device.equalizer.parameter(index) if exists else None
+            prefix = f"/eq/param/{index}/"
+            self.put(prefix + "name", parameter.name if parameter is not None else "")
+            self.put(prefix + "value", parameter.value if parameter is not None else 0)
+            if parameter is not None:
+                self.put_parameter_text(prefix + "value/str", parameter)
+            else:
+                self.put_displayed(prefix + "value/str", "", ["", ""])
+            self.put(prefix + "steps", -1)
+            self.put(prefix + "modulated", parameter.value if parameter is not None else 0)
+        self.put("/eq/param/count", 3 * EQ_NUM_BANDS if exists else 0)
+        for band in range(EQ_NUM_BANDS):
+            self.put(f"/eq/band/{band}/value", device.equalizer.reaper_type(band) if exists else -1)
 
 
 __all__ = ["LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]

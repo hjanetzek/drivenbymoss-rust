@@ -21,6 +21,8 @@ Extension points for the later steps (PYTHON_HOST_PLAN.md §5):
 - ``Slot.clip``: the clip of a slot (note grid, loop, play range), for ``/clip``.
 - ``SimDaw.markers``, ``SimDaw.browser``, ``SimDaw.project``, ``SimDaw.groove``: not modelled
   yet (None or empty); ``Application`` has only undo and redo.
+- ``SimDaw.note_input``: the default note input of the controller with its arpeggiator (the note
+  repeat).
 - ``SimDaw.add_time_listener``: called by ``advance`` with the elapsed time, e.g. for the VU and
   the playing notes.
 
@@ -253,6 +255,58 @@ class Application:
 
     def redo(self) -> None:
         self.redos += 1
+
+
+# ---------------------------------------------------------------------------------------------
+# Note inputs and note repeat
+
+
+# The arpeggiator modes by the index of the core's mode (BitwigModel.ARPEGGIATOR_MODES: Down, Up,
+# Down-Up, Up-Down)
+ARPEGGIATOR_MODES = ("down", "up", "down-up", "up-down")
+
+
+class Arpeggiator:
+    """The arpeggiator of a note input, which Bitwig uses as note repeat (Bitwig ``Arpeggiator``,
+    NoteRepeatImpl of the Java version, the note repeat of the Bitwig extension).
+
+    The values are Bitwig's: ``rate`` is the period in beats, ``gate_length`` the note length as
+    the core sends it, ``mode`` the name of the mode. The arpeggiator only holds the values; the
+    simulation plays no notes.
+
+    The defaults are what Bitwig reported for a new note input in all recorded sessions
+    (``tests/conformance/*/replay/*-rust.rec``, the first ``/noterepeat/*`` model lines: active 0,
+    period 4.0, i.e. a rate of 1/4 beat, notelength 0.5, mode 1 = up, velocity 1); Bitwig does
+    not document them. Bitwig's ranges of rate and gate length are not known: the values are
+    taken as they are.
+    """
+
+    def __init__(self):
+        self.enabled = False
+        self.rate = 0.25
+        self.gate_length = 0.5
+        self.mode = "up"
+        self.use_pressure_to_velocity = True
+
+    @property
+    def mode_index(self) -> int:
+        """The index of the core's mode (BitwigModel.collectNoteRepeat: 0 for an unknown mode)."""
+        return ARPEGGIATOR_MODES.index(self.mode) if self.mode in ARPEGGIATOR_MODES else 0
+
+    def set_mode_index(self, index: int) -> None:
+        """Ignored out of the range (CommandHandler.handleNoteRepeat)."""
+        if 0 <= index < len(ARPEGGIATOR_MODES):
+            self.mode = ARPEGGIATOR_MODES[index]
+
+
+class NoteInput:
+    """A note input of the controller's MIDI input (Bitwig ``NoteInput``, created by
+    ``MidiIn.createNoteInput``). Only its arpeggiator is simulated; the MIDI the core plays is
+    kept by the bridge."""
+
+    def __init__(self, name: str = ""):
+        self.name = name
+        self.arpeggiator = Arpeggiator()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -573,6 +627,9 @@ class SimDaw:
     cursor: CursorTrack = field(default_factory=CursorTrack)
     time_ms: float = 0.0
     """The simulated time, moved by advance."""
+    note_input: NoteInput | None = None
+    """The default note input of the controller (the first one the core creates); its
+    arpeggiator is the note repeat. None until the core creates one."""
     # Not modelled yet (later steps)
     markers: list = field(default_factory=list)
     browser: object = None
@@ -714,6 +771,13 @@ class SimDaw:
         return channel.devices.first_instrument() if channel is not None else None
 
     @property
+    def eq_device(self):
+        """The first EQ+ of the cursor track (DeviceID.EQ, EqualizerDeviceImpl); None without
+        one."""
+        channel = self.cursor_channel
+        return channel.devices.first_equalizer() if channel is not None else None
+
+    @property
     def cursor_channel(self) -> Channel | None:
         """The cursor track: the pinned channel, else the selected one."""
         if self.cursor.pinned and self.cursor.pinned_channel is not None:
@@ -741,6 +805,14 @@ class SimDaw:
             self.cursor.pinned_channel = track_list[index]
         else:
             track_list[index].select()
+
+    # Note inputs
+
+    def create_note_input(self, name: str = "") -> NoteInput:
+        """``MidiIn.createNoteInput``: a new note input with a new arpeggiator (its defaults, see
+        Arpeggiator); it becomes the default note input."""
+        self.note_input = NoteInput(name)
+        return self.note_input
 
     # Scenes
 
@@ -807,11 +879,14 @@ class SimDaw:
 
 
 __all__ = [
+    "ARPEGGIATOR_MODES",
     "AUTOMATION_MODES",
     "Application",
+    "Arpeggiator",
     "Channel",
     "CursorTrack",
     "MasterTrack",
+    "NoteInput",
     "PREROLLS",
     "Scene",
     "Send",

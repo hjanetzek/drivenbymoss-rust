@@ -19,6 +19,7 @@ describe the project, not a behaviour.
 | Tempo | 110 BPM | ``osc:/tempo/raw`` |
 | Arranger overdub | on | ``osc:/overdub`` |
 | Devices and their pages | ``DEVICES`` | ``osc:/device/…``, ``osc:/primary/…`` per selected track |
+| The bands of the EQ+ | ``dbm_host.device.Equalizer`` | ``osc:/eq/…`` (track EQ selected) |
 | The colors of FX 1 and FX 2 | not observed (the OSC track bank has no effect tracks); gray | |
 
 The preferences of Bitwig in the profiles (``Setup.preferences``; Bitwig's preferences file is
@@ -42,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dbm_host import TAKEOVER_CATCH, TAKEOVER_IMMEDIATE, Preferences, SimDaw
-from dbm_host.device import AUDIO_FX, INSTRUMENT, Device
+from dbm_host.device import AUDIO_FX, EQ_PLUS, EQ_PLUS_PAGES, INSTRUMENT, Device, Equalizer
 
 TRACKS = [
     ("Synth", "INSTRUMENT"),
@@ -63,7 +64,7 @@ DEVICES = {
     "Synth": [("Polysynth", INSTRUMENT, ["OSC1", "OSC2", "MIX", "FILTER", "FILTER/EG", "AMP", "Envelope", "Common"])],
     "Drums": [("Drum Machine", INSTRUMENT, ["Perform", "Default"])],
     "Layers": [("Instrument Layer", INSTRUMENT, ["Gain", "Common"])],
-    "EQ": [("EQ+", AUDIO_FX, ["Gains", "Freqs", "Qs"])],
+    "EQ": [(EQ_PLUS, AUDIO_FX, list(EQ_PLUS_PAGES))],
 }
 
 
@@ -76,7 +77,8 @@ def build_fixture(preferences: Preferences | None = None) -> SimDaw:
         track = daw.add_track(track_type, name, color)
         track.volume.value = TRACK_VOLUME
         for device_name, kind, pages in DEVICES.get(name, []):
-            track.devices.add(Device(device_name, kind, list(pages)))
+            equalizer = Equalizer(daw.preferences) if device_name == EQ_PLUS else None
+            track.devices.add(Device(device_name, kind, list(pages), equalizer=equalizer))
     for _ in range(NUM_SCENES):
         daw.add_scene()
     for track in daw.tracks[:2]:

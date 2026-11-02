@@ -4,22 +4,23 @@
 """Executes the commands of the core (processor, command, value) on the simulated DAW.
 
 Implements HOST_BRIDGE_GUIDE.md §4 (the command reference, core -> host): 4.1 the value command
-suffixes, 4.2 transport, the ``refresh`` and ``bank`` commands of 4.3, 4.4 tracks and master
-(and the effect tracks of §3.3), 4.5 slots and scenes, ``parameterPage`` of 4.6; the processors as BACKEND_PROTOCOL.md §2.
+suffixes, 4.2 transport and ``noterepeat``, the ``refresh`` and ``bank`` commands of 4.3, 4.4
+tracks and master (and the effect tracks of §3.3), 4.5 slots and scenes, of 4.6
+``parameterPage``, ``param/<n>/…`` and ``eq``; ``navigator`` (§2, the host feature
+clipLauncherNavigator, ``navigator.py``); the processors as BACKEND_PROTOCOL.md §2.
 
 Simulates the command handling of the Bitwig extension (``CommandHandler``, ``DbmExtension.
 unhandled``), which calls the Bitwig API as the Java DrivenByMoss for Bitwig does
 (``TransportImpl``, ``ChannelImpl``, ``TrackImpl``, ``SendImpl``, ``SlotImpl``, ``SceneImpl``,
-``CursorTrackImpl``, ``AbstractTrackBankImpl``).
+``CursorTrackImpl``, ``AbstractTrackBankImpl``, ``NoteRepeatImpl``, ``EqualizerDeviceImpl``).
 
 Dispatch: one handler per processor (``CommandHandler.register``). A handler gets a parsed
 ``Command`` and returns False if it does not know the command; the command is then logged once
 as ``Not handled yet: <processor> <command>`` (digits replaced by ``<n>``, as the Bitwig
 extension) and kept in ``unhandled``. Each handler declares the host features
 (HOST_BRIDGE_GUIDE.md §2) it implements; ``host_features`` is reported as ``/host/features``.
-The later steps extend ``device`` and ``primary`` and register the processors ``drum``, ``eq``,
-``clip``, ``marker``, ``browser``, ``application``, ``arranger``, ``mixer``, ``project``,
-``groove``, ``noterepeat``, ``navigator``, ``undo``, ``redo``, ... the same way.
+The later steps extend ``device`` and ``primary`` and register the processors ``drum``, ``clip``, ``marker``, ``browser``, ``application``, ``arranger``, ``mixer``, ``project``,
+``groove``, ``undo``, ``redo``, ... the same way.
 """
 
 import logging
@@ -28,7 +29,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .banks import Banks
+from .device import EQ_NUM_BANDS, PARAMS_PER_PAGE, eq_plus
 from .model import PREROLLS, Channel, SimDaw, Track, color_from_command
+from .navigator import ClipLauncherNavigator
 from .parameter import Parameter
 from .reporter import Reporter
 
@@ -119,6 +122,8 @@ class CommandHandler:
         self.log: list[Command] = []
         """All commands, in order (for tests and the conformance runner)."""
         self._unhandled_keys: set[str] = set()
+        self.navigator: ClipLauncherNavigator | None = None
+        """The clip launcher navigator, if the controller wants it (``configure``)."""
 
         self.register("refresh", self._refresh)
         self.register("bank", self._bank)
@@ -132,6 +137,15 @@ class CommandHandler:
         self.register("action", self._action)
         self.register("device", self._device)
         self.register("primary", self._device)
+        self.register("noterepeat", self._note_repeat)
+        self.register("eq", self._equalizer)
+        self.register("navigator", self._navigator, ("clipLauncherNavigator",))
+
+    def configure(self) -> None:
+        """Create the objects which depend on the model setup of the controller (after
+        ``Banks.configure``): the clip launcher navigator (BitwigModel: only if the model setup
+        has ``wantsClipLauncherNavigator``)."""
+        self.navigator = ClipLauncherNavigator(self.daw, self.banks) if self.banks.wants_clip_launcher_navigator else None
 
     def register(self, processor: str, handler: Handler, features: tuple[str, ...] = ()) -> None:
         """Handle the commands of a processor; the handler implements the given host features."""
@@ -177,6 +191,8 @@ class CommandHandler:
             self.reporter.forget_later("/master/")
         elif cmd.processor in ("track", "fxtrack") and parts and parse_index(parts[0]) >= 0:
             self.reporter.forget_later(f"/{cmd.processor}/{parts[0]}/")
+        elif cmd.processor in ("device", "primary", "drum", "eq", "project") and len(parts) >= 2 and parts[0] in ("param", "pad", "layer"):
+            self.reporter.forget_later(f"/{cmd.processor}/{parts[0]}/{parts[1]}/")
 
     # Values
 
@@ -320,18 +336,144 @@ class CommandHandler:
         the Java version."""
         return True
 
+    # The clip launcher navigator
+
+    def _navigator(self, cmd: Command) -> bool:
+        """``navigator selectTrack|tracks/-|+|clips/-|+|scenes/-|+`` (CommandHandler.
+        handleNavigator: unhandled without a navigator)."""
+        return self.navigator is not None and self.navigator.handle(cmd.command, cmd.number)
+
+    # Note repeat
+
+    def _note_repeat(self, cmd: Command) -> bool:
+        """``noterepeat active|rate|notelength|mode|velocity`` on the arpeggiator of the default
+        note input (CommandHandler.handleNoteRepeat of the Bitwig extension). Without a note input
+        the commands are ignored, as there."""
+        note_input = self.daw.note_input
+        if note_input is None:
+            return True
+        arpeggiator = note_input.arpeggiator
+        c = cmd.command
+        if c == "active":
+            arpeggiator.enabled = cmd.flag
+        elif c == "rate":
+            # The core sends the inverse of the period in beats
+            if cmd.number > 0:
+                arpeggiator.rate = 1.0 / cmd.number
+        elif c == "notelength":
+            arpeggiator.gate_length = cmd.number
+        elif c == "mode":
+            arpeggiator.set_mode_index(int(cmd.number))
+        elif c == "velocity":
+            arpeggiator.use_pressure_to_velocity = cmd.flag
+        else:
+            return False
+        return True
+
     # Devices
 
     def _device(self, cmd: Command) -> bool:
         """``device|primary parameterPage <page>``: show the page in the DAW (CommandHandler.
-        handleDevice / handleSpecific: ``selectedPageIndex.set``, clamped). The other device
-        commands come with step 4 (PYTHON_HOST_PLAN.md §5)."""
+        handleDevice / handleSpecific: ``selectedPageIndex.set``, clamped);
+        ``param/<index>/…`` (parameter_command). The other device commands come with step 4
+        (PYTHON_HOST_PLAN.md §5)."""
         device = self.daw.cursor_device if cmd.processor == "device" else self.daw.primary_device
+        parts = cmd.parts
         if cmd.command == "parameterPage":
             if device is not None and device.pages:
                 device.select_page(max(0, min(int(cmd.number), len(device.pages) - 1)))
             return True
+        if len(parts) == 3 and parts[0] == "param":
+            return self.parameter_command(device, parts, cmd)
         return False
+
+    def wants_device(self, device_id: str) -> bool:
+        """The controller asks for the specific device (``deviceIds`` of the model setup)."""
+        return device_id in self.banks.setup.get("deviceIds", [])
+
+    def own_device_command(self, device, command: str) -> bool:
+        """The commands of a device on the device itself (CommandHandler.handleOwnDevice):
+        ``window/toggle``, ``expand/toggle``, ``parameters/toggle``, ``bypass`` (a toggle),
+        ``remove``, ``duplicate``, ``select``; False if unknown. Nothing happens without the
+        device (Bitwig ignores the commands of a device which does not exist)."""
+        if command not in ("window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select"):
+            return False
+        if device is None:
+            return True
+        chain = next((channel.devices for channel in self.daw.all_channels() if device in channel.devices.devices), None)
+        if command == "window/toggle":
+            device.window_open = not device.window_open
+        elif command == "expand/toggle":
+            device.expanded = not device.expanded
+        elif command == "parameters/toggle":
+            device.parameters_visible = not device.parameters_visible
+        elif command == "bypass":
+            device.enabled = not device.enabled
+        elif chain is not None and command == "remove":
+            chain.remove(device)
+        elif chain is not None and command == "duplicate":
+            chain.duplicate(device)
+        elif chain is not None and command == "select":
+            chain.select(device)
+        return True
+
+    def _equalizer(self, cmd: Command) -> bool:
+        """``eq …``: the first EQ+ of the cursor track in the layout of the Reaper EQ
+        (CommandHandler.handleEqualizer of the Bitwig extension): ``add``, ``window``,
+        ``expand``, the commands of the device itself, ``band/<band> <Reaper type>`` (text),
+        ``param/<index>/value|touch|indicate``. Unhandled if the controller did not ask for the EQ
+        (``deviceIds``).
+
+        ``add`` inserts a new EQ+ at the end of the chain of the cursor track
+        (``endOfDeviceChainInsertionPoint ().insertBitwigDevice``); the device selection stays
+        (whether Bitwig selects the new device was not observed)."""
+        if not self.wants_device("EQ"):
+            return False
+        device = self.daw.eq_device
+        c = cmd.command
+        parts = cmd.parts
+        if c == "add":
+            channel = self.daw.cursor_channel
+            if channel is not None:
+                channel.devices.add(eq_plus(self.daw.preferences))
+        elif c in ("window", "expand"):
+            if device is not None:
+                setattr(device, "window_open" if c == "window" else "expanded", cmd.flag)
+        elif self.own_device_command(device, c):
+            pass
+        elif len(parts) == 2 and parts[0] == "band" and cmd.text is not None:
+            try:
+                reaper_type = int(cmd.text.strip())
+            except ValueError:
+                return False
+            if device is None:
+                return True
+            return device.equalizer.set_reaper_type(parse_index(parts[1]), reaper_type)
+        elif len(parts) == 3 and parts[0] == "param":
+            if parts[2] not in ("value", "touch", "indicate"):
+                return False
+            parameter = device.equalizer.parameter(parse_index(parts[1])) if device is not None else None
+            if parameter is None:
+                # BitwigModel: an index out of the range is unknown, a parameter of a device
+                # which does not exist ignores the command
+                return device is None and 0 <= parse_index(parts[1]) < 3 * EQ_NUM_BANDS
+            self.value_command(parameter, [] if parts[2] == "value" else [parts[2]], cmd)
+        else:
+            return False
+        return True
+
+    def parameter_command(self, device, parts: list[str], cmd: Command) -> bool:
+        """``param/<index>/value|touch|indicate`` on the flat parameter list of the page cursors
+        (CommandHandler.handleParameter): an index beyond the ``numParamPages`` page cursors or of
+        a page the device does not have is ignored."""
+        index = parse_index(parts[1])
+        if parts[2] not in ("value", "touch", "indicate"):
+            return False
+        num_pages = max(0, int(self.banks.setup.get("numParamPages", 8)))
+        parameter = device.parameter(index, self.daw.preferences) if device is not None and 0 <= index < num_pages * PARAMS_PER_PAGE else None
+        if parameter is not None:
+            self.value_command(parameter, [] if parts[2] == "value" else [parts[2]], cmd)
+        return True
 
     # Tracks
 

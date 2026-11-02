@@ -63,6 +63,7 @@ class Bridge(drivenbymoss.Backend):
         self.played_notes: list[tuple[int, int, int]] = []
         """The MIDI the core played into the DAW (process_midi_arg)."""
         self.note_inputs: dict[int, dict] = {}
+        self._initializing = False
         self.logs: list[str] = []
         self.notifications: list[str] = []
         self.reports: list[str] = []
@@ -74,8 +75,15 @@ class Bridge(drivenbymoss.Backend):
         """Create the controller, start it, size the banks and send the first (complete) report."""
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
         self.app.set_time(int(self.clock_ms))
-        self.app.start_infrastructure()
+        # The note inputs can only be created while the controller starts (DbmExtension.init)
+        self._initializing = True
+        self.daw.note_input = None
+        try:
+            self.app.start_infrastructure()
+        finally:
+            self._initializing = False
         self.banks.configure(self.app.get_model_setup())
+        self.commands.configure()
         self.app.take_setting_changes()
         self.report()
         return self
@@ -162,7 +170,15 @@ class Bridge(drivenbymoss.Backend):
         self.played_notes.append((status, data1, data2))
 
     def set_note_input_filters(self, device_id: int, note_input_index: int, filters: list[str]) -> None:
+        """Create a note input (DbmExtension.setNoteInputFilters): only while the controller
+        starts, and not without filters (the controller wants no note input, e.g. Generic Flexi
+        without a keyboard channel). The first note input of the device is the default one,
+        whose arpeggiator is the note repeat."""
+        if device_id != DEVICE or not self._initializing or not filters:
+            return
         self.note_inputs.setdefault(note_input_index, {})["filters"] = filters
+        if note_input_index == 0:
+            self.daw.create_note_input("controller")
 
     def set_note_input_key_translation_table(self, device_id: int, note_input_index: int, table: list[int]) -> None:
         self.note_inputs.setdefault(note_input_index, {})["keys"] = table

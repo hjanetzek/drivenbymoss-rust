@@ -19,7 +19,9 @@ cargo build --lib
 python3 -m unittest discover -s bindings/python/tests
 
 echo "--- Conformance on the Python reference host (the files which pass; their *-java.ref.json are committed)"
-(cd bindings/python && python3 -m conformance -q launchcontrol_xl track_mix)
+(cd bindings/python && python3 -m conformance -q launchcontrol_xl track_mix equalizer)
+(cd bindings/python && python3 -m conformance -q maschine_jam global session)
+(cd bindings/python && python3 -m conformance -q generic_flexi function_layers)
 
 echo "--- dbm-nihost"
 cmake -S support/linux/ni_host -B "$BUILD_DIR/ni_host" -D CMAKE_BUILD_TYPE=Release

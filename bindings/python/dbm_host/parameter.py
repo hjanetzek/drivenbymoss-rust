@@ -16,10 +16,12 @@ Simulates the Bitwig API ``Parameter`` / ``SettableRangedValue`` as the Java Dri
 Simplifications (Bitwig details without public documentation):
 
 - The texts follow what Bitwig reported in the recorded sessions
-  (``tests/conformance/*/replay/*.rec``): volumes ``-10.0 dB`` / ``-Inf dB``, panorama ``0.00 %``.
+  (``tests/conformance/*/replay/*.rec``): volumes ``-10.0 dB`` / ``-Inf dB``, panorama ``0.00 %``, ``56.3 %``, ``-100 %``
+  (``format_pan``).
   The volume curve is ``dB = 20 * log10(2 * v**3)`` (0 dB at 0.793701, +6 dB at 1), which gives the
   reported pairs (0.540742 = -10.0 dB, 0.793701 = 0.0 dB). The panorama text is the signed percent
-  of the deviation from the center; only the center was observed.
+  of the deviation from the center with three significant digits (``format_pan`` lists the
+  observed values).
 - ``limit_text`` imitates Bitwig's ``getLimited`` from the observed pairs: up to 6 characters the
   unit of a number is dropped (``0.0 dB`` -> ``0.0``), a text which is no number is cut
   (``-Inf dB`` -> ``-Inf d``).
@@ -66,10 +68,40 @@ def format_volume(value: float) -> str:
     return f"{20.0 * math.log10(2.0 * value ** 3):.1f} dB"
 
 
+def format_three_digits(number: float) -> str:
+    """A number with three significant digits, at most two decimals (``0.79``, ``56.3``,
+    ``-100``, ``1.28``, ``160``). The number of decimals depends on the rounded number:
+    9999.88 Hz is ``10.0 kHz`` (an EQ+ frequency Bitwig showed, ``format_eq_frequency``)."""
+    for decimals in (2, 1):
+        text = f"{number:.{decimals}f}"
+        if abs(float(text)) < 10.0 ** (3 - decimals):
+            return text
+    return f"{number:.0f}"
+
+
 def format_pan(value: float) -> str:
-    """The displayed value of a panorama: the deviation from the center in percent."""
+    """The displayed value of a panorama: the deviation from the center in percent, with three
+    significant digits (``format_three_digits``): ``0.00 %``, ``0.79 %``, ``56.3 %``,
+    ``-100 %``.
+
+    Bitwig does not document the format. The rule fits all values Bitwig showed in the
+    recordings (the ``/…/pan/str`` model lines of ``tests/conformance/*/replay/*-rust.rec`` and
+    ``osc:/…/panStr`` of the Java traces ``target/conformance/*-java.json``, 2026-11-02):
+
+    | value | text |
+    | --- | --- |
+    | 0.0 | ``-100 %`` |
+    | 0.5 | ``0.00 %`` |
+    | 0.503937 (64/127) | ``0.79 %`` |
+    | 0.781298 | ``56.3 %`` |
+
+    The center is ``0.00 %``, never ``-0.00 %``. That the border between two and one decimals
+    is decided on the rounded value is known from the EQ+ frequencies, not from a panorama.
+    """
     percent = (value * 2.0 - 1.0) * 100.0
-    return f"{0.0 if abs(percent) < 0.005 else percent:.2f} %"
+    if abs(percent) < 0.005:
+        return "0.00 %"
+    return format_three_digits(percent) + " %"
 
 
 def format_percent(value: float) -> str:

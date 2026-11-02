@@ -18,7 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dbm_host import TAKEOVER_CATCH, Banks, Bridge, CommandHandler, Device, Parameter, Preferences, Reporter, SimDaw  # noqa: E402
-from dbm_host.parameter import VOLUME_0DB, format_pan, format_volume, limit_text  # noqa: E402
+from dbm_host.device import EQ_PLUS, Equalizer, eq_plus, format_eq_frequency, format_eq_gain, format_eq_q  # noqa: E402
+from dbm_host.parameter import VOLUME_0DB, format_pan, format_three_digits, format_volume, limit_text  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
 
 LAUNCH_CONTROL_XL = "5AFA5045-FF92-4737-A091-5B371CD5E529"
@@ -46,6 +47,7 @@ class Host:
         self.banks = Banks.from_model_setup(setup or {"numTracks": 8, "numSends": 2, "numScenes": 8, "hasFullFlatTrackList": True})
         self.reporter = Reporter(self.daw, self.banks, clock=lambda: self.clock)
         self.commands = CommandHandler(self.daw, self.banks, self.reporter, clock=lambda: self.clock)
+        self.commands.configure()
         self.reporter.features = self.commands.host_features
 
     def report(self) -> dict[str, str]:
@@ -91,6 +93,14 @@ class ParameterTest(unittest.TestCase):
         self.assertEqual(format_volume(0.793701), "0.0 dB")
         self.assertEqual(format_volume(0), "-Inf dB")
         self.assertEqual(format_pan(0.5), "0.00 %")
+        self.assertEqual(format_pan(0.0), "-100 %")
+        self.assertEqual(format_pan(0.503937), "0.79 %")
+        self.assertEqual(format_pan(0.781298), "56.3 %")
+        self.assertEqual(format_pan(0.4999999), "0.00 %", "Never -0.00 %")
+        self.assertEqual(limit_text("-100 %", 6), "-100")
+        self.assertEqual(limit_text("56.3 %", 8), "56.3 %")
+        self.assertEqual([format_three_digits(n) for n in (0.789, 9.996, 56.26, 99.96, 159.68, -100.0)],
+                         ["0.79", "10.0", "56.3", "100", "160", "-100"], "The decimals of the rounded number")
         self.assertEqual(limit_text("-10.0 dB", 6), "-10.0")
         self.assertEqual(limit_text("-10.0 dB", 8), "-10.0 dB")
         self.assertEqual(limit_text("0.0 dB", 6), "0.0")
@@ -527,13 +537,13 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(host.report()["/track/offset"], "8")
 
         with self.assertLogs("dbm_host", "INFO") as logs:
-            host.commands.handle("device", "param/3/value", 0.5)
-            host.commands.handle("device", "param/4/value", 0.5)
+            host.commands.handle("device", "sibling/3/bypass", 1)
+            host.commands.handle("device", "sibling/4/bypass", 1)
             host.commands.handle("track", "99/mute", 1)
             host.commands.handle("frobnicate", "", None)
-        self.assertEqual(host.commands.unhandled, ["device param/<n>/value", "track <n>/mute", "frobnicate"])
+        self.assertEqual(host.commands.unhandled, ["device sibling/<n>/bypass", "track <n>/mute", "frobnicate"])
         self.assertEqual(len(logs.output), 3, "Each once")
-        self.assertIn("Not handled yet: device param/<n>/value", logs.output[0])
+        self.assertIn("Not handled yet: device sibling/<n>/bypass", logs.output[0])
 
 
 class DeviceAndPreferencesTest(unittest.TestCase):
@@ -586,13 +596,193 @@ class DeviceAndPreferencesTest(unittest.TestCase):
         self.assertEqual(host.commands.unhandled, [])
 
 
+class NoteRepeatTest(unittest.TestCase):
+
+    def test_the_arpeggiator_of_the_note_input(self):
+        host = Host()
+        self.assertNotIn("/noterepeat/active", host.report(), "No note input, nothing reported")
+        host.commands.handle("noterepeat", "active", 1)
+        self.assertEqual(host.commands.unhandled, [], "Ignored without a note input, as the Bitwig extension")
+
+        host.daw.create_note_input()
+        report = host.report()
+        self.assertEqual({k: v for k, v in report.items() if k.startswith("/noterepeat/")},
+                         {"/noterepeat/active": "0", "/noterepeat/period": "4.000000", "/noterepeat/notelength": "0.500000",
+                          "/noterepeat/mode": "1", "/noterepeat/velocity": "1"}, "Bitwig's defaults of the recordings")
+        host.commands.handle("noterepeat", "rate", 8.0)
+        host.commands.handle("noterepeat", "notelength", 0.25)
+        host.commands.handle("noterepeat", "mode", 3)
+        host.commands.handle("noterepeat", "mode", 9)
+        host.commands.handle("noterepeat", "velocity", 0)
+        host.commands.handle("noterepeat", "active", 1)
+        arpeggiator = host.daw.note_input.arpeggiator
+        self.assertEqual((arpeggiator.rate, arpeggiator.mode, arpeggiator.use_pressure_to_velocity), (0.125, "up-down", False), "Mode 9 is ignored")
+        report = host.report()
+        self.assertEqual((report["/noterepeat/period"], report["/noterepeat/notelength"], report["/noterepeat/mode"]), ("8.000000", "0.250000", "3"))
+        self.assertEqual((report["/noterepeat/active"], report["/noterepeat/velocity"]), ("1", "0"))
+        host.commands.handle("noterepeat", "rate", 0.0)
+        self.assertEqual(arpeggiator.rate, 0.125, "A rate of 0 is ignored")
+        host.commands.handle("noterepeat", "shuffle", 1)
+        self.assertEqual(host.commands.unhandled, ["noterepeat shuffle"])
+
+    def test_a_new_note_input_has_the_defaults(self):
+        daw = project()
+        daw.create_note_input().arpeggiator.enabled = True
+        self.assertFalse(daw.create_note_input().arpeggiator.enabled)
+
+
+class DeviceParameterTest(unittest.TestCase):
+
+    def test_parameter_commands(self):
+        daw = project()
+        daw.tracks[0].devices.add(Device("Polysynth", pages=["OSC1", "OSC2"]))
+        host = Host(daw, {"numTracks": 8, "numParamPages": 4})
+        host.report()
+        host.commands.handle("device", "param/9/indicate", 1)
+        host.commands.handle("device", "param/9/touch", 1)
+        host.commands.handle("device", "param/9/value", 0.25)
+        parameter = daw.cursor_device.parameters[9]
+        self.assertEqual((parameter.indicated, parameter.touched, parameter.value), (True, True, 0.25))
+        self.assertEqual(host.report()["/device/param/9/value"], "0.250000")
+        host.commands.handle("device", "param/20/indicate", 1)
+        host.commands.handle("device", "param/40/indicate", 1)
+        self.assertNotIn(20, daw.cursor_device.parameters, "No page 3: ignored")
+        self.assertEqual(host.commands.unhandled, [], "Beyond the page cursors: ignored, as the Bitwig extension")
+        host.commands.handle("device", "param/1/frobnicate", 1)
+        self.assertEqual(host.commands.unhandled, ["device param/<n>/frobnicate"])
+
+
+class NavigatorTest(unittest.TestCase):
+
+    SETUP = {"numTracks": 8, "numScenes": 4, "wantsClipLauncherNavigator": True}
+
+    def test_only_if_the_controller_wants_it(self):
+        host = Host()
+        self.assertNotIn("clipLauncherNavigator", host.commands.host_features())
+        host.commands.handle("navigator", "tracks/+", None)
+        self.assertEqual(host.commands.unhandled, ["navigator tracks/+"])
+        host = Host(setup=self.SETUP)
+        self.assertIn("clipLauncherNavigator", host.commands.host_features())
+
+    def test_select_track_keeps_the_selected_slot(self):
+        daw = project()
+        daw.tracks[1].slots[0].select()
+        host = Host(daw, self.SETUP)
+        host.commands.handle("navigator", "selectTrack", 2)
+        host.commands.handle("track", "2/select", 1)
+        self.assertTrue(daw.tracks[2].selected)
+        self.assertTrue(daw.tracks[1].slots[0].selected, "The slot of the other track stays selected")
+        self.assertEqual(host.commands.navigator.track_position, 2)
+
+    def test_tracks_move_the_slot(self):
+        daw = project()
+        daw.tracks[1].select()
+        daw.tracks[1].slots[0].select()
+        host = Host(daw, self.SETUP)
+        host.commands.handle("navigator", "tracks/+", None)
+        self.assertTrue(daw.tracks[2].selected)
+        self.assertTrue(daw.tracks[2].slots[0].selected)
+        host.commands.handle("navigator", "tracks/-", None)
+        host.commands.handle("navigator", "tracks/-", None)
+        host.commands.handle("navigator", "tracks/-", None)
+        self.assertTrue(daw.tracks[0].selected and daw.tracks[0].slots[0].selected, "Stops at the first track")
+        daw.tracks[3].select()
+        host.commands.handle("navigator", "tracks/+", None)
+        self.assertTrue(daw.tracks[4].selected, "The bank follows the selection")
+
+    def test_clips_and_scenes(self):
+        daw = project()
+        host = Host(daw, self.SETUP)
+        for _ in range(5):
+            host.commands.handle("navigator", "clips/+", None)
+        self.assertTrue(daw.tracks[0].slots[5].selected)
+        self.assertTrue(daw.scenes[5].selected, "The sceneIndex observer selects the scene")
+        self.assertEqual(host.banks.scene_offset, 4, "and scrolls the scene window to its page")
+        daw.scenes[0].select()
+        host.commands.handle("navigator", "scenes/-", None)
+        self.assertTrue(daw.tracks[0].slots[4].selected)
+        self.assertEqual(host.banks.scene_offset, 4)
+        daw.scenes[0].select()
+        daw.advance(90)
+        self.assertTrue(daw.scenes[0].selected)
+        daw.advance(20)
+        self.assertTrue(daw.scenes[4].selected, "Selected 100 ms later")
+        self.assertEqual(host.commands.unhandled, [])
+
+
+class EqualizerTest(unittest.TestCase):
+
+    SETUP = {"numTracks": 8, "deviceIds": ["EQ"]}
+
+    def host(self) -> Host:
+        daw = project()
+        daw.tracks[3].devices.add(eq_plus(daw.preferences))
+        daw.tracks[3].select()
+        return Host(daw, self.SETUP)
+
+    def test_texts(self):
+        # As Bitwig showed them for the fixture's EQ+ (target/conformance/*-java.json)
+        self.assertEqual([format_eq_frequency(v) for v in (0.200630, 0.300738, 0.503937, 0.602061, 0.899655)],
+                         ["80.0 Hz", "160 Hz", "650 Hz", "1.28 kHz", "10.0 kHz"])
+        self.assertEqual((format_eq_gain(0.0), format_eq_gain(0.5), format_eq_q(0.5)), ("-30.0 dB", "0.0 dB", "1.00"))
+        eq = Equalizer(Preferences())
+        self.assertEqual((eq.parameter(0).name, eq.parameter(4).name, eq.parameter(23).name, eq.parameter(24)), ("Band 1 Frequency", "Band 2 Gain", "Band 8 Q", None))
+
+    def test_report(self):
+        host = self.host()
+        report = host.report()
+        self.assertEqual((report["/eq/exists"], report["/eq/name"], report["/eq/param/count"]), ("1", EQ_PLUS, "24"))
+        self.assertEqual((report["/eq/param/0/name"], report["/eq/param/0/value/str"], report["/eq/param/0/value/str/6"]), ("Band 1 Frequency", "80.0 Hz", "80.0"))
+        self.assertEqual((report["/eq/param/1/value"], report["/eq/param/1/value/str"], report["/eq/param/2/value/str"]), ("0.500000", "0.0 dB", "1.00"))
+        self.assertEqual(report["/eq/band/0/value"], "-1", "Off")
+        host.daw.tracks[0].select()
+        host.report()
+        report = host.reporter.snapshot()
+        self.assertEqual((report["/eq/exists"], report["/eq/param/count"], report["/eq/band/0/value"], report["/eq/param/0/name"]), ("0", "0", "-1", ""))
+        self.assertNotIn("/eq/exists", Host(setup={"numTracks": 8}).report(), "Only if the controller asks for it")
+
+    def test_commands(self):
+        host = self.host()
+        eq = host.daw.eq_device.equalizer
+        host.commands.handle("eq", "band/0", "8")
+        host.commands.handle("eq", "band/7", "4")
+        self.assertEqual((eq.types[0], eq.types[7], eq.type_text(0)), ("bell", "lowcut", "Bell"))
+        host.commands.handle("eq", "param/1/value", 0.0)
+        host.commands.handle("eq", "param/3/indicate", 1)
+        self.assertEqual((eq.gains[0].value, eq.frequencies[1].indicated), (0.0, True))
+        report = host.report()
+        self.assertEqual((report["/eq/band/0/value"], report["/eq/band/7/value"], report["/eq/param/1/value/str"]), ("8", "4", "-30.0 dB"))
+        host.commands.handle("eq", "window", 1)
+        host.commands.handle("eq", "bypass", None)
+        self.assertTrue(host.daw.eq_device.window_open and not host.daw.eq_device.enabled)
+        self.assertEqual(host.commands.unhandled, [])
+        host.commands.handle("eq", "band/0", "5")
+        host.commands.handle("eq", "param/24/value", 0.5)
+        self.assertEqual(host.commands.unhandled, ["eq band/<n>", "eq param/<n>/value"], "Unknown type and index")
+
+    def test_add(self):
+        host = self.host()
+        host.daw.tracks[0].select()
+        self.assertIsNone(host.daw.eq_device)
+        host.commands.handle("eq", "param/1/value", 0.0)
+        self.assertEqual(host.commands.unhandled, [], "Ignored without an EQ+")
+        host.commands.handle("eq", "add", None)
+        self.assertEqual(host.daw.eq_device.name, EQ_PLUS)
+        self.assertEqual(host.report()["/eq/exists"], "1")
+        host.commands.handle("eq", "remove", None)
+        self.assertIsNone(host.daw.eq_device)
+        unwanted = Host(setup={"numTracks": 8})
+        unwanted.commands.handle("eq", "add", None)
+        self.assertEqual(unwanted.commands.unhandled, ["eq add"])
+
+
 class LaunchControlXLTest(unittest.TestCase):
     """The Novation Launch Control XL against the simulation, as dbm_create_controller (Bitwig).
     The device answers the template selection (as the stub of tests/conformance/launchcontrol_xl);
     the startup selects the factory template 1 (Track Mix, MIDI channel 9, CC B8, notes 98/88)."""
 
     # The processors which the later steps cover (PYTHON_HOST_PLAN.md §5)
-    LATER_STEPS = {"device", "primary", "drum", "eq", "clip", "browser", "marker", "application", "project", "noterepeat", "groove"}
+    LATER_STEPS = {"device", "primary", "drum", "clip", "browser", "marker", "application", "project", "groove"}
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="dbm-host-test-")
@@ -627,6 +817,8 @@ class LaunchControlXLTest(unittest.TestCase):
         self.assertEqual(self.led(0x98, 0x6A), 0x7F, "The Mute mode of the Track Mix is on")
         setup = bridge.app.get_model_setup()
         self.assertEqual((bridge.banks.num_tracks, bridge.banks.num_sends), (setup["numTracks"], setup["numSends"]))
+        self.assertIsNotNone(daw.note_input, "The core created the note input at the start")
+        self.assertEqual(bridge.reporter.last_values["/noterepeat/period"], "4.000000")
 
         # Fader 1 (CC 0x4D) sets the volume of the first track
         bridge.send([0xB8, 0x4D, 100])
