@@ -7,6 +7,7 @@
 pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;
+pub mod mackie;
 
 use crate::framework::ctx::Ctx;
 
@@ -130,6 +131,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     let mut factories = launchpad::factories();
     factories.extend(maschine::factories());
     factories.extend(launchcontrol::factories());
+    factories.extend(mackie::factories());
     factories
 }
 

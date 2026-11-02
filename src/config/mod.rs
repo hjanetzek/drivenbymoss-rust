@@ -10,6 +10,7 @@ pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;
 pub mod maschine_jam;
+pub mod mcu;
 pub mod properties;
 pub mod reaper;
 pub mod setting;

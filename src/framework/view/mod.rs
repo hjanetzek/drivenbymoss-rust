@@ -17,3 +17,4 @@ pub mod number_display_view;
 pub mod shift_view;
 pub mod drum64_view;
 pub mod deferred;
+pub mod control_only_view;

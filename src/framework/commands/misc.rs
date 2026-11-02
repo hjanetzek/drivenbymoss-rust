@@ -494,8 +494,8 @@ impl FootswitchCommand {
         ctx.config.footswitch(self.index)
     }
 
-    fn handle_view_command(&mut self, ctx: &mut Ctx, event: ButtonEvent) -> bool {
-        match self.setting(ctx) {
+    fn handle_view_command(&mut self, ctx: &mut Ctx, event: ButtonEvent, setting: i32) -> bool {
+        match setting {
             FOOTSWITCH_TOGGLE_PLAY => self.play_command.execute(ctx, event, 127),
             FOOTSWITCH_TOGGLE_RECORD => self.record_command.execute(ctx, event, 127),
             FOOTSWITCH_UNDO => self.undo_command.execute(ctx, event, 127),
@@ -533,11 +533,20 @@ impl FootswitchCommand {
 
 impl TriggerCommand for FootswitchCommand {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, _velocity: i32) {
-        if self.handle_view_command(ctx, event) || event == ButtonEvent::Long {
+        let setting = self.setting(ctx);
+        self.execute_setting(ctx, event, setting);
+    }
+}
+
+impl FootswitchCommand {
+    /// Execute the function with the given index (one of `FOOTSWITCH_VALUES`), for commands which
+    /// read the function from another setting (former overrides of `getSetting`, e.g. the
+    /// assignable buttons of the Mackie MCU/HUI).
+    pub fn execute_setting(&mut self, ctx: &mut Ctx, event: ButtonEvent, setting: i32) {
+        if self.handle_view_command(ctx, event, setting) || event == ButtonEvent::Long {
             return;
         }
         let is_down = event == ButtonEvent::Down;
-        let setting = self.setting(ctx);
         match setting {
             FOOTSWITCH_STOP_ALL_CLIPS => {
                 if is_down {
