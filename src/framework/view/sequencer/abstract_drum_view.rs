@@ -103,6 +103,9 @@ pub struct DrumBase {
     pub ex: Option<DrumExState>,
     /// True for the lane views (former `AbstractDrumLaneView`): the pads never play notes.
     pub lane_mode: bool,
+    /// True to always use `COLOR_PAD_HAS_CONTENT` for drum pads with content, even with DAW
+    /// colors (an override of the former `getPadContentColor`, e.g. the APC mini).
+    pub fixed_pad_content_color: bool,
     follow_selection: bool,
     last_selected_pad: Option<usize>,
     /// True while the view is active; read by the button monitors.
@@ -149,6 +152,7 @@ impl DrumBase {
             button_delete: ButtonId::Delete,
             ex: None,
             lane_mode: false,
+            fixed_pad_content_color: false,
             follow_selection,
             last_selected_pad: None,
             monitor_active: Rc::new(Cell::new(false)),
@@ -521,7 +525,7 @@ impl DrumBase {
             return COLOR_PAD_MUTED;
         }
 
-        if self.seq.use_daw_colors {
+        if self.seq.use_daw_colors && !self.fixed_pad_content_color {
             DawColor::color_id(drum_pad.color())
         } else {
             COLOR_PAD_HAS_CONTENT
