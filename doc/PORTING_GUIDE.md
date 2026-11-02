@@ -1,17 +1,62 @@
 # Porting Guide: remaining DrivenByMoss controllers to Rust
 
-This guide is for agents and developers porting the remaining controllers of DrivenByMoss4Reaper
-from Java to the Rust crate in `rust/`. Read [STATUS.md](STATUS.md) first.
+This guide is for agents and developers who port the remaining DrivenByMoss controllers from Java
+to this crate (the repository root: one crate, no external dependencies). It collects what a port
+needs and points to the documents with the details.
 
-- Java source: `src/main/java/de/mossgrabers/` in the DrivenByMoss4Reaper repository.
+## 0. Start here
+
+**Sources:**
+
+- **Main reference: DrivenByMoss** (the Java version for Bitwig),
+  `~/bastel/github/DrivenByMoss/src/main/java/de/mossgrabers/`.
   - `controller/<vendor>/<device>/`: the device code.
-  - `reaper/controller/<vendor>/<device>/*ControllerInstance.java`: the Reaper glue.
   - `framework/`: the generic code.
-- Rust crate: `rust/`, a single crate with no external dependencies.
-- Reference implementations, simplest first: `src/controller/launchcontrol/` (knobs, faders,
-  several mode managers), `src/controller/launchpad/` (pad grid, many views),
-  `src/controller/maschine/` (text display, emulated blinking, encoder modes, shared setup for
-  several models).
+  - `bitwig/framework/`: the host implementation. It defines how the port behaves, through the
+    model and the Bitwig extension.
+
+  Its branch `conformance-osc` is the one installed for conformance runs.
+- **Addendum: DrivenByMoss4Reaper**, `~/bastel/github/DrivenByMoss4Reaper/src/main/java/de/mossgrabers/`.
+  Use it only for:
+  - `reaper/controller/<vendor>/<device>/*ControllerInstance.java`: the Java class names
+    (`java_class_name()`, the key in `DrivenByMoss4Reaper.config`) and the port names.
+  - `reaper/framework/daw/`: the behaviour without a host feature, i.e. on Reaper.
+  - Reaper-only differences of the controller code.
+- The manual: DrivenByMoss-Documentation. It is the source of the conformance scenarios.
+- Reference ports, simplest first:
+  - `src/controller/launchcontrol/`: knobs, faders, several mode managers.
+  - `src/controller/launchpad/`: pad grid, many views.
+  - `src/controller/maschine/`: text display, emulated blinking, encoder modes, a setup shared
+    by several models.
+  - `src/controller/mackie/`: several surfaces per instance.
+  - `src/controller/akai/fire/`: graphics display.
+  - `src/controller/generic/`: the largest port, with every model and host feature.
+
+**Read, by need:**
+
+| Document | When |
+| --- | --- |
+| [STATUS.md](STATUS.md) | First: what is ported, open issues |
+| [FRAMEWORK_MAP.md](FRAMEWORK_MAP.md) | Before porting: every Java framework class, its Rust counterpart, completeness and divergences |
+| This guide, sections 1-6 | Structure, recipe, conventions, tests |
+| [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md), [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) | When a controller needs a model value or a command the core does not have yet (host → core addresses, core → host commands, host features) |
+| [BITWIG_DIVERGENCES.md](BITWIG_DIVERGENCES.md) | Where the port on Bitwig deliberately differs from the Java Bitwig version; add your own |
+| [UPSTREAM_CANDIDATES.md](UPSTREAM_CANDIDATES.md) | Bugs found in the Java version: keep them in the port, list them here |
+| [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md) | Controllers with extenders or several port pairs |
+| [CONFORMANCE_TESTING_PLAN.md](CONFORMANCE_TESTING_PLAN.md), `tests/conformance/FIXTURE.md`, `tests/conformance/<setup>/CONFORMANCE.md` | Writing conformance scenarios (section 6) |
+| `.claude/skills/conformance-run/SKILL.md` | Running them (Bitwig closed, the `conformance-runner` agent, judging differences) |
+| [UNTESTED_FEATURES.md](UNTESTED_FEATURES.md) | Host functions without a scenario; a new controller which uses one should add the scenario |
+
+**The port runs on two hosts.** It runs in Reaper (C ABI, `backends/reaper`) and in Bitwig (a Java
+extension over FFM, `backends/bitwig`). Port the behaviour of DrivenByMoss. The core was first
+ported from the Reaper version, and some of that remains. Where the hosts differ, the core asks
+the host:
+
+- `HostFeature`, reported by the host with `/host/features`.
+- The model setup (`ModelSetup`, from the controller's `createModel`).
+
+So a controller port usually only needs the Java controller code. The host differences live in
+`src/daw` and the extension.
 
 ## 1. Remaining controllers
 
@@ -140,9 +185,44 @@ configurations working.
 - **Keep Java semantics, including quirks**, unless they are clearly bugs. Document every
   deviation in a comment and in your report. Earlier ports kept, among others, the double-tempo
   long press and the "resolution mode does not mark itself as used" behaviour.
-- **Reaper limitations:** Reaper has no effect track bank, no device layers (layers map to the
+- **Host limitations:** Reaper has no effect track bank, no device layers (layers map to the
   first instrument's drum pads) and only a few note attributes. Mirror what the Java Reaper
-  implementation does, usually nothing.
+  implementation does, usually nothing. On Bitwig the model has all of them: the effect track
+  bank (`model.effect_track_bank()`, `None` on Reaper), the cursor device layers and all note
+  attributes. Port the controller's use of them as in Java; the model decides.
+- **The model setup** (`ModelSetup`, Java `createModel`) must match the Java one field by field:
+  - `num_fx_tracks` (-1 = as many as tracks).
+  - `wants_clip_launcher_navigator`.
+  - `num_device_layers`.
+  - `wants_drum_device`.
+  - `note_clips`: every `getNoteClip (cols, rows)` the controller calls, including 0x0.
+  - The others.
+
+  Bitwig creates only the banks that are requested, at init, and cannot add any later.
+- **Host-specific Java behaviour goes through the host.** The DrivenByMoss class (e.g. the
+  Bitwig `ClipLauncherNavigatorImpl`) is the reference. If the host reports the feature, the core
+  sends a command and the extension does what the Java class does. Otherwise (Reaper) the core
+  keeps the DrivenByMoss4Reaper behaviour. See
+  `framework::clip_launcher_navigator`, `HostFeature::ClipLauncherNavigator`. A new host
+  function means:
+  1. A command in the core (with its processor).
+  2. The handler in `backends/bitwig/.../CommandHandler.java`.
+  3. The report in `BitwigModel.java`.
+  4. A row in HOST_BRIDGE_GUIDE.md.
+  5. A test.
+- **Bitwig extension rules** (`backends/bitwig`):
+  - Every value is `markInterested()` (or observed) in init before `get()`. Otherwise the
+    extension throws at the first report.
+  - Banks are windows whose scroll position updates later, while the core pages at once (it
+    keeps all tracks by absolute position). Commands right after a page change must not depend on
+    Bitwig's scroll position (`BitwigModel.scrollTrackWindow`).
+  - Build and install with `cd backends/bitwig && mvn -o -q install`.
+- **Settings:** activate exactly the settings the Java `init` activates, with the same IDs,
+  categories and order. The host builds its settings UI from them.
+  - Buttons are `SettingKind::Signal`, host actions `SettingKind::Action`.
+  - Visibility and enabled states follow the Java `setVisible` / `setEnabled` calls.
+  - Compare the Bitwig controller settings of the Java and the Rust extension side by side
+    (`tests/generic_flexi_setup.rs` tests the host settings).
 - **No external dependencies** without the project owner's agreement. The C ABI and MIDI go
   through the Reaper backend, so most controllers need none.
 - **Style:** LGPL header in every file (copy from an existing file), snake_case versions of the
@@ -166,6 +246,8 @@ configurations working.
   `cargo clippy --all-targets`, `cargo build --release`) and commits.
 
 ## 5. Framework catalog (what exists)
+
+An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_MAP.md](FRAMEWORK_MAP.md).
 
 ### Core
 
@@ -266,7 +348,8 @@ Events are drained with `take_events()`. The Reaper message parser is in `src/pa
 
 ### Missing generic parts
 
-These are not ported yet; port them when a controller needs them:
+The complete list, class by class and by upcoming controller, is in
+[FRAMEWORK_MAP.md](FRAMEWORK_MAP.md). The larger items, to port when a controller needs them:
 
 - Graphics: the base exists (`framework::graphics`, used by the Fire). Missing: the components
   of the large displays (Channel, Parameter, Sends, Options, Menu, ClipList, SceneList,
@@ -287,8 +370,8 @@ These are not ported yet; port them when a controller needs them:
   its own copies of the relative value changers with the sensitivity and passes them to
   `Parameter::change_value_with`; modes which call `change_value` (e.g. Flexi's "Modes: Item"
   commands) still use the model's value changer without sensitivity.
-- The effect track bank: the model has none (as Reaper), so the Flexi "FX Track" commands do
-  nothing.
+- ~~The effect track bank~~: done. `TrackBank::new_effect_bank` is reported by Bitwig as
+  `/fxtrack/…`; there is none on Reaper.
 
 ## 6. Testing requirements
 
@@ -310,7 +393,16 @@ Every controller needs:
   No panics. This found real bugs in earlier ports.
 - **Before handing back:** `cargo test`, `cargo clippy --all-targets` (0 warnings) and
   `cargo build --release`.
-- **Conformance with the Java version (in progress, see CONFORMANCE_TESTING_PLAN.md):** scenarios
-  from the manual (`tests/conformance/<controller>/*.toml`), run with the Java DrivenByMoss and
-  the port on Bitwig and compared (`conformance_runner.py pair`), recorded runs replayed in
-  `cargo test` (`tests/conformance_replay.rs`).
+- **Conformance with the Java version.** The same MIDI is played into the Java DrivenByMoss and
+  the port on Bitwig, and the LEDs, displays and Bitwig state are compared. The recorded runs are
+  replayed in `cargo test` (`tests/conformance_replay.rs`).
+  - Write scenarios from the manual's bullets: `tests/conformance/<setup>/*.toml`, with
+    `CONFORMANCE.md` per setup and the fixture project in `tests/conformance/FIXTURE.md`.
+    `generic_flexi` is the most complete example.
+  - The user makes the Bitwig profile of a new setup by hand
+    (`backends/bitwig/tools/bitwig_profile.sh save <setup>`).
+  - Runs go through the `conformance-run` skill. Never start or kill Bitwig yourself.
+  - What earlier runs found, besides real port bugs:
+    - Takeover "Catch" in the profile makes absolute values ineffective (use "Immediate").
+    - A behaviour change in one scenario leaves a different start state for the next one.
+    - A rare damaged MIDI message (one rerun clears it).
