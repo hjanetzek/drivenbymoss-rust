@@ -90,6 +90,14 @@ public final class BitwigModel
     final TrackBank          trackBank;
     /** All tracks, without sends and slots, for commands to tracks outside of the window. */
     final TrackBank          largeTrackBank;
+    /**
+     * The offset of the window which the core requested ("bank track") until Bitwig reports it,
+     * -1 if none: the core pages at once and sends the commands of the new page right after, but
+     * Bitwig updates the scroll position later.
+     */
+    private int              requestedTrackOffset = -1;
+    /** When the offset was requested (System.nanoTime), for Bitwig limiting the scroll position. */
+    private long             requestedTrackOffsetTime;
     /** The window of scenes; the slot banks of the window tracks follow it. */
     final SceneBank          sceneBank;
     /** The size of the track window. */
@@ -320,7 +328,10 @@ public final class BitwigModel
         this.mixer.isSendSectionVisible ().markInterested ();
 
         this.trackBank.itemCount ().markInterested ();
-        this.trackBank.scrollPosition ().markInterested ();
+        this.trackBank.scrollPosition ().addValueObserver (offset -> {
+            // Bitwig handled the scroll (possibly limited to the existing tracks)
+            this.requestedTrackOffset = -1;
+        });
         this.cursorTrack.position ().markInterested ();
         this.selectionTrack.position ().markInterested ();
         this.cursorTrack.exists ().markInterested ();
@@ -945,6 +956,23 @@ public final class BitwigModel
 
 
     /**
+     * Scroll the window of tracks (the core's "bank track").
+     *
+     * @param offset The position of the first track
+     */
+    void scrollTrackWindow (final int offset)
+    {
+        final int position = Math.max (0, offset);
+        if (position != this.trackBank.scrollPosition ().get ())
+        {
+            this.requestedTrackOffset = position;
+            this.requestedTrackOffsetTime = System.nanoTime ();
+        }
+        this.trackBank.scrollPosition ().set (position);
+    }
+
+
+    /**
      * Get the track at the absolute position if it is in the window.
      *
      * @param position The position
@@ -952,7 +980,13 @@ public final class BitwigModel
      */
     Track getWindowTrack (final int position)
     {
-        final int index = position - this.trackBank.scrollPosition ().get ();
+        // The items of the bank are the slots of the window: after the requested scroll they
+        // hold the tracks of the new page, the commands go to Bitwig in this order
+        // Without a report within a second Bitwig did not change the position
+        if (this.requestedTrackOffset >= 0 && System.nanoTime () - this.requestedTrackOffsetTime > 1_000_000_000L)
+            this.requestedTrackOffset = -1;
+        final int offset = this.requestedTrackOffset >= 0 ? this.requestedTrackOffset : this.trackBank.scrollPosition ().get ();
+        final int index = position - offset;
         return index >= 0 && index < this.numTracks ? this.trackBank.getItemAt (index) : null;
     }
 

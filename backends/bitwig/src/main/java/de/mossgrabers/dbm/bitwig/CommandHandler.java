@@ -753,7 +753,7 @@ public final class CommandHandler
     {
         switch (command)
         {
-            case "track" -> this.model.trackBank.scrollPosition ().set (Math.max (0, offset));
+            case "track" -> this.model.scrollTrackWindow (offset);
             case "scene" -> this.model.sceneBank.scrollPosition ().set (Math.max (0, offset));
             case "fxtrack" -> this.model.effectTrackBank.scrollPosition ().set (Math.max (0, offset));
             default -> this.unhandled.accept ("bank " + command);
