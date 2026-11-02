@@ -505,3 +505,17 @@ fn program_banks() {
     assert!(out.contains(&vec![0xC2, 1, 0]), "{out:?}");
     assert_eq!(flexi.ctx().config.value(second).as_deref(), Some("None"));
 }
+
+/// The MPE configuration (RPN 6 on zone 1 and 2) is only sent with the keyboard note input, as
+/// the Bitwig version, which has no note input without a keyboard channel or MPE.
+#[test]
+fn mpe_configuration_only_with_the_keyboard() {
+    let is_rpn = |m: &Vec<u8>| m.len() == 3 && (m[0] & 0xF0) == 0xB0 && m[1] == 0x65;
+    let mut with_keyboard = Flexi::start("mpe-keyboard", None, "");
+    with_keyboard.advance(2500);
+    assert!(midi_out(&with_keyboard.take_calls()).iter().any(is_rpn), "the default keyboard channel 1 has the note input");
+
+    let mut without = Flexi::start("mpe-off", None, "KEYBOARD_/_PADS_(REQUIRES_RESTART)_MIDI_CHANNEL=Off\n");
+    without.advance(2500);
+    assert!(!midi_out(&without.take_calls()).iter().any(is_rpn), "no MPE configuration without the note input");
+}

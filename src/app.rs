@@ -332,6 +332,10 @@ impl App {
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
                     parts.ctx.model.note_clip(cols, rows);
                 }
+                // At least one cursor clip, as AbstractControllerSetup.init (model.ensureClip): a
+                // host creates it during init (Bitwig: a launcher cursor clip which follows the
+                // selection, which also moves the selected slot with the selected track)
+                parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
                 instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, startup_due });

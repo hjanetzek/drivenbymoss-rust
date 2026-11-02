@@ -1,6 +1,6 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-02, scenarios written, not yet run on Bitwig (no traces, no replays).
+Status: 2026-11-02, first run done (setup works), fixes from it not yet checked by a second run.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so
@@ -95,4 +95,33 @@ errors. All 121 function names of the files also exist in the Java `FlexiCommand
 
 ## Results
 
-None yet.
+### First run, 2026-11-02
+
+The setup works: all 9 files ran, every restart loaded its mapping. 83 of 98 scenarios the same,
+15 DIFF, 40 failed expectations (19 Java, 21 Rust). No replays copied.
+
+Fixed afterwards (to be checked by the next run):
+
+- The replays loaded the mapping the runner wrote last: the recorder now records the mapping file
+  (a `file` event) and the replay test uses it.
+- Scenarios: absolute toggle (a toggle button sends one message per press), monitor and auto
+  monitor separated (one setting in Bitwig), the effect track bank scenario ends after the toggle.
+- Port: the MPE configuration (RPN) was sent at every start, also without the keyboard note
+  input (Java: only with it). It made the runner's restart see the start before the mapping was
+  loaded, so keyboard.toml restarted too early and the mapped note was not blocked.
+- Bitwig extension: the cursor device did not report `hasLayers` / `hasDrumPads`, so the layer
+  commands did nothing.
+- Core: no cursor clip without a sequencer (Java `ensureClip` in every `init`): the selected clip
+  slot did not follow the selected track in Bitwig.
+
+Open:
+
+- **Absolute values had no effect in both versions** (track volume and pan to 0 from Flexi, also
+  the `before` values set with OSC), relative changes worked. Probably Bitwig's takeover mode
+  (Preferences → Controllers) is not "Immediate" in the profile; with "Immediate" the
+  expectations should hold. Device parameters: Rust set them, Java did not (to be understood).
+- **Effect track bank:** the core has none (the model was written for Reaper), so "Track: Toggle
+  Trackbank" and the FX Track functions do nothing in the port; Java on Bitwig switches to the
+  effect tracks. `flexi.track.trackbank` fails in Rust until the core gets an effect track bank.
+- The startup output (not compared) also differs in the RPN messages; after the fix both send them
+  only with the keyboard.

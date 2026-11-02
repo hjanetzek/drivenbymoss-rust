@@ -376,6 +376,9 @@ public final class BitwigModel
         this.cursorDevice.isWindowOpen ().markInterested ();
         this.cursorDevice.isPinned ().markInterested ();
         this.cursorDevice.isExpanded ().markInterested ();
+        // The layer commands of the controllers check them (CursorDeviceImpl.hasLayers)
+        this.cursorDevice.hasLayers ().markInterested ();
+        this.cursorDevice.hasDrumPads ().markInterested ();
         this.siblings.itemCount ().markInterested ();
         for (int i = 0; i < NUM_SIBLINGS; i++)
         {
@@ -965,6 +968,8 @@ public final class BitwigModel
         reporter.put ("/device/window", this.cursorDevice.isWindowOpen ().get ());
         reporter.put ("/device/pinned", this.cursorDevice.isPinned ().get ());
         reporter.put ("/device/expand", this.cursorDevice.isExpanded ().get ());
+        reporter.put ("/device/hasLayers", this.cursorDevice.exists ().get () && this.cursorDevice.hasLayers ().get ());
+        reporter.put ("/device/hasDrumPads", this.cursorDevice.exists ().get () && this.cursorDevice.hasDrumPads ().get ());
 
         for (int i = 0; i < NUM_SIBLINGS; i++)
         {

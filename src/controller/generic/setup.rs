@@ -136,8 +136,12 @@ pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Confi
     surface.create_button(ButtonId::Shift, "Shift");
 
     let keyboard_channel = cfg::keyboard_channel(&configuration);
+    // As the Bitwig version (createSurface): the note input only with MPE or a keyboard channel
+    let has_note_input = configuration.is_mpe_enabled() || keyboard_channel >= 0;
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, ColorManager::new());
-    ctx.ext = Box::new(FlexiState::new(keyboard_channel, value_changer));
+    let mut state = FlexiState::new(keyboard_channel, value_changer);
+    state.has_note_input = has_note_input;
+    ctx.ext = Box::new(state);
     ctx.midi_handler = Some(Rc::new(fs::handle_midi));
     ctx.sysex_handler = Some(Rc::new(fs::handle_sysex));
 
@@ -244,6 +248,10 @@ pub fn create_modes(ctx: &mut Ctx) {
 /// Configure the MPE zones of the device after a change of the MPE setting.
 fn schedule_mpe_configuration(ctx: &mut Ctx) {
     ctx.schedule(MPE_DELAY_MS, |ctx| {
+        // Without the note input the Java version returns (getDefaultNoteInput () == null)
+        if !flexi(ctx).has_note_input {
+            return;
+        }
         let mpe_enabled = ctx.config.is_mpe_enabled();
         // Enable MPE zone 1 with all 15 channels
         configure_mpe(ctx, ZONE_1, if mpe_enabled { 15 } else { 0 });
@@ -285,6 +293,9 @@ fn handle_setting_change(ctx: &mut Ctx, id: SettingId) {
             schedule_mpe_configuration(ctx);
         }
         SettingId::MPE_PITCHBEND_RANGE => ctx.schedule(MPE_DELAY_MS, |ctx| {
+            if !flexi(ctx).has_note_input {
+                return;
+            }
             let range = ctx.config.mpe_pitch_bend_range();
             send_mpe_pitchbend_range(ctx, ZONE_1, range);
         }),

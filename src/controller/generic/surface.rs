@@ -60,6 +60,10 @@ pub struct FlexiState {
     /// The keyboard channel read at startup: -1 = off, 0-15 the MIDI channel, 16 = omni (it
     /// requires a restart, as in Java).
     pub keyboard_channel: i32,
+    /// True if the keyboard note input was created at startup (MPE enabled or a keyboard channel;
+    /// former `getDefaultNoteInput () != null` of the Bitwig version). Without it no MPE
+    /// configuration is sent to the device.
+    pub has_note_input: bool,
 
     /// The last values sent to the device per slot (former `valueCache`).
     pub value_cache: Vec<i32>,
@@ -121,6 +125,7 @@ impl FlexiState {
             selected_slot: 0,
             key_map: None,
             keyboard_channel,
+            has_note_input: true,
             value_cache: vec![-1; NUM_SLOTS],
             last_received: None,
             last_cc_received: -1,
