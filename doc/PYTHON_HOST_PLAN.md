@@ -1,6 +1,6 @@
 # Python bindings and a reference host: plan
 
-Status: 2026-11-02, steps 1–7 implemented: the binding, the reference host and the in-process
+Status: 2026-11-02, steps 1–8 done (step 8: HOST_BRIDGE_GUIDE.md points to the reference host per section): the binding, the reference host and the in-process
 conformance runner (`python3 -m conformance`). All 21 scenario files of the four setups (195
 scenarios) compare the same as Java on Bitwig (the list in `ci/linux.sh`). The model has the
 devices with their remote controls, layers and drum pads, the clips with their step grids, the

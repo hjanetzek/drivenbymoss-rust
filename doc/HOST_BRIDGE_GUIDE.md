@@ -8,7 +8,17 @@ most complete host: since the core port of the Bitwig classes (BITWIG_CORE_PORT_
 core follows the Java DrivenByMoss for Bitwig wherever the host reports what Bitwig has. The
 Reaper bridge (`backends/reaper`, C++) speaks the older, minimal variant of the same protocol.
 
-As of 2026-10-31. Compiled from the code: `include/drivenbymoss.h`, `src/ffi.rs`, `src/app.rs`,
+**The Python reference host** (`bindings/python/dbm_host/`, on the Python binding
+`bindings/python/drivenbymoss/`) is the readable companion of this guide.
+- It is a complete bridge on a simulated DAW, in plain Python without the API of a real DAW.
+- It passes all 195 conformance scenarios of the four setups with the results of the Java
+  version on Bitwig (`python3 -m conformance --all`, §8).
+- Each section below names the part that implements it.
+- Copy its structure: `Bridge` (the loop), `Reporter` (host → core), `CommandHandler` (core →
+  host). Replace `SimDaw` by your DAW's API.
+- The Bitwig bridge stays the reference for how a real DAW API is used.
+
+As of 2026-10-31, the reference host pointers 2026-11-02. Compiled from the code: `include/drivenbymoss.h`, `src/ffi.rs`, `src/app.rs`,
 `src/host.rs`, `src/backend.rs`, `src/midi.rs`, `src/parser.rs`, `src/daw/`, and the bridge
 classes in `backends/bitwig/src/main/java/de/mossgrabers/dbm/bitwig/` (`NativeCore`,
 `DbmExtension`, `BitwigModel`, `ModelReporter`, `CommandHandler`, `SpecificDevice`,
@@ -23,6 +33,8 @@ Notation: `<p>` absolute track position (0-based), `<s>` slot/scene position or 
 value the reference bridge reads or calls.
 
 ## 1. Architecture
+
+*Reference host:* `bindings/python/dbm_host/bridge.py`: `Bridge.start` (create, start, model setup, first report), `step` (MIDI in → `dbm_set_time` → `tick` → report → `update_model`), `advance` (simulated time); the callbacks as `drivenbymoss.Backend` methods.
 
 ```
  DAW  <-- host API -->  bridge  <-- C ABI (drivenbymoss.h) -->  core (one DbmApp per controller)
@@ -111,6 +123,8 @@ document settings in the project (`HostSettings`). The alternative used by Reape
 
 ### The model setup (`dbm_get_model_setup`)
 
+*Reference host:* `bindings/python/dbm_host/banks.py` (`Banks.configure`) and `CommandHandler.configure` (the navigator, `wantsClipLauncherNavigator`).
+
 JSON with the keys of the Java `ModelSetup` (`src/daw/model_setup.rs`). Hosts that must create
 their objects up front (Bitwig) size them from it; a host that can query anything at any time can
 ignore most of it, but the numbers tell you what the controller will address.
@@ -153,6 +167,8 @@ Existence: for parameters, sends and device siblings the **name** sets existence
 does not exist). Tracks, scenes, slots, pads and layers have an explicit `exists`.
 
 ### Change-only reporting and dumps (`ModelReporter`)
+
+*Reference host:* `bindings/python/dbm_host/reporter.py`: `Reporter.collect` (the last text per address, only changes; `request_dump` after `refresh`; `forget_later` for the report again after a value command); the collectors run in a fixed order.
 
 - Remember the last value per address and report only changes.
 - On `refresh` (processor `refresh`, no arg) report **everything** with the next collection. The
@@ -206,6 +222,8 @@ feature stays on.
 
 ### Host features (`/host/features`)
 
+*Reference host:* `CommandHandler.host_features` (`bindings/python/dbm_host/commands.py`): the union of the features of the registered processor handlers; reported by `Reporter.collect_host_features`.
+
 Command forms which cannot be detected from a report are switched on by one line which lists the
 features the host understands (space separated, unknown names are ignored, a new line replaces
 the earlier list; `HostFeature` in `src/daw/context.rs`):
@@ -245,6 +263,8 @@ Bitwig bridge (Reaper only, or nobody).
 
 ### 3.1 Transport
 
+*Reference host:* `Reporter.collect_transport`, `collect_note_repeat`; model `Transport`, `Arpeggiator` (`bindings/python/dbm_host/model.py`).
+
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
 | `/play` | flag | `isPlaying` | R |
@@ -280,6 +300,8 @@ Bitwig bridge (Reaper only, or nobody).
 
 ### 3.2 Application and project
 
+*Reference host:* `Reporter.collect_application`; model `Application` (undo history, panel layout), `Project`.
+
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
 | `/project/canUndo`, `/project/canRedo` | flag | `application.canUndo/canRedo` | Rec |
@@ -300,6 +322,8 @@ Bitwig bridge (Reaper only, or nobody).
 | `/action/select` | text (Reaper configuration dialog) | – | – |
 
 ### 3.3 Tracks, master, sends
+
+*Reference host:* `Reporter.collect_tracks`, `collect_channel`, `collect_sends`, `collect_track_flags`, `collect_vu`, `collect_effect_tracks`, `collect_master`. All items with absolute positions, no windows (§6 rule 4).
 
 Track addresses are `/track/<p>/<field>` with the absolute position. Bitwig reports the window
 (`offset .. offset + numTracks`, stopping at the count).
@@ -351,6 +375,8 @@ nothing.
 
 ### 3.4 Clip launcher: slots and scenes
 
+*Reference host:* `Reporter.collect_scenes`, `collect_slot`; the selection rules of the clip launcher navigator in `bindings/python/dbm_host/navigator.py`.
+
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
 | `/scene/count` | int | `sceneBank.itemCount` | Rec |
@@ -363,6 +389,8 @@ nothing.
 Note the slot selection field is `selected`, the scene one `select`.
 
 ### 3.5 Cursor device, specific devices, parameters
+
+*Reference host:* `Reporter.collect_device`, `collect_specific`, `collect_primary`, `collect_pages`, `collect_eq`; model `bindings/python/dbm_host/device.py` (device chains, pages per role, remote controls, EQ+).
 
 `/device` is the cursor device, `/primary` the first instrument of the cursor track, `/eq` the
 first EQ, `/drum` the drum machine of the cursor track (parsed by its own code: only `exists`,
@@ -395,6 +423,8 @@ The core assumes a device has drum pads until `hasDrumPads` says otherwise.
 
 ### 3.6 Drum pads and layers
 
+*Reference host:* `Reporter.collect_drum`, `collect_layer`, `collect_device_layers`; model `bindings/python/dbm_host/layer.py` (128 pads, the layers of a layered device).
+
 `/<dev>/pad/<i>/<field>` with `<dev>` = `drum`, `device`, `primary`; `/<dev>/layer/<i>/<field>`
 with `device`, `primary`; `/<dev>/layer/count`. Reporting any pad switches the pad bank to host
 pads (the core pages locally over all reported pads; Bitwig reports all 128).
@@ -404,6 +434,8 @@ Fields: `exists` (Bitwig: the pad has a first device), `name`, `color`, `select`
 `pan/str` (no shortened texts). Pad sends and devices are not reported.
 
 ### 3.7 Clip and step grid
+
+*Reference host:* `Reporter.collect_clip`, `collect_grids`; model `bindings/python/dbm_host/clip.py` (notes with all attributes, one grid per `noteClips` size).
 
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
@@ -429,6 +461,8 @@ velocity end. Bitwig reports `gain() / 2` as the Java version; whether the range
 
 ### 3.8 Browser
 
+*Reference host:* not modelled (no scenario uses the browser).
+
 Reported only while the browser is open (`/browser/exists 0` otherwise).
 
 | Address | Value | Bitwig |
@@ -445,6 +479,8 @@ Reported only while the browser is open (`/browser/exists 0` otherwise).
 
 ### 3.9 Markers
 
+*Reference host:* `Reporter.collect_markers`; model `bindings/python/dbm_host/marker.py`.
+
 `/marker/count`, `/marker/<i>/exists`, `number`, `name` (empty: the core shows `Marker <i+1>`),
 `color` (`position`, `endPosition` are accepted and ignored). `<i>` is the absolute position, the
 core pages over all reported markers. Reaper reports its project markers (position in seconds).
@@ -454,6 +490,8 @@ Bitwig: a cue marker bank of 100 (`arranger.createCueMarkerBank`, only if `numMa
 
 ## 4. Command reference (core → host)
 
+*Reference host:* `bindings/python/dbm_host/commands.py`: one handler per processor, registered in `CommandHandler.__init__` (`refresh`, `bank`, `transport`, `track`, `fxtrack`, `master`, `scene`, `action`, `device`, `primary`, `drum`, `noterepeat`, `eq`, `navigator`, `clip`, `project`, `marker`, `application`, `arranger`, `mixer`, `quantize`). An unknown command is logged once and listed in `CommandHandler.unhandled`.
+
 Callbacks: `process_no_arg(processor, command)`, `process_int_arg` (booleans are 1/0),
 `process_double_arg`, `process_string_arg`, `process_string_args` (only `track addTrack`). The
 command is the path without leading `/`, its parts separated by `/`. The Bitwig bridge treats
@@ -461,6 +499,8 @@ int and double the same (`handle(processor, command, double)`), and turns a no-a
 ending in `/reset` into the value path.
 
 ### 4.1 Value command suffixes (host features)
+
+*Reference host:* `Command.parse` (`bindings/python/dbm_host/commands.py`) splits off the suffixes; `bindings/python/dbm_host/parameter.py` executes them (set, inc, reset, immediately, touch, indicate, the takeover mode).
 
 | Suffix | Arg | Meaning | Bitwig |
 | --- | --- | --- | --- |
@@ -656,6 +696,8 @@ Processors: `device` (cursor device), `primary` (first instrument), `drum` (drum
 
 ### 4.9 Browser
 
+*Reference host:* not handled (see §3.8).
+
 | Command | Arg | Bitwig |
 | --- | --- | --- |
 | `browser replace/device` | none | browse at `cursorDevice.replaceDeviceInsertionPoint` |
@@ -687,6 +729,8 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
 (`DataCollector`); Bitwig ignores them (it only records them). Optional, an optimisation.
 
 ## 5. MIDI and note inputs
+
+*Reference host:* `Bridge.send_midi_data`, `process_midi_arg` and `set_note_input_*` (`bindings/python/dbm_host/bridge.py`); the note inputs and the playing notes in `bindings/python/dbm_host/model.py` (`NoteInput`).
 
 - **From the controller:** `dbm_on_midi_event(app, 0, data, length)`: 3-byte short messages,
   complete sysex (`F0 … F7`). Other lengths are logged as unknown (a single `FE` is ignored),
@@ -759,6 +803,10 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
 
 ## 7. Minimal bridge checklist, then progressive features
 
+The Python reference host (`bindings/python/dbm_host/`) has all of these steps; its
+`bindings/python/tests/test_host.py` starts with step 1 (a Launch Control XL mixing simulated
+tracks).
+
 **Step 1: a controller that lights up and mixes**
 
 1. Load the library, `dbm_create_controller(…, DBM_FLAG_HOST_TICK)`, MIDI in →
@@ -822,7 +870,22 @@ grid of the note clips; browser; playing notes; markers.
   restart via sysex `F0 7D 44 42 4D 03 F7` with `DBM_OSC_CONFORMANCE`), but the scenario format,
   the MIDI stub and the LED comparison are host independent. For another DAW: replace the state
   observers (or leave the DAW-state expectations out), keep the scenarios, and compare the LED
-  traces against a Bitwig run of the same scenarios. **(unverified: not tried with another host.)**
+  traces against a Bitwig run of the same scenarios.
+- **In-process conformance on the reference host** (`bindings/python/conformance/`,
+  PYTHON_HOST_PLAN.md §4): the same scenarios against a bridge in the same process, without MIDI
+  ports or a DAW.
+  - **How it runs:** the core runs on the simulated time (`dbm_set_time`). The scenarios' OSC
+    commands become model operations (`conformance/osc.py`), and a state view gives the keys of
+    the Java OSC observer (`conformance/state.py`).
+  - **What it compares against:** the results of the Java version on Bitwig
+    (`tests/conformance/<setup>/replay/*-java.ref.json`, written by `python3 -m
+    conformance.extract` from the Bitwig runs' traces).
+  - **Commands:**
+    - `cd bindings/python && python3 -m conformance --all` runs all four setups; `ci/linux.sh`
+      runs the passing files.
+    - For another host: put your bridge behind the runner instead of `SimDaw` (or reuse the
+      runner's comparison with your own DAW observer). A difference then shows where your bridge
+      differs from Bitwig.
 - **Debugging aids of the Bitwig bridge worth copying:** log each unhandled command once
   (with digits replaced by `<n>`), `DBM_LOG_MIDI` to log MIDI in/out, a dev mode that reloads the
   library when it is rebuilt (`DBM_DEV_LIBRARY`), and `tools/osc_monitor.py`.
