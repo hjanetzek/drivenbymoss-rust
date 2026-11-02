@@ -1,6 +1,6 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-02, two runs; the fixes after the second run are not yet checked on Bitwig.
+Status: 2026-11-02, three runs; replays of device, function_layers, keyboard, marker, project, transport.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so
@@ -152,3 +152,21 @@ Fixed afterwards (to be checked by the next run):
   `/device/parameters`); it did nothing in the port.
 
 Still open: the effect track bank (`flexi.track.trackbank`).
+
+### Third run, 2026-11-02
+
+94 of 100 scenarios the same, 6 DIFF, 1 failed expectation (`flexi.track.trackbank`, Rust). The
+layer, note input and parameter fixes work. Replays: keyboard and marker copied by the script;
+device, function_layers, project and transport did not replay only because the replay test wrote
+commands and lists without a value with a trailing space ("filters 0 ", "noArg refresh "); fixed
+in the replay test, the four recordings copied by hand from this clean run.
+
+Remaining differences:
+
+- `flexi.track.trackbank`: no effect track bank in the core.
+- The selected clip slot (`/track/N/clip/1/isSelected`) in `modes.track-next-previous-item`,
+  `modes.track-previous-page`, `slot.send-value-when-received`, `track.bank-page-previous`,
+  `track.scroll-back`. The port's clip launcher navigator is the one of the Java Reaper version
+  (`ClipLauncherNavigatorImpl`: it moves the selected slot to the selected track itself); the Java
+  version on Bitwig only selects the track through a single track bank which follows the cursor
+  track, and Bitwig moves the slot. A host navigator for Bitwig would be needed.

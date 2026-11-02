@@ -94,12 +94,18 @@ fn normalize_event(event: &Event) -> String {
             *last = double(last);
         }
     }
-    format!("{} {}", event.kind, fields.join(" "))
+    // Without a trailing space: an event without fields (e.g. an empty filter list)
+    format!("{} {}", event.kind, fields.join(" ")).trim_end().to_string()
 }
 
 /// A call of the core in the normalized form of [`normalize_event`]; None for calls which the
 /// extension does not record.
 fn normalize_call(call: &BackendCall) -> Option<String> {
+    // Without a trailing space, as normalize_event (commands or lists without a value)
+    format_call(call).map(|text| text.trim_end().to_string())
+}
+
+fn format_call(call: &BackendCall) -> Option<String> {
     Some(match call {
         BackendCall::NoArg(p, c) => format!("noArg {p} {c}"),
         BackendCall::StringArg(p, c, v) => format!("string {p} {c} {v}"),
