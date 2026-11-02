@@ -106,6 +106,7 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, 1, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, 1, null);
             case "device" -> this.handleDevice (command, 1);
+            case "navigator" -> this.handleNavigator (command, 0);
             default -> this.unhandled.accept (processor + " " + command);
         }
     }
@@ -146,6 +147,7 @@ public final class CommandHandler
             case "track" -> this.handleTrack (command, value, null);
             case "master" -> this.handleChannel (this.model.masterTrack, command, value, null);
             case "device" -> this.handleDevice (command, value);
+            case "navigator" -> this.handleNavigator (command, value);
             case "noterepeat" -> this.handleNoteRepeat (command, value);
             case "project" -> this.handleProject (command, value);
             case "drum" -> this.handleSpecific (this.model.drumDevice, processor, command, value, null);
@@ -681,6 +683,16 @@ public final class CommandHandler
             rangedValue.setImmediately (value);
         else
             rangedValue.set (value);
+    }
+
+
+    /**
+     * The clip launcher navigator (host feature clipLauncherNavigator).
+     */
+    private void handleNavigator (final String command, final double value)
+    {
+        if (this.model.navigator == null || !this.model.navigator.handle (command, value))
+            this.unhandled.accept ("navigator " + command);
     }
 
 

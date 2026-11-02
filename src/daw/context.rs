@@ -86,11 +86,16 @@ pub enum HostFeature {
     DeviceCommands,
     /// `application layout/-|+` (previous/next panel layout of the host).
     LayoutStep,
+    /// The clip launcher navigator of the host (`navigator selectTrack <position>`,
+    /// `navigator tracks|clips|scenes/-|+`), as `ClipLauncherNavigatorImpl` of the Java version
+    /// for Bitwig: the host keeps the selected slot when another track is selected. Without it
+    /// the core moves the slot itself (the Reaper version).
+    ClipLauncherNavigator,
 }
 
 impl HostFeature {
     /// All features.
-    pub const ALL: [HostFeature; 8] = [
+    pub const ALL: [HostFeature; 9] = [
         HostFeature::ValueInc,
         HostFeature::ValueReset,
         HostFeature::Immediately,
@@ -99,6 +104,7 @@ impl HostFeature {
         HostFeature::TransportCommands,
         HostFeature::DeviceCommands,
         HostFeature::LayoutStep,
+        HostFeature::ClipLauncherNavigator,
     ];
 
     /// The name of the feature in `/host/features`.
@@ -112,6 +118,7 @@ impl HostFeature {
             HostFeature::TransportCommands => "transportCommands",
             HostFeature::DeviceCommands => "deviceCommands",
             HostFeature::LayoutStep => "layoutStep",
+            HostFeature::ClipLauncherNavigator => "clipLauncherNavigator",
         }
     }
 

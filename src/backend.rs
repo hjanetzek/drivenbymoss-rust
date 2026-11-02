@@ -46,6 +46,8 @@ pub enum Processor {
     Bank,
     Drum,
     Primary,
+    /// The clip launcher navigator of the host (see `HostFeature::ClipLauncherNavigator`).
+    Navigator,
 }
 
 impl Processor {
@@ -88,6 +90,7 @@ impl Processor {
             Processor::Bank => "bank",
             Processor::Drum => "drum",
             Processor::Primary => "primary",
+            Processor::Navigator => "navigator",
         }
     }
 }

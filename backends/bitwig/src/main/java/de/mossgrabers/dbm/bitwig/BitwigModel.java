@@ -81,6 +81,8 @@ public final class BitwigModel
     static final String []   GROOVE_PARAMETERS = { "enabled", "shuffleAmount", "shuffleRate", "accentAmount", "accentRate", "accentPhase" };
     /** All command forms of the core's HostFeature (see HOST_BRIDGE_GUIDE.md §2). */
     private static final String HOST_FEATURES = "valueInc valueReset immediately indication soloToggle transportCommands deviceCommands layoutStep";
+    /** The feature of the clip launcher navigator, only if the controller wants it. */
+    private static final String HOST_FEATURE_NAVIGATOR = "clipLauncherNavigator";
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
@@ -121,6 +123,8 @@ public final class BitwigModel
     final SpecificDevice     drumDevice;
     /** The first instrument of the cursor track, null if the controller does not need it. */
     final SpecificDevice     firstInstrument;
+    /** The clip launcher navigator, null if the controller does not want it. */
+    final ClipLauncherNavigator navigator;
     /** The layers of the cursor device (and its hasLayers / hasDrumPads). */
     final SpecificDevice     cursorDeviceLayers;
     /** The first EQ+ of the cursor track; null if the controller does not use it. */
@@ -203,6 +207,8 @@ public final class BitwigModel
         for (int i = 0; i < numProjectPages; i++)
             this.trackPages[i] = this.cursorTrack.createCursorRemoteControlsPage ("DBM track page " + (i + 1), PARAMS_PER_PAGE, "");
         this.trackRemoteControls = numProjectPages > 0 ? this.cursorTrack.createCursorRemoteControlsPage (PARAMS_PER_PAGE) : null;
+        // ClipLauncherNavigatorImpl, if the controller wants it (model setup)
+        this.navigator = getBoolean (modelSetup, "wantsClipLauncherNavigator", false) ? new ClipLauncherNavigator (host, this.sceneBank, this.numScenes) : null;
         // MarkerBankImpl: the cue markers of the arranger, if the controller uses markers
         this.markerBank = getInt (modelSetup, "numMarkers", 0) > 0 ? this.arranger.createCueMarkerBank (NUM_MARKERS) : null;
 
@@ -494,7 +500,7 @@ public final class BitwigModel
         reporter.applyPendingForgets ();
         // The command forms this extension handles (HostFeature of the core); reported once and
         // with every dump
-        reporter.put ("/host/features", HOST_FEATURES);
+        reporter.put ("/host/features", this.navigator == null ? HOST_FEATURES : HOST_FEATURES + " " + HOST_FEATURE_NAVIGATOR);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         if (this.trackPages.length > 0)

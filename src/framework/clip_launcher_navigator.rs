@@ -3,7 +3,9 @@
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
 //! Navigation in the clip launcher which keeps the selected slot when another track is selected
-//! (former `IClipLauncherNavigator` and the Reaper `ClipLauncherNavigatorImpl`).
+//! (former `IClipLauncherNavigator` and the Reaper `ClipLauncherNavigatorImpl`). A host with its
+//! own navigator ([`HostFeature::ClipLauncherNavigator`], Bitwig: the Bitwig
+//! `ClipLauncherNavigatorImpl`) gets `navigator …` commands instead.
 //!
 //! The navigator state is shared (`Rc<RefCell<ClipLauncherNavigator>>`) and owned by the
 //! controller which uses it. Differences to Java: the slot selection thread (a
@@ -13,7 +15,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
+use crate::backend::Processor;
 use crate::daw::bank::BankItem;
+use crate::daw::context::HostFeature;
 use crate::framework::ctx::Ctx;
 
 /// The interval of the slot selection task.
@@ -32,8 +36,20 @@ pub struct ClipLauncherNavigator {
 /// A shared navigator.
 pub type SharedNavigator = Rc<RefCell<ClipLauncherNavigator>>;
 
+/// True if the host has its own navigator; then the command was sent to it.
+fn send_to_host(ctx: &Ctx, command: &str, is_left: bool) -> bool {
+    if !ctx.model.ctx().host_supports(HostFeature::ClipLauncherNavigator) {
+        return false;
+    }
+    ctx.model.ctx().send(Processor::Navigator, &format!("{command}/{}", if is_left { "-" } else { "+" }));
+    true
+}
+
 /// Select the previous or next scene (former `navigateScenes`).
 pub fn navigate_scenes(ctx: &mut Ctx, is_left: bool) {
+    if send_to_host(ctx, "scenes", is_left) {
+        return;
+    }
     let mut scene_bank = ctx.model.scene_bank_mut();
     if is_left {
         scene_bank.select_previous_item();
@@ -44,6 +60,9 @@ pub fn navigate_scenes(ctx: &mut Ctx, is_left: bool) {
 
 /// Select the previous or next clip of the cursor track (former `navigateClips`).
 pub fn navigate_clips(ctx: &mut Ctx, is_left: bool) {
+    if send_to_host(ctx, "clips", is_left) {
+        return;
+    }
     if !ctx.model.cursor_track_exists() {
         return;
     }
@@ -72,6 +91,9 @@ fn current_target_slot(ctx: &Ctx) -> Option<i32> {
 /// Select the previous or next track and move the selected slot as well (former
 /// `navigateTracks`).
 pub fn navigate_tracks(navigator: &SharedNavigator, ctx: &mut Ctx, is_left: bool) {
+    if send_to_host(ctx, "tracks", is_left) {
+        return;
+    }
     if !ctx.model.cursor_track_exists() {
         let track = ctx.model.track_bank_mut().item_mut(0);
         if !track.does_exist() {
@@ -97,6 +119,18 @@ pub fn navigate_tracks(navigator: &SharedNavigator, ctx: &mut Ctx, is_left: bool
 /// Select the track with the given index in the page of the track bank and move the selected
 /// slot as well (former `selectTrack`).
 pub fn select_track(navigator: &SharedNavigator, ctx: &mut Ctx, index: usize) {
+    // The Bitwig version: the single track bank of the navigator is scrolled to the track, then
+    // the track is selected
+    if ctx.model.ctx().host_supports(HostFeature::ClipLauncherNavigator) {
+        let first = ctx.model.track_bank().item(0);
+        if !first.does_exist() {
+            return;
+        }
+        let position = first.position() + index as i32;
+        ctx.model.ctx().send_int(Processor::Navigator, "selectTrack", position);
+        ctx.model.track_bank_mut().item_mut(index).select();
+        return;
+    }
     let track = ctx.model.track_bank().item(index);
     if !track.does_exist() {
         return;

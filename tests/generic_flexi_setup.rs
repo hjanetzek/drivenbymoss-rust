@@ -567,3 +567,21 @@ fn device_parameters_toggles_the_remote_controls_section() {
     let calls = flexi.take_calls();
     assert!(has_call(&calls, "device", "parameters/toggle"), "{calls:?}");
 }
+
+/// With the clip launcher navigator of the host (Bitwig), "Track N: Select" scrolls the
+/// navigator's track bank to the track and selects it; the track navigation is the host's.
+#[test]
+fn track_selection_uses_the_navigator_of_the_host() {
+    let slots = [Slot::new(TYPE_CC, 70, "Track 2: Select"), Slot::new(TYPE_CC, 71, "Track: Select Next Track")];
+    let mut flexi = Flexi::start("navigator", Some(&slots), "");
+    flexi.app.update_model("/host/features clipLauncherNavigator\n");
+    flexi.advance(100);
+    flexi.take_calls();
+    flexi.midi(&[0xB0, 70, 127]);
+    flexi.midi(&[0xB0, 71, 127]);
+    flexi.advance(100);
+    let calls = flexi.take_calls();
+    assert_eq!(double_arg(&calls, "navigator", "selectTrack"), Some(1.0), "{calls:?}");
+    assert!(has_call(&calls, "track", "1/select"), "{calls:?}");
+    assert!(has_call(&calls, "navigator", "tracks/+"), "{calls:?}");
+}
