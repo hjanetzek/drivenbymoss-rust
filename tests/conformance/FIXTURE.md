@@ -11,7 +11,7 @@ Tracks, in this order, all in the root (no groups), not muted, not soloed, not a
 |---|---|---|---|
 | 1 | Synth | Instrument | Polysynth (at least 2 remote control pages); an empty launcher clip of 1 bar in slot 1 |
 | 2 | Drums | Instrument | Drum Machine with at least 8 pads with a device each, starting at C1 (e.g. a kit); an empty launcher clip of 1 bar in slot 1 |
-| 3 | Layers | Instrument | Instrument Layer with 2 layers, each with a Polysynth |
+| 3 | Layers | Instrument | Instrument Layer with 2 layers: a Polysynth and an Acido |
 | 4 | EQ | Audio | EQ+ as the first device |
 | 5–10 | Audio 5 … Audio 10 | Audio | empty |
 
