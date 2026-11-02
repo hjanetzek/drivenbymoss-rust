@@ -378,6 +378,8 @@ public final class BitwigModel
             final Track track = this.effectTrackBank.getItemAt (i);
             final int index = i;
             markChannel (track);
+            track.trackType ().markInterested ();
+            track.isGroup ().markInterested ();
             track.arm ().markInterested ();
             track.monitorMode ().markInterested ();
             track.isMonitoring ().markInterested ();
