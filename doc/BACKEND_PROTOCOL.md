@@ -33,6 +33,7 @@ state. Commands are fire-and-forget; their effect comes back as model updates.
 | `dbm_start_infrastructure(app)` / `startInfrastructure` | start all controller instances (open MIDI ports via callbacks), send `refresh`; start timer unless `DBM_FLAG_HOST_TICK`. Idempotent (`is_started`). Controller `startup` runs ~1 s later (`STARTUP_DELAY_MS`) inside `tick` |
 | `dbm_update_model(app, data)` / `updateModel` | push model text (this document) |
 | `dbm_tick(app)` / `tick` | run due tasks, delayed startup, `handle_changes`, `flush` (controller output); every 30 ms recommended |
+| `dbm_set_time(app, ms)` / `setTime` | run on the host's time (ms since `dbm_create*`) instead of the clock from now on; call before each `tick` (simulations, tests). Earlier times count as the last one |
 | `dbm_restart_controllers(app)` / `restartControllers` | stop + start all instances, sends `refresh` |
 | `dbm_set_default_document_settings(app)` / `setDefaultDocumentSettings` | reset document-scope settings (Reaper: on project load/new) |
 | `dbm_get_formatted_document_settings(app)` / `getFormattedDocumentSettings` | settings text for the project file; free with `dbm_free_string` |

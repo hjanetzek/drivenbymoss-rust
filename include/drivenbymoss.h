@@ -167,6 +167,16 @@ void dbm_start_infrastructure(struct DbmApp *app);
 // `app` must be a valid handle (or null).
 void dbm_tick(struct DbmApp *app);
 
+// Run the instance on the time of the host instead of the clock, for hosts with a simulated
+// or offline time (tests, simulations): `time_ms` is the time in milliseconds since the
+// creation of the instance. After the first call the instance never reads the clock again, the
+// host calls it before each [`dbm_tick`] with the current time. A time before the last one is
+// taken as the last one. Use it with `DBM_FLAG_HOST_TICK`.
+//
+// # Safety
+// `app` must be a valid handle (or null).
+void dbm_set_time(struct DbmApp *app, uint64_t time_ms);
+
 // Update the model with data from the DAW: lines of `<address> <value>`.
 //
 // # Safety

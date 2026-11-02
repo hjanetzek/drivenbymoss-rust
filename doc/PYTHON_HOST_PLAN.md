@@ -62,7 +62,7 @@ Rules for all three:
 
 - **Loading.** ctypes loads `libdrivenbymoss.so` (`.dll`, `.dylib`). Search order:
   `DBM_LIBRARY`, then `target/debug`, then `target/release`. The prototypes are written by hand
-  from the header: 24 functions and 19 callbacks, in `_ffi.py`.
+  from the header: 25 functions and 19 callbacks, in `_ffi.py`.
 - **`App`:**
   - Creates the instance with `DBM_FLAG_HOST_TICK`; the host calls `tick()` from its own loop.
   - Methods: `create_controller`, `start_infrastructure`, `update_model`, `on_midi_event`,
@@ -127,8 +127,8 @@ and updates the VU and the playing notes.
   other DAWs, and it avoids the window lag (`BitwigModel.scrollTrackWindow`). The `bank` commands
   only store the offset, for `/track/offset`.
 
-  Open: whether the core needs windowed reports anywhere. The first Launch Control XL scenarios
-  will show it.
+  The Launch Control XL pages correctly with all items reported (step 2); whether any other
+  controller needs windowed reports shows in the later steps.
 
 ### Commands (`CommandHandler`)
 
@@ -167,7 +167,7 @@ and updates the VU and the playing notes.
   (`osc:/track/1/volume`, `osc:/conformance/primary/…`) from the model. Scenario expectations
   use 57 of the 3711 keys a Java trace has.
 - **Settling.** `settle_ms` becomes a simulated time advance with ticks: no sleeping, no damaged
-  MIDI.
+  MIDI. The core runs on the simulated time through `dbm_set_time` (added for this, 2026-11-02).
 - **Restarts.** A restart of the controller (`restart_controller`) is a new `App`.
 
 ### The reference results

@@ -242,6 +242,8 @@ public:
     void addDevice (const std::string &name, const std::string &identifier) { dbm_add_device (this->app, name.c_str (), identifier.c_str ()); }
     void startInfrastructure () { dbm_start_infrastructure (this->app); }
     void tick () { dbm_tick (this->app); }
+    /** Run on the host's time (ms since the creation) instead of the clock, see dbm_set_time. */
+    void setTime (uint64_t timeMs) { dbm_set_time (this->app, timeMs); }
     void updateModel (const std::string &data) { dbm_update_model (this->app, data.c_str ()); }
     void onMidiEvent (int deviceId, const uint8_t *data, int length) { dbm_on_midi_event (this->app, deviceId, data, length); }
     void displayWindow () { dbm_display_window (this->app); }

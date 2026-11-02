@@ -54,12 +54,17 @@ value the reference bridge reads or calls.
   (both bridges do). Without the flag the core starts its own timer thread, and callbacks then
   also arrive on that thread. `dbm_tick` runs the due scheduled tasks, the delayed controller
   startup, `handle_changes` and `flush` (all LED/display output).
-- **Time base.** The C ABI has no time parameter. At every entry (`tick`, `update_model`,
-  `on_midi_event`, settings calls, `start_infrastructure`) the core takes `Instant::now()` as
-  `Host::now`; all core timing (scheduled tasks such as the 75 ms selection after a page change,
-  the 1 s startup delay, long presses, notification lifetimes, blinking) uses this time. So
-  timing resolution is your tick interval. A replay sets a fixed time instead
-  (`App::set_time`, Rust API only, §8).
+- **Time base.** At every entry (`tick`, `update_model`, `on_midi_event`, the settings calls,
+  `start_infrastructure`) the core takes `Instant::now()` as `Host::now`. All core timing uses
+  this time: scheduled tasks such as the 75 ms selection after a page change, the 1 s startup
+  delay, long presses, notification lifetimes and blinking. So the timing resolution is your
+  tick interval.
+
+  A host with a simulated or offline time calls `dbm_set_time(app, ms)` instead: the
+  milliseconds since the creation of the instance, before each `tick`. After the first call the
+  instance never reads the clock again. The Python reference host does this
+  (`bindings/python/dbm_host/bridge.py`), and the replay does the same through `App::set_time`
+  (§8).
 - **Commands may arrive during any call**, not only during `tick` (e.g. `bank track <offset>`
   while you report `/track/offset`, LED updates are only in `tick`). The Bitwig bridge executes
   them right away in the callback (`CommandHandler`); the Reaper bridge queues them and runs the
@@ -114,7 +119,7 @@ ignore most of it, but the numbers tell you what the controller will address.
 | --- | --- | --- |
 | `hasFlatTrackList`, `hasFullFlatTrackList` | true, false | `createTrackBank(..., true)` (with effect tracks and master) if `hasFullFlatTrackList`, else `createMainTrackBank`. The core adds its own master only if the host lists none. Hierarchical lists (`hasFlatTrackList` false) are not supported |
 | `numTracks`, `numScenes`, `numSends` | 8, 8, 8 | the track window (with `numSends` sends and `numScenes` slots), its scene bank; plus a 400-track bank without sends/slots for commands to tracks outside the window |
-| `numFxTracks` | -1 | nothing: **effect track banks are not supported yet** |
+| `numFxTracks` | -1 | `createEffectTrackBank (numFxTracks, numSends, 0)`, -1 = `numTracks`; reported as `/fxtrack/…` (§3.3) |
 | `wantsDrumDevice`, `additionalDrumDevices`, `numDrumPadLayers` | true, [], 16 | one drum machine (Bitwig Drum Machine matcher) with all 128 pads; the core pages over them for every drum device |
 | `numDevicesInBank` | 8 | ignored: always 8 siblings |
 | `numParamPages`, `numParams` | 8, 8 | `numParamPages` remote-control page cursors of 8, each fixed to its page (flat list of `numParamPages*8`), plus one cursor that follows the page selected in the DAW; project remote controls and the cursor track's remote controls the same way if `numParams > 0` |
@@ -539,7 +544,7 @@ loopLength/inc <beats>` (beats, not normalized). `/inc` needs the feature `value
 | `groove <name>` (+ `/inc`, `/reset`, `/touch`, `/indicate`) | double | the six groove parameters |
 | `groove active\|amount` | double | Reaper path, unhandled |
 | `refresh` | none | **report everything with the next collection** |
-| `bank track\|scene` | int offset | `trackBank/sceneBank.scrollPosition.set` |
+| `bank track\|scene\|fxtrack` | int offset | `trackBank/sceneBank/effectTrackBank.scrollPosition.set` (`BitwigModel.scrollTrackWindow` for the tracks: the window commands which follow use the requested offset until Bitwig reports it). The core sends `bank fxtrack 0` at the start |
 
 ### 4.4 Tracks and master
 
@@ -729,8 +734,9 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
 3. **Report changes only, honour `refresh`.** Full dumps on every tick cost time and retrigger
    things; but after `refresh` the next report must be complete.
 4. **Absolute positions, host-side windows.** With host paging the core keeps the bank offset and
-   tells the bridge (`bank track|scene <offset>`); the bridge scrolls its window and reports the
-   window with absolute positions. Commands address absolute positions; a bridge with only a
+   tells the bridge (`bank track|scene|fxtrack <offset>`); the bridge scrolls its window and
+   reports the window with absolute positions. A bridge may also report all items, as the Reaper
+   backend and the Python reference host do; then it only keeps the offset for `/track/offset`. Commands address absolute positions; a bridge with only a
    window must resolve positions outside it (Bitwig: a 400-track bank for channel commands; sends
    and slots outside the window cannot be addressed).
 5. **Pinning model.** The core shows the pinned track (`/track/pinned`) as its cursor track; the
@@ -746,8 +752,8 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
    mapping update and startup, long presses, blinking, notification lifetimes) run in `tick`,
    measured with the time of the calls into the core. Tick regularly; notifications appear up to
    one tick late (Bitwig shows them after the tick).
-8. **Known gaps of the reference bridge** (useful when a new host does better): effect track
-   banks, hierarchical track lists, extra scene/slot banks, a slot bank of the cursor track (scene
+8. **Known gaps of the Bitwig bridge** (useful when a new host does better): hierarchical track
+   lists, extra scene/slot banks, a slot bank of the cursor track (scene
    navigation), the cursor layer, sends and devices of pads/layers, the page names of the cursor
    track's remote controls.
 

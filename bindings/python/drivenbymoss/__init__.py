@@ -346,6 +346,12 @@ class App:
         """Execute scheduled tasks and update the controllers; call it every 30ms."""
         self._library.dbm_tick(self._app())
 
+    def set_time(self, time_ms: int) -> None:
+        """Run the instance on the host's time from now on, not on the clock: milliseconds since
+        the creation of the App. Call it before each tick with the current time (simulations,
+        tests). A time before the last one is taken as the last one."""
+        self._library.dbm_set_time(self._app(), max(0, int(time_ms)))
+
     def update_model(self, data: str) -> None:
         """Update the model with data from the DAW: lines of '<address> <value>'."""
         self._library.dbm_update_model(self._app(), _bytes(data))

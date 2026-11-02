@@ -136,6 +136,7 @@ _PROTOTYPES = [
     ("dbm_add_device", None, [DbmAppPointer, _char_p, _char_p]),
     ("dbm_start_infrastructure", None, [DbmAppPointer]),
     ("dbm_tick", None, [DbmAppPointer]),
+    ("dbm_set_time", None, [DbmAppPointer, ctypes.c_uint64]),
     ("dbm_update_model", None, [DbmAppPointer, _char_p]),
     ("dbm_display_window", None, [DbmAppPointer]),
     ("dbm_display_project_window", None, [DbmAppPointer]),

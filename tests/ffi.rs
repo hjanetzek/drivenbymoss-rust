@@ -366,3 +366,27 @@ fn cpp_wrapper_compiles() {
         Err(_) => eprintln!("c++ not found, skipped"),
     }
 }
+
+/// With `dbm_set_time` the instance runs on the host's time: the startup of the controller (1 s
+/// after the start) waits for the host time, not for the clock.
+#[test]
+fn host_time_drives_the_instance() {
+    let host = Host::single("host-time", "5afa5045-ff92-4737-a091-5b371cd5e529");
+    // The Launch Control XL selects its template in the startup (sysex F0 … 77 <template> F7)
+    let template_selections = |host: &Host| host.rec().midi_out.iter().filter(|(_, data)| data.first() == Some(&0xF0) && data.contains(&0x77)).count();
+    unsafe { dbm_set_time(host.app, 0) };
+    unsafe { dbm_start_infrastructure(host.app) };
+    unsafe { dbm_tick(host.app) };
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    unsafe { dbm_tick(host.app) };
+    assert_eq!(template_selections(&host), 0, "the clock must not count");
+    unsafe { dbm_set_time(host.app, 500) };
+    unsafe { dbm_tick(host.app) };
+    assert_eq!(template_selections(&host), 0);
+    unsafe { dbm_set_time(host.app, 1100) };
+    unsafe { dbm_tick(host.app) };
+    assert!(template_selections(&host) > 0, "{:?}", host.rec().midi_out);
+    // A time before the last one is taken as the last one
+    unsafe { dbm_set_time(host.app, 0) };
+    unsafe { dbm_tick(host.app) };
+}

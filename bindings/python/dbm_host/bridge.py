@@ -13,16 +13,13 @@ the ``NativeCore.Callbacks``), which hosts the core in Bitwig as the Java Driven
 ``ControllerExtension`` hosts its controllers.
 
 Time: the bridge has a simulated clock. ``advance(ms)`` moves it in ticks of 30 ms; each tick
-moves the DAW (``SimDaw.advance``), sends the pending MIDI, ticks the core, reports the changes
-and calls ``update_model``. Nothing sleeps. The core itself, however, takes the wall clock at
-every call (the C ABI has no time parameter, HOST_BRIDGE_GUIDE §1 "Time base"): its own timers
-(the 1 s startup delay, the 75 ms selection after a page change, long presses) only run with real
-time. ``wait_for_startup`` therefore waits the startup delay in real time, and ``realtime=True``
-makes ``advance`` keep pace with the wall clock.
+moves the DAW (``SimDaw.advance``), gives the time to the core (``dbm_set_time``), sends the
+pending MIDI, ticks the core, reports the changes and calls ``update_model``. Nothing sleeps: the
+core's own timers (the 1 s startup delay, the 75 ms selection after a page change, long presses,
+blinking) run on the simulated clock too.
 """
 
 import logging
-import time
 from typing import Callable, Iterable
 
 import drivenbymoss
@@ -46,13 +43,11 @@ DEVICE = 0
 class Bridge(drivenbymoss.Backend):
     """Runs one controller of the core against a SimDaw."""
 
-    def __init__(self, daw: SimDaw, controller_id: str, config_path: str, app_version: str = "DrivenByMoss reference host",
-                 realtime: bool = False):
+    def __init__(self, daw: SimDaw, controller_id: str, config_path: str, app_version: str = "DrivenByMoss reference host"):
         self.daw = daw
         self.controller_id = controller_id
         self.config_path = config_path
         self.app_version = app_version
-        self.realtime = realtime
         self.clock_ms = 0.0
         self.banks = Banks()
         self.reporter = Reporter(daw, self.banks, clock=lambda: self.clock_ms)
@@ -78,6 +73,7 @@ class Bridge(drivenbymoss.Backend):
     def start(self) -> "Bridge":
         """Create the controller, start it, size the banks and send the first (complete) report."""
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
+        self.app.set_time(int(self.clock_ms))
         self.app.start_infrastructure()
         self.banks.configure(self.app.get_model_setup())
         self.app.take_setting_changes()
@@ -111,6 +107,7 @@ class Bridge(drivenbymoss.Backend):
 
     def step(self) -> None:
         """One loop pass: MIDI in -> tick -> report changes -> update_model."""
+        self.app.set_time(int(self.clock_ms))
         pending, self.midi_in = self.midi_in, []
         for data in pending:
             self.app.on_midi_event(DEVICE, data)
@@ -124,8 +121,6 @@ class Bridge(drivenbymoss.Backend):
         remaining = float(ms)
         while True:
             delta = min(TICK_MS, remaining)
-            if self.realtime and delta > 0:
-                time.sleep(delta / 1000.0)
             self.clock_ms += delta
             self.daw.advance(delta)
             self.step()
@@ -134,13 +129,8 @@ class Bridge(drivenbymoss.Backend):
                 break
 
     def wait_for_startup(self) -> None:
-        """Wait (in real time) until the core ran the delayed startup of the controller."""
-        deadline = time.monotonic() + (STARTUP_DELAY_MS + STARTUP_MARGIN_MS) / 1000.0
-        while time.monotonic() < deadline:
-            time.sleep(TICK_MS / 1000.0)
-            self.clock_ms += TICK_MS
-            self.daw.advance(TICK_MS)
-            self.step()
+        """Advance the simulated time until the core ran the delayed startup of the controller."""
+        self.advance(STARTUP_DELAY_MS + STARTUP_MARGIN_MS)
 
     def send(self, data: bytes | Iterable[int], ms: float = TICK_MS) -> None:
         """Receive a MIDI message from the controller and advance the time."""

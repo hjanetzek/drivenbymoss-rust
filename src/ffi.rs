@@ -461,6 +461,19 @@ pub unsafe extern "C" fn dbm_tick(app: *mut DbmApp) {
     unsafe { with_handle(app, (), |app| app.tick()) };
 }
 
+/// Run the instance on the time of the host instead of the clock, for hosts with a simulated
+/// or offline time (tests, simulations): `time_ms` is the time in milliseconds since the
+/// creation of the instance. After the first call the instance never reads the clock again, the
+/// host calls it before each [`dbm_tick`] with the current time. A time before the last one is
+/// taken as the last one. Use it with `DBM_FLAG_HOST_TICK`.
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_set_time(app: *mut DbmApp, time_ms: u64) {
+    unsafe { with_handle(app, (), |app| app.set_time_ms(time_ms)) };
+}
+
 /// Update the model with data from the DAW: lines of `<address> <value>`.
 ///
 /// # Safety

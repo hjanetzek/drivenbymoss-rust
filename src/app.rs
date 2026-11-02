@@ -83,6 +83,8 @@ pub struct App {
     /// The time is set by [`App::set_time`] (replay of a recorded session), not taken from the
     /// clock at each call.
     fixed_time: bool,
+    /// The time 0 of [`App::set_time_ms`]: the creation of the application.
+    epoch: Instant,
 }
 
 impl App {
@@ -117,6 +119,7 @@ impl App {
             is_started: false,
             single,
             fixed_time: false,
+            epoch: Instant::now(),
         }
     }
 
@@ -132,6 +135,13 @@ impl App {
     pub fn set_time(&mut self, time: Instant) {
         self.fixed_time = true;
         self.host.set_time(time);
+    }
+
+    /// Run the core on the host's time (milliseconds since the creation of the application)
+    /// from now on, not on the clock ([`dbm_set_time`](crate::ffi::dbm_set_time)).
+    pub fn set_time_ms(&mut self, time_ms: u64) {
+        let time = self.epoch + std::time::Duration::from_millis(time_ms);
+        self.set_time(time.max(self.host.now()));
     }
 
     fn main_config_path(&self) -> PathBuf {

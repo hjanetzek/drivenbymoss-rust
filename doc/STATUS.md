@@ -8,7 +8,7 @@ Seven controller families are ported: Novation Launchpad (5 models), Novation La
 NI Maschine Mk2 and Jam, Mackie MCU and HUI (with extenders), Generic Flexi, and the Akai APC mini,
 APC40, MPC/Force (ACVS) and Fire. The crate has about 90,000 lines of Rust in 315 files. 372 tests
 pass, 2 are ignored, and `cargo clippy --all-targets` reports 0 warnings. The release build
-produces `libdrivenbymoss.so` (about 6.5 MB), which exports the 23 `dbm_*` functions of the
+produces `libdrivenbymoss.so` (about 6.5 MB), which exports the 25 `dbm_*` functions of the
 handle-based C ABI.
 
 **First successful test in Reaper (2026-10-29):** the Reaper extension in `backends/reaper`,
