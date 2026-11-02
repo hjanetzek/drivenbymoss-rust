@@ -115,7 +115,7 @@ int main (int argc, char **argv)
         CHECK (!unknown.isValid ());
         dbm::App app = dbm::App::forController (single, "5AFA5045-FF92-4737-A091-5B371CD5E529", dir, "Bitwig Studio 5.3", DBM_FLAG_HOST_TICK);
         CHECK (app.isValid ());
-        CHECK (app.getModelSetup ().empty ());
+        CHECK (app.getModelSetup () == "{}");
         app.startInfrastructure ();
         CHECK (single.opened == (std::vector<int>{ 0, 0 }));
         CHECK (app.getModelSetup ().find ("\"numSends\":2") != std::string::npos);

@@ -119,8 +119,14 @@ pub trait Backend {
     fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
 
-    /// A log message of the library. The default ignores it (it is also written to stderr).
+    /// A log message of the library. The default ignores it.
     fn log(&self, _message: &str) {}
+
+    /// True if the host shows the log itself ([`Backend::log`]); otherwise the library writes it
+    /// to stderr.
+    fn handles_log(&self) -> bool {
+        false
+    }
 }
 
 /// Convenience wrapper around a backend which is shared by all parts of the model.

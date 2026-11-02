@@ -25,7 +25,8 @@ const CONTROLLER_INSTANCE_TAG: &str = "CONTROLLER_INSTANCE";
 /// The delay of the controller startup after its initialisation.
 const STARTUP_DELAY_MS: u64 = 1000;
 
-/// Logs to stderr and keeps the messages in memory (displayed with `dbm_display_window`).
+/// Logs to the host (or to stderr if the host does not take the log) and keeps the messages in
+/// memory (displayed with `dbm_display_window`).
 struct AppLog {
     memory: Rc<MemoryLog>,
     backend: Rc<dyn Backend>,
@@ -33,7 +34,9 @@ struct AppLog {
 
 impl LogSink for AppLog {
     fn log(&self, message: &str) {
-        StderrLog.log(message);
+        if !self.backend.handles_log() {
+            StderrLog.log(message);
+        }
         self.memory.log(message);
         self.backend.log(message);
     }
@@ -85,7 +88,7 @@ pub struct App {
 impl App {
     pub fn new(backend: Rc<dyn Backend>, ini_path: &str, major_version: i32, minor_version: i32) -> Self {
         let mut app = Self::create(backend, ini_path, false);
-        app.host.println(&format!("DrivenByMoss (Rust) starting, Reaper {major_version}.{minor_version}"));
+        app.host.println(&format!("DrivenByMoss (Rust) starting, host version {major_version}.{minor_version}"));
         app.load_instances();
         app
     }
@@ -587,11 +590,11 @@ impl App {
     }
 
     /// The model setup of the first running instance as JSON (see [`ModelSetup::to_json`]), or
-    /// an empty string if no instance is running.
+    /// `{}` if no instance is running.
     ///
     /// [`ModelSetup::to_json`]: crate::daw::model_setup::ModelSetup::to_json
     pub fn model_setup_json(&self) -> String {
-        self.instances.iter().find_map(|i| i.running.as_ref()).map(|r| r.ctx.model.setup_json()).unwrap_or_default()
+        self.instances.iter().find_map(|i| i.running.as_ref()).map(|r| r.ctx.model.setup_json()).unwrap_or_else(|| "{}".to_string())
     }
 
     /// Access the context of a running instance (for tests).

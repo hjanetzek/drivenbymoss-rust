@@ -66,6 +66,9 @@ call sequence and the model data.
 - Exceptions raised by backend methods are caught and logged with the logger `drivenbymoss`;
   they never cross into the library. A failing `open_midi_*` reports failure.
 - The arguments of the backend methods are copies and can be kept.
+- The log of the library goes to `Backend.log`; the default passes it to the logger
+  `drivenbymoss` (INFO). The library writes nothing to stderr itself, except the message of a
+  caught panic.
 
 ## Tests
 

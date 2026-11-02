@@ -327,7 +327,7 @@ fn single_controller_instance() {
 
     // The Launch Control XL runs on the ports 0 without any configuration or port list
     let host = Host::single("single", "5afa5045-ff92-4737-a091-5b371cd5e529");
-    assert_eq!(take_string(unsafe { dbm_get_model_setup(host.app) }), "");
+    assert_eq!(take_string(unsafe { dbm_get_model_setup(host.app) }), "{}");
     unsafe { dbm_start_infrastructure(host.app) };
     assert_eq!(host.rec().opened, vec![0, 0]);
     assert!(host.rec().commands.iter().any(|c| c == "refresh "), "{:?}", host.rec().commands);

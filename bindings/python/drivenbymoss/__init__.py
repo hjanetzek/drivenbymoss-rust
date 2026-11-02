@@ -155,7 +155,9 @@ class Backend:
         pass
 
     def log(self, message: str) -> None:
-        """A log message of the library (it is also written to stderr)."""
+        """A log message of the library. The binding always takes the log, so the library does not
+        write it to stderr; the default passes it to the logger 'drivenbymoss' (level INFO)."""
+        logger.info("%s", message)
 
 
 def _str(text: bytes | None) -> str:
@@ -368,9 +370,10 @@ class App:
 
     def get_model_setup(self) -> dict | None:
         """The model setup of the running controller (parsed JSON, keys as in the Java
-        ModelSetup, e.g. 'numTracks'). None until start_infrastructure started the controller."""
-        text = _take(self._library.dbm_get_model_setup(self._app()))
-        return json.loads(text) if text else None
+        ModelSetup, e.g. 'numTracks'). None until start_infrastructure started the controller (the
+        library returns '{}')."""
+        setup = json.loads(_take(self._library.dbm_get_model_setup(self._app())) or "{}")
+        return setup or None
 
     # Document settings (stored in the project of the host)
 

@@ -21,6 +21,7 @@
 #define DRIVENBYMOSS_HPP
 
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,8 +73,9 @@ public:
     virtual void setNoteInputKeyTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
     virtual void setNoteInputVelocityTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
 
-    /** A log message of the library (it is also written to stderr). */
-    virtual void log (const std::string &message) { (void) message; }
+    /** A log message of the library. The library only writes its log to stderr itself if the host
+        sets no log callback; the wrapper always sets one, so the default writes it to stderr. */
+    virtual void log (const std::string &message) { std::cerr << "[DrivenByMoss] " << message << std::endl; }
 };
 
 

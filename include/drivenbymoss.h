@@ -80,7 +80,8 @@ typedef struct DbmCallbacks {
                                                     int note_input_index,
                                                     const int *table,
                                                     int count);
-  // A log message of the library (also written to stderr).
+  // A log message of the library. If set, the library does not write its log to stderr (only
+  // the message of a caught panic).
   void (*log)(void *user, const char *message);
 } DbmCallbacks;
 
@@ -93,7 +94,8 @@ const char *dbm_version(void);
 
 // Create an instance. The callback table is copied; `callbacks->user` must stay valid until
 // [`dbm_destroy`]. `ini_path` is the folder of the configuration files, `app_version` the
-// version of the host application (e.g. "7.22/linux-x86_64"). `flags` is a combination of the
+// version of the host application (e.g. "7.22/linux-x86_64"; the first two numbers count, 1.0 if
+// there are none). `flags` is a combination of the
 // `DBM_FLAG_*` values. Returns null if `callbacks` is null.
 //
 // # Safety
@@ -129,7 +131,8 @@ char *dbm_list_controllers(void);
 // The model setup of the running controller as a JSON object: the numbers of tracks, scenes,
 // sends, devices, parameters, etc. that the controller uses (keys as in the Java `ModelSetup`,
 // e.g. `numTracks`). Hosts which create all their objects up front (Bitwig) create them from
-// it. Empty until [`dbm_start_infrastructure`] started the controller. Release the string with
+// it. `{}` until [`dbm_start_infrastructure`] started the controller, and for an instance of
+// [`dbm_create`] it is the first running controller's. Release the string with
 // [`dbm_free_string`].
 //
 // # Safety
@@ -209,7 +212,10 @@ void dbm_set_default_document_settings(struct DbmApp *app);
 char *dbm_get_formatted_document_settings(struct DbmApp *app);
 
 // All settings of the controller in the order of their activation, for hosts which show them in
-// their own UI (Bitwig). One line per setting with tab separated fields: ID, scope (`global`,
+// their own UI (Bitwig). The settings functions (`dbm_get_settings`, `dbm_set_setting`,
+// `dbm_take_setting_changes`, `dbm_take_setting_states`) address the first running controller
+// of the instance: a host with a settings UI runs one controller per instance
+// ([`dbm_create_controller`]). One line per setting with tab separated fields: ID, scope (`global`,
 // `document`), kind (`enum`, `integer`, `boolean`, `text`, `action`, `signal`), category, label,
 // default value, current value, then the options of an enumeration, the minimum and maximum of an
 // integer or the button text of a signal. An `action` value is the ID of a host action; a
@@ -221,14 +227,16 @@ char *dbm_get_formatted_document_settings(struct DbmApp *app);
 // `app` must be a valid handle (or null).
 char *dbm_get_settings(struct DbmApp *app);
 
-// Set a setting from the UI of the host.
+// Set a setting from the UI of the host. The change is not reported back by
+// [`dbm_take_setting_changes`], which only returns the changes the controller made itself.
 //
 // # Safety
 // `app` must be a valid handle (or null); `value` must be a valid NUL terminated string (or
 // null).
 void dbm_set_setting(struct DbmApp *app, int id, const char *value);
 
-// The settings which the controller changed since the last call, one `ID<tab>value` per line.
+// The settings which the controller changed since the last call (not the ones set with
+// [`dbm_set_setting`]), one `ID<tab>value` per line.
 // Release the result with [`dbm_free_string`].
 //
 // # Safety

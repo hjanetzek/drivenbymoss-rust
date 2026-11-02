@@ -85,11 +85,14 @@ because every binding builds on it.
      - The instance is created with `DBM_FLAG_HOST_TICK` and ticked from
        `DrivenByMossSurface::Run`, so all callbacks run on Reaper's main thread.
      - The CMake build compiles the crate with cargo and links it statically.
-2. **Python (Zynthian), todo.** `bindings/python/`.
-   - A pure-Python package (`cffi` in ABI mode, or `ctypes`) that loads the prebuilt library.
-   - Nothing is compiled on the device; the library is cross-built for aarch64.
-   - The package uses `DBM_FLAG_HOST_TICK` and ticks from its event loop.
-3. **Java, todo.** `bindings/java/`.
+2. **Python, done (2026-11-02).** `bindings/python/drivenbymoss/`.
+   - ctypes, standard library only (Python 3.11+): `App`, which uses `DBM_FLAG_HOST_TICK`, and
+     `Backend`, with one method per callback.
+   - 10 unittest tests, run by `ci/linux.sh`.
+   - The reference host on top of it: [PYTHON_HOST_PLAN.md](PYTHON_HOST_PLAN.md).
+   - For Zynthian: the library is cross-built for aarch64, and nothing is compiled on the
+     device.
+3. **Java, todo.** `bindings/java/` (the Bitwig extension has its own FFM wrapper, `NativeCore`).
    - FFM (Java 22+) with `jextract` from the header, or a hand-written wrapper.
    - JNA as a fallback for older JDKs.
    - A single wrapper class, with no JNI C code.
@@ -102,3 +105,15 @@ because every binding builds on it.
 - These are in place: `tests/ffi.rs`, 7 tests including the C and C++ compile check.
 - Each language wrapper gets a smoke test against a recording backend implemented in that
   language.
+
+## Issues found by the bindings
+
+The C ABI issues a binding ran into. Fixed ones stay listed with the fix.
+
+| # | Found by | Issue | State |
+| --- | --- | --- | --- |
+| 1 | Python | The settings functions address only the first running controller of an instance, and `dbm_set_setting` changes are not reported back by `dbm_take_setting_changes`; neither was in the header | Documented in the header (2026-11-02) |
+| 2 | Python | `dbm_create` logged every host as "Reaper", with "1.0" for an empty version | The message is "host version X.Y"; the header says how the version is read (2026-11-02) |
+| 3 | Python | The library wrote its log to stderr even when the host set a `log` callback | Only without a callback (`Backend::handles_log`); the C++ and Python wrappers always set one, and their default `log` writes to stderr (C++) or to the logger `drivenbymoss` (Python) (2026-11-02) |
+| 4 | Python | `dbm_get_model_setup` returned an empty string, not valid JSON, before the controller started | Returns `{}` (2026-11-02) |
+| 5 | Python | The Launchpad X LED of pad 11 after a press was `0x01` in an exploration script but `0x15` in `bindings/python/tests/test_binding.py`, reproducibly; the test only checks that the LED changes | Open: probably the timing of the startup (1 s after init) or of the first flush; check whether the scripts ticked differently before the press |
