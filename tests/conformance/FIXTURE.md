@@ -20,5 +20,16 @@ Effect tracks: `FX 1` and `FX 2` (the sends A and B of the Launch Control XL).
 Markers (only for `generic_flexi/marker.toml`, which checks them with `require`): two cue
 markers in the arranger, `M1` at bar 3 and `M2` at bar 5.
 
+Bitwig behaviour the recorded results depend on, without a scenario saying so (the Python
+reference host simulates both, `bindings/python/conformance/fixture.py`):
+
+- **Auto-arm:** Bitwig arms the selected instrument track and disarms it when another track is
+  selected (the default preference). `/track/N/recarm` and `monitor` and the record-arm LEDs of
+  the Launch Control XL follow the selection because of it.
+- **Undo history:** the changes of the setup steps (mute, solo, mixer values, tempo) make undo
+  possible. The Launch Control XL shows it (Undo LED on Track Focus 5 while Record Arm is held).
+- **Takeover mode:** Catch for the Launch Control XL, Maschine Mk2 and JAM, Immediate for Generic
+  Flexi (the profiles, see the CONFORMANCE.md of each setup).
+
 The Java OSC controller sends to 127.0.0.1:9000 and receives on 8000; its MIDI port setting can
 be any unused device. See doc/CONFORMANCE_TESTING_PLAN.md for the rest of the setup.
