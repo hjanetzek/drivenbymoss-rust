@@ -1,6 +1,6 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-02, three runs; replays of device, function_layers, keyboard, marker, project, transport.
+Status: 2026-11-02, five runs; last full run (the fifth): 100 of 100 the same, replays of all 9 files.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so
@@ -177,3 +177,26 @@ Before these fixes:
   (`ClipLauncherNavigatorImpl`: it moves the selected slot to the selected track itself); the Java
   version on Bitwig only selects the track through a single track bank which follows the cursor
   track, and Bitwig moves the slot. A host navigator for Bitwig would be needed.
+
+### Fourth run, 2026-11-02
+
+The first attempt stopped at startup: the Rust extension read `trackType`/`isGroup` of the effect
+tracks without `markInterested` (fixed in the extension). Repeated: 96 of 100 the same, 4 DIFF,
+1 failed expectation (`flexi.scene.launch`, Java). `flexi.track.trackbank` passes, and the clip
+selection DIFFs of slots and track are gone. Remaining:
+
+- `modes.track-next-previous-item`, `modes.track-previous-page`: the track modes of the port did
+  not use the navigator (Java `DefaultTrackMode` selects with `selectTrack`/`navigateTracks`).
+- `clip.pin-select`: "Clip: Select next/previous" went to the navigator of the host (on Bitwig it
+  moves the scene); Java's `ClipHandler` selects the previous/next slot of the cursor track.
+- `scene.launch`: the start state differed (left by `clip.pin-select`), Java's launch did nothing.
+
+Fixed in the port: the Flexi track, volume, pan and send modes select with the navigator; the
+clip functions select within the slot bank of the cursor track.
+
+### Fifth run, 2026-11-02
+
+100 of 100 scenarios the same, no failed expectations; `scene.launch` passes on both sides with
+the same start state. The script copied the replays of all 9 files; the replay test passes.
+Remaining in the log (every run): Flexi (Rust) `Not handled yet: track outside of the window
+<n>/send/<n>/volume/indicate`.

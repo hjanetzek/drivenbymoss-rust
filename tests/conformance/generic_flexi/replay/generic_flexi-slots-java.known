@@ -1,0 +1,1 @@
+leds B0 77	The startup slot of the runner (master volume on CC 119, FLEXI_STARTUP_SLOT): the same in both, listed in case a run starts with another master volume
