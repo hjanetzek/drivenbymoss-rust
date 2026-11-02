@@ -44,7 +44,8 @@ struct Running {
     ctx: Ctx,
     setup: Box<dyn ControllerSetup>,
     parser: Parser,
-    ports: MidiPorts,
+    /// The MIDI ports, one pair per surface (index 0 is the first surface).
+    ports: Vec<MidiPorts>,
     /// When `startup` of the setup is called (delayed like in the Java version).
     startup_due: Option<Instant>,
 }
@@ -238,37 +239,57 @@ impl App {
         ports.iter().find(|(_, n)| n == name).map(|(id, _)| *id)
     }
 
-    /// Get the configured MIDI ports of an instance, try to detect them if not configured.
-    fn resolve_ports(&mut self, index: usize) -> Option<MidiPorts> {
+    /// Get the configured MIDI ports of an instance (one pair per surface, see
+    /// [`ControllerFactory::num_port_pairs`]), try to detect them if not configured.
+    fn resolve_ports(&mut self, index: usize) -> Option<Vec<MidiPorts>> {
+        let count = self.instances[index].factory.num_port_pairs().max(1);
         if self.single {
-            return Some(MidiPorts { input: 0, output: 0 });
+            // The host's ports are numbered 0..count
+            return Some((0..count as i32).map(|i| MidiPorts { input: i, output: i }).collect());
         }
         let inputs = self.sender.backend().midi_inputs();
         let outputs = self.sender.backend().midi_outputs();
         let instance = &mut self.instances[index];
         let name = instance.factory.info().to_string();
 
-        let configured_in = instance.config_file.midi_input(0).map(str::to_string);
-        let configured_out = instance.config_file.midi_output(0).map(str::to_string);
-        if let (Some(input), Some(output)) = (&configured_in, &configured_out) {
-            match (Self::find_port(&inputs, input), Self::find_port(&outputs, output)) {
-                (Some(input), Some(output)) => return Some(MidiPorts { input, output }),
-                (None, _) => self.host.println(&format!("{name}: MIDI input device not found: {input}")),
-                (_, None) => self.host.println(&format!("{name}: MIDI output device not found: {output}")),
+        let configured: Vec<(Option<String>, Option<String>)> =
+            (0..count).map(|i| (instance.config_file.midi_input(i).map(str::to_string), instance.config_file.midi_output(i).map(str::to_string))).collect();
+        if configured.iter().all(|(input, output)| input.is_some() && output.is_some()) {
+            let mut ports = Vec::with_capacity(count);
+            for (input, output) in configured.iter().map(|(i, o)| (i.as_deref().unwrap_or_default(), o.as_deref().unwrap_or_default())) {
+                match (Self::find_port(&inputs, input), Self::find_port(&outputs, output)) {
+                    (Some(input), Some(output)) => ports.push(MidiPorts { input, output }),
+                    (None, _) => {
+                        self.host.println(&format!("{name}: MIDI input device not found: {input}"));
+                        return None;
+                    }
+                    (_, None) => {
+                        self.host.println(&format!("{name}: MIDI output device not found: {output}"));
+                        return None;
+                    }
+                }
             }
-            return None;
+            return Some(ports);
         }
 
-        // Automatic detection
+        // Automatic detection: all ports of a pair must be present
         for (input_names, output_names) in instance.factory.midi_discovery_pairs(OperatingSystem::current()) {
-            let (Some(input_name), Some(output_name)) = (input_names.first(), output_names.first()) else {
+            if input_names.len() < count || output_names.len() < count {
                 continue;
-            };
-            if let (Some(input), Some(output)) = (Self::find_port(&inputs, input_name), Self::find_port(&outputs, output_name)) {
-                self.host.println(&format!("{name}: Detected MIDI ports {input_name} / {output_name}"));
-                instance.config_file.set_midi_input(0, input_name);
-                instance.config_file.set_midi_output(0, output_name);
-                return Some(MidiPorts { input, output });
+            }
+            let found: Option<Vec<MidiPorts>> = (0..count)
+                .map(|i| match (Self::find_port(&inputs, &input_names[i]), Self::find_port(&outputs, &output_names[i])) {
+                    (Some(input), Some(output)) => Some(MidiPorts { input, output }),
+                    _ => None,
+                })
+                .collect();
+            if let Some(ports) = found {
+                self.host.println(&format!("{name}: Detected MIDI ports {} / {}", input_names[..count].join(", "), output_names[..count].join(", ")));
+                for i in 0..count {
+                    instance.config_file.set_midi_input(i, &input_names[i]);
+                    instance.config_file.set_midi_output(i, &output_names[i]);
+                }
+                return Some(ports);
             }
         }
         self.host.println(&format!("{name}: MIDI input/output device not configured."));
@@ -290,7 +311,7 @@ impl App {
         self.host.println(&format!("{name}: Starting..."));
 
         let backend = self.sender.backend().clone();
-        if !backend.open_midi_input(ports.input) || !backend.open_midi_output(ports.output) {
+        if !ports.iter().all(|p| backend.open_midi_input(p.input) && backend.open_midi_output(p.output)) {
             self.host.error(&format!("{name}: Could not open the MIDI ports."));
             return;
         }
@@ -305,7 +326,7 @@ impl App {
         // The note clips which the views request while they are created (former
         // model.getNoteClip in the constructors), so that the host can create them during init
         crate::daw::clip::take_requested_note_clips();
-        match instance.factory.create(self.host.clone(), self.sender.clone(), ports, configuration) {
+        match instance.factory.create_with_ports(self.host.clone(), self.sender.clone(), &ports, configuration) {
             Ok(mut parts) => {
                 parts.setup.init(&mut parts.ctx);
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
@@ -318,8 +339,10 @@ impl App {
             }
             Err(error) => {
                 self.host.error(&format!("{name}: Could not start controller: {error}"));
-                backend.close_midi_input(ports.input);
-                backend.close_midi_output(ports.output);
+                for port in &ports {
+                    backend.close_midi_input(port.input);
+                    backend.close_midi_output(port.output);
+                }
             }
         }
     }
@@ -336,8 +359,10 @@ impl App {
         running.setup.exit(&mut running.ctx);
         running.ctx.model.cleanup();
         let backend = self.sender.backend().clone();
-        backend.close_midi_input(running.ports.input);
-        backend.close_midi_output(running.ports.output);
+        for port in &running.ports {
+            backend.close_midi_input(port.input);
+            backend.close_midi_output(port.output);
+        }
         self.host.println(&format!("{}: Exited.", instance.factory.info()));
     }
 
@@ -374,13 +399,14 @@ impl App {
             let Some(running) = &mut instance.running else {
                 continue;
             };
-            if running.ports.input != device_id {
+            // The surface whose input received the message (several with MCU extenders)
+            let Some(surface) = running.ports.iter().position(|p| p.input == device_id) else {
                 continue;
-            }
+            };
             if status == 0xF0 {
-                running.ctx.handle_sysex(data);
+                running.ctx.with_surface(surface, |ctx| ctx.handle_sysex(data));
             } else if data.len() == 3 {
-                running.ctx.handle_midi(status as i32, data[1] as i32, data[2] as i32);
+                running.ctx.with_surface(surface, |ctx| ctx.handle_midi(status as i32, data[1] as i32, data[2] as i32));
             } else if !(data.len() == 1 && status == 0xFE) {
                 self.host.println(&format!("Unknown MIDI data of length {}", data.len()));
             }
@@ -557,13 +583,14 @@ impl App {
 fn handle_parser_events(ctx: &mut Ctx, events: Vec<ParserEvent>) {
     for event in events {
         match event {
-            ParserEvent::RebindKnobs => {
+            // All surfaces (one, except for e.g. MCU extenders)
+            ParserEvent::RebindKnobs => ctx.for_each_surface(|ctx| {
                 if let Some(mode) = ctx.active_mode() {
                     if let Ok(mut mode) = mode.try_borrow_mut() {
                         mode.on_activate(ctx);
                     }
                 }
-            }
+            }),
             ParserEvent::UpdateNoteMapping => ctx.schedule(UPDATE_NOTE_MAPPING_DELAY_MS, |ctx| ctx.update_view_note_mapping()),
             ParserEvent::QuantizeAmount(value) => ctx.config.set_quantize_amount(value),
             ParserEvent::NoteRepeatActive(active) => {

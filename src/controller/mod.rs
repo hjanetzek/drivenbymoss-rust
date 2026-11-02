@@ -5,9 +5,11 @@
 //! The supported controllers.
 
 pub mod akai;
+pub mod generic;
 pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;
+pub mod mackie;
 
 use crate::framework::ctx::Ctx;
 
@@ -105,6 +107,25 @@ pub trait ControllerFactory {
         ports: MidiPorts,
         configuration: crate::config::Configuration,
     ) -> Result<InstanceParts, String>;
+
+    /// The number of MIDI port pairs (input and output) of an instance: one per surface, e.g. a
+    /// Mackie MCU with extenders (see `doc/MULTI_SURFACE_PLAN.md`). The default is 1.
+    fn num_port_pairs(&self) -> usize {
+        1
+    }
+
+    /// Create a controller instance with all its port pairs ([`Self::num_port_pairs`] many).
+    /// The default calls [`Self::create`] with the first pair.
+    fn create_with_ports(
+        &self,
+        host: crate::host::Host,
+        sender: crate::backend::Sender,
+        ports: &[MidiPorts],
+        configuration: crate::config::Configuration,
+    ) -> Result<InstanceParts, String> {
+        let first = ports.first().copied().ok_or_else(|| "No MIDI ports".to_string())?;
+        self.create(host, sender, first, configuration)
+    }
 }
 
 /// All supported controllers.
@@ -113,6 +134,8 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(maschine::factories());
     factories.extend(launchcontrol::factories());
     factories.extend(akai::factories());
+    factories.extend(mackie::factories());
+    factories.extend(generic::factories());
     factories
 }
 

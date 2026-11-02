@@ -68,7 +68,13 @@ fn parse_recording(path: &Path) -> Vec<Event> {
 
 /// The kinds of output events (from the core to the host).
 fn is_output(kind: &str) -> bool {
-    matches!(kind, "noArg" | "string" | "strings" | "int" | "double" | "delay" | "enable" | "out" | "raw" | "filters" | "keys" | "velocities")
+    matches!(kind, "noArg" | "string" | "strings" | "int" | "double" | "delay" | "enable" | "out" | "raw" | "filters" | "keys" | "velocities") || midi_port(kind, "out").is_some()
+}
+
+/// The port of a MIDI event of a further port ("in2", "out3", ...; controllers with several
+/// surfaces like the MCU with extenders), `None` for other kinds.
+fn midi_port(kind: &str, direction: &str) -> Option<i32> {
+    kind.strip_prefix(direction).filter(|n| !n.is_empty()).and_then(|n| n.parse().ok()).filter(|n| *n > 0)
 }
 
 /// Doubles are compared with 6 fraction digits (Java's and Rust's formatting differ).
@@ -103,6 +109,7 @@ fn normalize_call(call: &BackendCall) -> Option<String> {
         BackendCall::DelayUpdates(p) => format!("delay {p}"),
         BackendCall::EnableUpdates(p, e) => format!("enable {p} {}", if *e { 1 } else { 0 }),
         BackendCall::SendMidi(0, data) if !data.is_empty() => format!("out {}", hex(data)),
+        BackendCall::SendMidi(port, data) if !data.is_empty() => format!("out{port} {}", hex(data)),
         // A MIDI event as if played on the device (e.g. the notes of a chord)
         BackendCall::Midi(0, status, data1, data2) => format!("raw {}", hex(&[*status as u8, *data1 as u8, *data2 as u8])),
         BackendCall::NoteInputFilters(0, i, f) => format!("filters {i} {}", f.join(" ")),
@@ -198,7 +205,8 @@ fn replay(path: &Path) -> Vec<String> {
             expected.push(normalize_event(event));
             continue;
         }
-        if !matches!(event.kind.as_str(), "documentSettings" | "setting" | "start" | "model" | "tick" | "in" | "mark") {
+        let input_port = midi_port(&event.kind, "in");
+        if input_port.is_none() && !matches!(event.kind.as_str(), "documentSettings" | "setting" | "start" | "model" | "tick" | "in" | "mark") {
             continue;
         }
         // The outputs of the previous input are complete
@@ -223,6 +231,10 @@ fn replay(path: &Path) -> Vec<String> {
                 app.on_midi_event(0, &data);
             }
             "mark" if event.fields.first().is_some_and(|f| f == "end") => leds_at_end = Some(leds.clone()),
+            _ if input_port.is_some() => {
+                let data: Vec<u8> = event.fields[0].split(' ').filter_map(|b| u8::from_str_radix(b, 16).ok()).collect();
+                app.on_midi_event(input_port.unwrap_or(0), &data);
+            }
             _ => {}
         }
     }

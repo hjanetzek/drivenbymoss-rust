@@ -12,3 +12,4 @@ pub mod layer;
 pub mod master;
 pub mod sequencer;
 pub mod note_parameter;
+pub mod browser;

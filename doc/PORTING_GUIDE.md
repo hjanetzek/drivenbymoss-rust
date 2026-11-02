@@ -30,8 +30,8 @@ listed under "Needs".
 | Novation Launchkey Mk3 / Mini Mk3 | `novation/launchkey` | 5,674 | `LaunchkeyMk3`, `LaunchkeyMiniMk3ControllerInstance` | Text display | 2 |
 | Novation SL Mk1/Mk2 | `novation/sl` | 3,754 | `SLMkI/SLMkIIControllerInstance` | Text display | 3 |
 | Novation SL Mk3 | `novation/slmkiii` | 5,201 | `SLMkIIIControllerInstance` | Text display (pixel display via sysex) | 3 |
-| Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Text display, multiple surfaces (extenders) | 3 |
-| Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Text display (`McuDisplay` exists), multiple surfaces (extenders), many settings | 3 |
+| Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
+| Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Ported (`src/controller/mackie/mcu/`) | — |
 | Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | Text display | 3 |
 | Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | Sysex/Lua protocol | 3 |
 | Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex) | 4 |
@@ -39,7 +39,7 @@ listed under "Needs".
 | NI Kontrol Mk1 (S25–S88) | `ni/kontrol/mki` | part of 7,390 | `KontrolMkIS25/49/61/88ControllerInstance` | USB/HID (`Kontrol1UsbDevice`) | 5 |
 | NI Kontrol Mk2/Mk3 (protocol V1–V3) | `ni/kontrol/mkii` | part of 7,390 | `KontrolProtocolV1/V2/V3ControllerInstance` | — (NI Kontrol MIDI protocol, track/parameter names via sysex) | 2 |
 | NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
-| Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | Flexi handler system, user-defined mappings, many settings | 4 |
+| Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | **Ported** (`src/controller/generic/`, see STATUS.md) | — |
 | Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | Push 1: text display. Push 2/3: graphics rendering (`framework/graphics`, 3,939 lines + 1,618 Reaper side) and USB bulk transfer of the display | 5 |
 | OSC | `osc/**` | 3,801 | `OSCControllerInstance` | UDP networking, OSC encoding (`framework/osc`) | 4 |
 | Gamepad | `gamepad` | 291 | `GamepadControllerInstance` | Gamepad input (jamepad in Java): needs a native library | 5 |
@@ -172,12 +172,14 @@ configurations working.
 | Module | Contents |
 | --- | --- |
 | `framework::ctx` | `Ctx` |
+| `framework::multi_surface` | Several surfaces per instance (MCU/HUI extenders): `add_surface`, `select_surface`, `with_surface`, `for_each_surface`, `share_button_states`, `connect_surface_mode_managers`; see [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md) |
 | `framework::feature` | `View`/`Mode` traits, managers, `ScrollStates`, `impl_as_any!` |
 | `framework::command` | `TriggerCommand`, `ContinuousCommand`, `AftertouchCommand`, `PitchbendCommand`, `shared`, `FnTrigger`, `FnContinuous` |
 | `framework::surface` | `Surface`, `HwButton`, `HwLight`, `HwContinuous`, `ButtonAction`, `TriggerSender` |
 | `framework::grid` | `PadGrid`, `LightInfo`, `BlinkMode::{Channels, Collect, Emulated}` |
 | `framework::display` | `TextDisplay`, `LineWriter`, `McuDisplay`, `Format` |
 | `framework::virtual_fader` | Virtual faders on pad columns |
+| `framework::clip_launcher_navigator` | `IClipLauncherNavigator` (Reaper `ClipLauncherNavigatorImpl`): track/scene/clip navigation which keeps the selected slot |
 | `framework::chord_identifier` | Chord names from notes |
 | `framework::value_changer` | `ValueChanger` with all four `RelativeEncoding`s (`ValueChanger::new`, `ValueChanger::relative` = `RelativeValueChangers.get`) |
 | `framework::ids` | `ButtonId`, `ContinuousId`, `OutputId`, `Views`, `Modes`, generated from the Java enums |
@@ -212,12 +214,13 @@ configurations working.
 | `framework::mode::track` | Track select/mute/solo/rec arm/stop clip/volume/pan/send/track modes (`new` / `new_with_controls`) |
 | `framework::mode::device` | `ParameterMode`, `SelectedDeviceMode`, `ProjectParamsMode` |
 | `framework::mode::{layer, master, sequencer, dummy, note_editor}` | `LayerMute/SoloMode`, `MasterAndFXVolumeMode`, `SequencerModeBase`, `DummyMode`, `NoteEditor` |
+| `framework::mode::browser` | `BrowserMode` (device browser: knobs select the filter columns and the result) |
 
 ### Views
 
 | Module | Contents |
 | --- | --- |
-| `framework::view` | `base` (`ViewBase`, `on_scene_button`), `play_view` (`PlayViewBase`, `ChordViewBase`, `draw_piano_grid`), `session_view`, `scene_play_view`, `shift_view`, `browser_view`, `drum64_view`, `number_display_view` (tempo/shuffle), `transpose_view`, `deferred` |
+| `framework::view` | `base` (`ViewBase`, `on_scene_button`), `play_view` (`PlayViewBase`, `ChordViewBase`, `draw_piano_grid`), `session_view`, `scene_play_view`, `shift_view`, `browser_view`, `drum64_view`, `number_display_view` (tempo/shuffle), `transpose_view`, `deferred`, `control_only_view` (`ControlOnlyView`) |
 | `framework::view::sequencer` | `SequencerBase`, `NoteSequencerBase`, `PolySequencerBase`, `RaindropsBase`, `DrumBase` (incl. DrumEx), `DrumLaneBase` (Drum4/8), `ClipLengthView` |
 
 ### Commands
@@ -234,6 +237,7 @@ configurations working.
 | `framework::commands::misc` | Overdub, Pane, Layout, PanelLayout, Browser, AddEffect, AddTrack, Convert, Double, StartScene, Footswitch |
 | `framework::commands::aftertouch` | AftertouchViewCommand |
 | `framework::commands::mv_helper` | Delayed notifications |
+| `framework::commands::general` | Nop, Shift, Save, Marker, Record (simple), AutomationMode, PunchIn/Out, ToggleTrackBanks, SelectTrack, TrackState (rec arm/solo/mute), RecArmAll, JogWheel; `FocusedParameter`, `ZoomParameter` |
 
 ### DAW model
 
@@ -263,13 +267,18 @@ These are not ported yet; port them when a controller needs them:
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
 - OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.
-- Flexi handlers: `controller/generic/flexihandler`. Needed by Generic Flexi.
-- Multiple surfaces per controller instance (MCU/HUI extenders). `Ctx` currently holds one
-  `Surface`. Design this before porting MCU/HUI: either one `Ctx` per surface with a shared
-  model, or a `Vec<Surface>` with a surface index in the call paths.
+- ~~Multiple surfaces per controller instance~~: done (`framework::multi_surface`, see
+  [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md)). A factory declares `num_port_pairs()` and
+  implements `create_with_ports`; the context swaps the current surface in.
 - Device browser filter columns and the device database (DeviceManager), and parameter
   mapping/renaming.
-- Knob sensitivity (slow mode).
+- Knob sensitivity (slow mode) of the model's value changer: the `DawContext` holds a copy of the
+  value changer per parameter, so the sensitivity cannot be changed at runtime. Generic Flexi keeps
+  its own copies of the relative value changers with the sensitivity and passes them to
+  `Parameter::change_value_with`; modes which call `change_value` (e.g. Flexi's "Modes: Item"
+  commands) still use the model's value changer without sensitivity.
+- The effect track bank: the model has none (as Reaper), so the Flexi "FX Track" commands do
+  nothing.
 
 ## 6. Testing requirements
 

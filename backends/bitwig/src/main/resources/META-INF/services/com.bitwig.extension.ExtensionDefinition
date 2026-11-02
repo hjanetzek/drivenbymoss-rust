@@ -4,6 +4,14 @@ de.mossgrabers.dbm.bitwig.definitions.AkaiAPC40MkIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk1Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk2Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiMPCLiveIIIOneForceDefinition
+de.mossgrabers.dbm.bitwig.definitions.GenericFlexiDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface1ExtenderDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface2ExtendersDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterfaceDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal1ExtenderDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal2ExtendersDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversal3ExtendersDefinition
+de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversalDefinition
 de.mossgrabers.dbm.bitwig.definitions.NativeInstrumentsMaschineJAMDefinition
 de.mossgrabers.dbm.bitwig.definitions.NativeInstrumentsMaschineMk2Definition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchControlXLDefinition
