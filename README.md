@@ -15,6 +15,16 @@ extensions load. Work in progress.
     Linux.
   - `bitwig`: a Bitwig Studio extension (Java, Foreign Function & Memory API, JDK 25) which
     loads the library.
+- **Bindings** (`bindings/`):
+  - `cpp`: a header-only C++ wrapper.
+  - `python`: a Python binding, ctypes over the C ABI, standard library only, Python 3.11+.
+    On top of it:
+    - `dbm_host`: a reference host, a complete bridge on a simulated DAW, as the readable
+      example for connecting another DAW.
+    - `conformance`: the conformance scenarios in process. All 195 scenarios compare the same
+      as the Java version on Bitwig, without Bitwig.
+
+    See `bindings/python/README.md`.
 - **dbm-nihost** (`support/linux/ni_host`): a Linux user-space host for the Maschine Mk2 and
   JAM, which have no MIDI driver on Linux: it reads them over hidraw and creates MIDI ports as
   NI's driver does.
@@ -27,8 +37,12 @@ extensions load. Work in progress.
 ```
 cargo build --release          # the library
 cargo test                     # the tests, including the replays of recorded Bitwig sessions
-ci/linux.sh                    # everything that builds on Linux (crate, C++ wrapper, dbm-nihost,
-                               # Reaper and Bitwig extensions)
+ci/linux.sh                    # everything that builds on Linux (crate, C++ wrapper, Python
+                               # binding and reference host, dbm-nihost, Reaper and Bitwig
+                               # extensions)
+python3 -m unittest discover -s bindings/python/tests          # the Python binding and host
+(cd bindings/python && python3 -m conformance --all)           # the conformance scenarios on
+                                                               # the Python reference host
 ```
 
 The Reaper extension: `backends/reaper` (CMake, see `doc/STATUS.md`). The Bitwig extension:
@@ -40,6 +54,8 @@ The Reaper extension: `backends/reaper` (CMake, see `doc/STATUS.md`). The Bitwig
 - `doc/PORTING_GUIDE.md`: how the Java code maps to Rust.
 - `doc/BACKEND_PROTOCOL.md`, `doc/HOST_BRIDGE_GUIDE.md`: the protocol between the core and a DAW,
   and how to write a bridge for another DAW.
+- `doc/BINDINGS_PLAN.md`, `doc/PYTHON_HOST_PLAN.md`: the language bindings, and the Python
+  binding with its reference host.
 - `doc/BITWIG_DIVERGENCES.md`: where the Bitwig backend differs from the Java version, and why.
 - `doc/CONFORMANCE_TESTING_PLAN.md`, `doc/CONFORMANCE_AUTOMATION_PLAN.md`: the conformance tests
   and their unattended runs.
