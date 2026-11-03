@@ -7,9 +7,14 @@ extensions load. Work in progress.
 ## What is there
 
 - **The core** (`src/`): the framework of DrivenByMoss (views, modes, commands, scales, the model
-  of the DAW) and the ported controllers: Novation Launchpad (5 models), Novation Launch Control
-  XL, Native Instruments Maschine Mk2 and Maschine JAM. It builds `libdrivenbymoss` with a
-  handle-based C ABI (`include/`, `doc/BACKEND_PROTOCOL.md`).
+  of the DAW) and the ported controllers:
+  - Novation Launchpad (MkII, Pro, Pro Mk3, X, Mini MkIII) and Launch Control XL.
+  - Native Instruments Maschine Mk2 and Maschine JAM.
+  - Mackie MCU and HUI, each with extenders.
+  - Akai APC mini Mk1/Mk2, APC40 Mk1/Mk2, MPC/Force (ACVS) and Fire (with its OLED display).
+  - Generic Flexi.
+
+  It builds `libdrivenbymoss` with a handle-based C ABI (`include/`, `doc/BACKEND_PROTOCOL.md`).
 - **Backends** (`backends/`):
   - `reaper`: the Reaper extension (C++, through the C++ wrapper in `bindings/cpp`); tested on
     Linux.
