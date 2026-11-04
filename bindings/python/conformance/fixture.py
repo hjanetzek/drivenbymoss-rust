@@ -46,7 +46,7 @@ folder (the profiles are never written).
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from dbm_host import TAKEOVER_CATCH, TAKEOVER_IMMEDIATE, Preferences, SimDaw
@@ -202,6 +202,17 @@ class Setup:
     exclusive_solo: bool = False
     app_version: str = "Bitwig Studio 5.3.13"
     files: list[str] = field(default_factory=list)
+    profile_controller_id: str = ""
+    """The controller of the profile and the references, if the run uses another one
+    (``with_controller``, e.g. the Lua port of the controller, doc/LUA_PLAN.md §4)."""
+
+    def with_controller(self, controller_id: str) -> "Setup":
+        """The setup with another controller: the same profile, scenarios and references. The
+        profile's settings of the setup's controller are used for it (copied to the file name of
+        its hardware model)."""
+        if controller_id.lower() == self.controller_id.lower():
+            return self
+        return replace(self, controller_id=controller_id, profile_controller_id=self.profile_controller_id or self.controller_id)
 
     def preferences(self) -> Preferences:
         return Preferences(takeover_mode=self.takeover_mode, exclusive_solo=self.exclusive_solo, auto_arm=self.auto_arm)
@@ -246,9 +257,26 @@ def copy_profile_config(setup: Setup, config_dir: Path, flexi_mapping: Path | No
             target = config_dir / path.name
             shutil.copyfile(path, target)
             copied.append(path.name)
+    if setup.profile_controller_id:
+        # Another controller (with_controller): it gets the settings of the profile's controller
+        source_name, target_name = config_file_name(setup.profile_controller_id), config_file_name(setup.controller_id)
+        if (config_dir / source_name).exists() and source_name != target_name:
+            shutil.copyfile(config_dir / source_name, config_dir / target_name)
+            copied.append(target_name)
     if flexi_mapping is not None:
         _set_property(config_dir / "DrivenByMoss4Reaper-Flexi.config", FLEXI_FILENAME_KEY, str(flexi_mapping))
     return copied
+
+
+def config_file_name(controller_id: str) -> str:
+    """The name of the configuration file of a controller (``config_file_name`` of the core: the
+    hardware model with ``-`` for spaces and slashes)."""
+    import drivenbymoss
+
+    for controller in drivenbymoss.list_controllers():
+        if controller["uuid"].lower() == controller_id.lower():
+            return "DrivenByMoss4Reaper-" + controller["model"].replace(" ", "-").replace("/", "-") + ".config"
+    raise SystemExit(f"The controller {controller_id} is not supported by the library")
 
 
 def _set_property(path: Path, key: str, value: str) -> None:
@@ -260,4 +288,4 @@ def _set_property(path: Path, key: str, value: str) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-__all__ = ["DEVICES", "DRUM_KIT", "LAYERS", "REMOTE_CONTROLS", "SETUPS", "Setup", "build_fixture", "copy_profile_config"]
+__all__ = ["DEVICES", "DRUM_KIT", "LAYERS", "REMOTE_CONTROLS", "SETUPS", "Setup", "build_fixture", "config_file_name", "copy_profile_config"]

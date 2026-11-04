@@ -20,6 +20,8 @@ pub mod json;
 pub mod midi;
 pub mod parser;
 pub mod scale;
+#[cfg(feature = "lua")]
+pub mod script;
 
 /// Defines a C-like enum with an ordinal, a list of all values and offset helpers (mirrors the
 /// Java enum features used by the framework, e.g. `ButtonID.get (ButtonID.PAD1, i)`).

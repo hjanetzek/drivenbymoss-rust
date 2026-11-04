@@ -20,6 +20,8 @@ python3 -m unittest discover -s bindings/python/tests
 
 echo "--- Conformance on the Python reference host (the files which pass; their *-java.ref.json are committed)"
 (cd bindings/python && python3 -m conformance -q launchcontrol_xl track_mix equalizer layer_mix note_sequencer drum_sequencer)
+# The Lua port of the Launch Control XL (controllers/launch_control_xl.lua) against the same references
+(cd bindings/python && python3 -m conformance -q launchcontrol_xl --controller-id 4E926F54-1B67-4363-B971-D248C52F175D)
 (cd bindings/python && python3 -m conformance -q maschine_mk2 global pad_modes)
 (cd bindings/python && python3 -m conformance -q maschine_jam global session drum_sequencer note_sequencer play_modes)
 (cd bindings/python && python3 -m conformance -q generic_flexi function_layers device keyboard marker modes project slots track transport)

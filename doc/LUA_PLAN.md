@@ -1,8 +1,10 @@
 # Controllers in Lua: analysis and plan
 
-Status: 2026-11-04, plan; nothing implemented. Decision: option 2, framework bindings for
-controllers written in Lua. Lua is the one dependency allowed for it (decided by the project
-owner, 2026-11-04).
+Status: 2026-11-04, the pilot (§4 steps 1–5) is implemented: `src/script/` (cargo feature
+`lua`, on by default), `controllers/launch_control_xl.lua` ("Launch Control XL (Lua)") gives the
+same 27 results as the Rust controller on the reference host; results in §7, the API in
+doc/LUA_API.md. Decision: option 2, framework bindings for controllers written in Lua. Lua is
+the one dependency allowed for it (decided by the project owner, 2026-11-04).
 
 **Goal.** Write new controllers, or variants of existing ones, in Lua on top of the Rust
 framework, with no Rust compiler for whoever writes them. A controller editor can then produce a
@@ -214,3 +216,61 @@ Estimate: steps 1–2 two days, step 3 one to two days, step 4 half a day.
   build to aarch64.
 - **Two implementations of the Launch Control XL** after the pilot. Keep the Rust one; the Lua
   one stays as the example and test of the bindings.
+
+## 7. Pilot results (2026-11-04)
+
+**What was built.**
+
+- `src/script/` (feature `lua`; a build without it has no new dependency): the language-neutral
+  parts (`ctx_stack.rs`: the context of the running call, `names.rs`: the IDs by name,
+  `builtin.rs`: the built-in modes, providers and commands by name, `errors.rs`: the error
+  policy, `mod.rs`: the script discovery) and the Lua back-end (`lua.rs`: engine, factory,
+  setup; `lua/bindings.rs`: what the script sees; `lua/adapters.rs`: `LuaMode`, `LuaView`,
+  `LuaParameter`, commands and lights).
+- `controllers/launch_control_xl.lua`, built in, UUID `4E926F54-1B67-4363-B971-D248C52F175D`,
+  class `…LaunchControlXLLuaControllerInstance`, the MIDI discovery of the Rust version.
+- The oracle: `python3 -m conformance launchcontrol_xl --controller-id <uuid>` (`ci/linux.sh`)
+  gives 27 same, 0 different, 0 failed, 0 unhandled, 0 core errors, as the Rust controller;
+  `tests/launchcontrol_xl_lua.rs` runs the 19 Rust LCXL tests against the Lua controller.
+
+**Numbers.**
+
+| | Rust | Lua |
+| --- | --- | --- |
+| Bound functions and fields | | 242 (doc/LUA_API.md; 212 distinct names) |
+| Controller code | 2.8k lines | 1.7k lines of Lua (2.1k with comments) |
+| Binding code | | 4.3k lines of Rust (`src/script/`) |
+| `libdrivenbymoss.so` (release) | 6.57 MB (4.29 MB stripped) | 10.55 MB (7.33 MB stripped): +3.0 MB stripped |
+| Tick (release, the 5 LCXL files on the reference host, `--timing`) | 7–8 µs | 200–210 µs (about 20 µs of it the instruction hook) |
+| Input calls (MIDI, model updates) | 37 µs | 52 µs |
+
+The size is mostly the monomorphized mlua callback code of the bindings (1.9 MB); the Lua VM
+is 150 KB. The tick time is the per-call overhead (a frame, a `ctx` value and handle values per
+call, about 50 lights per flush, each calling into Lua and the mode's `button_color` or
+`knob_value` in Lua again), less than 1% of a 30 ms tick.
+
+**What was awkward.**
+
+- Light suppliers get `&Ctx`: the script's `ctx` must be read-only there; a light which changes
+  something is a Lua error.
+- `ControllerFactory::java_class_name` returns `&'static str`: the names of the scripts are
+  allocated once per name.
+- `all_factories()` has no configuration folder: the folder is set per thread by `App`, so
+  `dbm_list_controllers` (called before an `App` exists) lists only the built-in scripts.
+- The Rust LCXL downcasts the active mode (`XlMainMode::set_knob_color`); the script keeps its
+  mode tables by ID instead.
+- The model handles which may be absent (`Model::drum_device()`, `specific_device`) are `nil` in
+  Lua, the others are handles which return defaults.
+- Two `formatPercentage` variants in the Rust LCXL (and Rust's `round`, half away from zero)
+  had to be ported literally.
+
+**API changes for the next controller.**
+
+- Built-in light suppliers (`ctx:mode_color_light(manager, button)`, `ctx:mode_knob_light`) so
+  that a light does not go through Lua twice; and a cheaper call path (one reusable `ctx` per
+  frame, cached handles) or a generic dispatcher per userdata type to cut the code size.
+- The bases with hooks (§5.1) for pad controllers: `ctx:create_view("Session", hooks)` etc.
+- A table form of the bindings (name, arguments, Rust accessor) as planned in §3, "Generated
+  bindings", to generate the mechanical getters and the reference.
+- A configuration folder for `dbm_list_controllers` (an argument or a setter in the C ABI).
+- Controller-specific settings (`activate_*` with options), more value changers, the pad grid.

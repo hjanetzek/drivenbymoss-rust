@@ -136,6 +136,9 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(akai::factories());
     factories.extend(mackie::factories());
     factories.extend(generic::factories());
+    // The controllers written in Lua: built in and <ini folder>/DrivenByMoss/controllers
+    #[cfg(feature = "lua")]
+    factories.extend(crate::script::factories());
     factories
 }
 

@@ -31,6 +31,7 @@ import contextlib
 import io
 import json
 import tempfile
+import time
 import tomllib
 import types
 from dataclasses import dataclass, field
@@ -87,12 +88,54 @@ class FileResult:
         return not (self.different or self.failed_expectations or self.unhandled or self.unknown_osc or self.core_errors)
 
 
+class Timing:
+    """The time the core spent: in ``tick`` (the flush of the controller, the scheduled tasks)
+    and in the input calls (``on_midi_event``, ``update_model``). The calls include the callbacks
+    into the reference host, the same for each controller."""
+
+    def __init__(self):
+        self.ticks = 0
+        self.tick_s = 0.0
+        self.input_calls = 0
+        self.input_s = 0.0
+
+    def wrap(self, app) -> None:
+        """Measure the calls of a ``drivenbymoss.App``."""
+        tick, midi, model = app.tick, app.on_midi_event, app.update_model
+
+        def timed_tick():
+            start = time.perf_counter()
+            tick()
+            self.tick_s += time.perf_counter() - start
+            self.ticks += 1
+
+        def timed(function):
+            def call(*args):
+                start = time.perf_counter()
+                result = function(*args)
+                self.input_s += time.perf_counter() - start
+                self.input_calls += 1
+                return result
+            return call
+
+        app.tick = timed_tick
+        app.on_midi_event = timed(midi)
+        app.update_model = timed(model)
+
+    def summary(self) -> str:
+        per_tick = self.tick_s / self.ticks * 1e6 if self.ticks else 0.0
+        per_input = self.input_s / self.input_calls * 1e6 if self.input_calls else 0.0
+        return (f"Timing: {self.ticks} ticks, {self.tick_s * 1000:.1f} ms, {per_tick:.1f} µs per tick; "
+                f"{self.input_calls} input calls, {self.input_s * 1000:.1f} ms, {per_input:.1f} µs per call")
+
+
 class Session:
     """The controller (an ``App`` in a ``Bridge``) on the fixture, with the device stubs and the
     observer (``OscController``)."""
 
-    def __init__(self, setup: Setup, config_dir: Path):
+    def __init__(self, setup: Setup, config_dir: Path, timing: Timing | None = None):
         self.setup = setup
+        self.timing = timing
         self.config_dir = config_dir
         self.daw = build_fixture(setup.preferences())
         self.osc = OscController(self.daw, clock=lambda: self.daw.time_ms)
@@ -111,6 +154,8 @@ class Session:
         self.bridge = Bridge(self.daw, self.setup.controller_id, str(self.config_dir), self.setup.app_version)
         self.bridge.on_midi_out = self._on_midi_out
         self.bridge.start()
+        if self.timing is not None:
+            self.timing.wrap(self.bridge.app)
 
     def close(self) -> None:
         if self.bridge is not None:
@@ -175,7 +220,7 @@ class Session:
         return self.osc.snapshot()
 
 
-def record(setup: Setup, scenario_file: Path, config: dict, work_dir: Path) -> tuple[dict, Session, int]:
+def record(setup: Setup, scenario_file: Path, config: dict, work_dir: Path, timing: Timing | None = None) -> tuple[dict, Session, int]:
     """Run the scenario file; returns the trace (the format of conformance_runner.record), the
     session and the number of failed expectations."""
     settle = config.get("settle_ms", DEFAULT_SETTLE_MS)
@@ -187,7 +232,7 @@ def record(setup: Setup, scenario_file: Path, config: dict, work_dir: Path) -> t
         restarts = write_flexi_mapping(config, types.SimpleNamespace(scenarios=str(scenario_file), flexi_mapping=str(mapping), restart=1))
     copy_profile_config(setup, config_dir, mapping if "mapping" in config else None)
 
-    session = Session(setup, config_dir)
+    session = Session(setup, config_dir, timing)
     startup = []
     for _ in range(restarts):
         session.stubs = []
@@ -241,7 +286,7 @@ def record(setup: Setup, scenario_file: Path, config: dict, work_dir: Path) -> t
     return trace, session, failures
 
 
-def run_file(setup: Setup, scenario_file: Path, keep: Path | None = None) -> FileResult:
+def run_file(setup: Setup, scenario_file: Path, keep: Path | None = None, timing: Timing | None = None) -> FileResult:
     """Run and compare one scenario file. With keep, the in-process trace and the expanded
     reference are written there (``<run>-sim.json``, ``<run>-ref.json``)."""
     scenario_file = Path(scenario_file)
@@ -251,7 +296,7 @@ def run_file(setup: Setup, scenario_file: Path, keep: Path | None = None) -> Fil
     out = result.output
     with tempfile.TemporaryDirectory(prefix="dbm-conformance-") as temp:
         work = Path(temp)
-        trace, session, failures = record(setup, scenario_file, config, work)
+        trace, session, failures = record(setup, scenario_file, config, work, timing)
         result.failed_expectations = failures
         result.unhandled = session.unhandled
         result.unknown_osc = session.unknown_osc
@@ -318,4 +363,4 @@ def summary(setup: str, results: list[FileResult]) -> str:
     return line
 
 
-__all__ = ["FileResult", "Session", "record", "run_file", "summary"]
+__all__ = ["FileResult", "Session", "Timing", "record", "run_file", "summary"]

@@ -20,10 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import conformance  # noqa: E402,F401  (sets the path of backends/bitwig/tools)
 from conformance import osc, reference  # noqa: E402
-from conformance.fixture import SETUPS, build_fixture  # noqa: E402
+from conformance.fixture import SETUPS, build_fixture, config_file_name  # noqa: E402
 from conformance.runner import run_file  # noqa: E402
 from conformance.state import OscController, is_modelled, number, value127  # noqa: E402
 from dbm_host import TAKEOVER_CATCH, Preferences  # noqa: E402
+import drivenbymoss  # noqa: E402
 
 
 class Observer:
@@ -219,6 +220,25 @@ class TrackMixTest(unittest.TestCase):
         java = {k: v for k, v in java.items() if not (k.startswith("osc:/clip/step/") and v == "0")}
         self.assertEqual(set(sim), set(java))
         self.assertEqual({k: v for k, v in sim.items() if java[k] != v}, {})
+
+
+LUA_LAUNCH_CONTROL_XL = "4E926F54-1B67-4363-B971-D248C52F175D"
+"""The Lua port of the Launch Control XL (controllers/launch_control_xl.lua, doc/LUA_PLAN.md)."""
+
+
+@unittest.skipUnless(any(c["uuid"] == LUA_LAUNCH_CONTROL_XL for c in drivenbymoss.list_controllers()), "the library has no Lua controllers")
+class LuaTrackMixTest(unittest.TestCase):
+    """The same file with the Lua port of the controller (--controller-id): the same profile
+    and references, the same results."""
+
+    def test_same_as_java(self):
+        setup = SETUPS["launchcontrol_xl"].with_controller(LUA_LAUNCH_CONTROL_XL)
+        self.assertEqual(setup.profile_controller_id, SETUPS["launchcontrol_xl"].controller_id)
+        self.assertEqual(config_file_name(setup.controller_id), "DrivenByMoss4Reaper-Launch-Control-XL-(Lua).config")
+        r = run_file(setup, setup.scenario_dir / "track_mix.toml")
+        self.assertTrue(r.ok, "\n".join(r.output))
+        self.assertEqual((r.same, r.different, r.failed_expectations), (r.scenarios, 0, 0))
+        self.assertEqual((r.unhandled, r.unknown_osc, r.core_errors), ([], [], []))
 
 
 if __name__ == "__main__":

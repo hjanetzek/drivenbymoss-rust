@@ -99,6 +99,9 @@ impl App {
     /// definition. The controller uses the host's MIDI ports 0. Returns `None` if the controller
     /// is not supported.
     pub fn new_single(backend: Rc<dyn Backend>, config_path: &str, uuid: &str, app_version: &str) -> Option<Self> {
+        // The controller scripts of the configuration folder (doc/LUA_PLAN.md)
+        #[cfg(feature = "lua")]
+        crate::script::set_config_folder(Path::new(config_path));
         let factory = find_factory(uuid)?;
         let mut app = Self::create(backend, config_path, true);
         app.host.println(&format!("DrivenByMoss (Rust) starting {}, {app_version}", factory.info()));
@@ -107,6 +110,8 @@ impl App {
     }
 
     fn create(backend: Rc<dyn Backend>, ini_path: &str, single: bool) -> Self {
+        #[cfg(feature = "lua")]
+        crate::script::set_config_folder(Path::new(ini_path));
         let log = Rc::new(MemoryLog::default());
         let host = Host::new(Rc::new(AppLog { memory: log.clone(), backend: backend.clone() }));
         App {
