@@ -16,6 +16,7 @@ de.mossgrabers.dbm.bitwig.definitions.MackieMCUControlUniversalDefinition
 de.mossgrabers.dbm.bitwig.definitions.NativeInstrumentsMaschineJAMDefinition
 de.mossgrabers.dbm.bitwig.definitions.NativeInstrumentsMaschineMk2Definition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchControlXLDefinition
+de.mossgrabers.dbm.bitwig.definitions.NovationLaunchControlXLLuaDefinition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadMiniMkIIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadMkIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadProDefinition
