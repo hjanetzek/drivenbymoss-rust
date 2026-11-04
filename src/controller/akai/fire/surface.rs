@@ -292,10 +292,12 @@ pub fn send_display(ctx: &mut Ctx) {
     let Some(display) = ctx.graphics_display.as_mut() else {
         return;
     };
-    let image = display.render(now).clone();
+    // Borrow the bitmap and the controller state as separate fields of the context, so that the
+    // bitmap (24 KB) is not copied on every flush
+    let image = display.render(now);
+    let state = ctx.ext.downcast_mut::<FireState>().expect("Wrong controller extension type");
+    encode_oled(image, &mut state.oled);
     let output: MidiOutput = ctx.surface.output.clone();
-    let state = state_mut(ctx);
-    encode_oled(&image, &mut state.oled);
     state.sent_stripes = 0;
     for stripe in 0..8 {
         // Send if content has changed or every 3 seconds if there was no change to keep the

@@ -15,7 +15,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use crate::framework::display::{pad, to_ascii_bytes, LineWriter, TextDisplay};
+use crate::framework::display::{pad_into, to_ascii_bytes, LineWriter, TextDisplay};
 use crate::midi::MidiOutput;
 
 const SYSEX_DISPLAY_HEADER_MAIN: &str = "F0 00 00 66 14 ";
@@ -94,13 +94,12 @@ impl McuDisplayWriter {
 }
 
 impl LineWriter for McuDisplayWriter {
-    fn format_cell(&self, value: &str, characters_of_cell: usize) -> String {
+    fn format_cell(&self, value: &str, characters_of_cell: usize, out: &mut String) {
         if self.options.get().insert_space {
-            let mut content = pad(value, characters_of_cell.saturating_sub(1));
-            content.push(' ');
-            content
+            pad_into(out, value, characters_of_cell.saturating_sub(1));
+            out.push(' ');
         } else {
-            pad(value, characters_of_cell)
+            pad_into(out, value, characters_of_cell)
         }
     }
 

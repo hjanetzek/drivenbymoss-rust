@@ -36,14 +36,21 @@ pub enum Format {
 /// Pad the given text with spaces until it reaches the given length or cut it (former
 /// `StringUtils.pad`). The length is counted in characters.
 pub fn pad(text: &str, length: usize) -> String {
-    let count = text.chars().count();
-    if count >= length {
-        return text.chars().take(length).collect();
-    }
     let mut result = String::with_capacity(length);
-    result.push_str(text);
-    result.extend(std::iter::repeat_n(' ', length - count));
+    pad_into(&mut result, text, length);
     result
+}
+
+/// [`pad`] into an existing buffer, which is cleared first. The display cells are rewritten on
+/// every flush, so they keep their buffers instead of allocating new strings.
+pub fn pad_into(out: &mut String, text: &str, length: usize) {
+    out.clear();
+    let mut count = 0;
+    for c in text.chars().take(length) {
+        out.push(c);
+        count += 1;
+    }
+    out.extend(std::iter::repeat_n(' ', length - count));
 }
 
 /// Sends the lines of a text display to the hardware. This is the device specific part of a
@@ -52,10 +59,10 @@ pub trait LineWriter {
     /// Send a row to the display (former `writeLine`).
     fn write_line(&mut self, output: &MidiOutput, row: usize, text: &str, previous_text: Option<&str>);
 
-    /// Format the content of a cell (former `setCell`), the default pads the text to the length
-    /// of the cell.
-    fn format_cell(&self, value: &str, characters_of_cell: usize) -> String {
-        pad(value, characters_of_cell)
+    /// Format the content of a cell into its buffer (former `setCell`), the default pads the text
+    /// to the length of the cell.
+    fn format_cell(&self, value: &str, characters_of_cell: usize, out: &mut String) {
+        pad_into(out, value, characters_of_cell);
     }
 
     /// Modify the text of a line before it is written (former override of `updateLine`).
@@ -158,7 +165,9 @@ impl TextDisplay {
     /// Set a whole row. The text must match the exact number of characters of a row.
     pub fn set_row(&mut self, row: usize, text: &str) -> &mut Self {
         if row < self.no_of_lines {
-            self.full_rows[row] = Some(text.to_string());
+            let full_row = self.full_rows[row].get_or_insert_with(String::new);
+            full_row.clear();
+            full_row.push_str(text);
         }
         self
     }
@@ -196,11 +205,17 @@ impl TextDisplay {
         if row >= self.no_of_lines {
             return self;
         }
-        if let Some(full_row) = self.full_rows[row].take() {
-            self.message[row] = Some(full_row);
+        // Build the row in the buffer of the last one (the rows are rebuilt on every flush)
+        let message = self.message[row].get_or_insert_with(String::new);
+        message.clear();
+        if let Some(full_row) = self.full_rows[row].as_mut() {
+            std::mem::swap(message, full_row);
+            self.full_rows[row] = None;
         } else {
             let index = row * self.no_of_cells;
-            self.message[row] = Some(self.cells[index..index + self.no_of_cells].concat());
+            for cell in &self.cells[index..index + self.no_of_cells] {
+                message.push_str(cell);
+            }
         }
         self
     }
@@ -215,7 +230,9 @@ impl TextDisplay {
 
     pub fn clear_cell(&mut self, row: usize, column: usize) -> &mut Self {
         if let Some(cell) = self.cell_index(row, column) {
-            self.cells[cell] = self.empty_cell.clone();
+            let cell = &mut self.cells[cell];
+            cell.clear();
+            cell.push_str(&self.empty_cell);
         }
         self
     }
@@ -227,7 +244,7 @@ impl TextDisplay {
 
     pub fn set_cell(&mut self, row: usize, column: usize, value: &str) -> &mut Self {
         match self.cell_index(row, column) {
-            Some(cell) => self.cells[cell] = self.writer.format_cell(value, self.characters_of_cell),
+            Some(cell) => self.writer.format_cell(value, self.characters_of_cell, &mut self.cells[cell]),
             None => debug_assert!(false, "Display array index out of bounds."),
         }
         self
@@ -241,10 +258,9 @@ impl TextDisplay {
             let (Some(first), Some(second)) = (self.cell_index(row, cell), self.cell_index(row, cell + 1)) else {
                 return self;
             };
-            let head: String = value.chars().take(chars).collect();
-            let tail: String = value.chars().skip(chars).collect();
-            self.cells[first] = pad(&head, chars);
-            self.cells[second] = pad(&tail, chars);
+            let split = value.char_indices().nth(chars).map_or(value.len(), |(i, _)| i);
+            pad_into(&mut self.cells[first], &value[..split], chars);
+            pad_into(&mut self.cells[second], &value[split..], chars);
         } else {
             self.set_cell(row, cell, value);
             self.clear_cell(row, cell + 1);
@@ -443,13 +459,12 @@ impl McuDisplay {
 }
 
 impl LineWriter for McuDisplay {
-    fn format_cell(&self, value: &str, characters_of_cell: usize) -> String {
+    fn format_cell(&self, value: &str, characters_of_cell: usize, out: &mut String) {
         if self.insert_space {
-            let mut content = pad(value, characters_of_cell.saturating_sub(1));
-            content.push(' ');
-            content
+            pad_into(out, value, characters_of_cell.saturating_sub(1));
+            out.push(' ');
         } else {
-            pad(value, characters_of_cell)
+            pad_into(out, value, characters_of_cell)
         }
     }
 

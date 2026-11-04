@@ -8,6 +8,10 @@ const REMOVABLE_CHARS: [char; 6] = [' ', 'e', 'a', 'u', 'i', 'o'];
 
 /// Shortens a text to the given length by removing spaces and vowels first, then cutting it.
 pub fn optimize_name(text: &str, length: usize) -> String {
+    // Most names fit: no character list (this runs for the display texts on every flush)
+    if text.chars().count() <= length {
+        return text.to_string();
+    }
     let mut shortened: Vec<char> = text.chars().collect();
     for element in REMOVABLE_CHARS {
         if shortened.len() <= length {

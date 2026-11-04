@@ -311,7 +311,14 @@ pub fn button_labels(ctx: &Ctx) -> String {
         (active == Some(Modes::User), "User"),
         (is_device, "Params"),
     ];
-    cells.iter().map(|(marked, label)| format!("{}{:<6}", if *marked { '>' } else { ' ' }, label)).collect()
+    // One buffer for all cells: this runs on every flush
+    let mut labels = String::with_capacity(cells.len() * 7);
+    for (marked, label) in cells {
+        labels.push(if marked { '>' } else { ' ' });
+        labels.push_str(label);
+        labels.extend(std::iter::repeat_n(' ', 6usize.saturating_sub(label.len())));
+    }
+    labels
 }
 
 /// Send the labels of the buttons above the display if they changed (Mk2 only, see
