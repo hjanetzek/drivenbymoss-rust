@@ -73,8 +73,14 @@ build time, which every target already has:
 - The Bitwig dev build runs `cargo build` on Linux.
 - Zynthian is cross-built for aarch64 with a cross C compiler.
 
-The binding lives behind one module (`src/lua/`), so the engine can be swapped later, for
-example for piccolo once it is stable. Lua code never sees mlua types.
+The binding is language-neutral, so the engine can be swapped or a second one added later.
+Script code never sees mlua types.
+
+- `src/script/`: the controller API (handles, `ctx`, the view and mode adapters, loading, error
+  handling).
+- `src/script/lua.rs`: the Lua back-end.
+
+A later back-end could be pocketpy (§5, a Python subset) or piccolo once it is stable.
 
 - **Cargo feature `lua`, on by default.** A build without it has no new dependencies and no Lua
   controllers.
@@ -138,14 +144,15 @@ the context when it runs:
 
 ### Generated bindings
 
-Most model getters and setters are mechanical. A small table in `src/lua/model.rs` (a macro, no
+Most model getters and setters are mechanical. A small table in `src/script/model.rs` (a macro, no
 code generator) lists name → Rust accessor, and the Lua API reference is generated from the same
 table into `doc/LUA_API.md`.
 
 ## 4. Pilot: the Launch Control XL in Lua
 
 1. **Engine and loader:**
-   - The `lua` feature and `src/lua/`: the factory, the per-instance state, error handling.
+   - The `lua` feature, `src/script/` and its Lua back-end: the factory, the per-instance
+     state, error handling.
    - A test script that registers one button and lights it.
 2. **The bindings the Launch Control XL needs:**
    - The 24 context methods.
@@ -175,7 +182,23 @@ Estimate: steps 1–2 two days, step 3 one to two days, step 4 half a day.
 2. **A first new controller in Lua** that is not ported yet: from PORTING_GUIDE.md §1, e.g. the
    ESI Xjam or the Arturia Beatstep (pure MIDI, small).
 3. **`doc/LUA_API.md`**, generated, and a short guide for writing a Lua controller.
-4. **The controller editor:** a surface definition plus Lua, decided after the pilot.
+4. **The controller editor:** a surface definition plus a script, decided after the pilot.
+5. **pocketpy as a second back-end** (Python syntax, which is more familiar to many controller
+   authors than Lua). Check it after the Lua pilot with a half-day spike:
+   - Build pocketpy into the crate.
+   - Bind one function and one view callback through `src/script/`.
+   - Measure size and speed against the same with Lua.
+   - Check that two instances run side by side.
+
+   If it holds up, the pilot's Launch Control XL in Python must pass the same 27 scenarios.
+
+   | Engine | Language | Integration | Notes |
+   | --- | --- | --- | --- |
+   | Lua 5.4 via mlua (chosen) | Lua | Cargo; Lua's C source built by `lua-src`; safe Rust API | Mature; one state per instance |
+   | [pocketpy](https://github.com/blueloveTH/pocketpy) (to check) | Python 3 subset | C11, one header, no dependencies; the Rust binding (`pocketpy-sys` 0.1) is immature, so mostly our own FFI | About 15k lines of C; designed as a Lua alternative for scripting; younger, no published benchmarks found; its C API changed between versions |
+   | MicroPython (embed port) | Python 3 subset | A generated C source folder; no Rust binding | Global interpreter state, so several instances per process are hard |
+   | RustPython | Nearly full Python 3 | Pure Rust crate | Several MB, slower startup, heavy to compile |
+   | CPython via PyO3 | Full Python | Needs `libpython` on every host | Fine on Zynthian; tens of MB bundled for Reaper/Bitwig; GIL, version coupling |
 
 ## 6. Risks
 
