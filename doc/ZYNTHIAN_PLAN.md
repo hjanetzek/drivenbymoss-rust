@@ -869,8 +869,37 @@ zynthian-ui `dbm`: no changes since `bc396034`.
 7. The Launchpads: should DrivenByMoss win by default (autoload, unloading zynthian's driver), or
    stay the user's choice as now (§7b)? And should a DrivenByMoss driver notice zynthian's driver
    being loaded on the DAW port later?
-8. The core's blink color and the Shift view's mode buttons (§7b): fix in the core.
+8. The Shift view's mode buttons (§7b): fix in the core. (The blink color is fixed, 476b2ac.)
 9. The JAM (§7c): should CLEAR/DUPLICATE + group button remove or duplicate the chain (zynthian's
    `remove_chain`; there is no chain clone)? Should SWING map to the swing of the cursor slot's
    pattern (zynseq's swing is per pattern, Bitwig's groove global)? The ZynthianOS dev_id (6)
    applies to the JAM as well.
+
+## 10. To investigate
+
+Found in use; documented here, not fixed yet.
+
+1. **Loop range selection shortens the pattern and deletes notes** (found by the user on the
+   JAM, 2026-11-07; the Mk2, LCXL and Launchpad sequencers send the same).
+   - In STEP mode, the top row of pads selects the shown page, and a long press selects a loop
+     range. With a long press on the first pad of a 2-bar pattern, the core sends the loop start
+     (0), the loop length (1 bar) and the play range (`src/framework/view/sequencer/
+     abstract_note_sequencer_view.rs:188-190`, `abstract_drum_view.rs:437-439`,
+     `clip_length_view.rs:85-87`).
+   - The adapter maps the loop length (and `end`) to the pattern length
+     (`dbm_zynthian/commands.py` `_clip`, `clip.py` `set_length`). zynseq has no loop range
+     inside a pattern, and `Pattern::setBeatsInPattern` deletes every note beyond the new length
+     (`zynlibs/zynseq/pattern.cpp:696-706`). So the notes of the second bar are gone; in Bitwig
+     the loop is a region inside the clip and the notes beyond it stay.
+   - Loop ranges which do not start at the first page are not applied at all (a zynseq pattern
+     starts at 0, §3.5), so loop ranges in general don't work.
+   - Options:
+     - (a) Never shorten when it would cut notes: no data loss, but the loop is not followed.
+     - (b) A loop region in zynseq: play start and end inside a pattern, an upstream-able
+       feature. Faithful, but a zynthian change.
+     - (c) Map the loop to something else zynseq has: the sequence, or several patterns in a
+       sequence.
+     - (d) Keep the cut notes in the adapter and restore them when the length grows again:
+       fragile.
+     - A quick safety net (a) was tried and reverted; it needs a decision together with (b)/(c).
+
