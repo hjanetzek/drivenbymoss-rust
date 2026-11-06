@@ -28,6 +28,7 @@ tick thread starts the core), ``midi_event`` from another thread, ``get_state``/
 startup delay. The MIDI to the device goes to the FakeZyncore of zynstubs."""
 
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -38,6 +39,7 @@ import zynstubs
 zynstubs.install()
 
 from zyngine.ctrldev.zynthian_ctrldev_dbm_launchcontrol_xl import zynthian_ctrldev_dbm_launchcontrol_xl  # noqa: E402
+from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_mk2 import zynthian_ctrldev_dbm_maschine_mk2  # noqa: E402
 
 TEMPLATE_SELECTION = bytes.fromhex("F000202902117708F7")
 IDEV_IN, IDEV_OUT = 3, 5
@@ -136,6 +138,80 @@ class DriverTest(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertIsNone(self.driver.bridge)
         self.assertTrue(os.path.isdir(os.path.join(self.temp.name, "ctrldev", "dbm")))
+
+
+class MaschineMk2DriverTest(unittest.TestCase):
+    """The Maschine Mk2 driver: its note input plays the pads into the active chain at once, in
+    the thread which calls midi_event (the state manager's fast thread), through the core's key
+    and velocity tables."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="dbm-zynthian-mk2-")
+        self.old_config = os.environ.get("ZYNTHIAN_CONFIG_DIR")
+        os.environ["ZYNTHIAN_CONFIG_DIR"] = self.temp.name
+        self.state = zynstubs.project()
+        self.zyncore = zynstubs.lib_zyncore()
+        self.zyncore.notes.clear()
+        self.driver = zynthian_ctrldev_dbm_maschine_mk2(self.state, IDEV_IN, IDEV_OUT)
+        self.driver.init()
+        self.assertTrue(wait_for(lambda: self.driver.bridge is not None and self.driver.bridge.note_inputs))
+
+    def tearDown(self):
+        self.driver.end()
+        if self.old_config is None:
+            os.environ.pop("ZYNTHIAN_CONFIG_DIR", None)
+        else:
+            os.environ["ZYNTHIAN_CONFIG_DIR"] = self.old_config
+        self.temp.cleanup()
+
+    def test_class(self):
+        cls = zynthian_ctrldev_dbm_maschine_mk2
+        self.assertEqual(cls.dev_ids, ["Maschine MK2 IN 1"])
+        self.assertEqual(cls.dbm_controller_id, "015E4908-C049-4808-A645-A7A44BEFE36B")
+        self.assertTrue(cls.get_autoload_flag())
+
+    def test_pads_play_the_active_chain(self):
+        bridge = self.driver.bridge
+        self.assertEqual(bridge.note_inputs[0].filters, ["80????", "90????"], "The Mk2's note input: notes on channel 1")
+        expected = bridge.translate_note(b"\x90\x24\x64")
+        self.assertIsNotNone(expected, "The core lets the first pad through")
+        self.driver.midi_event(b"\x90\x24\x64")
+        # Played in the calling thread, before the tick
+        self.assertEqual(self.zyncore.notes, [("on", 0, expected[1], expected[2])], "Synth: MIDI channel 1")
+        self.assertEqual(self.state.chain_manager.active_chain.chain_id, 1)
+        # The active chain changes while the pad is held: the note-off still goes to the Synth
+        self.state.chain_manager.set_active_chain_by_id(2)
+        self.driver.midi_event(b"\x80\x24\x00")
+        self.assertEqual(self.zyncore.notes[-1], ("off", 0, expected[1], 0))
+        self.driver.midi_event(b"\x90\x25\x50")
+        self.assertEqual(self.zyncore.notes[-1][:2], ("on", 1), "Then Piano: MIDI channel 2")
+        # The core sees the pads too, and the pad lights from the playing notes
+        self.assertTrue(wait_for(lambda: bridge.reporter.last_values.get("/track/1/playingnotes", "").endswith(":80")))
+
+    def test_no_hanging_notes(self):
+        self.driver.midi_event(b"\x90\x26\x64")
+        on = self.zyncore.notes[-1]
+        self.driver.sleep_on()
+        self.assertTrue(wait_for(lambda: self.driver.bridge is None))
+        self.assertEqual(self.zyncore.notes[-1], ("off", on[1], on[2], 0), "Stopping the controller ends the note")
+
+    def test_no_chain_no_note(self):
+        self.state.chain_manager.set_active_chain_by_id(3)  # Audio In: no MIDI channel
+        self.driver.midi_event(b"\x90\x24\x64")
+        self.driver.midi_event(b"\x80\x24\x00")
+        self.assertEqual(self.zyncore.notes, [])
+
+    def test_cost_of_a_note(self):
+        """The Python part of the note path (midi_event: translate, send, queue): reported, not
+        asserted (machine dependent; the fast thread's 10 ms poll and the JACK period dominate)."""
+        n = 2000
+        start = time.perf_counter()
+        for i in range(n):
+            self.driver.midi_event(bytes([0x90, 0x24, 100]))
+            self.driver.midi_event(bytes([0x80, 0x24, 0]))
+        per_note = (time.perf_counter() - start) / (2 * n) * 1e6
+        print(f"\nmidi_event of a pad note: {per_note:.1f} µs", file=sys.stderr)
+        self.assertLess(per_note, 1000)
 
 
 if __name__ == "__main__":

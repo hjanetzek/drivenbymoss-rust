@@ -86,6 +86,7 @@ class FakeZyncore:
     def __init__(self):
         self.sent = []          # (idev, bytes)
         self.ui_chans = {}
+        self.notes = []         # ("on"/"off", chan, note, velocity) into the chains
 
     def dev_send_midi_event(self, idev, data, size):
         self.sent.append((idev, bytes(data[:size])))
@@ -93,6 +94,12 @@ class FakeZyncore:
 
     def zmip_set_ui_midi_chans(self, izmip, chans):
         self.ui_chans[izmip] = chans
+
+    def ui_send_note_on(self, chan, note, velocity):
+        self.notes.append(("on", chan, note, velocity))
+
+    def ui_send_note_off(self, chan, note, velocity):
+        self.notes.append(("off", chan, note, velocity))
 
     def __getattr__(self, name):
         # Any other function of the library: does nothing
@@ -431,6 +438,9 @@ class FakeChainManager:
     def __init__(self):
         self.chains = {}
         self.active_chain = None
+
+    def get_active_chain(self):
+        return self.active_chain
 
     def set_active_chain_by_id(self, chain_id=None):
         self.active_chain = self.chains.get(chain_id, self.active_chain)

@@ -42,8 +42,8 @@ name as ``bytes`` to ``transportStart(uint8_t id)`` (analysis §9 Z9). ``getTran
 exported only since the ``dbm`` branch declares it in ``zynseq.h`` (§9 Z10); with an older
 library the state is read from the exported global ``g_nTransportState``.
 
-Not mapped (no arranger): position, loop, punch, automation, overdub, record (the audio
-recorder is later), undo and redo.
+Not mapped (no arranger): position (``/time/text``, ``/beats/text`` stay empty on the displays),
+loop (``/repeat`` reported 0), punch, automation, undo and redo. Record and overdub: launcher.py.
 """
 
 import ctypes

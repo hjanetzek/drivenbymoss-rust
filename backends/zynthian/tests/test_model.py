@@ -131,7 +131,8 @@ class ReporterTest(unittest.TestCase):
         host.report()
         host.state.chain_manager.set_active_chain_by_id(3)
         lines = host.reporter.collect().splitlines()
-        self.assertEqual(lines, ["/track/0/select 0", "/track/2/select 1"])
+        self.assertEqual(lines, ["/track/0/select 0", "/track/2/select 1", "/track/2/playingnotes "],
+                         "The playing notes of the new cursor track are reported again")
 
     def test_removed_chain(self):
         host = Host()

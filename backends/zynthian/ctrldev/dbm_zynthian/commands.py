@@ -43,7 +43,7 @@ metronomeVolume[/inc]|tapTempo``, ``tempo <bpm>|+|-|++|--`` (with zynseq), and `
 are not handled).
 
 Recording (launcher.py): ``record``, ``transport overdub/launcher|overdub/arranger``,
-``track <p>/createClip/<s>``, ``track <p>/clip/<s>/record|select|launch``.
+``track <p>/createClip/<s>``, ``track <p>/clip/<s>/record|select|launch``, ``scene <s>/select|launch``.
 
 Everything else is logged as not handled, e.g. scene launch, ``send/<s>/active`` (zynthian's
 sends have no switch), ``device remove|duplicate``, the Reaper-only transport forms.
@@ -81,6 +81,8 @@ class ZynCommandHandler(CommandHandler):
         self.register("master", self._master)
         self.register("device", self._device, DEVICE_FEATURES)
         self.register("primary", self._primary)
+        self.register("scene", self._scene)
+        self.register("drum", self._drum)
         if self.daw.transport is not None and self.daw.transport.available:
             self.register("transport", self._transport, TRANSPORT_FEATURES)
             self.register("tempo", self._tempo)
@@ -158,8 +160,30 @@ class ZynCommandHandler(CommandHandler):
                 return launcher.record(track, phrase)
             if sub[2] == "select":
                 return launcher.select(track, phrase)
-            if sub[2] == "launch":
+            if sub[2] in ("launch", "launchAlt"):
                 return launcher.launch(track, phrase)
+            if sub[2] in ("launchRelease", "launchReleaseAlt"):
+                return 0 <= phrase < launcher.num_phrases()  # zynseq launches on press
+        return False
+
+    def _drum(self, cmd):
+        """``drum …``: zynthian has no drum machine (``/drum`` is not reported); ``indicate`` is
+        accepted (no indication in zynthian), the rest is not handled."""
+        return cmd.command == "indicate"
+
+    def _scene(self, cmd):
+        """``scene <s>/select|launch|launchAlt|launchRelease|launchReleaseAlt`` (launcher.py)."""
+        launcher = self.daw.launcher
+        parts = cmd.parts
+        if launcher is None or not launcher.available or len(parts) != 2:
+            return False
+        phrase = parse_index(parts[0])
+        if parts[1] == "select":
+            return launcher.select_scene(phrase)
+        if parts[1] in ("launch", "launchAlt"):
+            return launcher.launch_scene(phrase)
+        if parts[1] in ("launchRelease", "launchReleaseAlt"):
+            return 0 <= phrase < launcher.num_phrases()
         return False
 
     def _record(self, cmd):

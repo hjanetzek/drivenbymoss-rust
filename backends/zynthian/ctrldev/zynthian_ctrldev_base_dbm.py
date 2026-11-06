@@ -93,6 +93,10 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.pending_document = None    # Document settings to apply (set_state)
         self.start_failed = False
         self._oversize_logged = False
+        # The notes the driver sends to the chains: (source, key) -> (MIDI channel, key), source
+        # "in" for the device's keys (fast thread), "out" for the core's played notes
+        self.sounding = {}
+        self.model.note_sink = self.send_core_note
 
     @classmethod
     def get_config_dir(cls):
@@ -131,12 +135,71 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.wake.set()
 
     def midi_event(self, ev):
-        """MIDI from the device (fast thread): queued for the tick thread."""
+        """MIDI from the device (fast thread): notes of the note inputs are played at once
+        (play_note), everything is queued for the core (tick thread)."""
         # Words of a SysEx which zynmidi_read takes for events have no status byte (§9 Z4)
         if ev and ev[0] >= 0x80:
-            self.midi_queue.put(bytes(ev))
+            data = bytes(ev)
+            if len(data) >= 3 and data[0] & 0xE0 == 0x80:
+                self.play_note(data)
+            self.midi_queue.put(data)
             self.wake.set()
         return True
+
+    # ---------------------------------------------------------------------------
+    # The note inputs: the notes into the active chain (doc/ZYNTHIAN_PLAN.md §3.4)
+    # ---------------------------------------------------------------------------
+
+    def active_midi_chan(self):
+        chain = self.chain_manager.get_active_chain()
+        chan = getattr(chain, "midi_chan", None)
+        return chan if isinstance(chan, int) and 0 <= chan < 16 else None
+
+    def play_note(self, data):
+        """A note of the device (fast thread): through the core's note inputs (filters, key and
+        velocity tables) to the active chain, without waiting for the tick. A note-off goes to
+        the channel and key of its note-on, also if the active chain or the tables changed."""
+        bridge = self.bridge
+        if bridge is None:
+            return
+        key = data[1]
+        on = data[0] & 0xF0 == 0x90 and data[2] > 0
+        if not on:
+            sounding = self.sounding.pop(("in", key), None)
+            if sounding is not None:
+                self.send_note(False, sounding[0], sounding[1], 0)
+            return
+        event = bridge.translate_note(data)
+        chan = self.active_midi_chan()
+        if event is None or chan is None:
+            return
+        _, out_key, velocity = event
+        previous = self.sounding.pop(("in", key), None)
+        if previous is not None:
+            self.send_note(False, previous[0], previous[1], 0)
+        self.sounding[("in", key)] = (chan, out_key)
+        self.send_note(True, chan, out_key, velocity)
+
+    def send_core_note(self, status, key, velocity):
+        """A note the core plays (process_midi_arg: the further notes of a chord; tick thread)."""
+        on = status & 0xF0 == 0x90 and velocity > 0
+        if on:
+            chan = self.active_midi_chan()
+            if chan is None:
+                return
+            self.sounding[("out", key)] = (chan, key)
+            self.send_note(True, chan, key, velocity)
+        else:
+            sounding = self.sounding.pop(("out", key), None)
+            if sounding is not None:
+                self.send_note(False, sounding[0], sounding[1], 0)
+
+    def send_note(self, on, chan, key, velocity):
+        self.model.note_played(0x90 if on else 0x80, key, velocity)
+        if on:
+            lib_zyncore.ui_send_note_on(chan, key, velocity)
+        else:
+            lib_zyncore.ui_send_note_off(chan, key, velocity)
 
     def light_off(self):
         """The core owns the LEDs; sleep_on stops the controller instead."""
@@ -215,6 +278,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         try:
             os.makedirs(config_dir, exist_ok=True)
             bridge = ZynBridge(self.model, self.dbm_controller_id, config_dir, self.get_app_version(), midi_sink=self.send_midi)
+            # The driver plays the notes of the note inputs itself, as they arrive (play_note)
+            bridge.play_note_inputs_in_step = False
             bridge.start()
         except Exception as e:
             logging.error(f"[{self.__class__.__name__}] Can't start DrivenByMoss controller {self.dbm_controller_id}: {e}")
@@ -228,6 +293,10 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         return True
 
     def stop_bridge(self):
+        # No hanging notes
+        for (source, key), (chan, out_key) in list(self.sounding.items()):
+            self.send_note(False, chan, out_key, 0)
+        self.sounding.clear()
         if self.bridge is not None:
             try:
                 self.document = self.bridge.app.get_formatted_document_settings()

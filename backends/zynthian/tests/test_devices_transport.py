@@ -321,6 +321,36 @@ class RecordTest(unittest.TestCase):
         self.assertFalse(libseq.midi_record, "Audio In has no sequence to record into")
 
 
+class ReportsForTheMaschineTest(unittest.TestCase):
+    """What the Maschine Mk2's modes read besides the tracks and devices: no pinning (else the
+    core lights its Pin button), no loop, empty slots without color, scenes, the playing notes."""
+
+    def test_reports(self):
+        host = Host()
+        report = host.report()
+        self.assertEqual((report["/track/pinned"], report["/device/pinned"], report["/repeat"]), ("-1", "0", "0"))
+        self.assertEqual(report["/track/0/slot/0/color"], "0 0 0", "An empty slot has no color")
+        self.assertEqual(report["/track/0/playingnotes"], "")
+        host.model.play_live_note(0x90, 60, 100)
+        self.assertEqual(host.report()["/track/0/playingnotes"], "0:0:0:0:0:60:100")
+        host.model.play_live_note(0x80, 60, 0)
+        self.assertEqual(host.report()["/track/0/playingnotes"], "")
+
+    def test_scene_commands(self):
+        host = Host()
+        zynseq, libseq = host.state.zynseq, host.state.zynseq.libseq
+        host.command("scene", "2/select")
+        self.assertEqual(zynseq.phrase, 2)
+        host.command("scene", "1/launch")
+        self.assertEqual((zynseq.phrase, libseq.getPlayState(0, 1, 32)), (1, 2), "The phrase launcher starts")
+        host.command("scene", "1/launchRelease")
+        host.command("track", "0/clip/1/launchRelease")
+        host.command("drum", "indicate", 1)
+        self.assertEqual(host.commands.unhandled, [])
+        host.command("scene", "1/remove")
+        self.assertEqual(host.commands.unhandled, ["scene <n>/remove"])
+
+
 class LaunchControlXLDeviceTest(unittest.TestCase):
     """The Launch Control XL's device control in the Track Mix and its transport functions
     (Record Arm held), with the core."""

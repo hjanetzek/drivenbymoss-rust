@@ -150,6 +150,18 @@ are class attributes (`zyngine/ctrldev/zynthian_ctrldev_base.py:56-121`). The ba
 `zynthian_ctrldev_base_*.py`. Implemented as `zynthian_ctrldev_base_dbm.py` +
 `zynthian_ctrldev_dbm_launchcontrol_xl.py` (ZYNTHIAN_PLAN.md §2).
 
+**The Maschine Mk2 through dbm-nihost** [observed: `aconnect -l`, `pw-link -i/-o`, desktop mode]:
+the Mk2 has no MIDI driver on Linux; dbm-nihost (`support/linux/ni_host`) creates the ALSA
+sequencer client "Maschine MK2" with the ports "Maschine MK2 In " (sic, with a space) and
+"Maschine MK2 Out", PipeWire `Midi-Bridge:Maschine MK2: In (capture)` and `…: Out (playback)` (the
+core's Linux names). With the PipeWire uids its dev_id is `Maschine MK2 IN 1` (output `OUT 1`).
+Beside it are the device's own USB MIDI port (kernel client "Maschine Controller MK2", MIDI mode,
+dev_id `Maschine Controller MK2 IN 1`) and the JAM's (`Maschine Jam - 1 IN 1`); the Mk2 driver
+takes only `Maschine MK2 IN 1`. On ZynthianOS (jackd) a sequencer client reaches JACK through
+a2jmidid (`a2j:Maschine MK2 [128] (capture): Maschine MK2 In`), whose ports have no alias
+`build_midi_port_name` understands: no dev_id there either [guess; not tested, and dbm-nihost is
+not packaged for ZynthianOS].
+
 **dev_id ↔ the core's port names.** The core's `discovery.linux` input names are ALSA-seq/JACK
 names: `"Launch Control XL"`, `"Launch Control XL Launch Contro"`, `"Launchpad X MIDI 2"`. The
 mapping to dev_ids: `<card>` and `<card> <name of ALSA port n>` → `<card> IN <n+1>`;
@@ -242,8 +254,16 @@ zmip/zmop per driver.
   back to `zynmidi_read`, it does not reach the chains. The stock Launchkey Mini MK4 driver passes a
   `bytes` object to it "to route to chains" (`zyngine/ctrldev/zynthian_ctrldev_launchkey_mini_mk4_37.py:243`):
   ctypes then passes a pointer as the 32-bit word (§9 Z8).
-- Python injection costs the fast thread's 0–10 ms plus the tick thread's up to 30 ms (the dbm
-  driver queues MIDI for its tick). A real-time midiproc (`zynthian_ctrldev_base.py:167-212`) stays
+- **Implemented for the Maschine Mk2** (the dbm drivers' note input): the driver applies the core's
+  note-input filters and key/velocity tables in `midi_event`, on the fast thread, and sends the
+  note at once with `ui_send_note_on/off` on the active chain's channel; the core gets the message
+  through the queue as before (for its LEDs). Latency [measured for the Python part, reasoned for
+  the rest]: dbm-nihost (HID report → ALSA sequencer → PipeWire bridge, not measured) + the fast
+  thread's poll (0–10 ms, `sleep(0.01)` between reads) + 35–45 µs in the driver (measured in
+  desktop mode; 3 µs in the test without zynthian) + the next JACK period of the router (0–5.3 ms
+  at 256 frames/48 kHz) = up to about 15 ms on top of dbm-nihost, 5–8 ms on average. Not waiting
+  for the 30 ms tick saves up to 30 ms. Lower would need a real-time path (a midiproc, below) or
+  a shorter fast-thread poll. A real-time midiproc (`zynthian_ctrldev_base.py:167-212`) stays
   the option for low-latency playing (Launchpad, phase 3), with the problems of the first analysis
   (the driver then sees the midiproc's output; a second port needs a zynautoconnect change).
 
@@ -310,6 +330,22 @@ Focus and Track Control rows and the knob LEDs stay dark, no layer command is se
 next stays lit (the pad bank keeps its count of 128; there is no `pad/count` address), and the Mute
 mode still sends `primary pad/<n>/mute` for an absent pad [observed in the adapter's tests and the
 conformance run of layer_mix.toml].
+
+**What the Maschine Mk2's display modes read** [code: `src/controller/maschine/mk/mode/`;
+observed in desktop mode]: the track modes (volume, panorama, sends) the names of the tracks of the
+bank page (shortened to 6 characters) and the value texts (`…/str/8`); the parameters mode the
+cursor device's 8 parameter names and value texts (`/device/param/<i>/name`, `value/str/8`) and
+"Please select a device..." without one; notifications with the device name ("Selected device:")
+and the page name ("Page:"); the labels of the buttons above the displays (the core's
+`F0 7D 44 42 4D 10` sysex, which dbm-nihost draws). Paging in the parameters mode: PAGE LEFT/RIGHT
+= the previous/next device, the encoder (cursor) up/down = the parameter pages; in the track
+modes the encoder up/down = the track bank page. The Mk2 does not use `/primary` (its `deviceIds`
+are empty); it wants a drum device (`/drum`, not reported) and the focused parameter.
+
+**Gaps the Mk2 showed** (fixed): without `/device/pinned` the core takes the cursor device as
+pinned, as Reaper's, and lights the Pin button; without `/track/pinned` the same for the track;
+without `/repeat` the loop LED is never written. All three are now reported (0 / −1 / 0: zynthian
+has no pinning and no loop). Empty slots are reported without color.
 
 **Reuse of the reference host — decided** (ZYNTHIAN_PLAN.md §3): `ZynBridge(Bridge)`,
 `ZynReporter(Reporter)`, `ZynCommandHandler(CommandHandler)` reuse the loop, the change tracking,

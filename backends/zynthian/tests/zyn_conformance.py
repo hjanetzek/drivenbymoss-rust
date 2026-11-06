@@ -36,10 +36,11 @@ zynthian's own (zynthian's model differs from Bitwig's):
 - The fixture: ``ZynthianState`` with the fixture's tracks (names, instrument tracks with a MIDI
   channel and a synth engine of 6 controller screens = 3 pages, audio tracks without), the
   fixture volume, its two effect tracks as mixbuses and zynseq (stand-in, 8 phrases = the
-  fixture's 8 scenes, empty sequences: Bitwig's two clips are not created); the fixture's devices
+  fixture's 8 scenes, a pattern with notes where the fixture has its two clips); the fixture's devices
   as processors with the same names and pages (two controller screens of 4 per page of 8, the
   first named as the page; the EQ+ as an audio effect with the reference host's pages); no clips
-  or scenes, no drum pads or layers.
+  or scenes, no drum pads or layers. The tracks have the fixture's colors (zynthian's own are by
+  MIDI channel), so the LEDs which show track colors compare.
 - The OSC steps: ``/click``, ``/tempo/raw``, ``/device|primary/page/N/selected`` and the track addresses (``/track/N/select|mute|solo|recarm|volume|pan``,
   ``/track/N/send/M/volume``, ``/track/bank/page/±``) with the observer's bank of 8 tracks that
   follows the selected track. Other addresses are skipped (``unknown_osc``).
@@ -75,7 +76,7 @@ def dbm_repository():
 sys.path.insert(0, str(dbm_repository() / "bindings" / "python"))
 import conformance  # noqa: E402,F401  (puts conformance_runner on the path)
 from conformance import reference  # noqa: E402
-from conformance.fixture import DEVICES, EFFECT_TRACKS, INSTRUMENT, SETUPS, TRACK_VOLUME, TRACKS, copy_profile_config  # noqa: E402
+from conformance.fixture import DEVICES, EFFECT_TRACKS, INSTRUMENT, REMOTE_CONTROLS, SETUPS, TRACK_COLORS, TRACK_VOLUME, TRACKS, copy_profile_config  # noqa: E402
 from conformance.runner import FRESH_PROJECT_MS, MARKER_MS, OSC_PAUSE_MS, RESTART_REST_MS, RESTART_TIMEOUT_MS, RESTART_WAIT_MS  # noqa: E402
 from conformance_runner import DEFAULT_SETTLE_MS, check_expectations, led_state, matches, parse_hex, run_name, to_hex  # noqa: E402
 from dbm_host.bridge import TICK_MS  # noqa: E402
@@ -97,12 +98,25 @@ PHASES[2] = {key: list(ids) for key, ids in PHASES[1].items()}
 PHASES[2][("launchcontrol_xl", "track_mix")] += ["lcxl.mix.device-page", "lcxl.mix.transport-click",
                                                   "lcxl.mix.transport-tempo", "lcxl.mix.transport-defeat"]
 PHASES[2][("launchcontrol_xl", "note_sequencer")] = ["lcxl.noteseq.device-page"]
+# The Maschine Mk2 (doc/ZYNTHIAN_PLAN.md §7): not judged are automation (auto, shift-auto), the
+# arranger overdub (lock), note repeat, the loop and the step sequencer (phase 3)
+PHASES[2][("maschine_mk2", "global")] = [
+    "mk2.global.shift-lock", "mk2.transport.metronome", "mk2.group.select", "mk2.group.mute", "mk2.group.solo",
+    "mk2.group.recarm", "mk2.global.clear-mute", "mk2.global.clear-solo", "mk2.mode.panorama", "mk2.mode.send",
+    "mk2.mode.parameters", "mk2.mode.volume", "mk2.encoder.tempo",
+]
+PHASES[2][("maschine_mk2", "pad_modes")] = [
+    "mk2.chords.play", "mk2.drum.play", "mk2.keyboard.play", "mk2.pattern.select", "mk2.scene.select",
+    "mk2.variation.parameter",
+]
 
 # The differences of zynthian's model from Bitwig's which the judged scenarios show:
 # (scenario, fnmatch pattern of the problem, reason)
 KNOWN_DIFFERENCES = [
-    ("lcxl.mix.*", "step *: STATE osc:/track/*/recarm: zynthian 0 java 1",
+    ("*", "step *: STATE osc:/track/*/recarm: zynthian 0 java 1",
      "Bitwig's auto-arm (setup preference): selecting an instrument track arms it; zynthian has no auto-arm"),
+    ("*", "step *: STATE osc:/track/*/clip/*/isSelected: zynthian 0 java 1",
+     "Bitwig keeps a selected slot per track (the fixture's Drums slot 1); zynthian has one selected phrase, shown on the active chain"),
     ("lcxl.mix.*", "step *: LED 98 4[9ABC]: zynthian 0D java 0F",
      "Bitwig's auto-arm: the armed instrument track lights red in the Record Arm row"),
     ("lcxl.mix.*", "step *: LED 98 49: zynthian 0D java 0F", "Bitwig's auto-arm (see above)"),
@@ -111,6 +125,32 @@ KNOWN_DIFFERENCES = [
     ("lcxl.mix.solo", "step 1: LED 98 49: zynthian 3E java 1D",
      "Solo held: the Track Control row shows the scenes; zynthian always has a selected phrase (the first), Bitwig's fixture had no selected scene"),
 ]
+# The Maschine Mk2
+KNOWN_DIFFERENCES += [
+    ("mk2.*", "step *: LED B0 23: *", "AUTO: zynthian has no automation (Bitwig's state of the fixture and of mk2.global.auto)"),
+    ("mk2.*", "step *: LED B0 24: *", "LOCK: zynthian has no arranger overdub (on in Bitwig's fixture)"),
+    ("mk2.*", "step *: LED B0 35: *", "RESTART: zynthian has no loop (/repeat 0)"),
+    ("mk2.*", "step *: LED B0 3A: zynthian 7F java None",
+     "REC: in zynthian record and launcher overdub are the same MIDI record, on since mk2.global.shift-lock"),
+    ("mk2.global.shift-*", "step *: LED 90 *: zynthian 00 java *",
+     "Shift held: the pads are the clip functions, lit only with a cursor clip; zynthian reports no clip yet (phase 3)"),
+    ("mk2.global.clear-*", "step *: LED 90 *: zynthian 00 java *", "Shift held: the clip functions (see shift-*)"),
+    ("mk2.transport.metronome", "step *: LED 90 *: zynthian 00 java *", "Shift held: the clip functions (see shift-*)"),
+    ("mk2.group.recarm", "step *: LED B0 64: zynthian 4C java 06", "Bitwig's auto-arm: Synth is armed (red with REC held)"),
+    ("mk2.group.recarm", "bitwig /record: expected 0, got 1",
+     "In zynthian record and launcher overdub are the same MIDI record, on since mk2.global.shift-lock"),
+    ("mk2.mode.volume", "step *: LED F0 00 00 66 14 12 38: *",
+     "The volume texts: zynthian's level is linear gain (20 log10: -5.3 dB), Bitwig has its own curve (-10.0 dB)"),
+    ("mk2.mode.parameters", "step *: LED F0 00 00 66 14 12 38: *",
+     "The parameter values: zynthian's labels of the zctrls, Bitwig's displayed values (the names compare)"),
+    ("mk2.encoder.tempo", "step *: LED F0 00 00 66 14 12 *: *",
+     "Time and Position stay empty: zynthian has no song position (zynseq knows only the beat in the bar)"),
+    ("mk2.drum.play", "step *: LED 90 24: zynthian 32 java 2A",
+     "The first pad: Bitwig's Drum Machine reports its pads (colors), zynthian has no drum machine (the core's own pads)"),
+    ("mk2.scene.select", "step *: LED 90 24: zynthian 4E java 4C",
+     "Scene 1: zynthian always has a selected phrase (the first), Bitwig's fixture had no selected scene"),
+]
+
 for _scenario in ("lcxl.mix.knobs", "lcxl.mix.device-page", "lcxl.mix.track-page", "lcxl.mix.transport-*"):
     # the later scenarios show the first page again, with the values of lcxl.mix.knobs
     KNOWN_DIFFERENCES += [
@@ -148,8 +188,25 @@ def fixture():
             for page in pages:
                 symbols = [f"{page.lower()}{i}" for i in range(8)]
                 screens += [(page, symbols[:4]), (f"{page} 2", symbols[4:])]
-            state.add_processor(chain_id, device_name, screens,
-                                type="MIDI Synth" if kind == INSTRUMENT else "Audio Effect")
+            proc = state.add_processor(chain_id, device_name, screens,
+                                       type="MIDI Synth" if kind == INSTRUMENT else "Audio Effect")
+            # The parameters get the names (and normalized values) of the fixture's remote
+            # controls; their texts stay zynthian's labels
+            controls = REMOTE_CONTROLS.get(device_name, [])
+            zctrls = [zctrl for _, screen in proc.ctrl_screens_dict.items() for zctrl in screen]
+            for zctrl, control in zip(zctrls, controls):
+                if control is not None:
+                    name, value, _ = control
+                    zctrl.name = zctrl.short_name = name
+                    zctrl.set_value(round(zctrl.value_min + value * (zctrl.value_max - zctrl.value_min)))
+    # The fixture's clips: slot 1 of Synth and Drums (Bitwig: an empty clip of a bar, which has
+    # content; zynthian: a pattern with notes)
+    libseq = state.zynseq.libseq
+    for chain_id in (1, 2):
+        chan = state.chain_manager.chains[chain_id].midi_chan
+        pattern = libseq.createPattern()
+        libseq.addPattern(0, 0, chan, 0, 0, pattern, False)
+        libseq.patterns[pattern]["events"] = 1
     state.chain_manager.active_chain = state.chain_manager.chains[1]
     return state
 
@@ -204,6 +261,11 @@ class Session:
         self.setup = setup
         self.state = fixture()
         self.model = ZynthianModel(self.state.chain_manager, zynseq=self.state.zynseq)
+        # zynthian colors a chain by its MIDI channel (gray without): the fixture takes Bitwig's
+        # track colors, so the LEDs which show them compare
+        colors = {chain_id: color for chain_id, color in enumerate(TRACK_COLORS, start=1)}
+        default_color = self.model.color_of
+        self.model.color_of = lambda chain: colors.get(chain.chain_id) or default_color(chain)
         self.bridge = ZynBridge(self.model, setup.controller_id, str(config_dir), setup.app_version, midi_sink=self.on_midi_out)
         self.stubs = []
         self.received = []
@@ -263,8 +325,8 @@ class Session:
         if not handled and address not in self.unknown_osc:
             self.unknown_osc.append(address)
 
-    @staticmethod
-    def track_osc(track, sub, value):
+    def track_osc(self, track, sub, value):
+        launcher = self.model.launcher
         flag = (value or "1") not in ("0", "0.0")
         if sub in (["select"], ["selected"]):
             if track is not None and flag:
@@ -281,6 +343,9 @@ class Session:
         elif sub in (["volume"], ["pan"]):
             if track is not None:
                 (track.volume if sub[0] == "volume" else track.pan).set(float(value) / 127.0)
+        elif len(sub) == 3 and sub[0] == "clip" and sub[2] in ("select", "selected"):
+            if track is not None and launcher is not None:
+                launcher.select(track, int(sub[1]) - 1)
         elif len(sub) == 3 and sub[0] == "send" and sub[2] == "volume":
             if track is not None and int(sub[1]) <= len(track.sends):
                 track.sends[int(sub[1]) - 1].volume.set(float(value) / 127.0)
@@ -315,6 +380,9 @@ class Session:
                 view[prefix + "name"] = ""
                 view[prefix + "volume"] = "0"
                 view[prefix + "pan"] = "0"
+                for phrase in range(PAGE_SIZE):
+                    for field in ("isSelected", "hasContent", "isPlaying"):
+                        view[f"{prefix}clip/{phrase + 1}/{field}"] = "0"
                 continue
             view[prefix + "name"] = track.name
             view[prefix + "selected"] = "1" if track.selected else "0"
@@ -325,12 +393,27 @@ class Session:
             view[prefix + "pan"] = value127(track.pan.value)
             for index, send in enumerate(track.sends[:PAGE_SIZE], start=1):
                 view[f"{prefix}send/{index}/volume"] = value127(send.volume.value)
+            launcher = self.model.launcher
+            chan = launcher.sequence_of(track) if launcher is not None else None
+            for phrase in range(PAGE_SIZE):
+                # A chain without sequences (audio) has empty slots, as Bitwig's audio tracks
+                slot = f"{prefix}clip/{phrase + 1}/"
+                exists = chan is not None and phrase < launcher.num_phrases()
+                view[slot + "isSelected"] = "1" if exists and track.selected and phrase == launcher.selected_phrase else "0"
+                view[slot + "hasContent"] = "1" if exists and launcher.has_content(phrase, chan) else "0"
+                view[slot + "isPlaying"] = "1" if exists and launcher.play_state(phrase, chan) in (1, 3) else "0"
         selected = next((t for t in self.model.tracks() if t.selected), None)
         view["osc:/track/selected/name"] = selected.name if selected else ""
         transport = self.model.transport
         if transport is not None:
             view["osc:/click"] = "1" if transport.metronome else "0"
             view["osc:/tempo/raw"] = f"{round(transport.tempo, 4)}"
+            view["osc:/play"] = "1" if transport.playing else "0"
+        launcher = self.model.launcher
+        if launcher is not None:
+            recording = "1" if launcher.recording else "0"
+            view["osc:/record"] = recording
+            view["osc:/overdub/launcher"] = recording
         for name in ("device", "primary"):
             device = self.device(name)
             prefix = f"osc:/{name}/"
@@ -354,14 +437,15 @@ DEVICE_KEYS = ("exists", "name", "bypass", "page/selected/name")
 
 def is_modelled(key):
     parts = key.split("/")
-    if key in ("osc:/track/selected/name", "osc:/click", "osc:/tempo/raw"):
+    if key in ("osc:/track/selected/name", "osc:/click", "osc:/tempo/raw", "osc:/play", "osc:/record", "osc:/overdub/launcher"):
         return True
     if len(parts) >= 3 and parts[1] in ("device", "primary"):
         rest = "/".join(parts[2:])
         return rest in DEVICE_KEYS or (len(parts) == 5 and parts[2] == "page" and parts[3].isdigit() and parts[4] in ("exists", "selected"))
     if len(parts) >= 4 and parts[1] == "track" and parts[2].isdigit():
         rest = parts[3:]
-        return rest[0] in MODELLED_FIELDS and len(rest) == 1 or (len(rest) == 3 and rest[0] == "send" and rest[2] == "volume")
+        return (rest[0] in MODELLED_FIELDS and len(rest) == 1 or (len(rest) == 3 and rest[0] == "send" and rest[2] == "volume")
+                or (len(rest) == 3 and rest[0] == "clip" and rest[2] in ("isSelected", "hasContent", "isPlaying")))
     return False
 
 

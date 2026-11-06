@@ -14,6 +14,9 @@ zynthian, whose classes they extend; the rest of the repository is LGPLv3.
 | `ctrldev/` | The files as they are installed into zynthian's `zyngine/ctrldev/`: the driver base `zynthian_ctrldev_base_dbm.py`, one module per controller (`zynthian_ctrldev_dbm_*.py`), the model adapter package `dbm_zynthian/` |
 | `tests/` | The tests without the zynthian UI (`run_tests.py`), the conformance scenarios against the adapter (`zyn_conformance.py`) |
 
+Controllers: the Novation Launch Control XL; the Native Instruments Maschine Mk2, which needs
+dbm-nihost (`support/linux/ni_host`) for its MIDI ports, displays and Shift button.
+
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
 
@@ -37,11 +40,12 @@ ZYNTHIAN_CTRLDEV_PATH=<this repository>/backends/zynthian/ctrldev <zynthian-ui>/
 cargo build
 python3 backends/zynthian/tests/run_tests.py [-v]
 python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [phase|all]
+python3 backends/zynthian/tests/zyn_conformance.py maschine_mk2 global 2
 ```
 
 They need a zynthian-ui checkout of the `dbm` branch: `$ZYNTHIAN_UI_DIR`, else `../zynthian-dbm`
 or `../zynthian-ui` next to this repository (`run_tests.py` exits with 77 without one), and plain
 Python 3.11+ (no JACK, no zynthian dependencies: `tests/zynstubs.py` stands in for them). The
-conformance test also needs the profile of the Bitwig setup
-(`~/.local/share/dbm-conformance/profiles/launchcontrol_xl`, or `DBM_PROFILE_DIR`). Because of the
+conformance tests also need the profiles of the Bitwig setups
+(`~/.local/share/dbm-conformance/profiles/<setup>`, or `DBM_PROFILE_DIR`). Because of the
 zynthian checkout they are not part of `ci/linux.sh`.

@@ -64,5 +64,31 @@ class TrackMixConformanceTest(unittest.TestCase):
         self.assertFalse(result.judged[0].known, "No known differences")
 
 
+@unittest.skipUnless(AVAILABLE and SETUPS["maschine_mk2"].profile_dir.is_dir(), "needs the profile of the maschine_mk2 setup")
+class MaschineMk2ConformanceTest(unittest.TestCase):
+    """The Maschine Mk2 scenarios of phase 2 (zyn_conformance.PHASES): the group buttons, the
+    display modes (volume, panorama, send, parameters, tempo), the pad modes which play notes
+    (keyboard, chords, drum), the clip and scene pads, the parameter selection."""
+
+    def run_file(self, name, judged):
+        result = conformance.run_file("maschine_mk2", name, phase=2)
+        report = result.report(verbose=True)
+        self.assertEqual(len(result.judged), judged, report)
+        self.assertTrue(result.ok, report)
+        self.assertEqual(result.core_errors, [], report)
+        # Only note repeat, the automation and the loop are not handled (no such thing in zynthian)
+        self.assertTrue(all(key.split(" ")[0] in ("noterepeat", "automation", "repeat") for key in result.unhandled), report)
+        return result
+
+    def test_global(self):
+        self.run_file("global", 13)
+
+    def test_pad_modes(self):
+        result = self.run_file("pad_modes", 6)
+        known = {s.id: s.known for s in result.judged}
+        for scenario in ("mk2.keyboard.play", "mk2.chords.play", "mk2.pattern.select", "mk2.variation.parameter"):
+            self.assertEqual(known[scenario], [], f"{scenario}: the same as Java on Bitwig")
+
+
 if __name__ == "__main__":
     unittest.main()

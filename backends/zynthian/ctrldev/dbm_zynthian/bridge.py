@@ -60,6 +60,9 @@ class ZynBridge(Bridge):
         self.midi_sink = midi_sink
         # Only the last errors of the core (``core_errors``)
         self.logs = deque(maxlen=50)
+        self.play_note_inputs_in_step = True
+        """False: the driver plays the notes of the note inputs as they arrive (play_note), the
+        step only gives them to the core."""
 
     def tick(self, now_ms):
         """One loop pass at the time now_ms (ms since the start, never going back)."""
@@ -70,6 +73,20 @@ class ZynBridge(Bridge):
         """The notifications of the core since the last call."""
         notifications, self.notifications = self.notifications, []
         return notifications
+
+    def to_note_inputs(self, data):
+        if self.play_note_inputs_in_step:
+            super().to_note_inputs(data)
+
+    def translate_note(self, data):
+        """The note a note input lets through (status, key, velocity) after its key and velocity
+        tables, None if none does (or the key is blocked). Only Python data: may be called from
+        another thread than the core's."""
+        for note_input in list(self.note_inputs.values()):
+            event = note_input.translate(data)
+            if event is not None:
+                return event
+        return None
 
     # No histories (the reference host keeps them for its tests)
 

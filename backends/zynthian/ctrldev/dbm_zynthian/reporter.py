@@ -36,8 +36,8 @@ its siblings and parameter pages (``collect_device``) and the first instrument
 
 Not reported, so the core keeps its defaults for them: scenes and slots, the clip, markers, the
 browser, ``/drum``, ``/eq``, the layers and drum pads of ``/primary``, the arranger position and loop, ``/track/<p>/active``
-(zynthian has no deactivated chains), ``/track/hasPrevious|hasNext``, ``/track/pinned``,
-``/device/pinned``.
+(zynthian has no deactivated chains), ``/track/hasPrevious|hasNext``. ``/track/pinned`` (-1) and ``/device/pinned`` (0) are reported:
+zynthian has no pinning.
 """
 
 import logging
@@ -115,6 +115,10 @@ class ZynReporter(Reporter):
         tracks = self.daw.track_list(self.banks.full_flat_track_list)
         selected = next((position for position, track in enumerate(tracks) if track.selected), -1)
         self.put("/track/offset", self.banks.track_offset)
+        # No pinning in zynthian: the cursor track follows the selection (without the report the
+        # core keeps a cursor of its own); /device/pinned likewise (without it the core takes the
+        # device as always pinned, as Reaper's, and lights a Pin button)
+        self.put("/track/pinned", -1)
         # A deselection outside of the list (the selected track was removed)
         if self._last_selected != selected and self._last_selected >= len(tracks):
             self.put(f"/track/{self._last_selected}/select", False)
@@ -141,6 +145,14 @@ class ZynReporter(Reporter):
         self.put("/track/count", len(tracks))
         if selected >= 0:
             self.put(f"/track/{selected}/select", True)
+        # The notes played on the cursor track (the core keeps one note cache: the notes of a new
+        # cursor track are reported again)
+        if selected != self._last_cursor:
+            self._last_cursor = selected
+            self.forget(f"/track/{selected}/playingnotes")
+        if selected >= 0:
+            notes = dict(self.daw.playing_notes)
+            self.put(f"/track/{selected}/playingnotes", ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in sorted(notes.items())))
 
     def launcher(self):
         launcher = self.daw.launcher
@@ -162,10 +174,12 @@ class ZynReporter(Reporter):
         for phrase in range(count):
             slot = f"{prefix}slot/{phrase}/"
             state = launcher.play_state(phrase, chan)
+            content = launcher.has_content(phrase, chan)
             self.put(slot + "exists", True)
-            self.put(slot + "hasContent", launcher.has_content(phrase, chan))
+            self.put(slot + "hasContent", content)
             self.put(slot + "name", launcher.slot_name(phrase, chan))
-            self.put(slot + "color", track.color)
+            # An empty slot has no color (as Bitwig's; zynthian's launcher shows it gray)
+            self.put(slot + "color", track.color if content else (0, 0, 0))
             self.put(slot + "selected", phrase == selected)
             self.put(slot + "playing", state in (1, 3))
             self.put(slot + "playQueued", state == 2)
@@ -224,6 +238,7 @@ class ZynReporter(Reporter):
         if transport is None or not transport.available:
             return
         self.put("/play", transport.playing)
+        self.put("/repeat", False)  # No arranger loop in zynthian
         self.put("/tempo", transport.tempo)
         self.put("/numerator", transport.numerator)
         self.put("/denominator", 4)
@@ -255,6 +270,7 @@ class ZynReporter(Reporter):
         self.put("/device/name", device.name if exists else "")
         self.put("/device/bypass", exists and not device.enabled)
         self.put("/device/window", False)
+        self.put("/device/pinned", False)
         self.put("/device/expand", False)
         self.put("/device/hasDrumPads", False)
         self.put("/device/hasLayers", False)

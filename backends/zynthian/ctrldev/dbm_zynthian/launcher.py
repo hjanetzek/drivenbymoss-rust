@@ -40,7 +40,8 @@ the core's recording is "record into a launcher slot", as Bitwig records into a 
 | selected slot / scene | ``zynseq.phrase`` (and the active chain) |
 | ``track <p>/createClip/<s> <beats>`` | create and add the pattern if there is none, set its length in beats |
 | ``track <p>/clip/<s>/record`` | select phrase, sequence and pattern, enable MIDI record, start the sequence |
-| ``track <p>/clip/<s>/select``, ``launch`` | select it; start it if it is stopped |
+| ``track <p>/clip/<s>/select``, ``launch`` | select it; start it if it is stopped (``launchRelease``: nothing, zynseq launches on press) |
+| ``scene <s>/select``, ``launch`` | select the phrase; start its phrase launcher (channel 32) if it is stopped (``launchRelease``: nothing) |
 | ``record`` (toggle) | MIDI record on/off for the cursor slot (the active chain in the selected phrase) |
 | ``transport overdub/launcher <0|1>``, ``/overdub/launcher`` | MIDI record on/off for the selected pattern |
 | ``/overdub/arranger`` | 0, ``transport overdub/arranger`` ignored (no arranger) |
@@ -49,8 +50,8 @@ the core's recording is "record into a launcher slot", as Bitwig records into a 
 The adapter calls libseq: ``zynseq.add_pattern`` passes 6 arguments to ``addPattern``, which has 7
 (analysis §9 Z12).
 
-Not mapped: the audio recorder and the SMF recorder (doc/ZYNTHIAN_PLAN.md §3.3), scene launch,
-clip deletion and duplication, slot colors (the chain's), clippy (audio) launchers.
+Not mapped: the audio recorder and the SMF recorder (doc/ZYNTHIAN_PLAN.md §3.3), stopping,
+deleting and duplicating clips and scenes, slot colors (the chain's), clippy (audio) launchers.
 """
 
 import ctypes
@@ -66,6 +67,8 @@ STARTING = 2
 STOPPING = 3
 NO_PATTERN = 0xFFFFFFFF
 NUM_SEQUENCE_CHANNELS = 16
+# zynseq.py: the sequence channel of a phrase's launcher
+PHRASE_CHANNEL = 32
 
 
 class ZynLauncher:
@@ -174,6 +177,20 @@ class ZynLauncher:
             return False
         if self.play_state(phrase, chan) == STOPPED:
             self.libseq.togglePlayState(self.scene, phrase, chan)
+        return True
+
+    def select_scene(self, phrase):
+        if not 0 <= phrase < self.num_phrases():
+            return False
+        self.zynseq.select_phrase(phrase)
+        return True
+
+    def launch_scene(self, phrase):
+        """Start the phrase (zynseq's phrase launcher) if it is stopped, and select it."""
+        if not self.select_scene(phrase):
+            return False
+        if self.play_state(phrase, PHRASE_CHANNEL) == STOPPED:
+            self.libseq.togglePlayState(self.scene, phrase, PHRASE_CHANNEL)
         return True
 
     def record(self, track, phrase):

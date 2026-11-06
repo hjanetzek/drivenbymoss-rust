@@ -9,8 +9,11 @@ Status: 2026-11-06.
   from phase 3.
 - **The driver sources moved to this repository** (`backends/zynthian/`); zynthian loads them
   with `ZYNTHIAN_CTRLDEV_PATH` (§2).
+- **The Native Instruments Maschine Mk2** (through dbm-nihost, §7): its driver, the note input
+  (pads into the active chain, §3.4), the displays and paging, the conformance of its scenarios,
+  a desktop run with the device.
 
-48 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
+58 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
 
 **Goal.** zynthian controller drivers (ctrldev) host the DrivenByMoss core, so that the core's
 controllers drive zynthian: the core runs the controller (modes, LEDs, displays), zynthian is its
@@ -19,7 +22,7 @@ DAW. First the Novation Launch Control XL.
 **Decisions** (the user's answers of 2026-11-06):
 
 1. The PipeWire uids (`PW:<client>/<client> IN <n>`) are accepted; MIDI routes stored under the old
-   uids are lost (a migration is optional, §8).
+   uids are lost (a migration is optional, §9).
 2. The Launch Control XL's driver takes its first port (`Launch Contro`, `IN 1`), never HUI.
 3. The core's document settings belong to the **snapshot**, not the ZS3 (§2.3).
 4. "Play" is **zynseq's transport**; "record" is **MIDI record into zynseq** (§3.3).
@@ -70,7 +73,7 @@ zynthian-ui's style (4 spaces, its header, its imports) and adds no dependency.
 | File | Content |
 | --- | --- |
 | `zynthian_ctrldev_base_dbm.py` | `zynthian_ctrldev_base_dbm(zynthian_ctrldev_base)`: lifecycle, tick thread, MIDI queue, state, sleep. Skipped by the manager (name prefix `zynthian_ctrldev_base`) |
-| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag` |
+| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag`. Now: `launchcontrol_xl`, `maschine_mk2` |
 | `dbm_zynthian/__init__.py` | `import_dbm()`: finds `drivenbymoss` and `dbm_host` (`sys.path`, `$DBM_PYTHON_DIR`, this repository's `bindings/python`, `/usr/share/drivenbymoss/python`), defaults `$DBM_LIBRARY` |
 | `dbm_zynthian/{model,reporter,commands,bridge,device,transport,launcher}.py` | The model adapter (§3) |
 | `dbm_zynthian/generate.py` (phase 4) | Writes the per-controller modules from `dbm_list_controllers()` and a port table |
@@ -159,7 +162,8 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Transport, tempo | `getTransportState`, `transportStart(6)`/`transportStop(255)`, tempo, tap, bpb, metronome mode `TRANSPORT`/`OFF` and volume | ✓ | no position, loop, punch, automation |
 | Recording | §3.3 | ✓ | – |
 | Scenes, slots | the phrases of zynseq's current scene; slot `s` of a MIDI chain = sequence (phrase `s`, its channel) | reported, select/launch/record/createClip (§3.3) | scene launch, stop, clip delete/duplicate: phase 3 |
-| Note inputs | `NoteInput.translate` → `lib_zyncore.ui_send_note_on/off` on the active chain's channel | phase 3 | – |
+| Note inputs | §3.4 | ✓ (the Mk2's pads) | – |
+| Pinning, loop | `/track/pinned -1`, `/device/pinned 0`, `/repeat 0` (zynthian has neither) | ✓ | without them the core lights a Pin button and never writes the loop LED |
 | Step grid `/clip/…` | the selected sequence's pattern | phase 3 | – |
 | Browser, markers, groove, application, `/eq`, `/drum` | – | – | not reported; their commands logged once |
 
@@ -194,6 +198,31 @@ LCXL's launcher overdub on again; the reports followed.
 - **The SMF recorder** (`state_manager.toggle_midi_record`, `libsmf`): records all MIDI to a
   file; could be `record` while zynseq's MIDI record stays on the slots.
 - A setting (document or global) could choose what `record` means.
+
+### 3.4 Note inputs
+
+The core creates note inputs during `dbm_start_infrastructure` (`set_note_input_filters`, the
+Mk2: one with `80`, `90`, the notes on channel 1) and changes their key and velocity tables with
+every view or octave change (the pads in play, keyboard, chords and drum mode). Implemented in the
+driver base (`zynthian_ctrldev_base_dbm.py`):
+
+- `midi_event` (the state manager's fast thread) translates a note through the note inputs
+  (`ZynBridge.translate_note`: the filters, the key table, −1 blocks, the velocity table) and
+  sends it at once with `lib_zyncore.ui_send_note_on/off` on the active chain's MIDI channel
+  (`ZMIP_FAKE_UI`, which reaches every chain on that channel, analysis §2). The message still goes
+  through the queue to the core (for its LEDs). No `dbm_*` call: the tables are plain Python data
+  the core's callbacks replace.
+- A note-off goes to the channel and key of its note-on, also if the active chain or the tables
+  changed meanwhile; stopping the controller (sleep, unload) ends the sounding notes.
+- The core's own notes (`process_midi_arg`, the further notes of a chord) take the same way, on
+  the tick thread.
+- The sounding notes are reported as the cursor track's `/track/<p>/playingnotes`, so the pads
+  light while they are held (as Bitwig's note input monitoring).
+- No note without an active MIDI chain (an audio chain has no channel).
+
+Latency (analysis §2): dbm-nihost + 0–10 ms fast-thread poll + 35–45 µs in the driver (measured in
+desktop mode) + 0–5.3 ms JACK period, so up to ~15 ms on top of dbm-nihost, 5–8 ms on average;
+waiting for the tick would add up to 30 ms. A real-time midiproc remains the option for less.
 
 ## 4. Phases
 
@@ -267,7 +296,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (48), from this repository, after `cargo build`:
+**(a) The driver tests** (58), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -283,10 +312,10 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | --- | --- |
 | `test_model.py` | 17: mapping, texts, VU, reports, selection, removed chains, commands |
 | `test_launchcontrol_xl.py` | 6: the core with the LCXL on simulated time |
-| `test_driver.py` | 4: the driver class (thread, MIDI, snapshot-only state, sleep/wake, end) |
-| `test_pipewire_ports.py` | 1: the driver's dev_id against zynthian's PipeWire uids |
-| `test_conformance_lcxl.py` | 2: §6 b |
-| `test_devices_transport.py` | 18: devices, `/primary`, transport, recording, a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
+| `test_driver.py` | 9: the LCXL driver class (thread, MIDI, snapshot-only state, sleep/wake, end); the Mk2 driver with the core (its note input, pads into the active chain at once, note-off to the note-on's chain, no hanging notes, no note without a MIDI chain, the cost of a note) |
+| `test_pipewire_ports.py` | 2: the drivers' dev_ids against zynthian's PipeWire uids (the LCXL's controls port, not HUI; dbm-nihost's Mk2 port, not the JAM's or the Mk2's own MIDI port) |
+| `test_conformance_lcxl.py` | 4: §6 b (the LCXL, the Mk2) |
+| `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
 `python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [1|2|all]`. It reuses
@@ -301,6 +330,7 @@ differences with reasons. Results (phase 2):
 - the known differences, all of the model: Bitwig's auto-arm; Bitwig's takeover mode "catch"
   (the knob values, carried into the later scenarios); with Solo held the scenes, where zynthian
   always has a selected phrase; Track Focus 5 (undo) with Record Arm held: zynthian has no undo.
+- `maschine_mk2/global.toml`, `pad_modes.toml`: §7.
 - Not judged: the rest of `note_sequencer.toml` (step grid, phase 3), `layer_mix.toml` (zynthian
   has no layers: the core shows nothing where Bitwig shows the Instrument Layer's 2 layers,
   §3.2), `drum_sequencer.toml`, `equalizer.toml`.
@@ -310,17 +340,97 @@ differences with reasons. Results (phase 2):
 `zynthian_desktop.sh` itself as well; the phase 1–2 checks and the recording (§3.3) against the
 real zynmixer and zynseq.
 
-## 7. State (2026-11-06)
+## 7. The Native Instruments Maschine Mk2
 
-drivenbymoss-rust (after `ae8b9ed`, not committed): `backends/zynthian/` (moved from the
-zynthian-ui branch; `README.md`, `LICENSE.txt`), `/primary`, `launcher.py` (scenes, slots,
-recording), the conformance extended, this plan, the analysis.
+**Why:** the Mk2's two displays show the device's parameter names and values, the page and device
+names, with paging over parameter pages, devices and track pages; its 16 pads play.
 
-zynthian-ui `dbm` (after `ad24433d`, not committed): the drivers and their tests removed;
-`ZYNTHIAN_CTRLDEV_PATH` in `zynthian_ctrldev_manager.py`;
-`zynautoconnect/test_zynthian_pipewire_ports.py`.
+**The port** (analysis §1): dbm-nihost's ALSA client "Maschine MK2" (`Maschine MK2 In`/`Out`,
+PipeWire `Midi-Bridge:Maschine MK2: In (capture)`/`Out (playback)`), dev_id `Maschine MK2 IN 1`.
+Not the JAM's (`Maschine Jam - 1 IN 1`) nor the Mk2's own USB MIDI port (`Maschine Controller MK2
+IN 1`, its MIDI mode). dbm-nihost (a systemd user service, `--virmidi`) must run; the driver sends
+the core's display text (MCU sysex) and button labels (`F0 7D 44 42 4D 10`) to it and gets the
+Shift button from it (`F0 7D 44 42 4D 11/12`). On ZynthianOS the a2j port names give no dev_id
+[guess, not tested].
 
-## 8. Open questions
+**Driver:** `backends/zynthian/ctrldev/zynthian_ctrldev_dbm_maschine_mk2.py` (UUID
+`015E4908-C049-4808-A645-A7A44BEFE36B`, autoload).
+
+**What the displays show** (analysis §4; checked in desktop mode with the MIDI to dbm-nihost
+decoded): the track modes the chain names and the volume in zynthian's dB (`-1.9`), the
+parameters mode the 8 parameters of the cursor device (names from the zctrls, values from their
+labels), page and device names in the notifications, the labels of the 8 buttons above. The Mk2
+does not use `/primary`.
+
+**Paging** (checked in desktop mode): in the parameters mode the encoder up/down = the parameter
+pages (two of zynthian's screens per page: "Page: params 1"), PAGE LEFT/RIGHT = the devices of the
+chain ("Selected device: MDA DubDelay", then its parameters; back to the DX10 on its last page);
+in the track modes the encoder up/down = the track bank page (tests only).
+
+**Pads:** §3.4. In play, keyboard and chords mode the core's key table maps the pads to notes (the
+chord's further notes come through `process_midi_arg`); in drum mode to the drum notes (36…).
+
+**Conformance** (`zyn_conformance.py maschine_mk2 global|pad_modes 2`): 13 scenarios of
+`global.toml` and 6 of `pad_modes.toml` judged, all the same as Java on Bitwig apart from model
+differences; `mk2.keyboard.play`, `mk2.chords.play`, `mk2.pattern.select` and
+`mk2.variation.parameter` without any. The differences, with their reasons:
+
+| Difference | Reason |
+| --- | --- |
+| AUTO, LOCK, RESTART LEDs | zynthian has no automation, arranger overdub (on in Bitwig's fixture) or loop: the LEDs are never written |
+| REC lit after `mk2.global.shift-lock`, `/record 1` | in zynthian record and launcher overdub are the same MIDI record (§3.3) |
+| The pads while Shift is held | the clip functions, lit only with a cursor clip; no `/clip` before phase 3 |
+| Group button 1 with REC held, `/track/3/recarm` | Bitwig's auto-arm |
+| The volume texts (`-5.3` vs `-10.0`) | zynthian's level is linear gain, Bitwig has its own curve |
+| The parameter value texts | zynthian's zctrl labels (the names compare: the fixture's zctrls have Bitwig's remote-control names) |
+| Time and Position empty in the tempo mode | no song position (zynseq knows only the beat in the bar) |
+| The first pad's color in drum mode | Bitwig's Drum Machine reports its pads; zynthian has no drum machine |
+| Scene 1 lit in scene mode | zynthian always has a selected phrase |
+
+Not judged: automation (`mk2.global.auto`, `shift-auto`), the arranger overdub (`lock`), note
+repeat (zynthian has no arpeggiator: `noterepeat …` stays unhandled), the loop, the step
+sequencer (phase 3). Real gaps the scenarios showed and which are fixed: the Pin LED (pinning),
+the loop LED (`/repeat`), `scene <s>/select|launch|launchRelease`, slot `launchRelease`, `drum
+indicate`, empty slots without color.
+
+**Desktop run** (2026-11-06, the Tk UI, `ZYNTHIAN_CTRLDEV_PATH`, my-data on a copy, a probe that
+recorded the MIDI to and from the device): the driver autoloaded on `Maschine MK2 IN 1` (output
+`OUT 1`), not on the JAM or the MIDI-mode port. At the start the core sent its Shift query and
+dbm-nihost answered (`F0 7D 44 42 4D 11 01 F7`): the path to dbm-nihost works both ways. The
+display sysex and the button labels went out (decoded above), 80 LED messages; Parameters, the
+encoder and PAGE (injected as dbm-nihost sends them) changed the display as described; a pad
+(injected) reached the DX10 chain's channel 1 after 35 µs. No core errors; unhandled only
+`noterepeat …`.
+
+**Not verified (needs a person at the device):** that dbm-nihost draws the texts readably on the
+screens, the LEDs on the device, physical pads, encoder and buttons, the sound and the latency as
+played.
+
+**Checklist for the device** (zynthian started with the run command, dbm-nihost running, a chain
+with a synth, e.g. MDA DX10, selected):
+
+1. Screens: in Volume mode the chain names over the knobs and their dB below; the 8 labels above
+   the displays (`Volume Pan Send- Send+ PinTrk TrkOn User Params`).
+2. Knobs 1–8 in Volume mode move the chains' faders in zynthian's mixer; the values on the screen
+   follow.
+3. Params (button 8 above the display): the synth's parameter names and values; a knob turns a
+   parameter in zynthian's control screen and its value changes on the Mk2.
+4. Encoder up/down: "Page: …" and the next/previous pair of zynthian's screens.
+5. PAGE LEFT/RIGHT: "Selected device: …" and the parameters of the next device of the chain.
+6. The group buttons select the chains; MUTE/SOLO + group toggles them.
+7. Pads (PAD MODE, KEYBOARD): the synth plays, the pads light while held; notes do not hang when
+   the selected chain changes while a pad is held.
+8. TEMPO + encoder changes zynthian's tempo; Shift (dbm-nihost's) + TAP toggles the metronome.
+
+## 8. State (2026-11-06)
+
+drivenbymoss-rust (after `03bd3a7`, not committed): the Mk2 driver, the note input, the reports
+the Mk2 needs (pinning, loop, playing notes, slot colors), scene commands, the Mk2 conformance,
+this plan, the analysis.
+
+zynthian-ui `dbm`: no changes since `bc396034`.
+
+## 9. Open questions
 
 1. A one-time migration of MIDI routes stored under the old nura uids: not done.
 2. What `record` should mean besides zynseq's MIDI record: the audio recorder, the SMF recorder,
@@ -329,3 +439,6 @@ zynthian-ui `dbm` (after `ad24433d`, not committed): the drivers and their tests
    name, or nothing?
 4. PipeWire's MIDI bridge did not deliver to the Launch Control XL in my later runs (analysis §2),
    while the user's test worked; a host problem of that moment?
+5. The Mk2's note repeat: zynthian has no arpeggiator; implement one in the driver (from the
+   core's `noterepeat` commands), or leave it?
+6. ZynthianOS: a dev_id rule for a2j ports (dbm-nihost there), if the Mk2 should work on it.

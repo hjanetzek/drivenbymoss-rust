@@ -367,7 +367,11 @@ class ZynthianModel:
         self.note_input = None
         """The default note input of the controller (``dbm_host.NoteInput``)."""
         self.note_sink = None
-        """Called with (status, key, velocity) for the notes of the note inputs (phase 3)."""
+        """Called with (status, key, velocity) for the notes of the note inputs and the core's
+        played notes (process_midi_arg): the driver sends them to the active chain."""
+        self.playing_notes = {}
+        """The notes played through the note inputs which sound now (key -> velocity), reported as
+        the cursor track's playing notes (the pads light while they are held)."""
         self._tracks = {}
 
     # The chains
@@ -421,8 +425,18 @@ class ZynthianModel:
         return note_input
 
     def play_live_note(self, status, key, velocity):
-        if self.note_sink is not None and 0 <= key < 128:
+        if not 0 <= key < 128:
+            return
+        self.note_played(status, key, velocity)
+        if self.note_sink is not None:
             self.note_sink(status, key, velocity)
+
+    def note_played(self, status, key, velocity):
+        """Keep the sounding notes (also called by the driver, which sends the notes itself)."""
+        if status & 0xF0 == 0x90 and velocity > 0:
+            self.playing_notes[key] = velocity
+        else:
+            self.playing_notes.pop(key, None)
 
     def advance(self, ms):
         """The simulated time of the reference host; zynthian runs in real time."""
