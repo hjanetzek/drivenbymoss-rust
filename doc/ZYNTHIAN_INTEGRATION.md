@@ -1,337 +1,352 @@
 # DrivenByMoss Rust core as a Zynthian ctrldev driver: integration points
 
-Status: 2026-11-02, investigation (read only); nothing implemented. The Python binding and the
-reference host it builds on: [PYTHON_HOST_PLAN.md](PYTHON_HOST_PLAN.md), `bindings/python/`.
+Status: 2026-11-06, second analysis, against the `nura` branch and zyncoder's C side; phase 1 of
+the implementation has started ([ZYNTHIAN_PLAN.md](ZYNTHIAN_PLAN.md)). The first analysis
+(2026-11-02, read only) was written against upstream zynthian-ui `d6ed3592` without zyncoder.
+The Python binding and the reference host it builds on: [PYTHON_HOST_PLAN.md](PYTHON_HOST_PLAN.md),
+`bindings/python/`.
 
-- zynthian-ui: `~/bastel/github/zynthian-ui` (HEAD `d6ed3592`). Paths below are relative to it unless prefixed `dbm:`.
+- zynthian-ui: the worktree `~/bastel/github/zynthian-dbm` (branch `dbm`, from `nura` at
+  `2bb87436`). `nura` is upstream `d6ed3592` plus 205 commits. Paths below are relative to it
+  unless prefixed `dbm:` or `zyncoder:`.
+- zyncoder (lib_zyncore, the C MIDI router and its Python module): `~/bastel/github/zyncoder`,
+  branch `nura` (`2e7490d`), linked as `zyncoder` in the worktree. Prefixed `zyncoder:`.
 - drivenbymoss-rust: `~/bastel/github/drivenbymoss-rust`, prefixed `dbm:`.
-- `zyncoder` (lib_zyncore, the C MIDI router) is a dangling symlink in zynthian-ui (`zyncoder -> ../zyncoder`).
-  The only local copy, `/home/jeff/Code/Audio/zynthian/zyncoder`, is from 2020 and much older than this UI.
-  **All statements about lib_zyncore's C-side behaviour are therefore unverified.** Only how the Python code calls it was checked.
 
-Legend: **[code]** = read in the code; **[unverified]** = the API exists but I did not see what it does; **[guess]** = an inference.
+Legend: **[code]** = read in the code; **[observed]** = seen on this PC (PipeWire, read-only
+queries); **[unverified]** = the API exists but I did not see what it does; **[guess]** = an
+inference.
+
+What changed against the first analysis: §2 (routing, output buffering, sysex) is now read in
+zyncoder's C code; §1 and §7 have nura's user-driver folder and PipeWire's port names, which break
+the driver matching on nura (fixed on the `dbm` branch, §1); §9 has five new bugs. Everything the
+first analysis marked [unverified] or [guess] is resolved below or still marked.
 
 ---
+
+## 0. What nura changes against upstream
+
+Only what matters for a ctrldev driver [code, `git diff d6ed3592 HEAD`]:
+
+- **Desktop mode** (`ZYNTHIAN_DESKTOP=1`, `zynconf.desktop_mode`): zynthian runs as an
+  application. `desktop/zynthian_desktop_env.sh` sets every directory from XDG:
+  `ZYNTHIAN_CONFIG_DIR=~/.config/zynthian`, `ZYNTHIAN_MY_DATA_DIR=~/.local/share/zynthian/my-data`,
+  `ZYNTHIAN_UI_DIR` = the checkout (or `/usr/share/zynthian/zynthian-ui` in the package). The
+  state manager's `system_service` decorator skips starting and stopping system services
+  (VNC, Bluetooth, network MIDI), power save does not run `powersave_control.sh`.
+- **One place for the paths**: `zynconf/zynthian_paths.py` (`ui_dir`, `config_dir`, `my_data_dir`,
+  `lib_dir`, `native_lib()`); the ctrldev manager and the state manager use it.
+- **Native libraries from `ZYNTHIAN_LIB_DIR`** (`/usr/lib/zynthian` in the package):
+  `libzyncore.so` (`zyncoder:zyncore.py:39-44`), the zynmixer and zynseq libraries
+  (`zynthian_paths.native_lib`).
+- **zyncoder with a wiringPi stand-in** (`zyncoder:wiringpi_stub/`): no GPIO, no encoders. The
+  MIDI router is unchanged against upstream zyncoder (the nura commits only touch the build and
+  the library path) [code, `git log` of zyncoder].
+- **JACK is PipeWire** (pipewire-jack). Two consequences in `zynautoconnect`:
+  - PipeWire lets only a port's owner set its aliases. nura keeps the aliases zynthian sets in
+    the process (`local_port_aliases`, `zynautoconnect/zynthian_autoconnect.py:76-126`).
+  - The hardware ports are named after the device, not `system:`; nura finds the audio ports by
+    `is_physical` (`:1244-1249, :1449-1454`). For MIDI there was no change, see §1 "Matching".
+- **User drivers** live in `$ZYNTHIAN_MY_DATA_DIR/ctrldev` when the code is read-only (§1, §7).
+- **The Qt UI** (`zynthian_qt_main.py`, `zynqt/`, PySide6, `ZYNTHIAN_UI=qt`) runs the same state
+  manager, so the same ctrldev manager and drivers. It does not register
+  `SS_GUI_SHOW_MESSAGE` (only `zyngui/zynthian_gui.py:2746` does): driver messages are not shown
+  in the Qt UI [code, grep]. The MIDI device options of both UIs share
+  `zyngui/zynthian_midi_config_data.py` (`device_drivers`, `:321-332`).
 
 ## 1. Driver lifecycle
 
 **Discovery** [code]
-- `zynthian_ctrldev_manager` scans two folders under `$ZYNTHIAN_UI_DIR/zyngine/`: `ctrldev_user` first, then `ctrldev` (`zyngine/zynthian_ctrldev_manager.py:50-51`).
-- It scans them once in `__init__`, and `__init__` runs from `state_manager.start()` (`zyngine/zynthian_state_manager.py:222`). `DRIVER_DEVELOPMENT` re-scans on every load, but it is hard-coded off (`zynthian_ctrldev_manager.py:40`).
-- Every `*.py` is imported as `zyngine.<dirname>.<module>` (`:76-88`). Modules whose names start with `__` or `zynthian_ctrldev_base` are skipped (`:78`).
-- **The class must have exactly the module's name**: `getattr(module, module_name)` (`:90`). So one module provides one driver class.
-- The manager then builds `available_drivers[dev_id] -> [classes]` from each class's `dev_ids` list (`:96-102`). `"*"` means "generic".
+- `zynthian_ctrldev_manager` scans `ctrldev_user` first, then `ctrldev`
+  (`zyngine/zynthian_ctrldev_manager.py:76-77`), once in `__init__`, which runs from
+  `state_manager.start()` (`zyngine/zynthian_state_manager.py:236`). `DRIVER_DEVELOPMENT`
+  (re-scan on every load) is hard-coded off (`:43`).
+- **nura:** `ctrldev_user` is `$ZYNTHIAN_UI_DIR/zyngine/ctrldev_user` if it exists (ZynthianOS
+  links it to the user's folder), else `$ZYNTHIAN_MY_DATA_DIR/ctrldev`, registered as the package
+  `zyngine.ctrldev_user` with that path (`setup_user_ctrldev_package`, `:46-68`, `:100-108`).
+  In desktop mode that is `~/.local/share/zynthian/my-data/ctrldev`, **not** `~/.config/zynthian`.
+- Every `*.py` is imported as `zyngine.<dirname>.<module>`; modules starting with `__` or
+  `zynthian_ctrldev_base` are skipped (`:108-110`). Sub-folders are not scanned (only `*.py` of the
+  folder), so a helper package such as `zyngine/ctrldev/mackiecontrol/` (stock) or
+  `zyngine/ctrldev/dbm_zynthian/` is safe.
+- **The class must have the module's name** (`getattr(module, module_name)`, `:121`): one module,
+  one driver class. `available_drivers[dev_id] -> [classes]` from each class's `dev_ids`; `"*"`
+  is generic (`:128-135`).
 
 **Matching** [code]
-- `dev_id = zynautoconnect.get_midi_in_devid(izmip)`: the part of the port uid after the first `/` (`zynautoconnect/zynthian_autoconnect.py:281-292`).
-- `build_midi_port_name` builds the uid for USB devices (`:1405-1490`):
-  - `USB:<bus>.<ports>/<card name> IN <n>`.
-  - `<card name>` is the first line of `/proc/asound/cardN/midi0`.
-  - `IN <n>` is the 1-based index of the device's capture port.
-  - So the dev_ids look like `"Launchpad X IN 1"` or `"APC40 mkII IN 1"`.
-- **Matching is an exact dict lookup.** There are no patterns or regexes (`zynthian_ctrldev_manager.py:124-129`).
-- **Autoload** happens when a new input port appears (`zynthian_autoconnect.py:1010-1023`), unless a ZS3 has a `midi_capture` entry for that uid, in which case the stored driver is loaded.
-  - Autoload takes the first class in `available_drivers[dev_id]` whose `get_autoload_flag()` is true (`zynthian_ctrldev_manager.py:126-129`).
-  - `"*"` drivers are never autoloaded. They are only offered in the menu (`zyngui/zynthian_gui_midi_config.py:503-505`).
-  - The list order follows the scan order, so **a `ctrldev_user` driver wins autoload over a stock driver with the same dev_id** [code, from the insertion order of the dict].
-- **Loading** (`zynthian_ctrldev_manager.py:104-176`), in this order:
-  1. `izmop = dev_in_2_dev_out(izmip)`.
-  2. `driver_class(state_manager, izmip, izmop)`.
-  3. Unroute the port from the chains (`zmip_set_ui_midi_chans`).
-  4. Register the driver in `drivers[izmip]`, so it already gets sysex during `init()`.
-  5. `driver.init()`.
+- `dev_id = zynautoconnect.get_midi_in_devid(izmip)`: the part of the port's uid (its JACK alias 0)
+  after the first `/`; None without `/` (`zynautoconnect/zynthian_autoconnect.py:333-343`).
+- With jackd, `build_midi_port_name` builds the uid from the ALSA alias `in-hw-<card>-…`:
+  `USB:<bus>.<ports>/<card name> IN <n>`, `<card name>` = first line of
+  `/proc/asound/cardN/midi0`, `<n>` the 1-based port index (`:1501-1547`). So the dev_ids are e.g.
+  `"Launch Control XL IN 1"`, `"Launchpad X IN 2"`.
+- **On nura (PipeWire) this does not work** [code + observed]. pipewire-jack gives the MIDI bridge
+  ports no JACK aliases (`jack.fill-aliases` is off by default; `jack.Port.aliases` was `[]` for
+  every port on this PC, while PipeWire's own `port.alias` is set). The ports are named
+  `Midi-Bridge:<client>:<port> (capture|playback)`, e.g.
+  `Midi-Bridge:Scarlett 18i20 USB: MIDI 1 (capture)` (`pw-link -o`). `build_midi_port_name` then
+  falls back to `(port.name, port.shortname)` (`:1548-1553`): the uid has no `/`, the dev_id is
+  None, **no device-specific driver matches or autoloads**; only `"*"` drivers are offered
+  (`zynthian_midi_config_data.device_drivers`). `dev_in_2_dev_out` (below) finds no output either.
+  - **Fixed on the `dbm` branch:** `zynautoconnect/zynthian_pipewire_ports.py` builds
+    `PW:<client>/<client> IN <n>` / `… OUT <n>` for these ports (`<n>` = index among the client's
+    ports of that direction, in JACK's order [guess that this is ALSA's port order]), so the dev_ids
+    are those of ZynthianOS (`Launch Control XL IN 1`) and the output is found.
+    `build_midi_port_name` calls it for `Midi-Bridge:` ports. Side effect: the uids of hardware
+    MIDI ports change on nura, so MIDI routes stored in nura snapshots by the old uid (the port name)
+    are not restored. The Launch Control XL's PipeWire name `Midi-Bridge:Launch Control XL: MIDI 1
+    (capture)` is inferred from the Scarlett's [guess: confirm when the device is plugged in].
+- **Matching is an exact dict lookup**, no patterns (`zynthian_ctrldev_manager.py:153-160`).
+- **Autoload** when an input port appears (`zynthian_autoconnect.py:1074`), unless a ZS3 stores a
+  driver for the uid. The first class in `available_drivers[dev_id]` with `get_autoload_flag()`
+  wins; `"*"` drivers are never autoloaded. A `ctrldev_user` driver wins over a stock driver with
+  the same dev_id (scan order).
+- **Loading** (`:135-207`): `izmop = dev_in_2_dev_out(izmip)`; `driver_class(state_manager, izmip,
+  izmop)`; `zmip_set_ui_midi_chans` (§2); register in `drivers[izmip]` (sysex during `init()`
+  reaches it); `driver.init()`. Exceptions are logged and the driver is dropped.
+- **Unloading** (`:209-234`): restores the routing (`zmip_set_ui_midi_chans(izmip, 0)`), then
+  `driver.end()`. From the MIDI device options (`disable=True`, stored as `disable_ctrldev`), when
+  the device disappears (`zynthian_autoconnect.py:803`) and when the state manager stops
+  (`zynthian_state_manager.py:279`).
+- **The output port.** `dev_in_2_dev_out` took the input uid and did `name.replace("IN", "OUT")`
+  (`zynthian_autoconnect.py:260-277`), which replaces every "IN" (§9 Z1, still on nura). The `dbm`
+  branch replaces only the direction of the device ID (`zynthian_pipewire_ports.dev_out_uid`).
+  `idev_out` is None when no output is found; drivers must check it.
 
-  Exceptions are logged and the driver is dropped.
-- **Unloading** (`:178-202`) restores the routing, then calls `driver.end()`. It runs when:
-  - the user unloads the driver from the MIDI config menu (`zynthian_gui_midi_config.py:563-570`, with `disable=True`, which is stored in the ZS3 as `disable_ctrldev`);
-  - the device disappears (`zynthian_autoconnect.py:742-751`);
-  - the state manager stops (`zynthian_state_manager.py:265`).
-- **The output port.** `dev_in_2_dev_out` takes the input uid, does `name.replace("IN", "OUT")` and looks it up among the outputs (`zynthian_autoconnect.py:208-223`).
-  - [guess, likely bug] `str.replace` replaces *every* "IN". A card named "APC MINI" (DBM's APCmini Mk1 discovery name) becomes "APC MOUTI OUT 1", so the driver would get no output port. Verify on a device.
+**One generic driver or one per controller?** As in the first analysis: one thin module per
+controller with a shared base, because `driver_name`, `driver_description` and the autoload flag
+are class attributes (`zyngine/ctrldev/zynthian_ctrldev_base.py:56-121`). The base must be named
+`zynthian_ctrldev_base_*.py`. Implemented as `zynthian_ctrldev_base_dbm.py` +
+`zynthian_ctrldev_dbm_launchcontrol_xl.py` (ZYNTHIAN_PLAN.md §2).
 
-**Can one generic "dbm" driver cover many devices?** Yes. There are two workable shapes:
-- **(a) One class `zynthian_ctrldev_dbm`** whose `dev_ids` lists the Zynthian dev_ids of every supported controller.
-  - `init()` reads `zynautoconnect.get_midi_in_devid(self.idev)` and picks the DBM UUID from a table.
-  - Weaknesses:
-    - Every device shows the same name and description in the menu, because `driver_name` and `driver_description` are class attributes (`zyngine/ctrldev/zynthian_ctrldev_base.py:68-69, 108-121`).
-    - One autoload flag covers all devices.
-- **(b) One thin module per controller**, generated from `dbm_list_controllers()`.
-  - For example `ctrldev_user/zynthian_ctrldev_dbm_launchcontrol_xl.py` containing `class zynthian_ctrldev_dbm_launchcontrol_xl(DbmDriverBase): dev_ids=[...]; dbm_uuid="..."; driver_description="DrivenByMoss: Novation Launch Control XL"`.
-  - The shared base must live in a module named `zynthian_ctrldev_base_dbm.py`, so the manager skips it (`zynthian_ctrldev_manager.py:78`).
-  - This gives per-device names, descriptions and autoload flags. **Recommended.**
-- **Port names do not come from the catalog for free.**
-  - The `discovery.linux` names in `dbm_list_controllers()` are ALSA-seq or JACK port names, such as `"Launchpad X MIDI 2"`, `"Launchpad X LPX MIDI Out"` and `"Launch Control XL"`.
-  - Zynthian's dev_id is `<card name> IN <port index>`.
-  - The generator needs a mapping (`<card> MIDI <n>` becomes `<card> IN <n>`; a single-port device becomes `<name> IN 1`) plus hand fixes. [guess for each device: confirm on hardware with `/proc/asound/cardN/midi0`]
-  - Examples:
-    - DBM's Launchpad X uses the 2nd port ("MIDI 2", dbm:`src/controller/launchpad/definition.rs:376-380`), which is `"Launchpad X IN 2"`. Zynthian's own driver uses `IN 1` (`zyngine/ctrldev/zynthian_ctrldev_launchpad_x.py:44`).
-    - The Launchpad Mini MK3 is the same case. Zynthian's chorder example already uses `"Launchpad Mini MK3 IN 2"` (`zyngine/ctrldev/examples/zynthian_ctrldev_launchpad_mini_mk3_chorder.py:44`).
-    - The APC40 mkII is `"APC40 mkII IN 1"`, the same dev_id as the stock driver (`zyngine/ctrldev/zynthian_ctrldev_akai_apc_40_mk2.py:153`).
-- **Multi-port controllers do not fit.** These are MCU/HUI with extenders, and the "MPC Live/Force" (2 inputs).
-  - The ctrldev framework binds one driver to one zmip and one zmop.
-  - The core numbers a multi-port controller's ports `0..count-1` in single mode (dbm:`src/app.rs:259-262`; the header only mentions device 0).
-  - A driver would have to locate and claim the other zmips itself, with nothing in the manager to support that. Leave them out at first.
+**dev_id ↔ the core's port names.** The core's `discovery.linux` input names are ALSA-seq/JACK
+names: `"Launch Control XL"`, `"Launchpad X MIDI 2"`, `"Launchpad Mini MK3 MIDI 2"`. The mapping to
+dev_ids: a single-port name `<card>` → `<card> IN 1`; `<card> MIDI <n>` → `<card> IN <n>`
+[guess per device; with the PipeWire uids above the same rule holds on nura]. The Launchpad X/Mini
+MK3 cases (DBM on port 2, the stock drivers on port 1) are as in the first analysis.
+
+**Multi-port controllers** (MCU/HUI with extenders, MPC Live/Force) still do not fit one
+zmip/zmop per driver.
 
 ## 2. MIDI path
 
-**Input** [code]
-- The C router puts events for the UI into a ring buffer.
-- The state manager's *fast thread* drains it every ~10 ms in `zynmidi_read` (`zynthian_state_manager.py:672-681, 709-745`).
-- Events are 32-bit words: byte 0 is `izmip`, then up to 3 MIDI bytes.
-- Sysex is put back together from consecutive words until `F7` (`:722-740`). An unterminated sysex at the end of a batch is dropped and logged (`:734-736`).
-- `ctrldev_manager.midi_event(izmip, ev)` gets `ev` as `bytes`: a 1–3 byte short message (status first) or a complete sysex (`:745`, `zynthian_ctrldev_manager.py:266-277`).
-- If the driver returns `True`, the state manager stops processing that event (no CUIA, MIDI learn or snapshot program change).
-- This matches `dbm_on_midi_event` closely. Pad 2-byte messages to 3 bytes as HOST_BRIDGE_GUIDE §5 requires.
+**Input** [code, zyncoder C and Python]
+- In `jack_process` (`zyncoder:zynmidirouter.c:1355-1690`) every event of a device zmip
+  (`ZMIP_DEV_FLAGS` = UI, FILTER, ACTIVE_CHAIN, SYSTEM, SYSTEM_RT, `zynmidirouter.h:183`) goes,
+  in this order:
+  1. Active sense and MIDI clock are dropped; system messages only pass with the zmip's
+     `FLAG_ZMIP_SYSTEM` / `FLAG_ZMIP_SYSTEM_RT` (`:1407-1428`). **SysEx is a system message:** if
+     the user switches "MIDI system messages" off for the device, the core never sees the
+     controller's sysex replies (e.g. the Launch Control XL's template echo).
+  2. The global MIDI filter's event map (`FLAG_ZMIP_FILTER`) can drop or remap channel messages
+     **before** the UI capture (`:1448-1484`), so a user's filter rule changes what the driver sees.
+  3. Messages on the master channel go to the UI only, never to chains (`:1487-1492`).
+  4. **UI capture**: every message is written to the UI ring buffer (`write_zynmidi`, 32-bit
+     words `izmip | status | data1 | data2`); sysex as fragments: the first word has `izmip`, `F0`
+     and two bytes, the following words four data bytes each (`:1510-1550`). A sysex split over
+     several JACK events of the same period is joined; one split over periods is dropped
+     ("Splitted SysEx message has not end mark!").
+  5. **`unroute_from_chains`**: `zmip_set_ui_midi_chans(izmip, mask)` stores a 16-bit channel mask
+     (`:527-534`); after the UI capture, a *channel* message on a masked channel is not routed
+     further (`:1553`). So `True` (mask `0xFFFF`) keeps all channel messages from the chains, the
+     step sequencer's recording input and the MIDI-out routes. SysEx and system messages are still
+     routed on, but every zmop that receives device input drops them: chain zmops have
+     `FLAG_ZMOP_DROPSYS|DROPSYSEX` (`ZMOP_CHAIN_FLAGS`, `zynmidirouter.h:294`), the step zmop
+     `DROPSYSEX`, and the device output zmops are not routed from device inputs by default
+     (`zynmidirouter.c:1230-1248` routes devices only to the zmops below `ZMOP_CTRL`). **This
+     answers the first analysis' question: the driver owns the device's MIDI completely.**
+- The UI ring buffer (`ZYNMIDI_BUFFER_SIZE` 16384 bytes = 4096 words, `zynmidirouter.h:483`) is
+  shared by all inputs; `write_zynmidi` drops words silently when it is full (`:2191-2197`).
+- The state manager's **fast thread** ("Status Manager Fast", `zynthian_state_manager.py:249-252`,
+  loop `:686-695`: `zynmidi_read`, zynseq beat/progress, `sleep(0.01)`) drains it
+  (`:723-760`). A short message reaches `ctrldev_manager.midi_event(izmip, ev)` as **3 bytes**
+  (`ev[1:]` of the word): 2-byte messages are already zero-padded as HOST_BRIDGE_GUIDE §5 wants.
+  A sysex arrives complete (`F0 … F7`). Returning True stops the processing of the event.
+- `midi_event` is called only from there [code, grep of all callers]: **it runs on the fast
+  thread**. The sysex reassembly has a bug (§9 Z4): the word with `F7` is processed a second time
+  as an event, so a driver can get a "message" whose first byte is a data byte.
 
-**Output** [code for the calls; C side unverified]
-- `lib_zyncore.dev_send_midi_event(self.idev_out, bytes, len)` sends raw bytes, sysex included (`zynthian_ctrldev_base.py:127-129`; `zynthian_ctrldev_launchpad_x.py:47-51`).
-- There are helpers `dev_send_note_on` / `dev_send_ccontrol_change` / `dev_send_pitchbend_change`.
-- `send_midi_data(0, data)` maps to `dev_send_midi_event(self.idev_out, data, len(data))`.
-- The Launchpad X driver sleeps 50 ms after every sysex (`zynthian_ctrldev_launchpad_x.py:51`). That suggests there are throughput or buffer limits on the output path. [unverified: size of the zmop ring buffer] The core's `flush` can send many LED messages per tick, and a Fire OLED update is a large sysex. Measure this early.
+**Output** [code, zyncoder C]
+- `dev_send_midi_event(idev, data, len)` → `zmop_send_midi_event(ZMOP_DEV0 + idev, …)` →
+  `write_rb_midi_event`: the bytes are written into the zmop's JACK ring buffer, **all or nothing**;
+  when it is full the message is dropped and "Error writing ring-buffer: FULL" goes to stderr
+  (`zynmidirouter.c:1824-1836`, `:2002-2009`, `:2140-2142`).
+- The ring buffer has `JACK_MIDI_BUFFER_SIZE` = 16384 bytes (`zynmidirouter.h:411`), 16383 usable
+  (JACK's ring buffer keeps one byte free [JACK API]). **No message can be larger**; a Fire OLED
+  frame or an LCD sysex fits easily.
+- Every JACK period, `jack_process` takes all messages out of the ring (`:1693-1709`), parses them by
+  status byte (a sysex byte by byte up to `F7`, `populate_midi_event_from_rb`, `:1279-1336`) and
+  writes them at the last frame of the period with `jack_midi_event_write`. If the JACK port buffer
+  is full the message is lost (stderr "Error writing jack midi output event!"). The size of a JACK
+  MIDI port buffer under PipeWire [unverified]. So the throughput is "whatever fits into one port
+  buffer per period"; at 256 frames / 48 kHz that is one flush every 5.3 ms.
+- **`dev_send_*` return nothing** (`int` functions without `return`, `:2140-2170`, §9 Z6): the
+  Python side gets an undefined value and cannot detect a drop.
+- **One writer per device.** The JACK ring buffer is safe for one writer and one reader; ctypes
+  releases the GIL during the call, so two Python threads writing to the same device at once can
+  interleave bytes [code + JACK ring buffer semantics]. The dbm driver writes only from its tick
+  thread.
+- The 50 ms sleep after each sysex in the stock Launchpad X driver
+  (`zyngine/ctrldev/zynthian_ctrldev_launchpad_x.py:51`) is not needed by the router [guess: it is
+  for the device's mode switch]; the core sends its LED batches without sleeping.
 
-**Fully owning the device's MIDI** [code]
-- `unroute_from_chains = True` makes the manager call `zmip_set_ui_midi_chans(izmip, 0xFFFF)` (`zynthian_ctrldev_manager.py:153-160`). An int is a per-channel mask.
-- Every stock DAW-style driver uses this (`launchpad_x`, `apc_40_mk2`, `mackiecontrol.py:47`, ...).
-- [unverified C-side] What it does is "only to the UI, not to the chains". The names and comments say so (`zynthian_ctrldev_base.py:62-65`), and the MIDI config GUI treats the port as "not available to chains" (`zynthian_ctrldev_manager.py:217-222`).
-- So yes: a dbm driver can keep the device away from the chains and see everything itself.
-
-**Note input: the core's filters, key and velocity tables, `process_midi_arg`.** There is no Bitwig-style "note input" object. Options:
-1. **Python inject** (simplest, recommended for v1).
-   - Keep `unroute_from_chains = True`.
-   - In the driver thread, for every incoming message that matches a `set_note_input_filters` prefix, apply the key and velocity tables (−1 = drop).
-   - Then send it to the active chain, e.g. `lib_zyncore.ui_send_note_on(chain.midi_chan, note, vel)` with `chain = chain_manager.get_active_chain()`, as `zyngine/zynthian_zcmidi.py:43-52` does for the UI keyboard.
-   - `process_midi_arg` (chord notes) goes the same way.
-   - [unverified] Whether `ui_send_*` goes to all chains on that channel. The launchkey mini mk4 driver instead uses `lib_zyncore.write_zynmidi(ev)` "to route to chains" (`zyngine/ctrldev/zynthian_ctrldev_launchkey_mini_mk4_37.py:243`). In the 2020 zyncoder, `write_zynmidi` wrote to the *UI* ring buffer, so check the current zyncoder.
-   - Cost: latency and jitter up to the 10 ms fast-thread period plus the driver's processing.
-2. **A realtime midiproc** (`midiproc_task`).
-   - The base class forks a JACK client process.
-   - zynautoconnect inserts it between the device and the zmip (`zynthian_ctrldev_base.py:167-212`; `zynthian_autoconnect.py:723-739`).
-   - `zynthian_ctrldev_base_moder` shows a key remap done in it, with the mode index shared through `multiprocessing.Value` (`zyngine/ctrldev/zynthian_ctrldev_base_moder.py:75-174`).
-   - The key and velocity tables could be shared as an `mp.Array('i', 128)`.
-   - Problem: the driver then sees the midiproc's *output* (on the zmip), but the core needs the raw messages too (Bitwig: `setShouldConsumeEvents(false)`).
-   - The midiproc would have to forward the raw stream and put translated notes onto a separate, chain-routed path. zynautoconnect only wires `out_1` to `ZynMidiRouter:dev<n>_in` (`zynthian_autoconnect.py:733-735`), so this needs either a second, self-connected port (and does autoconnect leave it alone? [unverified]) or a patch to zynautoconnect.
-   - Worth it later for low-latency playing on Launchpad, Maschine or Fire.
-3. A channel mask in `unroute_from_chains` is not enough. DBM's filters cover notes on all channels, and the translation tables cannot be expressed as a mask.
+**Injecting notes into the chains** (note inputs, `process_midi_arg`) [code]
+- `ui_send_note_on/off(chan, …)`, `ui_send_midi_event` write to the zmip `ZMIP_FAKE_UI`
+  (`zynmidirouter.c:1957-1975`). Its flags are only `DIRECTIN` (`zynmidirouter.h:188`): no active
+  chain translation, so the event goes, on its MIDI channel, to every chain zmop with that channel;
+  all chain zmops route from `ZMIP_FAKE_UI` (`zynmidirouter.c:1238-1241`). **This answers the first
+  analysis' question:** `ui_send_*` reaches all chains on the channel. To play the active chain,
+  send on `chain_manager.get_active_chain().midi_chan`. Note-on/off from the UI are not dropped by
+  `DROPNOTE` (`:1649`).
+- `write_zynmidi(uint32)` writes into the **UI** ring buffer (`:2191`), as in 2020: the event comes
+  back to `zynmidi_read`, it does not reach the chains. The stock Launchkey Mini MK4 driver passes a
+  `bytes` object to it "to route to chains" (`zyngine/ctrldev/zynthian_ctrldev_launchkey_mini_mk4_37.py:243`):
+  ctypes then passes a pointer as the 32-bit word (§9 Z8).
+- Python injection costs the fast thread's 0–10 ms plus the tick thread's up to 30 ms (the dbm
+  driver queues MIDI for its tick). A real-time midiproc (`zynthian_ctrldev_base.py:167-212`) stays
+  the option for low-latency playing (Launchpad, phase 3), with the problems of the first analysis
+  (the driver then sees the midiproc's output; a second port needs a zynautoconnect change).
 
 ## 3. Timing and threading
 
-- **Threads, not asyncio** [code]. I found no asyncio. The threads are:
-  - the state manager's *slow* thread (0.2 s loop) and *fast* thread (10 ms, MIDI in) (`zynthian_state_manager.py:230-238, 547-681`);
-  - the signal manager's queue thread "SIGNAL_QUEUE" (`zyngine/zynthian_signal_manager.py:224-240`), which runs all `register_queued` callbacks;
-  - the Tk GUI thread;
-  - zynautoconnect's threads.
-- **`midi_event` runs on the fast thread** (`zynthian_state_manager.py:745`).
-- Signal callbacks run on the SIGNAL_QUEUE thread (queued) or on the sender's thread (`zynsigman.send` without queueing, e.g. `zynlibs/zynmixer/zynmixer.py:252`).
-- **There is no periodic hook suitable for 30 ms.**
-  - `add_slow_update_callback` checks once per second (`zynthian_state_manager.py:683-692, 656-664`).
-  - Its `remove_slow_update_callback` is broken: the loop variable shadows the argument (`:694-703`).
-- Drivers already start their own threads:
-  - `RunTimer`/`IntervalTimer`/`ButtonTimer` (`zyngine/ctrldev/zynthian_ctrldev_base_extended.py:52-232`);
-  - an LED worker thread in `zynthian_ctrldev_sinco_smk25.py:197-218`.
-- **Recommendation:** the dbm driver owns one `threading.Thread`, which makes **all** `dbm_*` calls. Each loop it waits on an `Event` with a 30 ms timeout, then:
-  1. drains a `SimpleQueue` of MIDI that `midi_event` filled (then `midi_event` returns `True` at once);
-  2. calls `dbm_tick`;
-  3. collects the changes and calls `dbm_update_model`;
-  4. calls `take_notifications` and `take_setting_changes`.
-
-  This is the loop of `dbm:bindings/python/dbm_host/bridge.py:110-120` (`step`), with the real clock instead of `dbm_set_time`.
-- **GIL** [code for the binding, behaviour by ctypes semantics]:
-  - The binding loads the library with `ctypes.CDLL` (dbm:`bindings/python/drivenbymoss/_ffi.py:59`). ctypes releases the GIL during the foreign call, and the callbacks (CFUNCTYPE trampolines) take it back.
-  - The core's mutex therefore cannot deadlock against the GIL.
-  - It can deadlock against a *Python* lock: a callback that waits for a lock held by a thread that is blocked in a `dbm_*` call. With a single dbm thread, this cannot happen.
-  - The binding raises `RuntimeError` on re-entry from a callback (dbm:`bindings/python/README.md`, "Threading").
-  - Commands such as `zctrl.set_value` run synchronously in the callback on the dbm thread. That can fire non-queued signal handlers, e.g. the mixer GUI's `update_control` (`zyngui/zynthian_gui_mixer.py:1539`), on the dbm thread. Stock drivers already do the same from the fast thread, so this is accepted practice there.
-  - [guess] At 33 Hz, Python-side diff reporting of a few hundred addresses should be cheap on a Pi 4/5, but it competes with the Tk GUI for the GIL. Not measured.
-- `zynthian_ctrldev_base.py:34` calls `mp.set_start_method('fork')`. With `DBM_FLAG_HOST_TICK` the core has no thread of its own, so forking a midiproc child after the library is loaded is safe as long as the child never touches it [guess].
+- **Threads, no asyncio** [code]: the state manager's slow (0.2 s) and fast (10 ms) threads, the
+  signal manager's `SIGNAL_QUEUE` thread (`zyngine/zynthian_signal_manager.py:224-240`, started on
+  import), the GUI thread (Tk or Qt), zynautoconnect's threads.
+- **`midi_event` runs on the fast thread** [code, §2]. Signal callbacks run on `SIGNAL_QUEUE`
+  (queued) or on the sender's thread (`zynsigman.send`, e.g. every `zynmixer.set_*`,
+  `zynlibs/zynmixer/zynmixer.py:292` etc.).
+- **No periodic hook for 30 ms** (`add_slow_update_callback` checks once per second;
+  `remove_slow_update_callback` is broken, §9 Z2).
+- `get_state` is called from whatever thread saves the ZS3/snapshot, `set_state` from the one
+  loading it, `sleep_on/off` from the slow thread's power save (`zynthian_state_manager.py:930-956`)
+  [code for the calls; the threads: by the callers].
+- **Decision (implemented):** the driver owns one thread which makes **all** `dbm_*` calls
+  (`zyngine/ctrldev/zynthian_ctrldev_base_dbm.py`). `midi_event` only queues and returns True;
+  `get_state`, `set_state`, `sleep_on/off` and `refresh` only set flags or read a cache. Each
+  pass waits on an `Event` (30 ms timeout, woken by MIDI), then: document settings to apply, dump
+  request, MIDI → `dbm_on_midi_event`, `dbm_set_time` (real time since the controller started),
+  `dbm_tick`, report → `dbm_update_model`, notifications → `SS_GUI_SHOW_MESSAGE`.
+- **GIL** [code for the binding; ctypes semantics]: ctypes releases the GIL during the call and the
+  callback trampolines take it back, so the core's mutex cannot deadlock against the GIL; with one
+  dbm thread no Python lock is held across a `dbm_*` call. The commands change zctrls on the tick
+  thread, which fires non-queued signal handlers there (as the stock drivers do from the fast
+  thread). The Python cost per tick on a Pi or the Duet [unverified, phase 4].
+- `zynthian_ctrldev_base.py:34` calls `mp.set_start_method('fork')` at import. The core has no
+  thread of its own (`DBM_FLAG_HOST_TICK`), so a forked midiproc child is safe as long as it never
+  calls the library [guess].
 
 ## 4. The DAW model mapping
 
-Zynthian's main objects are:
-- `state_manager.chain_manager` (chains = tracks);
-- `state_manager.zynmixer_chan` and `state_manager.zynmixer_bus` (`zynthian_state_manager.py:143-144`);
-- `state_manager.zynseq` (`:148`);
-- `state_manager.audio_recorder` (`:152`).
+Zynthian's main objects: `state_manager.chain_manager` (chains), `zynmixer_chan` and
+`zynmixer_bus`, `zynseq`, `audio_recorder`. Values are `zynthian_controller` objects (zctrls:
+`value`, `value_min/max/default`, `set_value`, `nudge`, `toggle`, `reset_value`,
+`get_value2label`, `zyngine/zynthian_controller.py:400-616`); `set_value` sends through the
+engine (`zynthian_engine_audio_mixer.send_controller_value` → `zynmixer.set_*`) and then the
+signal `SS_ZYNMIXER_SET_VALUE`. There is no general change signal on a zctrl, so the adapter
+**polls and diffs** every tick (the reference `Reporter` does the same), reading the zctrls (what
+the GUI shows) rather than zynmixer.
 
-Most values are `zynthian_controller` objects ("zctrls"). A zctrl has `.value`, `get_value()`, `set_value(v)`, `nudge(d)`, `toggle()`, `get_value2label()` (`zyngine/zynthian_controller.py:400-579`).
-- **There is no general change signal on a zctrl.** The single `send_value_cb` slot (`:381-385, 521-525`) has one owner, so don't take it.
-- Signals exist for the mixer (`SS_ZYNMIXER_SET_VALUE`), zynseq play states, tempo, time signature and beat, chain add/remove/move/rename/active, ZS3 and snapshot loading, and the audio recorder (`zynthian_signal_manager.py:41-124`).
-- **Recommended observation strategy: poll and diff every 30 ms**, as the DBM reference `Reporter` does (dbm:`bindings/python/dbm_host/reporter.py`). Use signals only to request a full dump: `SS_LOAD_SNAPSHOT`, `SS_LOAD_ZS3` and the chain add/remove signals send everything again.
-
-| Core area | Zynthian equivalent, read | Commands map to | Gaps |
+| Core area | zynthian, read | Commands | Gaps |
 | --- | --- | --- | --- |
-| **Tracks** (`/track/<p>/…`) | Chains in display order: `chain_manager.get_chain_ids_filtered(filter)` / `chains[id]` (`zyngine/zynthian_chain_manager.py:641-659`). The base class keeps `chain_ids_filtered` (`zynthian_ctrldev_base.py:279-285`). Name: `chain.get_title()`/`get_name()` (`zyngine/zynthian_chain.py:227, 298`). Type: `is_synth/is_audio/is_midi/is_mixbus` (`:499-532`), mapped to `INSTRUMENT/AUDIO/…`. Select: `chain_manager.get_active_chain()` (`:537`), signal `SS_SET_ACTIVE_CHAIN` (`:977`). Color: none per chain; `zynthian_gui_config.LAUNCHER_COLOUR[midi_chan]` (`zyngui/zynthian_gui_config.py:662`) can serve | `track p/select` → `chain_manager.set_active_chain_by_id` (`:951`). `track p/name` → `set_chain_title` (`:469`). Move → `move_chain` (`:494`). `remove` → `remove_chain` (`:365`) | No group tracks or depth. Track creation (`addTrack`) needs engine selection (`add_chain` + `add_processor`, `:220, 1054`), so leave it out at first |
-| **Volume, pan, mute, solo, arm, VU** | `chain.zynmixer_proc.controllers_dict[...]`: `level` (0..1, default 0.8), `balance` (−1..1), `mute`, `solo`, `record` (arm for the audio recorder), plus `pfl`, `mono`, `phase` (`zyngine/zynthian_engine_audio_mixer.py:60-160`). Direct calls: `zynmixer.get_level/get_balance/get_mute/get_solo` (`zynlibs/zynmixer/zynmixer.py:276-450`). Signal `S_MIXER/SS_ZYNMIXER_SET_VALUE(chan, symbol, value, mixbus)` (`zynmixer.py:252` etc.). VU: `ZynMixer.dpm` structs (`a`, `b`, `a_hold`, `b_hold`) after `update_dpm_states()` (`:39-46, 857-882`) | `zctrl.set_value` / `nudge` / `toggle`. The helpers `set_mixer_param` / `nudge_mixer_param` / `toggle_mixer_param` (`zynthian_ctrldev_base.py:547-642`) work by filtered index, with −1 for the main chain. Pan: `balance = 2*v-1`. `valueInc` maps to `nudge`, `valueReset` to `zctrl.reset_value()` (`zynthian_controller.py:608`) | Display texts: build dB from `zynmixer.norm_to_db` (`zynmixer.py:138`). [unverified] the DPM scale against the core's 0..1 VU |
-| **Master** | Chain 0, "Main", whose `zynmixer_proc` is the main mixbus `MR` (`zynthian_state_manager.py:226`; `zynthian_chain.py:92-94`). The base class uses `chains[0]` (`zynthian_ctrldev_base.py:555-556`) | As tracks, on chain 0 | – |
-| **Sends / FX tracks** | Mixbus chains (`is_mixbus`). Per input strip, the zctrls `send_<mixbus_chain_id>_level` / `_mode` are built by `chain_manager.refresh_mixbus_sends` (`zynthian_chain_manager.py:1266-1340`). Direct: `zynmixer.get_send_level(chan, send)` (`zynmixer.py:801`). Mixbus chains map well to the core's `/fxtrack/…` | `set_value` on `send_<id>_level` | The send index is `mixer_chan - 2` of the return (`:1309`), so map the order explicitly. `send/<s>/active` (a toggle) has no direct equivalent; `send_<id>_mode` is pre/post |
-| **Scenes / clip slots** | zynseq: rows are *phrases* (DBM scenes), columns are MIDI channels (one sequence per chain's `midi_chan`). Clippy uses channels 16–31, and the phrase launcher is `PHRASE_CHANNEL = 32` (`zynlibs/zynseq/zynseq.py:105-108`). State: `zynseq.state["scenes"][zynseq.scene]["phrases"][phrase]["sequences"][chan]` with `state`, `group`, `repeat`, and patterns for "empty" (see `zynthian_ctrldev_base.py:411-464` for the exact recipe). Play states `SEQ_STOPPED/PLAYING/STARTING/STOPPING…` (`zynseq.py:92-99`) map to `playing`/`playQueued`/`stopQueued`. Signals `S_STEPSEQ/SS_SEQ_PLAY_STATE(phrase, chan)`, `SS_SEQ_STATE`, `SS_SEQ_SELECT_PHRASE` (`zynseq.py:674-710`) | Slot launch → `zynseq.libseq.togglePlayState(zynseq.scene, phrase, midi_chan)` (as `zynthian_ctrldev_launchpad_x.py:133`). Scene launch → `togglePlayState(scene, phrase, PHRASE_CHANNEL)` (`:155`). Select → `zynseq.select_phrase` + `libseq.selectSequence` (`zynthian_ctrldev_base_ui.py:47-51`). Insert/duplicate/remove a scene → `insert_phrase/duplicate_phrase/remove_phrase` (`zynseq.py:373-409`). Stop → `setPlayState(..., SEQ_STOPPED)` (`zynlibs/zynseq/zynseq.h:964`) | Launch is a *toggle*; "launch" on a playing slot stops it [guess at what the core expects; check against Bitwig semantics]. Audio-only chains have no slots unless clippy. No `recording` / `recQueued` / clip record. Slot names: `get_sequence_name` (`zynseq.py:363`) |
-| **Devices / parameter pages** | Processors of a chain: `chain.get_processors()` (`zynthian_chain.py:592`), cursor = `chain.current_processor` (`:77, 848`). Pages: `processor.get_ctrl_screens()`, a dict of name → list of up to 4 zctrls (`zyngine/zynthian_processor.py:615-694`). The core's 8-parameter pages are 2 Zynthian screens, or one screen of 4 with 4 empty. Bypass: `is_bypassed()` / `set_bypass` / `toggle_bypass` (`:752-778`). Signal `SS_PROCESSOR_CTRL_SCREENS` when the screens change (`:633`) | `device param/i/value` → `zctrl.set_value(min + v*(max-min))` or `nudge`. `device +/-` and `selected` → `chain.set_current_processor`. `parameterPage` → `processor.set_current_screen_index` (`:671`). Bypass → `toggle_bypass` | No drum pads or layers (Fabla keymaps exist, `:798`). `device window/expand` has no meaning. Value normalization differs per zctrl (`value_min/max`, logarithmic, `ticks`); use `get_value2label` for `/str` |
-| **Transport / tempo** | Tempo: `zynseq.get_tempo()` / `zctrl_tempo` (`zynseq.py:622-631`), signal `SS_SEQ_TEMPO` (`:642`). Time signature: `zynseq.bpb` (beats per bar; the denominator is effectively 4) with `SS_SEQ_TIMESIG`. Beat: `libseq.getBeat()` with `SS_SEQ_BEAT`. Record: `audio_recorder` with `SS_AUDIO_RECORDER_STATE` (`zyngine/zynthian_audio_recorder.py:65-129`). **No Python getter for "transport rolling"** was found. Options: zynautoconnect's JACK client `transport_state` [unverified], or "any sequence playing" (`libseq.getPlayingSequences`) | `tempo` → `zynseq.set_tempo`, `tempo +/-` → `nudge_tempo`, `tapTempo` → `tap_tempo` (`:622-631`). `play` → `zynseq.transport_toggle("dbm")` (`:618`) or the audio player (`cuia_toggle_audio_play`, `zyngui/zynthian_gui.py:1524`). `record` → `audio_recorder.toggle_recording()`. Metronome → `libseq.setMetronomeMode/Volume` (`zynseq.h:1378-1393`) | What "play" means is a design decision: Zynthian's play/stop CUIAs are context-dependent (`zynthian_gui.py:1587-1624`). No arranger: no position, loop/`repeat`, punch or automation. Undo/redo only exists for patterns (`zynseq.h:145-154`) |
-| **Note clip / step grid** | The selected sequence's pattern: `libseq.getPattern(scene, phrase, chan, 0, 0)` (`zynseq.py:807`), `selectPattern`, `getSteps`, `getStepsPerBeat`, `getNoteVelocity`/`getNoteDuration`/`getNotePlayChance`/stutter, `getPatternPlayhead` (`zynseq.h:270-652`) | `…/step/<ch>/<x>/<y>/toggle` → `addNote(step, note, vel, dur)` / `removeNote` (`zynseq.h:295-305`). Attributes → `setNoteVelocity`, `setNotePlayChance`, `setNoteStutter*`. `clearAll` → `clearPattern` | Report the host step grid (24 values): velocity, duration and chance map; the rest are defaults. One pattern per sequence track. The pattern editor GUI does not follow pattern changes (`zynthian_ctrldev_base_ui.py:53-64` refreshes it by hand) |
-| **Browser** | Processor bank/preset lists: `get_bank_list`, `load_preset_list`, `set_bank`, `set_preset` (`zynthian_processor.py:198-470`) | Could map to columns = banks and results = presets | Optional. The core's browser model is Bitwig-shaped (content types, 7 filter columns), so it needs a custom mapping. Skip in v1 |
-| **Markers** | – | – | None in Zynthian. Leave `numMarkers` unreported |
+| **Tracks** | The chains without chain 0 and the mixbus chains, in `chain_manager.chains` order (= display order: `get_chain_index`, `move_chain`, `zyngine/zynthian_chain_manager.py:522-590`). Name `chain.get_title()`. Type: MIDI chain → `INSTRUMENT`, else `AUDIO`. `canHoldNotes` = `is_midi()`, `canHoldAudio` = `is_audio()` (has a mixer strip). Selection = `chain_manager.active_chain` | `select` → `set_active_chain_by_id` (`:979`), `name` → `set_title` | No groups, depth, colors, activation; `addTrack`, `remove`, `duplicate`, move not mapped |
+| **Volume, pan, mute, solo, arm** | The strip zctrls `level` (0..1 linear gain, 1.0 = 0 dB, default 0.8), `balance` (−1..1), `mute`, `solo`, `record` (`zyngine/zynthian_engine_audio_mixer.py:60-160`) | `set_value` on them; pan = `2v−1`; `/inc` adds to the normalized value; `/reset` = `reset_value` | A MIDI chain has no strip (`zynmixer_proc` None) |
+| **Texts** | Volume `20·log10(level)` dB, as the mixer GUI (`zyngui/zynthian_gui_mixer.py:1468`); pan as the reference host | – | – |
+| **VU** | `lib_zynmixer.getDpm(chan, leg)` in dBFS (−200 floor, `zynlibs/zynmixer/mixer.c:1024-1030`), −60..0 dB as 0..1 | – | The GUI's DPM array is filled by the GUI (`update_dpm_states`); the adapter calls `getDpm` itself |
+| **Master** | Chain 0 ("Main"), its strip is the main mixbus `MR` channel 0 | As tracks | Main `solo` clears all solos (`zynthian_engine_audio_mixer.py:274-281`) |
+| **Effect tracks, sends** | The mixbus chains (`is_mixbus()`, `MR`) except 0 = `/fxtrack/…`; send `s` of a track = zctrl `send_<mixbus chain id>_level` of its strip, in the mixbus order (`zynthian_chain_manager.py:1302-1376`) | `send/<s>/volume` | `send/<s>/active` (a toggle) has no counterpart, only pre/post (`send_<id>_mode`) |
+| **Scenes / slots** | zynseq phrases × chain MIDI channels, as in the first analysis | as first analysis | phase 3 |
+| **Devices / parameters** | processors and `get_ctrl_screens()` (4 zctrls per screen), as first analysis | as first analysis | phase 2 |
+| **Transport / tempo** | as first analysis (zynseq tempo; no Python getter for "rolling" [unverified]) | as first analysis | phase 2/3 |
+| **Step grid** | zynseq patterns, as first analysis | as first analysis | phase 3 |
+| **Browser, markers** | – | – | not mapped |
 
-Reusing the DBM reference host:
-- `Reporter` and `CommandHandler` (dbm:`bindings/python/dbm_host/`) are written against `SimDaw`'s object graph (`Channel`, `Track`, `Slot`, `Scene`, `Parameter`; dbm:`model.py:97-700`).
-- A `ZynthianDaw` adapter exposing the same attributes as live properties over chains, zynmixer and zynseq could reuse both and their host-feature logic (re-report after value commands, `/host/features`).
-- [guess] This is less work than a new reporter, but `dbm_host` is a reference/test host, not a stable API.
+**Reuse of the reference host — decided** (ZYNTHIAN_PLAN.md §3): `ZynBridge(Bridge)`,
+`ZynReporter(Reporter)`, `ZynCommandHandler(CommandHandler)` reuse the loop, the change tracking,
+the dumps and the report again after value commands, the command parsing and dispatch, the
+unhandled-command log and the host features; the collectors and handlers are zynthian's. The
+`SimDaw` object graph is not imitated. `dbm_host.Bridge` got two class attributes for this
+(`reporter_class`, `command_handler_class`).
 
-**Host features for v1.**
-- Report `/track/offset`, `/scene/offset` and `/host/features valueInc valueReset soloToggle` (keep the list small).
-- Report all chains flat with absolute positions, as the Python reference host does (dbm:`doc/HOST_BRIDGE_GUIDE.md` §6 rule 4).
+**Host features (phase 1):** `/track/offset`, `/fxtrack/offset` and `/host/features valueInc
+valueReset immediately soloToggle`; all chains reported flat with absolute positions.
 
 ## 5. State and settings
 
-- **Per-ZS3 driver state** [code].
-  - `ctrldev_manager.get_state_drivers()` collects `driver.get_state()` per uid (`zynthian_ctrldev_manager.py:224-234`).
-  - It ends up in `zs3[...]["midi_capture"][uid]["ctrldev_state"]` (`zynthian_state_manager.py:2058-2088`), which is saved with each ZS3 and so with the snapshot.
-  - On ZS3 load, `set_midi_capture_state` reloads the stored driver class. That is a no-op if it is already loaded (`zynthian_ctrldev_manager.py:140-143`). Then it calls `set_state` (`zynthian_state_manager.py:1530-1532, 2147-2191`).
-  - **Map:** `get_state()` returns `{"dbm_document": app.get_formatted_document_settings(), ...base state}`, and `set_state()` calls `app.set_formatted_document_settings(...)`.
-  - The "document" therefore follows the ZS3, which changes more often than a DAW project [guess at whether that is wanted]. The base state holds `scroll_mode` (`zynthian_ctrldev_base.py:317-330`). Keep it or drop it.
-- **Global settings.**
-  - Use the core's own `<model>.config` in `config_path`. Point it to `$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/`; the Mackie driver keeps its YAML in `$ZYNTHIAN_CONFIG_DIR/ctrldev` (`zyngine/ctrldev/zynthian_ctrldev_mackiecontrol.py:49-50, 129-137`).
-  - Alternatively, store `get_settings()` values with global scope in a JSON file there and push them with `set_setting` at start (HOST_BRIDGE_GUIDE §1, step 5).
-- **A settings UI.**
-  - There is no generic per-driver options UI. "Controller Options" only offers the scroll modes and is hard-coded (`zyngui/zynthian_gui_midi_config.py:606-635`). It also contains a bug: `set_scroll_mode(cal)` instead of `val` (`:633`).
-  - A counterpart of `dbm_get_settings` / `dbm_set_setting` needs one of:
-    - a small zynthian-ui patch: e.g. `show_controller_options` asks the driver for `get_options()` and builds the option list from it, using the `option` screen with enums, booleans and integers;
-    - a webconf page (zynthian-webconf, not inspected);
-    - menus on the controller itself.
+- **Per-ZS3 driver state** [code]: `get_state_drivers()` → `zs3[…]["midi_capture"][uid]["ctrldev_state"]`
+  (`zynthian_state_manager.py:2080`), restored by `set_state_drivers` on ZS3 load (`:2207`) after
+  loading the stored driver (`:2163-2165`). The dbm driver returns `{"dbm_document":
+  <formatted document settings>}`, cached by the tick thread once per second, and queues
+  `set_state` for the tick thread. The document follows the ZS3 [guess at whether users want that].
+- **Global settings**: the core's `<model>.config` in `$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/`
+  (desktop: `~/.config/zynthian/ctrldev/dbm/`), as the Mackie driver keeps its YAML in
+  `$ZYNTHIAN_CONFIG_DIR/ctrldev` (`zyngine/ctrldev/zynthian_ctrldev_mackiecontrol.py:49-50`).
+- **No generic options UI** for drivers (the "Controller Options" only have the scroll modes, with
+  the bug Z3). A settings UI needs a zynthian patch (phase 4).
 
 ## 6. UI feedback
 
-- **Notifications** [code].
-  - `zynsigman.send_queued(zynsigman.S_GUI, zynsigman.SS_GUI_SHOW_MESSAGE, message=...)` shows the text in the current screen's title bar (`zyngui/zynthian_gui.py:2732, 2801-2805`). Drivers already use it (`zyngine/ctrldev/zynthian_ctrldev_worlde_mini_moder.py:90`).
-  - This is a good fit for `dbm_take_notifications()`.
-  - `zyngui.show_info(text, tms)` (`zynthian_gui.py:847-854`) takes over the whole screen, so it is too intrusive.
-- **Controller displays.**
-  - Text and graphic displays that the core drives over MIDI (MCU LCD sysex, Fire OLED sysex) pass through `send_midi_data`, so through `dev_send_midi_event`. Throughput is the risk (§2).
-  - Maschine Mk2 and JAM are HID devices on Linux. They need `dbm-nihost` (ALSA ports, which Zynthian sees as ordinary MIDI devices) or the planned in-process route (dbm:`doc/NI_HOST_LINUX_PLAN.md` §4.1-4.2, step 9 open).
-- Showing the controller's display contents on Zynthian's screen would need GUI work. None exists.
+- `zynsigman.send_queued(S_GUI, SS_GUI_SHOW_MESSAGE, message=…)` shows a text in the Tk UI's title
+  bar; used for `dbm_take_notifications`. Not shown by the Qt UI (§0).
+- Displays the core drives over MIDI go through `dev_send_midi_event` (§2: ≤ 16383 bytes per
+  message, dropped when the ring is full). Maschine Mk2/JAM are HID; they need `dbm-nihost`.
 
 ## 7. Packaging
 
-- **Native library.**
-  - Cross-build `cargo build --release --target aarch64-unknown-linux-gnu`, as BINDINGS_PLAN.md intends (dbm:`doc/BINDINGS_PLAN.md:93-94`).
-  - [guess] Zynthian OS is Raspberry Pi OS / Debian bookworm, arm64.
-  - Install `libdrivenbymoss.so` e.g. under `/zynthian/zynthian-sw/drivenbymoss/` or `/usr/local/lib`.
-- **The Python binding.**
-  - It is pure ctypes and needs Python ≥ 3.11 (dbm:`bindings/python/README.md`). [guess] Bookworm ships 3.11.
-  - It finds the library through `DBM_LIBRARY`, then a repository's `target/{debug,release}` (dbm:`bindings/python/drivenbymoss/_ffi.py:39-63`). The driver should `os.environ.setdefault("DBM_LIBRARY", ...)` before the import, or the binding could take an explicit path.
-  - Deploy the `drivenbymoss/` package (and `dbm_host/` if it is reused) to site-packages, or vendor it next to the driver.
-- **Where the drivers live.**
-  - **User drivers can be added without patching zynthian-ui.** Drop the modules into `$ZYNTHIAN_UI_DIR/zyngine/ctrldev_user/` (`zynthian_ctrldev_manager.py:50-51`).
-  - It is imported as the namespace package `zyngine.ctrldev_user` (no `__init__.py` needed, Python ≥ 3.3) [code for the import; guess for the namespace behaviour on the target].
-  - The folder is inside the zynthian-ui git checkout but not tracked. `.gitignore` does not list it [guess: a `git pull` update leaves it alone].
-  - Drivers are scanned only at UI start (§1), so a restart is needed after install.
-- **Distribution** [guess]. A Debian package or an install script that:
-  - places the `.so` and the Python packages;
-  - generates the per-controller driver modules from `dbm_list_controllers()`;
-  - creates `$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/`.
+- **nura** builds APKBUILDs with pmbootstrap for Alpine edge, aarch64 (the Duet) and x86_64 (tested
+  in a rootfs) (`nura/README.md`, `docs/nura-packaging-guide.md`). zynthian-ui installs to
+  `/usr/share/zynthian/zynthian-ui` (read-only), the native libraries to `/usr/lib/zynthian`,
+  bundled Python packages to `/usr/share/zynthian/python`; the user's data under `~/.config` and
+  `~/.local/share`. Not ZynthianOS/Debian as the first analysis guessed for nura.
+- **Native library**: `libdrivenbymoss.so` for `aarch64-unknown-linux-musl` and
+  `x86_64-unknown-linux-musl` (musl, not glibc). The default feature `lua` builds Lua's C source
+  (mlua `vendored`), which needs a C compiler for the target; in an APKBUILD on Alpine that is
+  the native gcc, in a cross build a musl cross compiler. See ZYNTHIAN_PLAN.md §5.
+- **Python**: the binding is pure ctypes, Python ≥ 3.11 (Alpine edge has 3.12+ [guess]). The
+  driver finds the packages on `sys.path`, `$DBM_PYTHON_DIR` or `/usr/share/drivenbymoss/python`
+  and the library through `$DBM_LIBRARY` (default `/usr/lib/drivenbymoss/libdrivenbymoss.so`)
+  (`zyngine/ctrldev/dbm_zynthian/__init__.py`).
+- **Where the drivers live**: as part of the `dbm` branch's zynthian-ui in `zyngine/ctrldev/`
+  (packaged with it); as user drivers in `$ZYNTHIAN_MY_DATA_DIR/ctrldev` (nura) or
+  `zyngine/ctrldev_user` (ZynthianOS). Scanned only at UI start.
 
 ## 8. Recommendation
 
-**Smallest first integration: Novation Launch Control XL** (dbm UUID from `dbm_list_controllers()`, "Novation | Launch Control XL").
-- No stock Zynthian driver exists for it, so there are no conflicts.
-- It is single-port and has no note input that matters.
-- It is already a conformance target of the core.
-- It exercises zynmixer through the faders, knobs (sends/pan/device) and buttons (mute/solo/arm/select), plus track paging.
+Unchanged: start with the **Novation Launch Control XL** (no stock driver, single port, a
+conformance target, exercises the mixer), then a Launchpad on zynseq. The driver base is no longer
+a sketch: `zyngine/ctrldev/zynthian_ctrldev_base_dbm.py` (ZYNTHIAN_PLAN.md §2).
 
-**Second step:** a Launchpad (X or Mini MK3, port `IN 2`) on zynseq. That brings in scenes/slots, then note input (§2, option 1) and the step grid.
+**Main risks** (updated)
+1. **Port names on nura/PipeWire** (§1): without the `dbm` branch's zynautoconnect fix no driver
+   matches. The fix changes the uids of hardware MIDI ports.
+2. **MIDI output**: per message ≤ 16383 bytes, dropped silently (no return value) when the ring is
+   full; per JACK period limited by the port buffer [unverified]. LED storms are small; measure on
+   the device.
+3. **Note-input latency** (0–40 ms via Python, phase 3).
+4. **Model mismatch** (no arranger, loop, markers, groups, chain colors; launch is a toggle; play
+   is ambiguous; 4 parameters per screen).
+5. **Python cost at 33 Hz** on the Duet/Pi [unverified].
+6. **The user's MIDI filter and "system messages" switch** (§2) change or drop the controller's
+   input before the driver.
+7. Documents follow ZS3s; thread safety of zynthian's objects from the tick thread (as the stock
+   drivers from the fast thread).
 
-**Sketch of `zynthian_ctrldev_base_dbm.DbmDriverBase(zynthian_ctrldev_zynmixer, zynthian_ctrldev_zynpad)`** (prose and pseudocode):
-```
-class DbmDriverBase(zynthian_ctrldev_zynpad, zynthian_ctrldev_zynmixer):
-    dev_ids = []                 # set by each generated subclass
-    dbm_uuid = None              # set by each generated subclass
-    unroute_from_chains = True   # the core owns the device's MIDI
-    autoload_flag = False        # opt-in at first: don't hijack devices that have stock drivers
-
-    __init__(state_manager, idev_in, idev_out):
-        super().__init__(...)
-        self.inq = SimpleQueue(); self.wake = Event(); self.stop = False
-        self.note_inputs = {}        # index -> filters, keys[128], velocities[128]
-        self.daw = ZynthianDaw(state_manager, self)   # adapter: chains/zynmixer/zynseq as the core model
-        self.reporter, self.commands = Reporter(self.daw, ...), CommandHandler(self.daw, ...)
-
-    init():                       # called by the manager; do NOT call super().init()'s refresh-LED logic
-        register queued signals (SS_LOAD_SNAPSHOT, SS_LOAD_ZS3, chain add/remove/move) -> self.reporter.request_dump()
-        self.thread = Thread(target=self.run, daemon=True, name="dbm"); start it
-
-    run():                        # the only thread that calls dbm_*
-        app = drivenbymoss.App.create_controller(self, self.dbm_uuid, CONFIG_DIR, "Zynthian <version>")
-        app.start_infrastructure(); self.banks.configure(app.get_model_setup())
-        push stored global settings (set_setting), discard take_setting_changes once
-        loop until self.stop:
-            self.wake.wait(0.03); self.wake.clear()
-            while inq not empty: app.on_midi_event(0, pad3(ev))
-            app.tick()
-            lines = self.reporter.collect(); if lines: app.update_model(lines)
-            for n in app.take_notifications(): zynsigman.send_queued(S_GUI, SS_GUI_SHOW_MESSAGE, message=n)
-            store app.take_setting_changes()
-        app.close()               # dbm_destroy: writes final MIDI and the .config
-
-    midi_event(ev):               # fast thread
-        self.inq.put(bytes(ev)); self.wake.set()
-        (v1 note input) if it matches a note-input filter: translate with keys/velocities and
-            lib_zyncore.ui_send_note_on(active_chain.midi_chan, ...)  [routing unverified]
-        return True
-
-    end(): self.stop = True; self.wake.set(); join the thread; unregister signals; super().end()
-
-    # drivenbymoss.Backend callbacks (run on the dbm thread, inside dbm_* calls; never call app.* here)
-    open_midi_input/output(id): return id == 0
-    send_midi_data(id, data):   lib_zyncore.dev_send_midi_event(self.idev_out, data, len(data))
-    process(processor, command, value): self.commands.handle(...)   # zynmixer / zynseq / chain_manager calls
-    process_midi_arg(id, s, d1, d2):    inject like a played note
-    set_note_input_filters / key_translation_table / velocity_translation_table: store in self.note_inputs
-    log(msg): logging.debug
-
-    get_state():  {"dbm_document": <cached formatted document settings>}   # cached by the dbm thread
-    set_state(s): queue set_formatted_document_settings for the dbm thread
-    sleep_on/off: stop the tick and blank the LEDs / resume with a refresh (no counterpart in the C ABI)
-    light_off():  no-op (the core owns the LEDs)
-```
-Notes on the sketch:
-- `get_state` and `set_state` are called from other threads (state manager, GUI). They must not call `dbm_*` directly; they cache or queue for the dbm thread.
-- Do not use the zynpad and zynmixer base classes' LED logic (`update_pad`, `update_mixer_strip`, `refresh` lighting). Inherit them only for `dev_zynpad`/`dev_zynmixer` flags and helpers, or inherit `zynthian_ctrldev_base` only.
-- The generated subclass per device: `class zynthian_ctrldev_dbm_launchcontrol_xl(DbmDriverBase): dev_ids=["Launch Control XL IN 1"]; dbm_uuid="…"; driver_description="DrivenByMoss: Launch Control XL"`. The dev_id is [guess]: confirm the card name on hardware.
-
-**Main risks**
-1. **The MIDI output rate and sysex sizes** through `dev_send_midi_event`. Stock drivers sleep after sysex, and the C ring-buffer size is unknown (zyncoder not available). LED storms or OLED frames could be dropped or delayed.
-2. **Note-input latency and routing.** The Python inject path adds 0–10 ms of jitter plus processing, and which lib_zyncore call reaches the right chain is unverified. The realtime route needs a midiproc and probably a zynautoconnect change.
-3. **Model mismatch.**
-   - Zynthian has no arranger, loop, markers, groups or per-chain colors.
-   - Launch semantics are a toggle.
-   - "Play" is ambiguous (zynseq transport vs the audio player).
-   - The 4-per-screen parameter pages differ from the core's 8-per-page.
-   - Controllers degrade where the host lacks a feature. The core tolerates missing reports and ignored commands (dbm:`doc/BACKEND_PROTOCOL.md` §5), but some views will look empty.
-4. **Python cost at 33 Hz on the Pi**, competing with the Tk GUI for the GIL. Not measured.
-5. **Device naming.** The dev_id ↔ DBM port mapping must be built and checked per device, and `dev_in_2_dev_out`'s `replace("IN","OUT")` breaks names that contain "IN" (§1).
-6. **Multi-port controllers** (MCU/HUI with extenders, MPC) do not fit one-zmip drivers.
-7. **Documents follow ZS3s**, which changes more often than a DAW project.
-8. [guess] Thread safety of calling chain_manager, zynmixer and zynseq from the driver thread. The stock drivers do the same from the fast thread, but there is no locking discipline in the core Zynthian code.
-
-**Conflicts with or replacements of existing Zynthian drivers** (stock drivers are in `zyngine/ctrldev/`)
-- **Same dev_id, so both appear in the menu and only one can be loaded per port:**
-  - `zynthian_ctrldev_akai_apc_40_mk2` (`"APC40 mkII IN 1"`).
-  - With `autoload_flag=True`, a `ctrldev_user` driver would win the autoload (§1). Keep `autoload_flag=False` or let the user choose.
-- **Same physical device, different port, so both can be loaded and both send mode sysex to one device:**
-  - `zynthian_ctrldev_launchpad_x` (IN 1, DAW session mode) vs DBM on IN 2;
-  - `zynthian_ctrldev_launchpad_mini_mk3` (IN 1) vs DBM on IN 2;
-  - `launchpad_pro_mk3` (`"Launchpad Pro MK3 IN 3"`), `launchpad_pro_mk2` (`"Launchpad Pro IN 1"`) and `launchpad_mini` (`"Launchpad Mini IN 1"`), against DBM's Launchpad Pro / Pro Mk3 / MkII. Check each port.
-
-  The user must disable the stock driver on the other port (unload with "disable", which is persisted as `disable_ctrldev`), or the dbm driver claims both zmips.
-- **Generic `"*"` drivers:**
-  - `zynthian_ctrldev_mackiecontrol` (`dev_ids=["*"]`, YAML config) would be replaced by the DBM MCU/HUI drivers for single-unit setups.
-  - It is never autoloaded, so it does not conflict, but it is offered on every port.
-- **No conflict** (DBM has no driver for them): the Launch Control XL and Fire (no stock driver), and Launchkey MK3 88 / Launchkey Mini (no DBM implementation, so the stock drivers stay).
+**Conflicts with stock drivers**: as the first analysis (APC40 mkII same dev_id; Launchpad X/Mini
+MK3/Pro on another port of the same device; the generic Mackie driver).
 
 ## 9. Zynthian bugs found
 
-Found while reading zynthian-ui (HEAD `d6ed3592`); checked in the code, not reported upstream yet.
+Checked in the code of `nura` (zynthian-ui `2bb87436`) and zyncoder `nura` (`2e7490d`); not
+reported upstream yet. "nura" says whether the bug is still there; "dbm" whether the `dbm` branch
+fixes it.
 
-| # | Where | Bug | Effect |
-| --- | --- | --- | --- |
-| Z1 | `zynautoconnect/zynthian_autoconnect.py:220` (`dev_in_2_dev_out`) | `name.replace("IN", "OUT")` replaces every "IN" in the port name, not only the port suffix | The output of a device whose name contains "IN" is not found, e.g. "APC MINI IN 1" becomes "APC MOUTI OUT 1"; its driver gets no output |
-| Z2 | `zyngine/zynthian_state_manager.py:693-703` (`remove_slow_update_callback`) | The loop variable `cb` shadows the argument, and `cb.remove(cb)` is called on the entry instead of the list | No callback is ever removed; `add_slow_update_callback` (which calls it first) can add a callback twice |
-| Z3 | `zyngui/zynthian_gui_midi_config.py:633` | `set_scroll_mode(cal)` instead of `val` | Setting the scroll mode of a driver always fails (NameError, caught and logged as a warning) |
+| # | Where | Bug | Effect | nura | dbm |
+| --- | --- | --- | --- | --- | --- |
+| Z1 | `zynautoconnect/zynthian_autoconnect.py:272` (`dev_in_2_dev_out`) | `name.replace("IN", "OUT")` replaces every "IN" of the uid | A device whose name contains "IN" gets no output ("APC MINI IN 1" → "APC MOUTI OUT 1") | present | fixed (`dev_out_uid`) |
+| Z2 | `zyngine/zynthian_state_manager.py:707-717` (`remove_slow_update_callback`) | The loop variable `cb` shadows the argument; `cb.remove(cb)` on the entry | No callback is ever removed; `add_slow_update_callback` can add one twice | present | – |
+| Z3 | `zyngui/zynthian_gui_midi_config.py:346` | `set_scroll_mode(cal)` instead of `val` | Setting a driver's scroll mode always fails (NameError, logged) | present | – |
+| Z4 | `zyngine/zynthian_state_manager.py:737-748` (`zynmidi_read`) | The inner sysex loop `break`s without `i += 1` on the word with `F7` | That word is processed again as an event: `izmip` = a data byte, the "message" starts with a data byte; it may reach another device's driver. A sysex whose `F7` is in its first word (≤ 2 data bytes) swallows the next event | present | dbm driver drops messages without status byte |
+| Z5 | `zyncoder:zynmidirouter.h:176-177` | `FLAG_ZMIP_UI` and `FLAG_ZMIP_FILTER` are both `1` | Every zmip with the UI flag is filtered and vice versa (e.g. the SMF player input `ZMIP_SEQ_FLAGS` = UI goes through the MIDI filter) [effect: guess at the intent] | present | – |
+| Z6 | `zyncoder:zynmidirouter.c:2140-2170` (`dev_send_*`), `:1992-1998` (`ui_send_all_notes_off*`) | `int` functions without `return` | Undefined return value; callers cannot see a full ring buffer | present | – |
+| Z7 | `zyngine/ctrldev/zynthian_ctrldev_base.py:127-129` (`send_sysex_universal_inquiry`) | `if self.idev_out > 0` | TypeError when there is no output (None); the device in output slot 0 gets no inquiry | present | – |
+| Z8 | `zyngine/ctrldev/zynthian_ctrldev_launchkey_mini_mk4_37.py:243` | `lib_zyncore.write_zynmidi(ev)` with `ev` a `bytes` object "to route to chains" | ctypes passes a pointer as the 32-bit word into the UI ring buffer: the keyboard notes never reach the chains, `zynmidi_read` gets a garbage event | present | – |
+| N1 | nura: `zynautoconnect/zynthian_autoconnect.py:1463-1553` (`build_midi_port_name`) under PipeWire | No JACK aliases on PipeWire's MIDI bridge ports → uid without `/` | No dev_id: no device-specific driver matches or autoloads, `dev_in_2_dev_out` finds no output (§1) | present | fixed (`zynthian_pipewire_ports.py`) |

@@ -41,7 +41,15 @@ DEVICE = 0
 
 
 class Bridge(drivenbymoss.Backend):
-    """Runs one controller of the core against a SimDaw."""
+    """Runs one controller of the core against a SimDaw.
+
+    Another DAW can reuse the loop with its own model: ``reporter_class`` and
+    ``command_handler_class`` create the Reporter and the CommandHandler (subclasses with the
+    DAW's collectors and handlers), ``daw`` is then the DAW's model object (it needs
+    ``note_input``, ``create_note_input``, ``play_live_note`` and ``advance``)."""
+
+    reporter_class = Reporter
+    command_handler_class = CommandHandler
 
     def __init__(self, daw: SimDaw, controller_id: str, config_path: str, app_version: str = "DrivenByMoss reference host"):
         self.daw = daw
@@ -50,8 +58,8 @@ class Bridge(drivenbymoss.Backend):
         self.app_version = app_version
         self.clock_ms = 0.0
         self.banks = Banks()
-        self.reporter = Reporter(daw, self.banks, clock=lambda: self.clock_ms)
-        self.commands = CommandHandler(daw, self.banks, self.reporter, clock=lambda: self.clock_ms)
+        self.reporter = self.reporter_class(daw, self.banks, clock=lambda: self.clock_ms)
+        self.commands = self.command_handler_class(daw, self.banks, self.reporter, clock=lambda: self.clock_ms)
         self.reporter.features = self.commands.host_features
         self.app: drivenbymoss.App | None = None
         self.midi_in: list[bytes] = []
