@@ -902,4 +902,20 @@ Found in use; documented here, not fixed yet.
      - (d) Keep the cut notes in the adapter and restore them when the length grows again:
        fragile.
      - A quick safety net (a) was tried and reverted; it needs a decision together with (b)/(c).
+2. **The loop length cannot be increased** (found by the user on the JAM, 2026-11-07; in Bitwig
+   it can).
+   - The core's gesture (`abstract_note_sequencer_view.rs:164-192`, the drum views the same): a
+     single long-pressed page pad sets the loop to that page; holding one page pad and pressing
+     a second sets the loop between them, also beyond the current end. So increasing means: hold
+     the first pad, press a later one. The core then sends `loopStart`, `loopLength`, `start`
+     and `end`.
+   - The adapter can grow a pattern (`loopLength`/`end` → `Clip.set_length`, zynseq adds empty
+     beats), so where it fails is not known yet. To check:
+     - whether the page pads beyond the pattern's end are offered at all (the core's page count
+       comes from the reported loop length; Bitwig lets a page beyond the end be chosen);
+     - the order and values of the commands, e.g. a non-zero `start` or `loopStart` making the
+       adapter refuse the whole range (§3.5), or `end` and `loopLength` disagreeing;
+     - the rounding to zynseq's whole beats (a JAM page is 8 steps of the chosen resolution).
+   - Belongs together with item 1: both come from mapping Bitwig's loop region onto zynseq's
+     pattern length.
 
