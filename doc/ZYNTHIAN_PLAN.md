@@ -368,7 +368,7 @@ view plays the active chain, the note and drum sequencers edit the pattern, the 
 the mixer and device views. Fixed on the way: a clip range not starting at 0 (§3.5).
 
 Open: the Launchpad and the launcher on the real devices (the hand checks of §7 and §7b), the gaps
-of §3.6 and §7b, two core bugs found with the Launchpad (§7b: the blinking pads' base color, a
+of §3.6 and §7b, two core bugs found with the Launchpad (§7b: the blinking pads' base color (fixed), a
 core error from the Shift view's mode buttons).
 
 Acceptance: session view launches and stops sequences with the right LED states (met, apart from
@@ -653,7 +653,7 @@ through all views of the X; nothing new was missing apart from the clip range):
 
 | View | Adapter | State |
 | --- | --- | --- |
-| Session | §3.6: slots launch (not toggle), play states → LEDs (stopped: the chain's color; queued: flashing; playing: pulsing), scene buttons → phrases, stop through the Mix view's stop row or the Stop Clip mode | ✓ (LEDs: core bug below) |
+| Session | §3.6: slots launch (not toggle), play states → LEDs (stopped: the chain's color; queued: flashing; playing: pulsing), scene buttons → phrases, stop through the Mix view's stop row or the Stop Clip mode | ✓ |
 | Play, Piano, Drum 64, Chords | §3.4: note input `80????`/`90????`, the key tables of the views, the driver plays at once | ✓ (tested: Play through the driver; Piano, Drum 64 key tables probed; Chords not run) |
 | Sequencer, Poly Seq., Raindrops, Drum, Drum 4/8 | §3.5: `grid/8x128`, `grid/32x128` … on the cursor slot's pattern | ✓ (tested: Sequencer, Drum; the others activated without errors). The Drum view shows 32 steps: at 1/16 its lower two rows are beats 4–8, beyond a 4-beat pattern, and are not stored (zynseq has nothing outside the pattern) |
 | Clip Length | `loopLength`/`end` from the first pad; a range from another pad is not applied (**fixed**: its `end` became the pattern's length, e.g. 228 beats) | ✓ |
@@ -663,14 +663,16 @@ through all views of the X; nothing new was missing apart from the clip range):
 | Drum pads' colors | `/drum` | – no drum machine (§3.2): the pads play, unlit as "no pad" |
 | Note repeat (Shift) | `noterepeat …` | – logged (as the Mk2, §9 5) |
 
-**Core bugs found** (not fixed: no Rust changes in this package):
+**Core bugs found:**
 
-1. **The blinking pads lose their color** (X, Mini MkIII, Pro Mk3; the Pro and MkII similarly).
-   Java's `LaunchpadPadGrid` sends every pad through the LED sysex; the core sends the static
-   color as a note and then the sysex of the blinking pads with color 0
-   (`src/framework/grid.rs` `send_state`, `BlinkMode::Collect`: `pending_blinks` gets only the
-   blink color). A playing slot pulses black instead of in its color, a queued one flashes
-   between green and black. `test_playing_pad_pulses_in_its_color` is an expected failure.
+1. **The blinking pads lost their color** (X, Mini MkIII, Pro Mk3; the Pro and MkII similarly):
+   **fixed** (2026-11-06). Java's `LaunchpadPadGrid` collects both the color and the blink color
+   of a pad for the LED sysex; the core collected only the blink color (`src/framework/grid.rs`
+   `send_state`, `BlinkMode::Collect`), so the sysex set the base color to 0: a queued slot
+   flashed between black and GREEN_LO, a playing one pulsed black. Now the base color is
+   collected too: as in Java (the Launchpad's session view ignores the clip color for play and
+   record), a queued slot flashes between GREEN and GREEN_LO and a playing one pulses GREEN.
+   Tests: `collected_blinks_keep_the_color` (core), `test_queued_and_playing_pads_blink_in_green`.
 2. **The Shift view's mode buttons** (Shift tapped, then a scene button: Volume … Stop Clip, Mute,
    Solo, Rec Arm) give "Feature group is already in use while (de-)activating it." (also with the
    reference host's SimDaw); the mode is set, but the tests use the Mix view for stopping.
@@ -690,7 +692,7 @@ a chain with a synth selected, a pattern with notes in phrase 1, zynthian's laun
 3. Play view: the pads play the synth, light while held; change the chain while holding a pad: no
    hanging note; the latency as played.
 4. Session (the Session button): the top-left pad is chain 1, phrase 1, in the chain's color;
-   press it: it flashes, then pulses while playing (expected with the core bug: dark pulses);
+   press it: it flashes green, then pulses green while playing;
    again: it keeps playing; zynthian's launcher shows the same. Scene buttons: the phrase starts.
 5. Shift + Session (Mix): the fifth row stops a chain at the next sync point (the pad flashes
    until then); the mute, solo and rec arm rows change zynthian's mixer.
@@ -710,7 +712,7 @@ drivenbymoss-rust (after `66f2c3f`, not committed): the Launchpad drivers
 driver base (the stock driver of the same device unloaded), the clip range fix (`commands.py`,
 `model.py`, `reporter.py`), `test_launchpad.py`, this plan (status, §2, §2.1, §3.5, §4 phase 3
 done in the adapter, §6, §7b), the README. Phase 3 is done in the adapter; open are the device
-checks (§7, §7b) and the two core bugs of §7b.
+checks (§7, §7b) and the Shift view core bug of §7b.
 
 zynthian-ui `dbm`: no changes since `bc396034`.
 

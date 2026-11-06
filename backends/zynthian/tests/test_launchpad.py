@@ -360,18 +360,18 @@ class LaunchpadXSessionTest(unittest.TestCase):
         self.assertEqual(lp.errors(), [])
         self.assertEqual(lp.unhandled("track", "scene", "clip"), [])
 
-    @unittest.expectedFailure
-    def test_playing_pad_pulses_in_its_color(self):
-        """Java's LaunchpadPadGrid sends every pad through the LED sysex, a pulsing pad with its
-        color (the clip's). The core sends the static color as a note and then the sysex of the
-        blinking pads with color 0 (src/framework/grid.rs send_state, BlinkMode::Collect): a
-        playing slot pulses black, a queued one flashes between green and black. Core bug, not
-        of the adapter."""
+    def test_queued_and_playing_pads_blink_in_green(self):
+        """Java's Launchpad session view ignores the clip color for playing and recording
+        (SessionView: ignoreClipColorForPlayAndRecord): a queued slot flashes between GREEN and
+        GREEN_LO, a playing one pulses GREEN. The core sent the blinking pads' base color as 0,
+        so they flashed and pulsed against black (fixed in src/framework/grid.rs send_state,
+        BlinkMode::Collect)."""
         lp = self.lp
-        color = lp.led(81)[0]
+        lp.pad(81)
+        self.assertEqual(lp.led(81), (GREEN, "flash", GREEN_LO))
         lp.libseq.play_states[(0, 0, 0)] = PLAYING
         lp.advance()
-        self.assertEqual(lp.led(81), (color, "pulse"))
+        self.assertEqual(lp.led(81), (GREEN, "pulse"))
 
     def test_scene_launch(self):
         lp = self.lp

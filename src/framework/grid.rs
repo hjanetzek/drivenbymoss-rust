@@ -221,7 +221,11 @@ impl PadGrid {
                 BlinkMode::Channels => output.send_note_ex(if state.fast { 14 } else { 10 }, controller_note, blink_color),
                 BlinkMode::Emulated => {}
                 BlinkMode::Collect => {
+                    // The update message sets the pad's normal color too (Java collects both in
+                    // LaunchpadPadGrid.sendNoteState/sendBlinkState): without it a blinking pad
+                    // flashes or pulses against black
                     let info = self.pending_blinks.entry(controller_note).or_default();
+                    info.color = state.color.max(0);
                     info.blink_color = blink_color;
                     info.fast = state.fast;
                 }
@@ -307,6 +311,21 @@ mod tests {
         grid.flush_blinking(&output, now + std::time::Duration::from_millis(700));
         let calls = backend.take_calls();
         assert!(matches!(&calls[0], BackendCall::SendMidi(1, data) if data == &vec![0x90, 36, 7]));
+    }
+
+    /// The collected blinks keep the pad's normal color: the Launchpad's update message sets
+    /// both, otherwise a queued clip flashes and a playing one pulses against black.
+    #[test]
+    fn collected_blinks_keep_the_color() {
+        use crate::backend::{RecordingBackend, Sender};
+        let backend = std::rc::Rc::new(RecordingBackend::default());
+        let output = MidiOutput::new(Sender::new(backend), Some(1));
+        let colors = ColorManager::new();
+        let mut grid = PadGrid::new(&colors, 4, 4, 36).with_blink_mode(BlinkMode::Collect);
+        grid.light_blink(36, 22, 23, true);
+        grid.send_state(&output, 36);
+        let info = grid.pending_blinks[&36];
+        assert_eq!((info.color, info.blink_color, info.fast), (22, 23, true));
     }
 
     #[test]
