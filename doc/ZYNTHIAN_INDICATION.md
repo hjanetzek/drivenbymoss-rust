@@ -333,9 +333,17 @@ Pull, not push, so a screen shown later draws the current state and several cont
    the controller's colour and inset. Pure functions plus one "changed" check, so it can get unit
    tests without a UI. ~50 lines. [guess]
 3a. Qt UI (first target): `SignalBridge` passes `SS_GUI_CTRLDEV_WINDOW` on (it passes no `S_GUI`
-   signals today, §1.6); a small `QObject` model exposes the module's ranges as a list property;
-   the QML mixer strip, launcher cell and pattern editor delegates draw a border from it. ~60-80
-   lines. [guess]
+   signals today, §1.6); a small `QObject` model exposes the module's ranges as a list property.
+   **The `border` of the strips and pads is already taken by the selection**
+   (`zynqt/qml/MixerScreen.qml`): the active chain's strip has a 2 px border in the text colour,
+   red while the chain is moved (`:137-139`), and the selected launcher pad a 2 px yellow border
+   (`:375-376`); the Tk mixer outlines the selected pad in yellow the same way
+   (`zyngui/zynthian_gui_mixer.py:221-224`). [code] So the controller window must not use the
+   delegates' `border` (it would hide the selection or be hidden by it). Instead, one overlay
+   `Rectangle` per controller **around the whole window** (the block of strips, or of strips ×
+   phrases in launcher mode: one frame, not one per cell), in the controller's colour, drawn
+   outside the cells' borders (or a coloured bar above the covered strips); the selection frames
+   stay as they are and can lie inside the window. ~60-80 lines. [guess]
 3b. Tk UI (later, through the same module): `zynthian_gui_mixer.py` and the pattern editor call
    it on the signal and in `build_view` and only move a few canvas items. [guess]
 4. DBM driver (`backends/zynthian/ctrldev/zynthian_ctrldev_base_dbm.py`): after `bridge.tick` in
@@ -402,8 +410,10 @@ that the Tk UI (and upstream) can use it later without a second implementation.
    `zynthian_ctrldev_base.get_gui_window()` (None) and `notify_gui_window()`. ~25 lines.
 2. The shared module `zyngui/zynthian_ctrldev_window_data.py`: the drivers' windows → ranges per
    view (mixer strips by chain id, launcher cells chain × phrase), with unit tests. ~50 lines.
-3. Qt: `SignalBridge` passes the new signal on, a small model, a border in the mixer strip and
-   launcher cell delegates. ~60-80 lines.
+3. Qt: `SignalBridge` passes the new signal on, a small model, and one overlay frame per
+   controller around its block of strips (mixer) or strips × phrases (launcher). Not the
+   delegates' `border`: that already marks the active chain (strip) and the selected pad
+   (yellow), §5 3a. ~60-80 lines.
 4. In the DBM driver: publish `chain ids of [track_offset, +num_tracks)` and `(scene_offset,
    num_scenes)` after each tick when they change. ~30 lines. No core change, no new host
    feature, so the command streams and tests stay as they are.
