@@ -27,7 +27,7 @@ scenarios of track_mix.toml (the mixer of phase 1; the device page, the transpor
 the scenes of phase 2) and the device page scenario of note_sequencer.toml (the first instrument)
 compare the same as Java on Bitwig, apart from the listed differences of zynthian's model
 (auto-arm, takeover catch, always a selected phrase, no undo). Skipped without the Bitwig profile
-of the setup."""
+of the setup. The Maschine Mk2 and JAM files likewise (§7, §7c of doc/ZYNTHIAN_PLAN.md)."""
 
 import unittest
 
@@ -103,6 +103,42 @@ class MaschineMk2ConformanceTest(unittest.TestCase):
         for scenario in ("mk2.keyboard.play", "mk2.chords.play", "mk2.variation.parameter",
                          "mk2.drum.step-on", "mk2.drum.mute-step", "mk2.drum.step-off"):
             self.assertEqual(known[scenario], [], f"{scenario}: the same as Java on Bitwig")
+
+
+
+@unittest.skipUnless(AVAILABLE and SETUPS["maschine_jam"].profile_dir.is_dir(), "needs the profile of the maschine_jam setup")
+class MaschineJamConformanceTest(unittest.TestCase):
+    """The Maschine JAM scenarios (doc/ZYNTHIAN_PLAN.md §7c): the group buttons, the transport,
+    the touch strips, the session grid with zynseq's clock, the play modes, the note and drum
+    sequencers. Not judged: automation, note repeat, the loop, punch-in."""
+
+    def run_file(self, name, judged):
+        result = conformance.run_file("maschine_jam", name, phase=3)
+        report = result.report(verbose=True)
+        self.assertEqual(len(result.judged), judged, report)
+        self.assertTrue(result.ok, report)
+        self.assertEqual(result.core_errors, [], report)
+        self.assertTrue(all(key.split(" ")[0] in ("noterepeat", "automation", "repeat", "transport") for key in result.unhandled), report)
+        return result
+
+    def test_global(self):
+        result = self.run_file("global", 9)
+        self.assertEqual(sorted(result.unhandled)[-1], "transport togglePunchIn")
+
+    def test_session(self):
+        self.run_file("session", 5)
+
+    def test_play_modes(self):
+        self.run_file("play_modes", 9)
+
+    def test_note_sequencer(self):
+        result = self.run_file("note_sequencer", 7)
+        # Only the scene button of the selected phrase differs: the steps are zynseq's
+        for scenario in result.judged:
+            self.assertTrue(all("LED B0 50" in k for k in scenario.known), scenario.known)
+
+    def test_drum_sequencer(self):
+        self.run_file("drum_sequencer", 6)
 
 
 if __name__ == "__main__":

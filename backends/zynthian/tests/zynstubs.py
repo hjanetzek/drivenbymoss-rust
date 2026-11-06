@@ -365,6 +365,11 @@ class FakeLibseq:
         self._launcher()
         state = _value(state)
         self.play_calls.append((phrase, chan, state))
+        if state in (1, 2):
+            # transportStart(TRANSPORT_CLIENT_ZYNSEQ): a launch starts the transport
+            if not self.state:
+                self.clock_beats = None
+            self.state = 1
         if state == 8:
             for (s, p, c), child in list(self.play_states.items()):
                 if (s, p) == (scene, phrase) and c != 32 and child & 1:
@@ -374,6 +379,32 @@ class FakeLibseq:
                 if (scene, phrase, c) in self.sequence_patterns:
                     self.play_states[(scene, phrase, c)] = 2
         self.play_states[(scene, phrase, chan)] = state
+
+    def clock(self, ms):
+        """A minimal clock for the tests which run on simulated time (the conformance): while the
+        transport runs, at each bar (the sync point, at once after the transport started) the
+        starting sequences play, the ones stopping at the sync point stop (STOPPING, at the end
+        of the pattern in zynseq, here at the bar too); the playheads of the playing sequences
+        advance by the steps of their pattern."""
+        self._launcher()
+        if not self.state:
+            return
+        beats = getattr(self, "clock_beats", None)
+        now = 0.0 if beats is None else beats + ms * self.tempo / 60000.0
+        self.clock_beats = now
+        if beats is None or int(now // self.bpb) != int(beats // self.bpb):
+            for key, state in list(self.play_states.items()):
+                if state == 2:
+                    self.play_states[key] = 1
+                    self.playheads[key] = 0
+                elif state in (3, 5):
+                    self.play_states[key] = 0
+                    self.playheads.pop(key, None)
+        for key, state in self.play_states.items():
+            pattern = self.patterns.get(self.sequence_patterns.get(key))
+            if state in (1, 3, 5) and pattern:
+                steps = pattern["spb"] * pattern["beats"]
+                self.playheads[key] = int((now % pattern["beats"]) * pattern["spb"]) % steps
 
     def clearPattern(self, pattern):
         self.patterns[_value(pattern)]["events"] = []

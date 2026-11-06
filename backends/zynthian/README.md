@@ -15,7 +15,8 @@ zynthian, whose classes they extend; the rest of the repository is LGPLv3.
 | `tests/` | The tests without the zynthian UI (`run_tests.py`), the conformance scenarios against the adapter (`zyn_conformance.py`) |
 
 Controllers: the Novation Launch Control XL; the Native Instruments Maschine Mk2, which needs
-dbm-nihost (`support/linux/ni_host`) for its MIDI ports, displays and Shift button; the Novation
+dbm-nihost (`support/linux/ni_host`) for its MIDI ports, displays and Shift button; the Native
+Instruments Maschine JAM, also through dbm-nihost (`Maschine Jam - 1 IN 1`); the Novation
 Launchpad X, Mini MkIII, Pro Mk3, Pro and MkII on their MIDI ports. zynthian's own Launchpad
 drivers (on the DAW ports) autoload; pick "DrivenByMoss Launchpad …" in the MIDI device options
 of the MIDI port (`Launchpad X IN 2`), which then unloads zynthian's driver of that device
@@ -45,6 +46,7 @@ cargo build
 python3 backends/zynthian/tests/run_tests.py [-v]
 python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [phase|all]
 python3 backends/zynthian/tests/zyn_conformance.py maschine_mk2 global 2
+python3 backends/zynthian/tests/zyn_conformance.py maschine_jam session 3
 ```
 
 They need a zynthian-ui checkout of the `dbm` branch: `$ZYNTHIAN_UI_DIR`, else `../zynthian-dbm`

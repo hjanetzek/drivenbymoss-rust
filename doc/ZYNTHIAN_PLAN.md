@@ -1,6 +1,6 @@
 # DrivenByMoss on Zynthian: implementation plan
 
-Status: 2026-11-06.
+Status: 2026-11-07.
 - **Phase 1 done** (§4): the Launch Control XL on the mixer, tested in desktop mode with the
   device (also by the user: "everything seems to work").
 - **Phase 2 done in the adapter** (§4): devices and parameters, the first instrument (`/primary`),
@@ -21,8 +21,13 @@ Status: 2026-11-06.
   driver then unloads the stock one); the Launchpad X and Mini MkIII with the core against the
   adapter (session, note, drum, sequencer, clip length, mixer, device views). **Phase 3 is done
   in the adapter**; no Launchpad was connected (§7b has the checklist).
+- **The Native Instruments Maschine JAM** (through dbm-nihost, §7c): its driver (autoload on
+  `Maschine Jam - 1 IN 1`), the touch strips on the mixer and the parameters, the session grid on
+  zynseq's launcher, the play and step modes; all five JAM conformance files judged against the
+  adapter (with a clock in the stand-in zynseq); a desktop run with the JAM connected (input
+  injected). Not yet checked by a person at the device.
 
-109 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
+126 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
 
 **Goal.** zynthian controller drivers (ctrldev) host the DrivenByMoss core, so that the core's
 controllers drive zynthian: the core runs the controller (modes, LEDs, displays), zynthian is its
@@ -82,7 +87,7 @@ zynthian-ui's style (4 spaces, its header, its imports) and adds no dependency.
 | File | Content |
 | --- | --- |
 | `zynthian_ctrldev_base_dbm.py` | `zynthian_ctrldev_base_dbm(zynthian_ctrldev_base)`: lifecycle, tick thread, MIDI queue, state, sleep. Skipped by the manager (name prefix `zynthian_ctrldev_base`) |
-| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag`, `replaces_dev_ids` (§7b). Now: `launchcontrol_xl`, `maschine_mk2`, `launchpad_x`, `launchpad_mini_mk3`, `launchpad_pro_mk3`, `launchpad_pro`, `launchpad_mk2` |
+| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag`, `replaces_dev_ids` (§7b). Now: `launchcontrol_xl`, `maschine_mk2`, `maschine_jam`, `launchpad_x`, `launchpad_mini_mk3`, `launchpad_pro_mk3`, `launchpad_pro`, `launchpad_mk2` |
 | `dbm_zynthian/__init__.py` | `import_dbm()`: finds `drivenbymoss` and `dbm_host` (`sys.path`, `$DBM_PYTHON_DIR`, this repository's `bindings/python`, `/usr/share/drivenbymoss/python`), defaults `$DBM_LIBRARY` |
 | `dbm_zynthian/{model,reporter,commands,bridge,device,transport,launcher}.py` | The model adapter (§3) |
 | `dbm_zynthian/generate.py` (phase 4) | Writes the per-controller modules from `dbm_list_controllers()` and a port table |
@@ -356,10 +361,9 @@ LCXL's note and drum sequencers, conformance and a desktop check (§6, §7). The
 track stop, stop all, clip remove/duplicate/paste, scene launch/create/remove/duplicate, with
 tests of the adapter and of the Mk2's PATTERN and SCENE modes with the core
 (`test_launcher.py`); the Mk2 conformance (`mk2.pattern.select`, `mk2.scene.select`) unchanged.
-The JAM's session.toml runs in the adapter runner without a JAM driver (`zyn_conformance.py
-maschine_jam session all`) but is not judged: the JAM's LEDs differ throughout (the strips, the
-empty slots' colors) and the stand-in zynseq has no clock (a launched slot stays STARTING, Bitwig's
-fixture plays at once); left for the JAM work.
+The JAM's files are judged since the JAM work (§7c): the LEDs that differed throughout were the
+runner's (it dropped the startup output, which the JAM's files keep: the strips' setup), the
+stand-in zynseq got a clock.
 
 **Done in the adapter: the Launchpad** (§7b): driver modules for the X, Mini MkIII, Pro Mk3,
 Pro and MkII; the X and the Mini MkIII with the core against the adapter (`test_launchpad.py`):
@@ -409,7 +413,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (109), from this repository, after `cargo build`:
+**(a) The driver tests** (126), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -427,7 +431,8 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_launchcontrol_xl.py` | 6: the core with the LCXL on simulated time |
 | `test_driver.py` | 9: the LCXL driver class (thread, MIDI, snapshot-only state, sleep/wake, end); the Mk2 driver with the core (its note input, pads into the active chain at once, note-off to the note-on's chain, no hanging notes, no note without a MIDI chain, the cost of a note) |
 | `test_pipewire_ports.py` | 2: the drivers' dev_ids against zynthian's PipeWire uids (the LCXL's controls port, not HUI; dbm-nihost's Mk2 port, not the JAM's or the Mk2's own MIDI port) |
-| `test_conformance_lcxl.py` | 5: §6 b (the LCXL's track mix, note and drum sequencers; the Mk2) |
+| `test_conformance_lcxl.py` | 10: §6 b (the LCXL's track mix, note and drum sequencers; the Mk2; the JAM's five files) |
+| `test_maschine_jam.py` | 12: the JAM driver's dev_id (dbm-nihost's PipeWire port, the output; per port its driver: the JAM's only on the JAM, the Mk2's not there); the JAM with the core (the volume strips show and move the faders, the meters while playing, pan, sends, parameters; the session launch at the next bar, PLAY lit, MUTE + pad stops, scenes, group buttons; the note mode into the active chain, the note sequencer on the pattern) |
 | `test_clip.py` | 13: the cursor clip on a zynseq pattern (properties, steps both ways, resolutions that don't divide, one note per zynseq step, the attributes zynseq has and those it doesn't, set/update/moveY, rows, columns, length, duplicate, transpose, clear, the playhead, the pattern editor's selection kept, the note selection, zynseq's Python state); the Mk2's STEP mode with the core (a pad writes the pattern, a note added in zynseq lights its pad, the playhead, the step off) |
 | `test_launchpad.py` | 21: the Launchpad drivers' dev_ids (from the core's discovery names, not the stock drivers' ports, PipeWire), autoload against the stock drivers, the stock driver of the same device unloaded; the X and the Mini MkIII with the core (session launch, stop and LEDs, scenes, the note view through the driver, sequencer, drum view, clip length, mixer, device view); 2 expected failures: the core's blink color (§7b) |
 | `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
@@ -446,6 +451,11 @@ differences with reasons. Results (phase 2):
   (the knob values, carried into the later scenarios); with Solo held the scenes, where zynthian
   always has a selected phrase; Track Focus 5 (undo) with Record Arm held: zynthian has no undo.
 - `maschine_mk2/global.toml`, `pad_modes.toml`: §7.
+- `maschine_jam/*.toml` (phase 3): §7c. For them the runner keeps the startup output in the LED
+  state (`keep_startup_output`, as the Bitwig runner), and the stand-in zynseq has a clock
+  (`FakeLibseq.clock`: a launch starts the transport, at each bar the starting sequences play and
+  the stopping ones stop, the playheads run). The state view has `playingNotes` (compared for the
+  track zynthian has selected: Bitwig also reports the notes of other armed and monitored tracks).
 - Phase 3 (`… 3`): `note_sequencer.toml` (5 scenarios: the first instrument's pages, create and
   delete a note the same as Java; the repeat count and the panning of a step are zynseq's
   missing attributes), `drum_sequencer.toml` (6: steps on and off the same; the knobs of a step
@@ -705,14 +715,142 @@ a chain with a synth selected, a pattern with notes in phrase 1, zynthian's laun
 9. Unload DrivenByMoss in the options: the device leaves programmer mode; load zynthian's driver
    on `… IN 1` again.
 
-## 8. State (2026-11-06)
+## 7c. The Native Instruments Maschine JAM
 
-drivenbymoss-rust (after `66f2c3f`, not committed): the Launchpad drivers
-(`zynthian_ctrldev_dbm_launchpad_{x,mini_mk3,pro_mk3,pro,mk2}.py`), `replaces_dev_ids` in the
-driver base (the stock driver of the same device unloaded), the clip range fix (`commands.py`,
-`model.py`, `reporter.py`), `test_launchpad.py`, this plan (status, §2, §2.1, §3.5, §4 phase 3
-done in the adapter, §6, §7b), the README. Phase 3 is done in the adapter; open are the device
-checks (§7, §7b) and the Shift view core bug of §7b.
+**Why:** the JAM is the core's grid controller with touch strips: the 8×8 pads are the session
+(zynseq's launcher), the play and drum modes and the step sequencers; the 8 touch strips the
+mixer (volume, pan, sends), the selected track and the device parameters; the encoder master
+volume, tempo and the rest of its encoder modes. As the Mk2 it is a HID device and needs
+dbm-nihost.
+
+**The port** (seen on this host, `aconnect -l`, `pw-link -i/-o`, 2026-11-07): dbm-nihost's ALSA
+client "Maschine Jam - 1" (pid of the service) with the ports "Maschine Jam - 1 Input" (0) and
+"Maschine Jam - 1 Output" (1), NI's macOS names and the core's Linux discovery names; PipeWire
+shows `Midi-Bridge:Maschine Jam - 1: Input (capture)` / `…: Output (playback)`. The `dbm` branch's
+uids give `PW:Maschine Jam - 1/Maschine Jam - 1 IN 1`, so the dev_id is **`Maschine Jam - 1 IN 1`**
+(output `OUT 1`). dbm-nihost bridges one JAM ("- 1"; `support/linux/ni_host/src/daemon.cpp`), so
+the driver has this one dev_id. Beside it is dbm-nihost's Mk2 client (`Maschine MK2 IN 1`): the
+JAM's driver does not take it, the Mk2's driver does not take the JAM's (`test_maschine_jam.py`,
+and seen in desktop mode). On ZynthianOS (jackd) the sequencer client reaches JACK through
+a2jmidid (`a2j:Maschine Jam - 1 [129] (capture): Maschine Jam - 1 Input`), whose ports give no
+dev_id (as for the Mk2, analysis §1) [guess, not tested; dbm-nihost is not packaged there].
+
+**Driver:** `backends/zynthian/ctrldev/zynthian_ctrldev_dbm_maschine_jam.py` (UUID
+`72F32A83-A697-446B-9016-64AA3F9476E4`, autoload: zynthian has no JAM driver). Nothing
+JAM-specific in the driver base: the JAM's Shift is a sysex (`F0 00 21 09 15 00 4D 50 00 01 4D
+<0|1> F7`), which reaches `midi_event` whole; its pads are a note input (`80`, `90` on channel 1,
+§3.4), its strips and buttons CCs on channel 1, kept from the chains (`unroute_from_chains`).
+
+**What the modes need from the adapter** (probed with the core against the stand-in, and in
+desktop mode; no adapter change was needed):
+
+| JAM | Adapter | State |
+| --- | --- | --- |
+| Session (SONG): pads launch, MUTE + pad stops, SELECT + pad selects, CLEAR/DUPLICATE + pad, scene buttons, flip, scrolling | §3.6 | ✓ |
+| Play, chords, piano, drum 64 (PAD MODE + scene 1–4) | §3.4: the note input into the active chain | ✓ |
+| Note and drum sequencers (STEP + scene) | §3.5 on the cursor slot's pattern | ✓ |
+| LEVEL (volume / pan), AUX (sends), MACRO (the selected chain: volume, pan, sends) | the mixer (§3.2) | ✓ |
+| CONTROL (device parameters), PAGE LEFT/RIGHT | the cursor device (§3.2) | ✓; the user parameters (CONTROL again) are Bitwig's: none |
+| PLAY, RECORD, Shift + PAGE LEFT (metronome), TEMPO + encoder, the encoder's master volume | transport (§3.2), recording (§3.3) | ✓ |
+| Group buttons A–H, with MUTE/SOLO/REC | the chains | ✓ |
+| SWING + encoder (`groove amount`), GRP + encoder (`beats position`), GRID (`quantize`), CLEAR/DUPLICATE + group button (`track <n>/remove`, `duplicate`), AUTO, NOTE REPEAT, loop, punch-in | – | not handled (logged once): zynthian has no global groove (zynseq's swing is per pattern), no song position, no automation, arpeggiator, loop or punch; removing chains from the controller is left to a decision (§9) |
+
+**The touch strips** (what the core sends, `src/controller/maschine/jam/{surface.rs,mode/mod.rs}`):
+per strip a CC 8+i with its value and, when the type or a color changes, one setup sysex
+(`F0 00 21 09 15 00 4D 50 00 01 05` + type and color of all 8 strips) and for dual strips one
+sysex `… 01 04` with the second values. Types: single (volume, sends, parameters), pan (centered),
+dual (volume while the transport plays: the meter in the strip, the fader as the dual value), dot
+(no item: off). The master meter goes to CC 64/65. The adapter's values for them:
+
+- volume: the strip zctrl `level` (0..1) itself, the position of zynthian's fader (0.8 → 102,
+  0.6 → 76); the strip sets it the same way (32 → 0.252);
+- pan: `balance` −1..1 → 0..1 (center 64; 100 → 0.575);
+- sends: `send_<id>_level`; the selected-track mode: volume, pan, then the sends (no mixbus: off);
+- parameters: the zctrls of the page (value by range or by index), the strips' colors are the
+  core's fixed parameter colors; an empty parameter slot is a single strip at 0;
+- the meters: `getDpm` dBFS −60..0 → 0..1 (`dbfs_to_vu`), per chain and of the main chain
+  (CC 64/65). Seen in desktop mode with the DX10 playing a chord: strip 1 rose 71 → 99, the master
+  67 → 97; silent: 0.
+
+**Conformance** (`zyn_conformance.py maschine_jam <file> 3`): all five files, 36 scenarios judged,
+all the same as Java on Bitwig apart from model differences. `note_sequencer.toml` only differs
+in the first scene button. Two fixes in the runner (not the adapter) made them comparable: it
+dropped the startup output, which the JAM's files keep (`keep_startup_output`: the strips' setup
+is only sent at the start; without it every strip LED differed), and the stand-in zynseq had no
+clock (a launched slot stayed STARTING, the transport stopped, so the volume strips stayed single
+where Bitwig's are dual). The differences, with their reasons:
+
+| Difference | Reason |
+| --- | --- |
+| AUTO (`B0 28`) | zynthian has no automation (on in Bitwig's fixture) |
+| Scene 1 bright (`B0 50`) | zynthian always has a selected phrase |
+| Group A with REC held, the empty slots of Synth dim red (`90 24`…`90 54` = 05) | Bitwig's auto-arm (Synth armed) |
+| Group B bright after SELECT + pad of Drums | zynthian's selected slot is the active chain's in the selected phrase: selecting the slot selects the chain; Bitwig keeps a selected slot per track |
+| Slot 1 of Drums unlit (flipped grid) | Bitwig's empty clip counts as content, an empty zynseq pattern does not |
+| The 64 drum pads (drum 64, release) | Bitwig's Drum Machine reports its pads; zynthian has no drum machine |
+| `/conformance/primary/drumpad/2/selected` | no drum machine: no pad to select (the core's sequencer still selects its pad) |
+
+Not judged (not in zynthian): `jam.global.auto`, `shift-auto`, `note-repeat`,
+`jam.transport.loop`, `punch-in`. The touch strip scenario `jam.strip.level` and the strips in all
+judged steps compare without difference.
+
+**Desktop run** (2026-11-07, the Tk UI, `ZYNTHIAN_CTRLDEV_PATH`, my-data on a copy, the JAM
+connected through dbm-nihost; a probe recorded the MIDI to the device and injected the input as
+dbm-nihost sends it; an MDA DX10 chain on channel 1 and an audio chain): the driver autoloaded on
+zmip 6 `Maschine Jam - 1 IN 1`, output zmop 6 `Midi-Bridge:Maschine Jam - 1: Output (playback)`;
+the Mk2 driver stayed on `Maschine MK2 IN 1`. At the start the core sent 324 messages (259 CCs,
+64 pad notes, the strip setup sysex); no sysex query, the device sent nothing by itself. Seen:
+
+- the strips as above (volume, pan, sends off without mixbus, the selected chain, the parameters:
+  strip 5 moved the DX10's Attack to 90/127 and its CC showed 90);
+- SONG: the DX10's slot unlit while empty, lit in the chain's color (45) after notes were added
+  in zynseq; the pad launched it (transport stopped: it played at once, zynseq started the
+  transport; pad 2D → 1E green, PLAY lit), the volume strips turned dual with the meter; MUTE +
+  pad: STOPPING_SYNC (5) for 0.4 s, then stopped at the bar, the pad back to 45; scene 2: phrase
+  2 selected and its launcher playing, the scene LEDs followed;
+- PAD MODE + scene 1, pad 36: `ui_send_note_on(0, 36, 100)` 30 µs after `midi_event`, the pad lit
+  while held;
+- STEP + scene 1, pad 36: a note at step 0 in the pattern of the selected phrase (zynseq's
+  pattern 17), again: removed;
+- TEMPO + encoder: 120 → 121 BPM; Shift + PAGE LEFT: metronome on, again off;
+- no core errors; unhandled only `noterepeat …`. zynthian stopped its jalv processes at the exit.
+
+**Not verified (needs a person at the device):** that the JAM shows the strips as sent (types,
+colors, the levels, the meters while playing), the pad and button LEDs, physical strips (touch and
+slide), pads, encoder and buttons through dbm-nihost, the sound and the latency as played.
+
+**Checklist for the device** (zynthian started with the run command, dbm-nihost running, the JAM
+connected, a chain with a synth (e.g. MDA DX10) and a second chain, zynthian's mixer visible):
+
+1. Plug in / start: the driver loads on `Maschine Jam - 1 IN 1` (MIDI device options), not on the
+   Mk2's port; the JAM's LEDs and strips come on.
+2. LEVEL (volume): one strip per chain in the chain's color, lit to the fader's level; slide a
+   strip: zynthian's fader follows; move zynthian's fader: the strip follows.
+3. LEVEL again (pan): the strips centered; slide: the chain's balance moves.
+4. AUX with a mixbus: the strips are the sends of the first mixbus; MACRO: volume, pan, sends of
+   the selected chain.
+5. CONTROL: the synth's parameters on the strips (zynthian's control screen follows); PAGE
+   LEFT/RIGHT: the next/previous device of the chain.
+6. SONG: column 1 is chain 1; a slot with notes is lit in the chain's color; press it: it starts
+   (green), zynthian's launcher shows it playing, PLAY lights; the volume strips show the meter
+   and the fader's level (dual strips); MUTE + pad: it stops at the bar.
+7. Scene buttons: the phrase starts (zynthian's phrase launcher); SELECT + pad: the chain and
+   phrase are selected.
+8. PAD MODE + scene 1 (note): the pads play the synth and light while held; no hanging note when
+   the chain changes while a pad is held (group buttons A–H select the chains).
+9. STEP + scene 1 (note sequencer): pads toggle notes in zynthian's pattern editor; the playhead
+   runs while it plays. STEP + scene 4 (drum sequencer): a drum pad selects the note, the step pads toggle its steps.
+10. TEMPO + encoder: zynthian's tempo; the encoder alone: the main chain's volume; Shift + PAGE
+    LEFT: the metronome.
+
+## 8. State (2026-11-07)
+
+drivenbymoss-rust (after `476b2ac`, not committed): the Maschine JAM driver
+(`zynthian_ctrldev_dbm_maschine_jam.py`), `test_maschine_jam.py`, the JAM's conformance files in
+`zyn_conformance.py` (phase 3, known differences, `keep_startup_output`, the zynseq clock,
+`playingNotes`) and `test_conformance_lcxl.py`, the clock in `zynstubs.FakeLibseq`, this plan
+(status, §2, §4 phase 3, §6, §7c, §9), the README. No adapter change was needed for the JAM. Open
+are the device checks (§7, §7b, §7c) and the Shift view core bug of §7b.
 
 zynthian-ui `dbm`: no changes since `bc396034`.
 
@@ -732,3 +870,7 @@ zynthian-ui `dbm`: no changes since `bc396034`.
    stay the user's choice as now (§7b)? And should a DrivenByMoss driver notice zynthian's driver
    being loaded on the DAW port later?
 8. The core's blink color and the Shift view's mode buttons (§7b): fix in the core.
+9. The JAM (§7c): should CLEAR/DUPLICATE + group button remove or duplicate the chain (zynthian's
+   `remove_chain`; there is no chain clone)? Should SWING map to the swing of the cursor slot's
+   pattern (zynseq's swing is per pattern, Bitwig's groove global)? The ZynthianOS dev_id (6)
+   applies to the JAM as well.

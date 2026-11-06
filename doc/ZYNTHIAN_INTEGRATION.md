@@ -157,8 +157,10 @@ sequencer client "Maschine MK2" with the ports "Maschine MK2 In " (sic, with a s
 core's Linux names). With the PipeWire uids its dev_id is `Maschine MK2 IN 1` (output `OUT 1`).
 Beside it are the device's own USB MIDI port (kernel client "Maschine Controller MK2", MIDI mode,
 dev_id `Maschine Controller MK2 IN 1`) and the JAM's (`Maschine Jam - 1 IN 1`); the Mk2 driver
-takes only `Maschine MK2 IN 1`. On ZynthianOS (jackd) a sequencer client reaches JACK through
-a2jmidid (`a2j:Maschine MK2 [128] (capture): Maschine MK2 In`), whose ports have no alias
+takes only `Maschine MK2 IN 1`. The JAM's client "Maschine Jam - 1" (ports "Maschine Jam - 1
+Input"/"… Output", PipeWire `Midi-Bridge:Maschine Jam - 1: Input (capture)`) gives the dev_id
+`Maschine Jam - 1 IN 1` / `OUT 1`, the JAM driver's (ZYNTHIAN_PLAN.md §7c). On ZynthianOS
+(jackd) a sequencer client reaches JACK through a2jmidid (`a2j:Maschine MK2 [128] (capture): Maschine MK2 In`), whose ports have no alias
 `build_midi_port_name` understands: no dev_id there either [guess; not tested, and dbm-nihost is
 not packaged for ZynthianOS].
 

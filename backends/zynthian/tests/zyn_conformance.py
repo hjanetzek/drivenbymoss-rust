@@ -44,11 +44,14 @@ zynthian's own (zynthian's model differs from Bitwig's):
 - The OSC steps: ``/click``, ``/tempo/raw``, ``/device|primary/page/N/selected`` and the track addresses (``/track/N/select|mute|solo|recarm|volume|pan``,
   ``/track/N/send/M/volume``, ``/track/bank/page/±``) with the observer's bank of 8 tracks that
   follows the selected track. Other addresses are skipped (``unknown_osc``).
-- The state view: ``osc:/track/N/exists|name|selected|mute|solo|recarm|volume|pan`` and
+- The state view: ``osc:/track/N/exists|name|selected|mute|solo|recarm|volume|pan|playingNotes`` and
   ``send/M/volume`` (0..127) of that bank, ``osc:/track/selected/name``; for ``/device`` and
   ``/primary``: ``exists``, ``name``, ``bypass``, ``page/N/exists|name|selected``,
   ``page/selected/name``.
-- The comparison: per step of a judged scenario, the complete LED state against the reference's
+- zynseq's clock: the stand-in plays the launched sequences at the next bar while the transport
+  runs (a launch starts it, as zynseq's ``setPlayState``), in steps of the core's tick.
+- The comparison: with ``keep_startup_output`` (the JAM's files) the LED state starts with the
+  startup output; per step of a judged scenario, the complete LED state against the reference's
   (the file's ``known_difference`` patterns apply) and the reference's state changes of the keys
   the view models; the expectations ``expect.bitwig``.
 
@@ -127,6 +130,28 @@ PHASES[3][("maschine_mk2", "pad_modes")] = PHASES[2][("maschine_mk2", "pad_modes
     "mk2.drum.step-on", "mk2.drum.mute-step", "mk2.drum.step-off",
 ]
 
+# The Maschine JAM (doc/ZYNTHIAN_PLAN.md §7c): not judged are automation (auto, shift-auto), note
+# repeat, the loop and punch-in (zynthian has none of them)
+PHASES[3][("maschine_jam", "global")] = [
+    "jam.transport.metronome", "jam.transport.tempo", "jam.group.select", "jam.group.mute", "jam.group.solo",
+    "jam.group.recarm", "jam.transport.clear-mute", "jam.transport.clear-solo", "jam.strip.level",
+]
+PHASES[3][("maschine_jam", "session")] = [
+    "jam.session.select-clip", "jam.session.launch", "jam.session.stop", "jam.session.flip", "jam.session.scroll",
+]
+PHASES[3][("maschine_jam", "play_modes")] = [
+    "jam.note.play", "jam.note.transpose", "jam.note.layout", "jam.note.scale", "jam.chords.play", "jam.chords.dyad",
+    "jam.piano.play", "jam.drum64.play", "jam.release",
+]
+PHASES[3][("maschine_jam", "note_sequencer")] = [
+    "jam.noteseq.create-note", "jam.noteseq.second-note", "jam.noteseq.mute-note", "jam.noteseq.transpose",
+    "jam.noteseq.transposed-note", "jam.noteseq.page", "jam.noteseq.delete-note",
+]
+PHASES[3][("maschine_jam", "drum_sequencer")] = [
+    "jam.drum.select-pad", "jam.drum.step-on", "jam.drum.step-other-pad", "jam.drum.mute-step", "jam.drum.clear-pad",
+    "jam.drum.step-off",
+]
+
 # The differences of zynthian's model from Bitwig's which the judged scenarios show:
 # (scenario, fnmatch pattern of the problem, reason)
 KNOWN_DIFFERENCES = [
@@ -172,6 +197,26 @@ KNOWN_DIFFERENCES += [
      "Scene 1: zynthian always has a selected phrase (the first), Bitwig's fixture had no selected scene"),
 ]
 
+# The Maschine JAM
+KNOWN_DIFFERENCES += [
+    ("jam.*", "step *: LED B0 28: zynthian 00 java 7F", "AUTO: zynthian has no automation (on in Bitwig's fixture)"),
+    ("jam.*", "step *: LED B0 50: zynthian 4E java 4D",
+     "Scene 1 (the first scene button): zynthian always has a selected phrase (the first), Bitwig's fixture had no selected scene"),
+    ("jam.group.recarm", "step *: LED B0 46: zynthian 4C java 06", "Bitwig's auto-arm: Synth is armed (red with REC held)"),
+    ("jam.session.*", "step *: LED 90 *: zynthian 00 java 05",
+     "Bitwig's auto-arm: the empty slots of the armed track Synth are lit in dim red"),
+    ("jam.session.select-clip", "step *: LED B0 47: zynthian 32 java 35",
+     "SELECT + pad: zynthian's selected slot is the active chain's in the selected phrase, so selecting the slot of Drums "
+     "selects the chain (group B bright); Bitwig keeps a selected slot per track"),
+    ("jam.session.flip", "step *: LED 90 54: zynthian 00 java 32",
+     "Slot 1 of Drums: Bitwig's fixture has an empty clip there, which counts as content; an empty zynseq pattern does not"),
+    ("jam.drum64.play", "step *: LED 90 *: zynthian 2D java 4C",
+     "The 64 drum pads: Bitwig's Drum Machine reports its pads (colors), zynthian has no drum machine (the pads without content)"),
+    ("jam.release", "step *: LED 90 *: zynthian 2D java 4C", "The drum pads (see jam.drum64.play)"),
+    ("jam.drum.select-pad", "bitwig /conformance/primary/drumpad/2/selected: expected 1, got None",
+     "zynthian has no drum machine: there is no drum pad to select (the core still selects the pad for its sequencer)"),
+]
+
 # The step sequencers (clip.py)
 KNOWN_DIFFERENCES += [
     ("lcxl.noteseq.repeat", "bitwig /clip/step/0/1/*: expected 15, got 0", "zynseq has no note repeat (the step's repeat count)"),
@@ -211,7 +256,7 @@ for _scenario in ("lcxl.mix.knobs", "lcxl.mix.device-page", "lcxl.mix.track-page
 EQ_PLUS_PAGES = ["Gains", "Freqs", "Qs"]
 
 PAGE_SIZE = 8
-MODELLED_FIELDS = ("exists", "name", "selected", "mute", "solo", "recarm", "volume", "pan")
+MODELLED_FIELDS = ("exists", "name", "selected", "mute", "solo", "recarm", "volume", "pan", "playingNotes")
 
 
 def fixture():
@@ -334,7 +379,15 @@ class Session:
         return result
 
     def advance(self, ms):
-        self.bridge.advance(ms)
+        # zynseq's clock in steps of a tick, so launched slots play at the next bar
+        remaining = float(ms)
+        while True:
+            step = min(TICK_MS, remaining)
+            self.state.zynseq.libseq.clock(step)
+            self.bridge.advance(step)
+            remaining -= step
+            if remaining <= 0:
+                break
         self.follow_selection()
 
     # The observer (the OSC controller of the Bitwig runs): a bank of 8 tracks
@@ -430,6 +483,7 @@ class Session:
                 view[prefix + "name"] = ""
                 view[prefix + "volume"] = "0"
                 view[prefix + "pan"] = "0"
+                view[prefix + "playingNotes"] = ""
                 for phrase in range(PAGE_SIZE):
                     for field in ("isSelected", "hasContent", "isPlaying"):
                         view[f"{prefix}clip/{phrase + 1}/{field}"] = "0"
@@ -441,6 +495,9 @@ class Session:
             view[prefix + "recarm"] = "1" if track.arm else "0"
             view[prefix + "volume"] = value127(track.volume.value)
             view[prefix + "pan"] = value127(track.pan.value)
+            # The notes played into the track (the note inputs play into the active chain)
+            notes = self.model.playing_notes if track.selected else {}
+            view[prefix + "playingNotes"] = " ".join(f"{key}:{notes[key]}" for key in sorted(notes))
             for index, send in enumerate(track.sends[:PAGE_SIZE], start=1):
                 view[f"{prefix}send/{index}/volume"] = value127(send.volume.value)
             launcher = self.model.launcher
@@ -556,11 +613,15 @@ def run_file(setup_name, file_name, phase=1, judge_all=False):
             session.advance(100)
             waited += 100
         session.advance(RESTART_REST_MS)
-        session.take()
+        startup = session.take()
         session.stubs = config.get("stub", [])
         session.advance(FRESH_PROJECT_MS + MARKER_MS)
-        session.take()
+        startup += session.take()
         leds = {}
+        # The JAM's files compare the LED state from the startup output on (the touch strips'
+        # setup is sent only then)
+        if config.get("keep_startup_output", False):
+            led_state(startup, leds, sysex_key_bytes)
         for step in config.get("setup", []):
             session.run_step(step, settle)
         led_state(session.take(), leds, sysex_key_bytes)
@@ -582,6 +643,10 @@ def run_file(setup_name, file_name, phase=1, judge_all=False):
                 problems = compare_leds(leds, theirs["leds"], patterns)
                 state = session.snapshot()
                 for key, value in theirs["bitwig"].items():
+                    if key.endswith("/playingNotes") and state.get(key.replace("/playingNotes", "/selected")) != "1":
+                        # zynthian plays the note inputs into the active chain; Bitwig into every
+                        # armed and monitored track (the Mk2 setup's /track/N/monitor 1)
+                        continue
                     if is_modelled(key) and state.get(key) != value:
                         if "/clip/step/" in key and step_known(state.get(key), value):
                             entry.known.append(f"step {index + 1}: STATE {key} ({STEP_REASON})")
