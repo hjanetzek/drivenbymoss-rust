@@ -1,0 +1,47 @@
+# DrivenByMoss on Zynthian
+
+zynthian controller drivers (ctrldev) which run DrivenByMoss controllers on zynthian: the core runs
+the controller, zynthian is its DAW. Plan and state: [doc/ZYNTHIAN_PLAN.md](../../doc/ZYNTHIAN_PLAN.md),
+analysis: [doc/ZYNTHIAN_INTEGRATION.md](../../doc/ZYNTHIAN_INTEGRATION.md).
+
+These files are licensed under the GPL (version 2 or later, [LICENSE.txt](LICENSE.txt)), as
+zynthian, whose classes they extend; the rest of the repository is LGPLv3.
+
+## Layout
+
+| Path | Content |
+| --- | --- |
+| `ctrldev/` | The files as they are installed into zynthian's `zyngine/ctrldev/`: the driver base `zynthian_ctrldev_base_dbm.py`, one module per controller (`zynthian_ctrldev_dbm_*.py`), the model adapter package `dbm_zynthian/` |
+| `tests/` | The tests without the zynthian UI (`run_tests.py`), the conformance scenarios against the adapter (`zyn_conformance.py`) |
+
+The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
+`dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
+
+## Running zynthian with the drivers of this checkout
+
+Build the library (`cargo build`), then start zynthian's desktop mode with this folder as an extra
+driver folder:
+
+```sh
+ZYNTHIAN_CTRLDEV_PATH=<this repository>/backends/zynthian/ctrldev <zynthian-ui>/desktop/zynthian_desktop.sh
+```
+
+`ZYNTHIAN_CTRLDEV_PATH` (folders separated by `:`) adds folders to zynthian's package
+`zyngine.ctrldev`; the drivers then import as if they were installed. The drivers find
+`bindings/python` and `target/debug` of this repository themselves; `DBM_PYTHON_DIR` and
+`DBM_LIBRARY` override them.
+
+## Tests
+
+```sh
+cargo build
+python3 backends/zynthian/tests/run_tests.py [-v]
+python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [phase|all]
+```
+
+They need a zynthian-ui checkout of the `dbm` branch: `$ZYNTHIAN_UI_DIR`, else `../zynthian-dbm`
+or `../zynthian-ui` next to this repository (`run_tests.py` exits with 77 without one), and plain
+Python 3.11+ (no JACK, no zynthian dependencies: `tests/zynstubs.py` stands in for them). The
+conformance test also needs the profile of the Bitwig setup
+(`~/.local/share/dbm-conformance/profiles/launchcontrol_xl`, or `DBM_PROFILE_DIR`). Because of the
+zynthian checkout they are not part of `ci/linux.sh`.

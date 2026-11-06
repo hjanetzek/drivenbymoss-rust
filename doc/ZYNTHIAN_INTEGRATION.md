@@ -53,7 +53,17 @@ Only what matters for a ctrldev driver [code, `git diff d6ed3592 HEAD`]:
   the `extern "C"` declarations of `zynseq.h`, so `libzynseq.so` exports it only C++-mangled (`nm
   -D`: `_Z17getTransportStatev`, §9 Z10); the state is visible as the exported global
   `g_nTransportState`. The Python wrapper's `transport_start/stop/toggle(client)` pass the
-  client's name as `bytes` to `transportStart(uint8_t id)` (§9 Z9).
+  client's name as `bytes` to `transportStart(uint8_t id)` (§9 Z9). zynseq.py declares the
+  result types of most `uint8_t`/`bool` functions (`c_uint8`, `c_bool`), but not of
+  `getTransportState`: only its low byte is defined.
+- **zynseq's recording** [code]: one mode, `enableMidiRecord(bool)` / `isMidiRecord()`
+  (`zynseq.h:277-285`): the notes and CCs of zynseq's MIDI input go into the selected pattern
+  (`selectPattern`) of the selected sequence (`selectSequence`), in real time while the sequence
+  plays, else step by step (`zynseq.cpp:287-420`). No arranger or timeline recording; the pattern
+  editor GUI switches it (`zynthian_gui_pated_base.toggle_midi_record`). The other recorders are
+  the SMF recorder (`state_manager.toggle_midi_record`, `libsmf`, MIDI files) and the audio
+  recorder (`zynthian_audio_recorder`, `jack_capture`). The Python `zynseq.add_pattern` passes 6
+  arguments to the 7 of `addPattern` (§9 Z12).
 - **The Qt UI** (`zynthian_qt_main.py`, `zynqt/`, PySide6, `ZYNTHIAN_UI=qt`) runs the same state
   manager, so the same ctrldev manager and drivers. It does not register
   `SS_GUI_SHOW_MESSAGE` (only `zyngui/zynthian_gui.py:2746` does): driver messages are not shown
@@ -71,6 +81,11 @@ Only what matters for a ctrldev driver [code, `git diff d6ed3592 HEAD`]:
   links it to the user's folder), else `$ZYNTHIAN_MY_DATA_DIR/ctrldev`, registered as the package
   `zyngine.ctrldev_user` with that path (`setup_user_ctrldev_package`, `:46-68`, `:100-108`).
   In desktop mode that is `~/.local/share/zynthian/my-data/ctrldev`, **not** `~/.config/zynthian`.
+- **`dbm` branch: `$ZYNTHIAN_CTRLDEV_PATH`** (folders separated by `:`) adds driver folders: they
+  are appended to the package `zyngine.ctrldev` (`__path__`) and scanned after
+  `zyngine/ctrldev`, so their modules and helper packages import as if they were installed there
+  (`setup_extra_ctrldev_dirs`). The DrivenByMoss drivers are developed in the dbm repository
+  (`backends/zynthian/ctrldev`) and loaded this way [observed in desktop mode].
 - Every `*.py` is imported as `zyngine.<dirname>.<module>`; modules starting with `__` or
   `zynthian_ctrldev_base` are skipped (`:108-110`). Sub-folders are not scanned (only `*.py` of the
   folder), so a helper package such as `zyngine/ctrldev/mackiecontrol/` (stock) or
@@ -285,6 +300,17 @@ the GUI shows) rather than zynmixer.
 | **Step grid** | zynseq patterns, as first analysis | as first analysis | phase 3 |
 | **Browser, markers** | – | – | not mapped |
 
+**The first instrument (`/primary`) without layers and pads** [code, core]: the layer modes of the
+core use the first instrument's layer bank only if `uses_layers` = `!hasDrumPads && hasLayers`
+(`src/framework/mode/parameter_mode.rs:349`), else its drum pad bank. Until the host reports pads,
+that bank holds the core's own 128 existing pads ("Drum 36", …, `src/daw/device.rs:320-345`). A
+host whose instruments have neither must therefore report the pads as absent
+(`/primary/pad/<i>/exists 0`); then the Launch Control XL's Layer Mix finds no item: the Track
+Focus and Track Control rows and the knob LEDs stay dark, no layer command is sent, Track Select
+next stays lit (the pad bank keeps its count of 128; there is no `pad/count` address), and the Mute
+mode still sends `primary pad/<n>/mute` for an absent pad [observed in the adapter's tests and the
+conformance run of layer_mix.toml].
+
 **Reuse of the reference host — decided** (ZYNTHIAN_PLAN.md §3): `ZynBridge(Bridge)`,
 `ZynReporter(Reporter)`, `ZynCommandHandler(CommandHandler)` reuse the loop, the change tracking,
 the dumps and the report again after value commands, the command parsing and dispatch, the
@@ -333,7 +359,9 @@ valueReset immediately soloToggle`; all chains reported flat with absolute posit
   driver finds the packages on `sys.path`, `$DBM_PYTHON_DIR` or `/usr/share/drivenbymoss/python`
   and the library through `$DBM_LIBRARY` (default `/usr/lib/drivenbymoss/libdrivenbymoss.so`)
   (`zyngine/ctrldev/dbm_zynthian/__init__.py`).
-- **Where the drivers live** (decided: they ship in the drivenbymoss package): nura's user driver
+- **Where the driver sources live** (decided): in the dbm repository, `backends/zynthian/` (GPL,
+  as zynthian); the zynthian-ui `dbm` branch has only the changes to zynthian itself.
+- **Where the drivers are installed** (decided: they ship in the drivenbymoss package): nura's user driver
   folder is per user (`$ZYNTHIAN_MY_DATA_DIR/ctrldev`, `~/.local/share/…`), which a package
   cannot fill, and a system `zyngine/ctrldev_user` folder would hide it (the manager takes
   `ctrldev_user` from the UI folder when it exists, §1). The package therefore installs the
@@ -385,4 +413,5 @@ fixes it.
 | Z9 | `zynlibs/zynseq/zynseq.py:632-648` (`transport_start/stop/toggle`) | The client name is passed as `bytes` to `transportStart(uint8_t id)` (no argtypes) | The id is the low byte of a pointer; `1 << id` with ids up to 255 overflows the 32-bit client mask; a stop with another pointer does not clear the start's bit, so the transport may not stop [effect: from the code] | present | dbm adapter calls libseq with a fixed id |
 | Z10 | `zynlibs/zynseq/zynseq.h` (the `extern "C"` block) | `getTransportState()` is not declared | `libzynseq.so` exports only the mangled C++ name: no C/ctypes caller can read the transport state | present | fixed (declared in `zynseq.h`) |
 | Z11 | `zyngui/zynthian_gui_base.py:544` (`on_title_timeout`), `zyngui/zynthian_gui_mixer.py:1394` (`clear_tempo_highlight`) | `threading.Timer` callbacks call Tk | After the Tk main loop has ended (exit) they raise "main thread is not in main loop" [observed at exit in desktop mode] | present | – |
+| Z12 | `zynlibs/zynseq/zynseq.py:574-576` (`add_pattern`) | Calls `addPattern(chan, sequence, track, time, pattern, force)`: 6 arguments for `addPattern(scene, phrase, sequence, track, position, pattern, force)` | The arguments are shifted: the arranger GUI's call (`zyngui/zynthian_gui_arranger.py:752`, `add_pattern(scene, sequence, track, time, pattern)`) reaches the C function as phrase = sequence, sequence = track, track = time, position = pattern, pattern = 0, force undefined [from the code, not run] | present | dbm adapter calls libseq |
 | N1 | nura: `zynautoconnect/zynthian_autoconnect.py:1463-1553` (`build_midi_port_name`) under PipeWire | No JACK aliases on PipeWire's MIDI bridge ports → uid without `/` | No dev_id: no device-specific driver matches or autoloads, `dev_in_2_dev_out` finds no output (§1) | present | fixed (`zynthian_pipewire_ports.py`) |
