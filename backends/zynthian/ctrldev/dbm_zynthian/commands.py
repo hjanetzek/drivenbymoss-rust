@@ -197,6 +197,9 @@ class ZynCommandHandler(CommandHandler):
         """``clip …`` on the cursor clip (clip.py): ``grid/<id>/…`` (the reference host's grid
         commands), ``loopLength``/``end`` (the pattern's beats, ``/inc`` relative), ``start`` and
         ``loopStart`` only 0, ``loop`` only on, ``clear``, ``duplicateContent``, ``transpose``.
+        A zynseq pattern starts at 0: a range with another start (the Launchpad's Clip Length
+        view sends ``loopStart``, ``loopLength``, ``end``, ``start`` for it) is not applied, also
+        not its length and end, until the next report.
         Not handled: ``duplicate``, ``name``, ``color``, ``shuffle``, ``accent``, ``pinned``."""
         parts = cmd.parts
         c = cmd.command
@@ -216,9 +219,14 @@ class ZynCommandHandler(CommandHandler):
         if clip is None:
             return c in ("loopLength", "end", "start", "loopStart", "loop", "clear", "duplicateContent", "transpose")
         if c in ("loopLength", "end"):
+            if self.daw.clip_start_request is not None:
+                return False
             clip.set_length(clip.beats + cmd.number if cmd.increment else cmd.number)
         elif c in ("start", "loopStart"):
-            return cmd.number == 0 and not cmd.increment
+            if cmd.number == 0 and not cmd.increment:
+                return True
+            self.daw.clip_start_request = cmd.number
+            return False
         elif c == "loop":
             return cmd.flag
         elif c == "clear":

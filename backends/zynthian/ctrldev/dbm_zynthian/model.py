@@ -366,6 +366,9 @@ class ZynthianModel:
         """The notes the core selected, per pattern: {(position, key)} (zynseq has no selection)."""
         self.clip_channel = 0
         """The MIDI channel the core addresses the cursor clip's notes with (zynseq has none)."""
+        self.clip_start_request = None
+        """A clip start other than 0 the core asked for since the last report (``clip loopStart``,
+        ``start``): the loop length and end of that range are not applied (commands.py)."""
         self._clip = None
         self.palette = [hex_to_rgb(color) or GRAY for color in palette or []]
         self.with_vu = with_vu

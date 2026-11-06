@@ -477,7 +477,9 @@ a sketch: `zyngine/ctrldev/zynthian_ctrldev_base_dbm.py` (ZYNTHIAN_PLAN.md §2).
    thread).
 
 **Conflicts with stock drivers**: as the first analysis (APC40 mkII same dev_id; Launchpad X/Mini
-MK3/Pro on another port of the same device; the generic Mackie driver).
+MK3/Pro on another port of the same device; the generic Mackie driver). The Launchpads: the stock
+drivers keep autoloading on the DAW port, the DrivenByMoss drivers (MIDI port) are picked by the
+user and unload the stock driver of the same device (ZYNTHIAN_PLAN.md §7b).
 
 ## 9. Zynthian bugs found
 

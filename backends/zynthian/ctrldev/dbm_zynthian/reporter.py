@@ -75,6 +75,8 @@ class ZynReporter(Reporter):
         state, a missing library function) is logged once and skipped: the others still report."""
         self.apply_pending_forgets()
         self.daw.invalidate_clip()
+        # The commands of the last pass are done (commands.py, a clip range not starting at 0)
+        self.daw.clip_start_request = None
         for collector in self.collectors:
             try:
                 collector(self)

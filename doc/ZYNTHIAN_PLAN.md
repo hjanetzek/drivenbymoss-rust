@@ -16,8 +16,13 @@ Status: 2026-11-06.
   zynseq pattern of the selected sequence, the Mk2's STEP mode and the LCXL's sequencers.
 - **The clip launcher** (phase 3, §3.6): the slots' play states, launch without zynseq's toggle,
   track stop, stop all, clip remove/duplicate/paste, scene create/remove/duplicate.
+- **The Novation Launchpads** (phase 3, §7b): drivers for the five models of the core on their
+  MIDI ports, beside zynthian's own drivers on the DAW ports (the user picks, the DrivenByMoss
+  driver then unloads the stock one); the Launchpad X and Mini MkIII with the core against the
+  adapter (session, note, drum, sequencer, clip length, mixer, device views). **Phase 3 is done
+  in the adapter**; no Launchpad was connected (§7b has the checklist).
 
-88 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
+109 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
 
 **Goal.** zynthian controller drivers (ctrldev) host the DrivenByMoss core, so that the core's
 controllers drive zynthian: the core runs the controller (modes, LEDs, displays), zynthian is its
@@ -77,7 +82,7 @@ zynthian-ui's style (4 spaces, its header, its imports) and adds no dependency.
 | File | Content |
 | --- | --- |
 | `zynthian_ctrldev_base_dbm.py` | `zynthian_ctrldev_base_dbm(zynthian_ctrldev_base)`: lifecycle, tick thread, MIDI queue, state, sleep. Skipped by the manager (name prefix `zynthian_ctrldev_base`) |
-| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag`. Now: `launchcontrol_xl`, `maschine_mk2` |
+| `zynthian_ctrldev_dbm_<controller>.py` | One class per controller, the module's name: `dev_ids`, `dbm_controller_id`, `driver_name`, `driver_description`, `autoload_flag`, `replaces_dev_ids` (§7b). Now: `launchcontrol_xl`, `maschine_mk2`, `launchpad_x`, `launchpad_mini_mk3`, `launchpad_pro_mk3`, `launchpad_pro`, `launchpad_mk2` |
 | `dbm_zynthian/__init__.py` | `import_dbm()`: finds `drivenbymoss` and `dbm_host` (`sys.path`, `$DBM_PYTHON_DIR`, this repository's `bindings/python`, `/usr/share/drivenbymoss/python`), defaults `$DBM_LIBRARY` |
 | `dbm_zynthian/{model,reporter,commands,bridge,device,transport,launcher}.py` | The model adapter (§3) |
 | `dbm_zynthian/generate.py` (phase 4) | Writes the per-controller modules from `dbm_list_controllers()` and a port table |
@@ -107,6 +112,7 @@ this one:
   the generator takes it from a table of each device's ports, filled from hardware.
 - **Launch Control XL** (seen on hardware): ports "Launch Contro" (0) and "HUI" (1) → dev_id
   `Launch Control XL IN 1`; HUI (`IN 2`) gets no driver. Output: `OUT 1` via `dev_in_2_dev_out`.
+- **Launchpads** (from the code, not seen on hardware): §7b.
 
 ### 2.2 The tick thread
 
@@ -241,7 +247,7 @@ unchanged. The notes are read once per collection and per command.
 | Core | zynseq |
 | --- | --- |
 | `/clip/exists` | the cursor slot has a pattern (a MIDI chain) |
-| `/clip/start`, `loopStart` | 0 (only 0 is accepted) |
+| `/clip/start`, `loopStart` | 0 (only 0 is accepted; a range with another start, e.g. from the Launchpad's Clip Length view, is not applied, also not its `loopLength` and `end`, until the next report) |
 | `/clip/end`, `loopLength` (+ commands, `/inc`) | `getBeatsInPattern` / `setBeatsInPattern` (whole beats, at least 1) |
 | `/clip/loop` | 1 (a pattern loops) |
 | `/clip/shuffle`, `/clip/pinned` | 0 (`shuffle`, `accent`, `pinned`, `name`, `color`, `duplicate` not handled) |
@@ -355,12 +361,21 @@ maschine_jam session all`) but is not judged: the JAM's LEDs differ throughout (
 empty slots' colors) and the stand-in zynseq has no clock (a launched slot stays STARTING, Bitwig's
 fixture plays at once); left for the JAM work.
 
-Open: a Launchpad (X or Mini MK3 on port 2) driver module; the launcher on the real device (the
-hand checks of §7) and the gaps of §3.6.
+**Done in the adapter: the Launchpad** (§7b): driver modules for the X, Mini MkIII, Pro Mk3,
+Pro and MkII; the X and the Mini MkIII with the core against the adapter (`test_launchpad.py`):
+the session view launches and stops with the LED states, the scene buttons start phrases, the note
+view plays the active chain, the note and drum sequencers edit the pattern, the clip length view,
+the mixer and device views. Fixed on the way: a clip range not starting at 0 (§3.5).
 
-Acceptance: session view launches and stops sequences with the right LED states; scene launch
-starts the phrase; the note view plays the active chain; the step sequencer edits the selected
-pattern; the fitting Launchpad conformance scenarios pass against the adapter.
+Open: the Launchpad and the launcher on the real devices (the hand checks of §7 and §7b), the gaps
+of §3.6 and §7b, two core bugs found with the Launchpad (§7b: the blinking pads' base color, a
+core error from the Shift view's mode buttons).
+
+Acceptance: session view launches and stops sequences with the right LED states (met, apart from
+the core's blink color, §7b); scene launch starts the phrase (met); the note view plays the active
+chain (met); the step sequencer edits the selected pattern (met); the fitting Launchpad
+conformance scenarios pass against the adapter: **skipped**, `tests/conformance` has no Launchpad
+scenarios yet (no Bitwig reference recorded for a Launchpad).
 
 Risks: launch is a toggle in zynseq; one pattern per sequence; note latency (then a midiproc); two
 drivers on two ports of one Launchpad.
@@ -394,7 +409,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (72), from this repository, after `cargo build`:
+**(a) The driver tests** (109), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -414,6 +429,7 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_pipewire_ports.py` | 2: the drivers' dev_ids against zynthian's PipeWire uids (the LCXL's controls port, not HUI; dbm-nihost's Mk2 port, not the JAM's or the Mk2's own MIDI port) |
 | `test_conformance_lcxl.py` | 5: §6 b (the LCXL's track mix, note and drum sequencers; the Mk2) |
 | `test_clip.py` | 13: the cursor clip on a zynseq pattern (properties, steps both ways, resolutions that don't divide, one note per zynseq step, the attributes zynseq has and those it doesn't, set/update/moveY, rows, columns, length, duplicate, transpose, clear, the playhead, the pattern editor's selection kept, the note selection, zynseq's Python state); the Mk2's STEP mode with the core (a pad writes the pattern, a note added in zynseq lights its pad, the playhead, the step off) |
+| `test_launchpad.py` | 21: the Launchpad drivers' dev_ids (from the core's discovery names, not the stock drivers' ports, PipeWire), autoload against the stock drivers, the stock driver of the same device unloaded; the X and the Mini MkIII with the core (session launch, stop and LEDs, scenes, the note view through the driver, sequencer, drum view, clip length, mixer, device view); 2 expected failures: the core's blink color (§7b) |
 | `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
@@ -581,11 +597,120 @@ with a synth, e.g. MDA DX10, selected):
    the selected chain changes while a pad is held.
 8. TEMPO + encoder changes zynthian's tempo; Shift (dbm-nihost's) + TAP toggles the metronome.
 
+## 7b. The Novation Launchpads
+
+**Why:** the Launchpads are the core's grid controllers: the session view on zynseq's launcher,
+the note, drum and sequencer views on the active chain and its pattern, mixer and device views.
+zynthian has its own drivers for four of them (a launcher view on the DAW port); DrivenByMoss
+runs the device from its MIDI port in programmer mode.
+
+**Drivers** (`backends/zynthian/ctrldev/zynthian_ctrldev_dbm_launchpad_*.py`, written by hand,
+the same pattern as the LCXL's; the generator of §2 is phase 4):
+
+| Module | Core model (UUID) | dev_id (the core's port) | zynthian's driver (its port) | Autoload |
+| --- | --- | --- | --- | --- |
+| `launchpad_x` | Launchpad X (`CD196CCF-…`) | `Launchpad X IN 2` (port 1 "LPX MIDI") | `zynthian_ctrldev_launchpad_x`, `Launchpad X IN 1` (DAW) | no |
+| `launchpad_mini_mk3` | Launchpad Mini MkIII (`A17B269D-…`) | `Launchpad Mini MK3 IN 2` (port 1 "LPMiniMK3 MIDI") | `zynthian_ctrldev_launchpad_mini_mk3`, `Launchpad Mini MK3 IN 1` (DAW) | no |
+| `launchpad_pro_mk3` | Launchpad Pro Mk3 (`4EDED44C-…`) | `Launchpad Pro MK3 IN 1` (port 0 "LPProMK3 MIDI") | `zynthian_ctrldev_launchpad_pro_mk3`, `Launchpad Pro MK3 IN 3` (DAW) | no |
+| `launchpad_pro` | Launchpad Pro, 2015 (`80B63970-…`) | `Launchpad Pro IN 2` (port 1, Standalone) | `zynthian_ctrldev_launchpad_pro_mk2`, `Launchpad Pro IN 1` (Live) | no |
+| `launchpad_mk2` | Launchpad MkII (`4E01A0B0-…`) | `Launchpad MK2 IN 1` (its only port) | none (`launchpad_mini` is the Mini MK1, `Launchpad Mini IN 1`) | yes |
+
+**The port names: confirmed vs. inferred** (no Launchpad was connected):
+
+- Confirmed by code: the card names `Launchpad X`, `Launchpad Mini MK3`, `Launchpad Pro MK3` and
+  `Launchpad Pro` and the ports of zynthian's drivers (their `dev_ids`); the core's Linux input
+  names `Launchpad X MIDI 2`, `Launchpad Mini MK3 MIDI 2`, `Launchpad Pro MK3 MIDI 1`, `Launchpad
+  Pro MIDI 2`, `Launchpad MK2 MIDI 1` (`src/controller/launchpad/definition.rs`) and with them, by
+  the rule of §2.1 (`<card> MIDI <n>` → `<card> IN <n>`), the dev_ids above. Both fit Novation's
+  port order (X, Mini MK3: DAW, MIDI; Pro MK3: MIDI, DIN, DAW; Pro: Live, Standalone, MIDI).
+- Inferred: that ALSA's port order is that order on Linux (seen only for the LCXL); the MkII's card
+  name `Launchpad MK2` (only from the core's names); under PipeWire that the bridge's client is the
+  card name and its ports come in ALSA's order (seen for the LCXL), so the `dbm` branch gives the
+  same dev_ids; the ports' PipeWire names ("LPX MIDI Out" etc., not needed for the dev_id). On
+  ZynthianOS (jackd) the dev_ids come from `/proc/asound/cardN/midi0` and the port index: the same.
+  The tests check the dev_ids against the core's names, zynthian's drivers and
+  `zynthian_pipewire_ports.py` with assumed port names.
+
+**Which driver wins, and how the user picks.** Both drivers can't run one device: zynthian's puts
+it into DAW mode and draws its launcher on the DAW port, DrivenByMoss switches it to programmer
+mode and draws on the MIDI port. Decided:
+
+1. **zynthian's driver wins by default**: it autoloads on its port (the stock drivers keep
+   zynthian's `autoload_flag = True`); the DrivenByMoss drivers of these four models do not
+   autoload (`autoload_flag = False`). The MkII has no stock driver and autoloads.
+2. **The user picks DrivenByMoss** in zynthian's driver selection per device: the MIDI device
+   options of the MIDI port (`Launchpad X IN 2`) list "DrivenByMoss Launchpad X"; loading it
+   **unloads zynthian's driver on the DAW port of the same device** (`replaces_dev_ids`, the same
+   device = the same uid before "/", so a second Launchpad X keeps its driver), as "disabled"
+   (`unload_driver(izmip, True)`), before the core starts. The ZS3/snapshot stores both (per uid:
+   `ctrldev_driver` on IN 2, `disable_ctrldev` on IN 1), so the choice survives a restart.
+3. **Back to zynthian's driver**: unload DrivenByMoss on the MIDI port, then load zynthian's driver
+   on the DAW port in its options. The other way round is not watched: loading zynthian's driver
+   while DrivenByMoss runs gives two drivers on one device.
+
+**What the views need from the adapter** (run with the core: `test_launchpad.py`, and probes
+through all views of the X; nothing new was missing apart from the clip range):
+
+| View | Adapter | State |
+| --- | --- | --- |
+| Session | §3.6: slots launch (not toggle), play states → LEDs (stopped: the chain's color; queued: flashing; playing: pulsing), scene buttons → phrases, stop through the Mix view's stop row or the Stop Clip mode | ✓ (LEDs: core bug below) |
+| Play, Piano, Drum 64, Chords | §3.4: note input `80????`/`90????`, the key tables of the views, the driver plays at once | ✓ (tested: Play through the driver; Piano, Drum 64 key tables probed; Chords not run) |
+| Sequencer, Poly Seq., Raindrops, Drum, Drum 4/8 | §3.5: `grid/8x128`, `grid/32x128` … on the cursor slot's pattern | ✓ (tested: Sequencer, Drum; the others activated without errors). The Drum view shows 32 steps: at 1/16 its lower two rows are beats 4–8, beyond a 4-beat pattern, and are not stored (zynseq has nothing outside the pattern) |
+| Clip Length | `loopLength`/`end` from the first pad; a range from another pad is not applied (**fixed**: its `end` became the pattern's length, e.g. 228 beats) | ✓ |
+| Mix, Volume, Pan, Sends | the mixer (§3.2): stop, mute, solo, rec arm, volume, pan, sends | ✓ (tested: the Mix view's stop, mute, solo, rec arm; the fader views use the commands the LCXL uses, not run) |
+| Device | the cursor device's 8 parameters as faders, bypass; window/expand/page section accepted | ✓; pinning not handled (logged) |
+| User (Device twice) | Bitwig's project/track parameters | – zynthian has none: the faders do nothing |
+| Drum pads' colors | `/drum` | – no drum machine (§3.2): the pads play, unlit as "no pad" |
+| Note repeat (Shift) | `noterepeat …` | – logged (as the Mk2, §9 5) |
+
+**Core bugs found** (not fixed: no Rust changes in this package):
+
+1. **The blinking pads lose their color** (X, Mini MkIII, Pro Mk3; the Pro and MkII similarly).
+   Java's `LaunchpadPadGrid` sends every pad through the LED sysex; the core sends the static
+   color as a note and then the sysex of the blinking pads with color 0
+   (`src/framework/grid.rs` `send_state`, `BlinkMode::Collect`: `pending_blinks` gets only the
+   blink color). A playing slot pulses black instead of in its color, a queued one flashes
+   between green and black. `test_playing_pad_pulses_in_its_color` is an expected failure.
+2. **The Shift view's mode buttons** (Shift tapped, then a scene button: Volume … Stop Clip, Mute,
+   Solo, Rec Arm) give "Feature group is already in use while (de-)activating it." (also with the
+   reference host's SimDaw); the mode is set, but the tests use the Mix view for stopping.
+
+**Not covered:** Launchpad conformance (there are no Launchpad scenarios in `tests/conformance`);
+the Pro, Pro Mk3 and MkII with the core (only their matching: their buttons differ); the device
+itself.
+
+**Checklist for the device** (zynthian started with the run command, a Launchpad X or Mini MK3,
+a chain with a synth selected, a pattern with notes in phrase 1, zynthian's launcher visible):
+
+1. Plug it in: zynthian's own driver loads on `… IN 1` (its launcher on the pads), DrivenByMoss
+   does not load on `… IN 2`.
+2. MIDI device options of `… IN 2`: load "DrivenByMoss Launchpad X": the pads change to the Play
+   view (programmer mode), zynthian's driver on `… IN 1` is unloaded (unchecked). Save the
+   snapshot, restart zynthian: the same again without picking.
+3. Play view: the pads play the synth, light while held; change the chain while holding a pad: no
+   hanging note; the latency as played.
+4. Session (the Session button): the top-left pad is chain 1, phrase 1, in the chain's color;
+   press it: it flashes, then pulses while playing (expected with the core bug: dark pulses);
+   again: it keeps playing; zynthian's launcher shows the same. Scene buttons: the phrase starts.
+5. Shift + Session (Mix): the fifth row stops a chain at the next sync point (the pad flashes
+   until then); the mute, solo and rec arm rows change zynthian's mixer.
+6. Note, then the pad in row 4, column 1 (Sequencer): the top rows toggle notes in zynthian's
+   pattern editor; the playhead runs while it plays. Note, row 6, column 1 (Drum): the 4×4 pads
+   play drum notes, the upper half edits their steps.
+7. Note, row 7, column 1 (Clip Length): the first pad, or the first and a later one held, set
+   the pattern's length in zynthian; a range from another pad changes nothing.
+8. Device: the 8 columns move the synth's parameters (zynthian's control screen follows).
+9. Unload DrivenByMoss in the options: the device leaves programmer mode; load zynthian's driver
+   on `… IN 1` again.
+
 ## 8. State (2026-11-06)
 
-drivenbymoss-rust (after `7c10928`, not committed): the clip launcher (`dbm_zynthian/launcher.py`,
-the reporter's slot states, the commands, the stand-in libseq's play states and phrase
-management, `test_launcher.py`), this plan (§3.2, §3.6, §4, §7), the analysis (§4, §9 Z14).
+drivenbymoss-rust (after `66f2c3f`, not committed): the Launchpad drivers
+(`zynthian_ctrldev_dbm_launchpad_{x,mini_mk3,pro_mk3,pro,mk2}.py`), `replaces_dev_ids` in the
+driver base (the stock driver of the same device unloaded), the clip range fix (`commands.py`,
+`model.py`, `reporter.py`), `test_launchpad.py`, this plan (status, §2, §2.1, §3.5, §4 phase 3
+done in the adapter, §6, §7b), the README. Phase 3 is done in the adapter; open are the device
+checks (§7, §7b) and the two core bugs of §7b.
 
 zynthian-ui `dbm`: no changes since `bc396034`.
 
@@ -601,3 +726,7 @@ zynthian-ui `dbm`: no changes since `bc396034`.
 5. The Mk2's note repeat: zynthian has no arpeggiator; implement one in the driver (from the
    core's `noterepeat` commands), or leave it?
 6. ZynthianOS: a dev_id rule for a2j ports (dbm-nihost there), if the Mk2 should work on it.
+7. The Launchpads: should DrivenByMoss win by default (autoload, unloading zynthian's driver), or
+   stay the user's choice as now (§7b)? And should a DrivenByMoss driver notice zynthian's driver
+   being loaded on the DAW port later?
+8. The core's blink color and the Shift view's mode buttons (§7b): fix in the core.

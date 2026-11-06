@@ -40,6 +40,7 @@ from queue import SimpleQueue, Empty
 from threading import Thread, Event
 
 # Zynthian specific modules
+import zynautoconnect
 from zyncoder.zyncore import lib_zyncore
 from zyngine.zynthian_signal_manager import zynsigman
 from zyngine.ctrldev.zynthian_ctrldev_base import zynthian_ctrldev_base
@@ -76,6 +77,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     dbm_controller_id = None    # The UUID of the controller in the core (dbm_list_controllers)
     unroute_from_chains = True  # The core owns all MIDI of the device
     autoload_flag = False       # The subclasses decide
+    replaces_dev_ids = []       # The device IDs of the device's other ports whose drivers this one replaces
     with_vu = True              # Report the peak meters of the mixer strips
 
     def __init__(self, state_manager, idev_in, idev_out=None):
@@ -112,6 +114,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     # ---------------------------------------------------------------------------
 
     def init(self):
+        # Before the core talks to the device: no second driver on another port of it
+        self.unload_replaced_drivers()
         # Registers the chain and snapshot signals, which call refresh
         super().init()
         self.exit_flag = False
@@ -127,6 +131,28 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             self.thread.join(5)
         self.thread = None
         super().end()
+
+    def unload_replaced_drivers(self):
+        """A device with ports for more than one driver (the Launchpads: zynthian's own driver
+        on the DAW port, DrivenByMoss on the MIDI port) can only have one of them: loading this
+        driver unloads the other one, of the same device (the part of the uid before "/"), as
+        "disabled", so that the ZS3 and snapshots keep the choice (doc/ZYNTHIAN_PLAN.md §7b)."""
+        if not self.replaces_dev_ids:
+            return
+        manager = getattr(self.state_manager, "ctrldev_manager", None)
+        uid = zynautoconnect.get_midi_in_uid(self.idev)
+        if manager is None or not uid or "/" not in uid:
+            return
+        device = uid.split("/", 1)[0]
+        for izmip, driver in list(manager.drivers.items()):
+            other = zynautoconnect.get_midi_in_uid(izmip)
+            if izmip == self.idev or not other or "/" not in other:
+                continue
+            other_device, dev_id = other.split("/", 1)
+            if other_device == device and dev_id in self.replaces_dev_ids:
+                logging.info(f"[{self.__class__.__name__}] Unloading '{driver.get_driver_name()}' on '{dev_id}': "
+                             f"DrivenByMoss runs the device")
+                manager.unload_driver(izmip, True)
 
     def refresh(self):
         """Chains added, removed or moved, a snapshot loaded: report everything again."""

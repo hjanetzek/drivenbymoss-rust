@@ -15,7 +15,11 @@ zynthian, whose classes they extend; the rest of the repository is LGPLv3.
 | `tests/` | The tests without the zynthian UI (`run_tests.py`), the conformance scenarios against the adapter (`zyn_conformance.py`) |
 
 Controllers: the Novation Launch Control XL; the Native Instruments Maschine Mk2, which needs
-dbm-nihost (`support/linux/ni_host`) for its MIDI ports, displays and Shift button.
+dbm-nihost (`support/linux/ni_host`) for its MIDI ports, displays and Shift button; the Novation
+Launchpad X, Mini MkIII, Pro Mk3, Pro and MkII on their MIDI ports. zynthian's own Launchpad
+drivers (on the DAW ports) autoload; pick "DrivenByMoss Launchpad …" in the MIDI device options
+of the MIDI port (`Launchpad X IN 2`), which then unloads zynthian's driver of that device
+([plan §7b](../../doc/ZYNTHIAN_PLAN.md)). The MkII has no zynthian driver and autoloads.
 
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
