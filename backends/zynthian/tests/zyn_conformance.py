@@ -83,6 +83,7 @@ from dbm_host import NoteGrid  # noqa: E402
 from dbm_host.bridge import TICK_MS  # noqa: E402
 
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
+from zyngine.ctrldev.dbm_zynthian.launcher import slot_states  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel  # noqa: E402
 
 # The scenarios each phase judges, per setup and file (doc/ZYNTHIAN_PLAN.md §6 b)
@@ -450,7 +451,7 @@ class Session:
                 exists = chan is not None and phrase < launcher.num_phrases()
                 view[slot + "isSelected"] = "1" if exists and track.selected and phrase == launcher.selected_phrase else "0"
                 view[slot + "hasContent"] = "1" if exists and launcher.has_content(phrase, chan) else "0"
-                view[slot + "isPlaying"] = "1" if exists and launcher.play_state(phrase, chan) in (1, 3) else "0"
+                view[slot + "isPlaying"] = "1" if exists and slot_states(launcher.play_state(phrase, chan))[0] else "0"
         selected = next((t for t in self.model.tracks() if t.selected), None)
         view["osc:/track/selected/name"] = selected.name if selected else ""
         self.model.invalidate_clip()

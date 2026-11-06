@@ -42,11 +42,16 @@ metronomeVolume[/inc]|tapTempo``, ``tempo <bpm>|+|-|++|--`` (with zynseq), and `
 ``primary parameterPage|param/<i>/…|bypass|select`` (the first instrument; its pads and layers
 are not handled).
 
-Recording (launcher.py): ``record``, ``transport overdub/launcher|overdub/arranger``,
-``track <p>/createClip/<s>``, ``track <p>/clip/<s>/record|select|launch``, ``scene <s>/select|launch``.
+Recording and the clip launcher (launcher.py): ``record``, ``transport overdub/launcher|
+overdub/arranger``, ``track <p>/createClip/<s>``, ``track <p>/clip/<s>/record|select|launch|
+launchAlt|launchRelease|launchReleaseAlt|remove|duplicate|paste``, ``track <p>/stop|stopAlt``,
+``scene <s>/select|launch|launchAlt|launchRelease|launchReleaseAlt|remove|duplicate``, ``scene
+stop|stopAlt``, ``project createScene|createSceneFromPlayingLauncherClips``, ``clip duplicate``
+(the cursor slot).
 
-Everything else is logged as not handled, e.g. scene launch, ``send/<s>/active`` (zynthian's
-sends have no switch), ``device remove|duplicate``, the Reaper-only transport forms.
+Everything else is logged as not handled, e.g. ``send/<s>/active`` (zynthian's sends have no
+switch), ``device remove|duplicate``, slot and scene ``name``/``color``, the Reaper-only
+transport forms.
 """
 
 import logging
@@ -84,6 +89,7 @@ class ZynCommandHandler(CommandHandler):
         self.register("scene", self._scene)
         self.register("drum", self._drum)
         self.register("clip", self._clip)
+        self.register("project", self._project)
         if self.daw.transport is not None and self.daw.transport.available:
             self.register("transport", self._transport, TRANSPORT_FEATURES)
             self.register("tempo", self._tempo)
@@ -152,10 +158,14 @@ class ZynCommandHandler(CommandHandler):
             return self.send_command(track, sub[1:], cmd)
         if sub[0] in ("createClip", "clip"):
             return self.slot_command(track, sub, cmd)
+        if sub in (["stop"], ["stopAlt"]):
+            launcher = self.daw.launcher
+            return launcher is not None and launcher.available and launcher.stop_track(track, sub[0] == "stopAlt")
         return self.channel_command(track, sub, cmd)
 
     def slot_command(self, track, sub, cmd):
-        """``createClip/<s>``, ``clip/<s>/record|select|launch`` (launcher.py)."""
+        """``createClip/<s>``, ``clip/<s>/record|select|launch|remove|duplicate|paste``
+        (launcher.py)."""
         launcher = self.daw.launcher
         if launcher is None or not launcher.available or len(sub) < 2:
             return False
@@ -171,6 +181,16 @@ class ZynCommandHandler(CommandHandler):
                 return launcher.launch(track, phrase)
             if sub[2] in ("launchRelease", "launchReleaseAlt"):
                 return 0 <= phrase < launcher.num_phrases()  # zynseq launches on press
+            if sub[2] == "remove":
+                return launcher.remove(track, phrase)
+            if sub[2] == "duplicate":
+                return launcher.duplicate(track, phrase)
+            if sub[2] == "paste":
+                source = (cmd.text or "").split("/")
+                tracks = self.daw.track_list(self.banks.full_flat_track_list)
+                if len(source) != 2 or not 0 <= parse_index(source[0]) < len(tracks):
+                    return False
+                return launcher.paste(track, phrase, tracks[parse_index(source[0])], parse_index(source[1]))
         return False
 
     def _clip(self, cmd):
@@ -190,6 +210,8 @@ class ZynCommandHandler(CommandHandler):
                     self.daw.clip_channel = channel
                     self.daw.invalidate_clip()
             return self.grid_command(grid, parts[2:], cmd)
+        if c == "duplicate":
+            return self.duplicate_cursor_slot()
         clip = self.daw.cursor_clip()
         if clip is None:
             return c in ("loopLength", "end", "start", "loopStart", "loop", "clear", "duplicateContent", "transpose")
@@ -215,10 +237,15 @@ class ZynCommandHandler(CommandHandler):
         return cmd.command == "indicate"
 
     def _scene(self, cmd):
-        """``scene <s>/select|launch|launchAlt|launchRelease|launchReleaseAlt`` (launcher.py)."""
+        """``scene <s>/select|launch|launchAlt|launchRelease|launchReleaseAlt|remove|duplicate``,
+        ``scene stop|stopAlt`` (launcher.py)."""
         launcher = self.daw.launcher
         parts = cmd.parts
-        if launcher is None or not launcher.available or len(parts) != 2:
+        if launcher is None or not launcher.available:
+            return False
+        if cmd.command in ("stop", "stopAlt"):
+            return launcher.stop_all(cmd.command == "stopAlt")
+        if len(parts) != 2:
             return False
         phrase = parse_index(parts[0])
         if parts[1] == "select":
@@ -227,7 +254,32 @@ class ZynCommandHandler(CommandHandler):
             return launcher.launch_scene(phrase)
         if parts[1] in ("launchRelease", "launchReleaseAlt"):
             return 0 <= phrase < launcher.num_phrases()
+        if parts[1] == "remove":
+            return launcher.remove_scene(phrase)
+        if parts[1] == "duplicate":
+            return launcher.duplicate_scene(phrase)
         return False
+
+    def _project(self, cmd):
+        """``project createScene`` (the length is ignored, as by Bitwig),
+        ``createSceneFromPlayingLauncherClips`` (launcher.py)."""
+        launcher = self.daw.launcher
+        if launcher is None or not launcher.available:
+            return False
+        if cmd.command == "createScene":
+            return launcher.create_scene()
+        if cmd.command == "createSceneFromPlayingLauncherClips":
+            return launcher.create_scene_from_playing()
+        return False
+
+    def duplicate_cursor_slot(self):
+        """``clip duplicate``: the cursor slot's pattern into the slot below."""
+        launcher = self.daw.launcher
+        selected = launcher.selected_sequence() if launcher is not None and launcher.available else None
+        track = next((t for t in self.daw.tracks() if t.selected), None)
+        if selected is None or track is None or launcher.sequence_of(track) != selected[1]:
+            return True  # No cursor clip: nothing to duplicate
+        return launcher.duplicate(track, selected[0])
 
     def _record(self, cmd):
         """``record``: MIDI record on/off into the cursor slot's pattern."""

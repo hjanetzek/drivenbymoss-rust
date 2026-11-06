@@ -14,8 +14,10 @@ Status: 2026-11-06.
   a desktop run with the device; confirmed by the user on the device.
 - **The step grid** (phase 3, pulled forward, §3.5): the cursor clip and its step grids on the
   zynseq pattern of the selected sequence, the Mk2's STEP mode and the LCXL's sequencers.
+- **The clip launcher** (phase 3, §3.6): the slots' play states, launch without zynseq's toggle,
+  track stop, stop all, clip remove/duplicate/paste, scene create/remove/duplicate.
 
-72 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
+88 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
 
 **Goal.** zynthian controller drivers (ctrldev) host the DrivenByMoss core, so that the core's
 controllers drive zynthian: the core runs the controller (modes, LEDs, displays), zynthian is its
@@ -163,7 +165,7 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | First instrument `/primary` (`deviceIds` `FIRST_INSTRUMENT`) | the active chain's first processor of type "MIDI Synth" (the synth engine): name, bypass, pages and parameters as the cursor device; commands `parameterPage`, `param/<i>/…`, `bypass`, `select` | ✓ | `hasDrumPads 0`, `hasLayers 0`, `layer/count 0`, the 128 pads reported absent (`pad/<i>/exists 0`): the core's layer and pad views find no item (unlit, no layer commands); Track Select next stays lit (the core keeps 128 pads); `primary pad/<n>/mute` is still sent by the Mute mode and logged once as not handled (analysis §4) |
 | Transport, tempo | `getTransportState`, `transportStart(6)`/`transportStop(255)`, tempo, tap, bpb, metronome mode `TRANSPORT`/`OFF` and volume | ✓ | no position, loop, punch, automation |
 | Recording | §3.3 | ✓ | – |
-| Scenes, slots | the phrases of zynseq's current scene; slot `s` of a MIDI chain = sequence (phrase `s`, its channel) | reported, select/launch/record/createClip (§3.3) | scene launch, stop, clip delete/duplicate: phase 3 |
+| Scenes, slots | the phrases of zynseq's current scene; slot `s` of a MIDI chain = sequence (phrase `s`, its channel); the play states, launch, stop, remove/duplicate/paste, scene create/remove/duplicate: §3.6 | ✓ | no slot/scene names and colors (the chain's color, scenes gray); an empty slot's launch starts the sequence (no stop button); no restart on relaunch, no alternative quantization (`launchAlt` = `launch`) |
 | Note inputs | §3.4 | ✓ (the Mk2's pads) | – |
 | Cursor clip, step grids `/clip/…` | §3.5: the pattern of the cursor slot | ✓ | no shuffle, accent, pinning; pan, gain, repeat … of the steps |
 | Pinning, loop | `/track/pinned -1`, `/device/pinned 0`, `/repeat 0` (zynthian has neither) | ✓ | without them the core lights a Pin button and never writes the loop LED |
@@ -180,7 +182,7 @@ into a launcher slot", as Bitwig records into a clip launcher slot (`dbm_zynthia
 | --- | --- |
 | `track <p>/createClip/<s> <beats>` (LCXL: Record Arm + Track Focus 1 "new clip") | the slot's pattern, created and added if there is none, its length set |
 | `track <p>/clip/<s>/record` | select the phrase, the sequence, its pattern; MIDI record on; start the sequence |
-| `track <p>/clip/<s>/select`, `launch` | select; start if stopped |
+| `track <p>/clip/<s>/select`, `launch` | select; start if stopped (the launch semantics: §3.6) |
 | `record` (toggle) | MIDI record on/off into the cursor slot (the active chain in the selected phrase) |
 | `transport overdub/launcher <0\|1>` (LCXL: Record Arm + Track Focus 2) | MIDI record on/off for the selected pattern |
 | `transport overdub/arranger` | ignored (no arranger) |
@@ -271,6 +273,44 @@ zynseq's Python state (the launcher GUI) at most every 0.5 s after a change. Rac
 editor (GUI thread) and the tick thread both select patterns; between the adapter's select and
 restore the GUI could read the wrong pattern [not observed].
 
+### 3.6 The clip launcher
+
+zynseq's launcher (`dbm_zynthian/launcher.py`; tests `backends/zynthian/tests/test_launcher.py`).
+zynseq's own launch is a toggle (`togglePlayState`); the core's commands are mapped to explicit
+`setPlayState` calls with Bitwig's meaning (the reference host's `Slot.launch`, `Track.stop`):
+
+| Core | zynseq |
+| --- | --- |
+| `/track/<p>/slot/<s>/playing` | `getPlayState` PLAYING, STOPPING, STOPPING_SYNC (a queued stop still plays, as Bitwig's) |
+| `…/playQueued`, `…/stopQueued` | STARTING; STOPPING, STOPPING_SYNC (`recQueued` always 0: MIDI record starts at once) |
+| `track <p>/clip/<s>/launch`, `launchAlt` | stopped (STOPPED, FORCED_STOP) → STARTING; a queued stop → PLAYING; playing or starting: unchanged (zynseq's toggle would stop it; Bitwig's relaunch keeps it playing) |
+| `…/launchRelease`, `launchReleaseAlt` | nothing (no gate launch mode) |
+| `track <p>/stop` | the chain's sequences in all phrases: PLAYING → STOPPING_SYNC (as zynseq's toggle), STARTING → STOPPED |
+| `track <p>/stopAlt` | the same at once (STOPPED) |
+| `scene stop`, `stopAlt` (stop all clips) | the same for every phrase launcher (PLAYING/CHILD_PLAYING → CHILD_STOPPING, its sequences stop at their end) and all 32 sequences of every phrase |
+| `track <p>/clip/<s>/remove` | stop at once, `clearPattern` (the pattern stays with its length: zynseq has one per sequence) |
+| `track <p>/clip/<s>/duplicate`, `clip duplicate` (cursor slot) | `copyPattern` into the slot below, if there is one and the slot has notes (the reference host's `duplicateClip`) |
+| `track <p>/clip/<s>/paste <track>/<slot>` | `copyPattern` from the source slot |
+| `scene <s>/launch`, `launchAlt` | select the phrase; its launcher (channel 32): stopped or only some sequences playing (CHILD_PLAYING/CHILD_STOPPING) → STARTING, a queued stop → PLAYING, playing/starting unchanged |
+| `scene <s>/remove` | `zynseq.remove_phrase` (refuses the last phrase; libseq stops all sequences first, analysis §9 Z14) |
+| `scene <s>/duplicate` | `zynseq.duplicate_phrase` (zynseq inserts the stopped copy *before* the phrase: the playing original moves one down) |
+| `project createScene` | `zynseq.insert_phrase` at the end, selected |
+| `project createSceneFromPlayingLauncherClips` | a new phrase at the end, the first playing pattern of each MIDI channel copied into it, selected |
+
+Decided against Bitwig: launching an **empty** slot starts the (empty) sequence instead of
+stopping the track (Bitwig's stop button). Every zynseq slot is a sequence with a pattern, and the
+core sends `launch` right after `createClip` and `record` (`create_note_clip`,
+`record_note_clip`), on the still empty pattern; Bitwig's empty clip counts as content there.
+
+Fixed on the way: zynseq's toggle stops with STOPPING_SYNC (5), which the reporter did not know
+(a slot toggled off in zynthian's GUI showed neither playing nor stopping).
+
+Not handled (logged once): slot `color`, `insertFile`, scene `name`/`color` (zynseq has phrase
+names, not mapped yet), `track <p>/returnToArrangement`. Not mapped: the restart of a playing
+sequence on launch (zynseq has no queued restart), the alternative launch/stop quantization
+(zynseq's start/end mode is per sequence, `setSequenceMode`), clippy's audio launchers as slots
+(stop all stops them).
+
 ## 4. Phases
 
 ### Phase 1: the Launch Control XL on the mixer — done
@@ -305,10 +345,18 @@ transport functions and the first instrument's pages are handled.
 
 Done (pulled forward): the scenes and slots with select, launch, record, createClip (§3.3), the
 note inputs (§3.4), the cursor clip and the step grids (§3.5) with the Mk2's STEP mode and the
-LCXL's note and drum sequencers, conformance and a desktop check (§6, §7).
+LCXL's note and drum sequencers, conformance and a desktop check (§6, §7). The clip launcher
+(§3.6): the play states (playing, play/stop queued, recording), launch without zynseq's toggle,
+track stop, stop all, clip remove/duplicate/paste, scene launch/create/remove/duplicate, with
+tests of the adapter and of the Mk2's PATTERN and SCENE modes with the core
+(`test_launcher.py`); the Mk2 conformance (`mk2.pattern.select`, `mk2.scene.select`) unchanged.
+The JAM's session.toml runs in the adapter runner without a JAM driver (`zyn_conformance.py
+maschine_jam session all`) but is not judged: the JAM's LEDs differ throughout (the strips, the
+empty slots' colors) and the stand-in zynseq has no clock (a launched slot stays STARTING, Bitwig's
+fixture plays at once); left for the JAM work.
 
-Open: the rest of the launcher (stopping, deleting and duplicating clips and scenes, the play
-states as the Launchpad shows them) and a Launchpad (X or Mini MK3 on port 2) driver module.
+Open: a Launchpad (X or Mini MK3 on port 2) driver module; the launcher on the real device (the
+hand checks of §7) and the gaps of §3.6.
 
 Acceptance: session view launches and stops sequences with the right LED states; scene launch
 starts the phrase; the note view plays the active chain; the step sequencer edits the selected
@@ -429,7 +477,28 @@ in the track modes the encoder up/down = the track bank page (tests only).
 chord's further notes come through `process_midi_arg`); in drum mode to the drum notes (36…).
 
 **The clip launcher (PATTERN, SCENE)**: the sequences as slots, the phrases as scenes (§3.3);
-**verified by the user on the device** (2026-11-06).
+**verified by the user on the device** (2026-11-06). The rest of the launcher (§3.6), tested with
+the core (`test_launcher.py`, not yet on the device): in PATTERN mode a pad launches (a second
+press does not stop: green-dim while starting, green while playing), PATTERN + pad stops the
+track (Shift: at once), ERASE + pad clears the slot, DUPLICATE + pad copies it into the slot
+below, SELECT + pad selects; in SCENE mode a pad starts the phrase, SCENE + pad stops all clips,
+DUPLICATE/ERASE + pad duplicate/remove the phrase.
+
+**Checklist for PATTERN mode** (a synth chain with notes in the pattern of phrase 1, zynthian's
+launcher (mixer) visible):
+
+1. PATTERN, pad 1: the sequence starts at the next sync point (pad dim green, then green;
+   zynthian's pad shows it playing). Pad 1 again: it keeps playing.
+2. PATTERN held + pad 1: it stops at the next sync point (zynthian's pad shows "stopping"), the
+   Mk2's pad stays green until it stops. Before it stops, pad 1 again takes the stop back.
+   SHIFT + PATTERN + pad: it stops at once.
+3. DUPLICATE + pad 1: pad 2 gets the track color, zynthian's slot 2 has the notes (pattern
+   editor). ERASE + pad 2 (playing or not): it stops, the slot is empty (unlit).
+4. SCENE, pad 2: phrase 2 starts (zynthian's phrase launcher); SCENE held + any pad: all
+   sequences stop.
+5. SCENE mode, DUPLICATE + pad 1: a new phrase (zynseq inserts the copy before phrase 1);
+   ERASE + the last pad: it is removed (zynseq stops everything first; the last phrase stays).
+6. Toggle a sequence in zynthian's launcher: the Mk2's pad follows (start, stop queued, stop).
 
 **STEP mode** (§3.5): in drum mode (PAD MODE) STEP shows the 16 steps of the selected drum cell
 (the pad played last; without one the pads do nothing, the core's behaviour); a pad toggles its
@@ -514,9 +583,9 @@ with a synth, e.g. MDA DX10, selected):
 
 ## 8. State (2026-11-06)
 
-drivenbymoss-rust (after `ecb1d95`, not committed): the step grid (`dbm_zynthian/clip.py`, the
-cursor clip in the model, reporter and commands, the stand-in libseq's pattern store,
-`test_clip.py`, phase 3 of the conformance), this plan, the analysis.
+drivenbymoss-rust (after `7c10928`, not committed): the clip launcher (`dbm_zynthian/launcher.py`,
+the reporter's slot states, the commands, the stand-in libseq's play states and phrase
+management, `test_launcher.py`), this plan (§3.2, §3.6, §4, §7), the analysis (§4, §9 Z14).
 
 zynthian-ui `dbm`: no changes since `bc396034`.
 

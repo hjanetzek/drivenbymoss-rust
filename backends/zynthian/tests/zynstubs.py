@@ -45,6 +45,7 @@ zynthian's ``$ZYNTHIAN_CTRLDEV_PATH`` does. The DrivenByMoss packages come from
 ``target/debug``.
 """
 
+import copy
 import os
 import sys
 import types
@@ -318,6 +319,7 @@ class FakeLibseq:
             self.sequence_patterns = {}  # (scene, phrase, chan) -> pattern
             self.play_states = {}       # (scene, phrase, chan) -> state
             self.playheads = {}         # (scene, phrase, chan) -> play position in steps
+            self.play_calls = []         # (phrase, chan, state) of setPlayState
             self.midi_record = False
             self.selected_sequence = None
             self.selected_pattern = None
@@ -352,9 +354,35 @@ class FakeLibseq:
         return self.play_states.get((scene, phrase, chan), 0)
 
     def togglePlayState(self, scene, phrase, chan):
+        """zynseq.cpp togglePlayState (sequences with repeat)."""
+        state = self.getPlayState(scene, phrase, chan)
+        toggled = {0: 2, 2: 0, 1: 8 if chan == 32 else 5, 3: 1, 5: 1, 6: 8, 8: 2}
+        self.setPlayState(scene, phrase, chan, toggled.get(state, state))
+
+    def setPlayState(self, scene, phrase, chan, state):
+        """zynseq.cpp setPlayState: the state (a phrase launcher's CHILD_STOPPING lets its
+        sequences stop, STARTING starts them); recorded in ``play_calls``."""
         self._launcher()
-        key = (scene, phrase, chan)
-        self.play_states[key] = 2 if self.play_states.get(key, 0) == 0 else 3
+        state = _value(state)
+        self.play_calls.append((phrase, chan, state))
+        if state == 8:
+            for (s, p, c), child in list(self.play_states.items()):
+                if (s, p) == (scene, phrase) and c != 32 and child & 1:
+                    self.play_states[(s, p, c)] = 3
+        elif chan == 32 and state == 2:
+            for c in range(16):
+                if (scene, phrase, c) in self.sequence_patterns:
+                    self.play_states[(scene, phrase, c)] = 2
+        self.play_states[(scene, phrase, chan)] = state
+
+    def clearPattern(self, pattern):
+        self.patterns[_value(pattern)]["events"] = []
+        self.modified = True
+
+    def copyPattern(self, source, destination):
+        source, destination = _value(source), _value(destination)
+        if source != destination:
+            self.patterns[destination] = copy.deepcopy(self.patterns[source])
 
     def selectSequence(self, scene, phrase, chan):
         self._launcher()
@@ -489,6 +517,7 @@ class FakeZynseq:
         self.phrase = 0
         self.state = {"scenes": [{"phrases": [{} for _ in range(phrases)]}]}
         self.refreshes = 0
+        self.calls = []
 
     @property
     def phrases(self):
@@ -505,6 +534,53 @@ class FakeZynseq:
 
     def refresh_state(self, send=True):
         self.refreshes += 1
+
+    # zynseq.py's phrase management on scene 0 (libseq's insertPhrase, duplicatePhrase, removePhrase)
+
+    def _move_phrases(self, phrase, offset):
+        """The sequences of the phrases from ``phrase`` on move by offset."""
+        libseq = self.libseq
+        libseq._launcher()
+        for name in ("sequence_patterns", "play_states"):
+            items = getattr(libseq, name)
+            moved = {}
+            for (scene, p, chan), value in items.items():
+                if p >= phrase:
+                    p += offset
+                if p >= 0:
+                    moved[(scene, p, chan)] = value
+            setattr(libseq, name, moved)
+
+    def insert_phrase(self, scene, phrase=None):
+        phrase = self.phrases if phrase is None else phrase
+        self.calls.append(("insert_phrase", phrase))
+        self._move_phrases(phrase, 1)
+        self.state["scenes"][0]["phrases"].insert(phrase, {})
+        self.refresh_state()
+
+    def duplicate_phrase(self, scene, phrase=None):
+        """A stopped copy, inserted at the phrase (the original moves one down)."""
+        self.calls.append(("duplicate_phrase", phrase))
+        self.insert_phrase(scene, phrase)
+        libseq = self.libseq
+        for (s, p, chan), pattern in list(libseq.sequence_patterns.items()):
+            if p == phrase + 1:
+                copy_pattern = libseq.createPattern()
+                libseq.copyPattern(pattern, copy_pattern)
+                libseq.sequence_patterns[(s, phrase, chan)] = copy_pattern
+
+    def remove_phrase(self, scene, phrase):
+        if self.phrases < 2:
+            return
+        self.calls.append(("remove_phrase", phrase))
+        self.libseq.play_states.clear()  # libseq stops all sequences
+        for key in [key for key in self.libseq.sequence_patterns if key[1] == phrase]:
+            del self.libseq.sequence_patterns[key]
+        self._move_phrases(phrase + 1, -1)
+        del self.state["scenes"][0]["phrases"][phrase]
+        if self.phrase == phrase:
+            self.phrase = max(0, self.phrase - 1)
+        self.refresh_state()
 
 
 class FakeChain:

@@ -347,8 +347,8 @@ class ReportsForTheMaschineTest(unittest.TestCase):
         host.command("track", "0/clip/1/launchRelease")
         host.command("drum", "indicate", 1)
         self.assertEqual(host.commands.unhandled, [])
-        host.command("scene", "1/remove")
-        self.assertEqual(host.commands.unhandled, ["scene <n>/remove"])
+        host.command("scene", "1/name", "x")
+        self.assertEqual(host.commands.unhandled, ["scene <n>/name"])
 
 
 class LaunchControlXLDeviceTest(unittest.TestCase):

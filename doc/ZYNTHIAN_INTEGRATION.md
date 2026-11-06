@@ -314,7 +314,7 @@ the GUI shows) rather than zynmixer.
 | **VU** | `lib_zynmixer.getDpm(chan, leg)` in dBFS (−200 floor, `zynlibs/zynmixer/mixer.c:1024-1030`), −60..0 dB as 0..1 | – | The GUI's DPM array is filled by the GUI (`update_dpm_states`); the adapter calls `getDpm` itself |
 | **Master** | Chain 0 ("Main"), its strip is the main mixbus `MR` channel 0 | As tracks | Main `solo` clears all solos (`zynthian_engine_audio_mixer.py:274-281`) |
 | **Effect tracks, sends** | The mixbus chains (`is_mixbus()`, `MR`) except 0 = `/fxtrack/…`; send `s` of a track = zctrl `send_<mixbus chain id>_level` of its strip, in the mixbus order (`zynthian_chain_manager.py:1302-1376`) | `send/<s>/volume` | `send/<s>/active` (a toggle) has no counterpart, only pre/post (`send_<id>_mode`) |
-| **Scenes / slots** | zynseq phrases × chain MIDI channels, as in the first analysis | as first analysis | phase 3 |
+| **Scenes / slots** | zynseq phrases × chain MIDI channels, as in the first analysis; the play states below | implemented (ZYNTHIAN_PLAN.md §3.3, §3.6) | names, colors, alternative quantization |
 | **Devices / parameters** | the active chain's processors without the mixer strip; `get_ctrl_screens()` (4 zctrls per screen, two per core page) | implemented in phase 2 (ZYNTHIAN_PLAN.md §3.2) | window, expand, pin, layers, drum pads |
 | **Transport / tempo** | `libseq.getTransportState()` (§0, §9 Z10), `getTempo`, `getBpb`, the metronome mode and volume | implemented in phase 2: play = zynseq's transport (decided) | position, loop, punch, automation, record |
 | **Step grid** | zynseq patterns, as first analysis | as first analysis | phase 3 |
@@ -345,6 +345,29 @@ the GUI shows) rather than zynmixer.
 - The Python `zynseq.state` (the launcher GUI's pads) changes only with `refresh_state()`.
 - `Pattern::setStepsPerBeat` does not move the events (§9 Z13); the GUI warns that changing it
   "may alter timing".
+
+**zynseq's launcher, as the clip launcher needs it** [code: `zynlibs/zynseq/constants.h`,
+`zynseq.cpp` `setPlayState`/`togglePlayState`, `sequence.cpp`, `sequencemanager.cpp`]:
+- The play states: STOPPED 0, PLAYING 1, STARTING 2, STOPPING 3 (at the end of the sequence),
+  FORCED_STOP 4, STOPPING_SYNC 5 (at the next sync point), and for a phrase launcher (channel
+  32) CHILD_PLAYING 6 (some of its sequences play, the launcher not), CHILD_STOPPING 8 (setting
+  it sets the playing children to STOPPING). Bit 0 = sounding, except 6 and 8.
+- `togglePlayState`: STOPPED → STARTING, STARTING → STOPPED, PLAYING → STOPPING_SYNC (a phrase
+  launcher: CHILD_STOPPING), STOPPING/STOPPING_SYNC → PLAYING, CHILD_PLAYING → CHILD_STOPPING →
+  STARTING; FORCED_STOP stays. A sequence with repeat 0 (disabled) stops its group instead.
+- `setPlayState` (C API): STARTING/PLAYING start zynseq's transport; STOPPING becomes STOPPED
+  when nothing plays; the sequence manager stops the other sequences of the group (= the
+  channel; phrase launchers are group 32): queued (STOPPING) if the new state is STARTING, at
+  once if it is PLAYING. STARTING on a phrase launcher sets its children (with repeat) to STARTING.
+  `MODE_END_IMMEDIATE` (the sequence's mode) turns a queued stop into STOPPED.
+- `insertPhrase(scene, phrase)` inserts an empty phrase at the index, every MIDI sequence with an
+  empty pattern of the default length; `duplicatePhrase(scene, phrase)` inserts the copy at the
+  same index (the original, with its play state, moves one down), the patterns copied;
+  `removePhrase` calls `stop()` (all sequences STOPPED, the event schedule cleared: §9 Z14).
+  zynseq.py's wrappers (`insert_phrase`, `duplicate_phrase`, `remove_phrase`) also update clippy
+  and the Python state; `remove_phrase` refuses to remove the last phrase.
+- `clearPattern(pattern)`, `copyPattern(source, destination)` (notes and length) work on pattern
+  ids, not the selected pattern.
 
 **The first instrument (`/primary`) without layers and pads** [code, core]: the layer modes of the
 core use the first instrument's layer bank only if `uses_layers` = `!hasDrumPads && hasLayers`
@@ -477,4 +500,5 @@ fixes it.
 | Z11 | `zyngui/zynthian_gui_base.py:544` (`on_title_timeout`), `zyngui/zynthian_gui_mixer.py:1394` (`clear_tempo_highlight`) | `threading.Timer` callbacks call Tk | After the Tk main loop has ended (exit) they raise "main thread is not in main loop" [observed at exit in desktop mode] | present | – |
 | Z12 | `zynlibs/zynseq/zynseq.py:574-576` (`add_pattern`) | Calls `addPattern(chan, sequence, track, time, pattern, force)`: 6 arguments for `addPattern(scene, phrase, sequence, track, position, pattern, force)` | The arguments are shifted: the arranger GUI's call (`zyngui/zynthian_gui_arranger.py:752`, `add_pattern(scene, sequence, track, time, pattern)`) reaches the C function as phrase = sequence, sequence = track, track = time, position = pattern, pattern = 0, force undefined [from the code, not run] | present | dbm adapter calls libseq |
 | Z13 | `zynlibs/zynseq/pattern.cpp:665-692` (`Pattern::setStepsPerBeat`) | `float fScale = …` inside the `else` declares a new variable; the outer `fScale` stays 1.0 | Changing the steps per beat does not rescale the events' positions and durations: the notes move in time (the GUI warns "may alter timing") | present | not used by the dbm drivers |
+| Z14 | `zynlibs/zynseq/zynseq.cpp` `stop()` (called by `removePhrase`) | `g_mSchedule.map.clear()` drops all scheduled events, also the note-offs of notes already sent | Removing a phrase while sequences play may leave hanging notes [from the code, not run] | present | – |
 | N1 | nura: `zynautoconnect/zynthian_autoconnect.py:1463-1553` (`build_midi_port_name`) under PipeWire | No JACK aliases on PipeWire's MIDI bridge ports → uid without `/` | No dev_id: no device-specific driver matches or autoloads, `dev_in_2_dev_out` finds no output (§1) | present | fixed (`zynthian_pipewire_ports.py`) |

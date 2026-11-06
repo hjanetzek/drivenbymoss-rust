@@ -202,8 +202,8 @@ class ClipTest(unittest.TestCase):
         host.command("loop", 1)
         self.assertEqual(host.commands.unhandled, [])
         host.command("start", 1.0)
-        host.command("duplicate")
-        self.assertEqual(host.commands.unhandled, ["clip start", "clip duplicate"])
+        host.command("name", "x")
+        self.assertEqual(host.commands.unhandled, ["clip start", "clip name"])
 
     def test_playing_step(self):
         host = Host()

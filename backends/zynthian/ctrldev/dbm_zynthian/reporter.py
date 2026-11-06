@@ -34,7 +34,7 @@ Phase 2 adds the transport (``collect_transport``, only with zynseq), the cursor
 its siblings and parameter pages (``collect_device``) and the first instrument
 (``collect_primary``).
 
-Not reported, so the core keeps its defaults for them: scenes and slots, the clip, markers, the
+Not reported, so the core keeps its defaults for them: markers, the
 browser, ``/drum``, ``/eq``, the layers and drum pads of ``/primary``, the arranger position and loop, ``/track/<p>/active``
 (zynthian has no deactivated chains), ``/track/hasPrevious|hasNext``. ``/track/pinned`` (-1) and ``/device/pinned`` (0) are reported:
 zynthian has no pinning.
@@ -47,6 +47,7 @@ from dbm_host import Reporter
 from dbm_host.reporter import NUM_DRUM_PADS, NUM_SIBLINGS
 
 from zyngine.ctrldev.dbm_zynthian.device import PARAMS_PER_PAGE
+from zyngine.ctrldev.dbm_zynthian.launcher import slot_states
 
 
 class ZynReporter(Reporter):
@@ -184,9 +185,10 @@ class ZynReporter(Reporter):
             # An empty slot has no color (as Bitwig's; zynthian's launcher shows it gray)
             self.put(slot + "color", track.color if content else (0, 0, 0))
             self.put(slot + "selected", phrase == selected)
-            self.put(slot + "playing", state in (1, 3))
-            self.put(slot + "playQueued", state == 2)
-            self.put(slot + "stopQueued", state == 3)
+            playing, play_queued, stop_queued = slot_states(state)
+            self.put(slot + "playing", playing)
+            self.put(slot + "playQueued", play_queued)
+            self.put(slot + "stopQueued", stop_queued)
             self.put(slot + "recording", recording and phrase == selected)
             self.put(slot + "recQueued", False)
         self.put(prefix + "slot/count", count)
