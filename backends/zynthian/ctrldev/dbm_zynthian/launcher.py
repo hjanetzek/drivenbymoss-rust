@@ -56,6 +56,7 @@ deleting and duplicating clips and scenes, slot colors (the chain's), clippy (au
 
 import ctypes
 import logging
+from time import monotonic
 
 from zyngine.ctrldev.dbm_zynthian.transport import STOPPED
 
@@ -69,6 +70,8 @@ NO_PATTERN = 0xFFFFFFFF
 NUM_SEQUENCE_CHANNELS = 16
 # zynseq.py: the sequence channel of a phrase's launcher
 PHRASE_CHANNEL = 32
+# How often zynseq's Python state is refreshed at most after the core changed patterns (s)
+REFRESH_SECONDS = 0.5
 
 
 class ZynLauncher:
@@ -76,6 +79,8 @@ class ZynLauncher:
     def __init__(self, model, zynseq):
         self.model = model
         self.zynseq = zynseq
+        self.dirty = False
+        self.last_refresh = 0.0
 
     @property
     def libseq(self):
@@ -220,6 +225,17 @@ class ZynLauncher:
 
     def toggle_recording(self):
         return self.set_recording(not self.recording)
+
+    def content_changed(self):
+        """The core changed a pattern: zynseq's Python state is refreshed with the next report
+        (``flush``), at most every REFRESH_SECONDS."""
+        self.dirty = True
+
+    def flush(self):
+        if self.dirty and monotonic() - self.last_refresh >= REFRESH_SECONDS:
+            self.dirty = False
+            self.last_refresh = monotonic()
+            self.refresh()
 
     def refresh(self):
         """zynseq's Python state (its GUI and the stock drivers read it) after a change."""

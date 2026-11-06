@@ -279,7 +279,7 @@ class RecordTest(unittest.TestCase):
         self.assertNotEqual(pattern, libseq.NO_PATTERN, "Piano (channel 2), phrase 3")
         self.assertEqual(libseq.patterns[pattern]["beats"], 8)
         self.assertGreater(host.state.zynseq.refreshes, 0, "zynseq's state is refreshed")
-        libseq.patterns[pattern]["events"] = 3
+        libseq.add_test_note(pattern, 0, 60)
         self.assertEqual(host.report()["/track/1/slot/2/hasContent"], "1")
         host.command("track", "2/createClip/0", 4.0)
         self.assertEqual(host.commands.unhandled, ["track <n>/createClip/<n>"], "Not on an audio chain")

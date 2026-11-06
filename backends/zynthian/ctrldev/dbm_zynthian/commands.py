@@ -52,7 +52,7 @@ sends have no switch), ``device remove|duplicate``, the Reaper-only transport fo
 import logging
 from collections import deque
 
-from dbm_host import CommandHandler
+from dbm_host import CommandHandler, NoteGrid
 from dbm_host.commands import parse_index
 from dbm_host.reporter import NUM_SIBLINGS
 
@@ -83,16 +83,23 @@ class ZynCommandHandler(CommandHandler):
         self.register("primary", self._primary)
         self.register("scene", self._scene)
         self.register("drum", self._drum)
+        self.register("clip", self._clip)
         if self.daw.transport is not None and self.daw.transport.available:
             self.register("transport", self._transport, TRANSPORT_FEATURES)
             self.register("tempo", self._tempo)
             self.register("record", self._record)
 
     def configure(self):
-        """No clip launcher navigator and no step grids yet (phase 3)."""
+        """No clip launcher navigator; one step grid per size of the model setup's ``noteClips``
+        on the cursor clip (clip.py)."""
         self.navigator = None
-        self.note_grids = []
-        self.reporter.note_grids = []
+        self.note_grids = [NoteGrid(int(steps), int(rows), self.daw.cursor_clip) for steps, rows in self.banks.setup.get("noteClips", [])]
+        self.reporter.note_grids = self.note_grids
+
+    def handle(self, processor, command, value=None):
+        # A command sees the pattern as it is now (also changes made in zynthian)
+        self.daw.invalidate_clip()
+        super().handle(processor, command, value)
 
     def set_value(self, parameter, cmd):
         """No undo history in zynthian."""
@@ -165,6 +172,42 @@ class ZynCommandHandler(CommandHandler):
             if sub[2] in ("launchRelease", "launchReleaseAlt"):
                 return 0 <= phrase < launcher.num_phrases()  # zynseq launches on press
         return False
+
+    def _clip(self, cmd):
+        """``clip …`` on the cursor clip (clip.py): ``grid/<id>/…`` (the reference host's grid
+        commands), ``loopLength``/``end`` (the pattern's beats, ``/inc`` relative), ``start`` and
+        ``loopStart`` only 0, ``loop`` only on, ``clear``, ``duplicateContent``, ``transpose``.
+        Not handled: ``duplicate``, ``name``, ``color``, ``shuffle``, ``accent``, ``pinned``."""
+        parts = cmd.parts
+        c = cmd.command
+        if len(parts) >= 3 and parts[0] == "grid":
+            grid = next((grid for grid in self.note_grids if grid.id == parts[1]), None)
+            if grid is None:
+                return False
+            if len(parts) >= 4 and parts[2] in ("step", "clearRow", "clearColumn"):
+                channel = parse_index(parts[3])
+                if 0 <= channel < 16 and channel != self.daw.clip_channel:
+                    self.daw.clip_channel = channel
+                    self.daw.invalidate_clip()
+            return self.grid_command(grid, parts[2:], cmd)
+        clip = self.daw.cursor_clip()
+        if clip is None:
+            return c in ("loopLength", "end", "start", "loopStart", "loop", "clear", "duplicateContent", "transpose")
+        if c in ("loopLength", "end"):
+            clip.set_length(clip.beats + cmd.number if cmd.increment else cmd.number)
+        elif c in ("start", "loopStart"):
+            return cmd.number == 0 and not cmd.increment
+        elif c == "loop":
+            return cmd.flag
+        elif c == "clear":
+            clip.notes.clear()
+        elif c == "duplicateContent":
+            clip.duplicate_content()
+        elif c == "transpose":
+            clip.transpose(int(cmd.number))
+        else:
+            return False
+        return True
 
     def _drum(self, cmd):
         """``drum …``: zynthian has no drum machine (``/drum`` is not reported); ``indicate`` is

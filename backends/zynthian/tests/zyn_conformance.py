@@ -36,7 +36,7 @@ zynthian's own (zynthian's model differs from Bitwig's):
 - The fixture: ``ZynthianState`` with the fixture's tracks (names, instrument tracks with a MIDI
   channel and a synth engine of 6 controller screens = 3 pages, audio tracks without), the
   fixture volume, its two effect tracks as mixbuses and zynseq (stand-in, 8 phrases = the
-  fixture's 8 scenes, a pattern with notes where the fixture has its two clips); the fixture's devices
+  fixture's 8 scenes, an empty pattern of 4 beats where the fixture has its two empty clips); the fixture's devices
   as processors with the same names and pages (two controller screens of 4 per page of 8, the
   first named as the page; the EQ+ as an audio effect with the reference host's pages); no clips
   or scenes, no drum pads or layers. The tracks have the fixture's colors (zynthian's own are by
@@ -79,6 +79,7 @@ from conformance import reference  # noqa: E402
 from conformance.fixture import DEVICES, EFFECT_TRACKS, INSTRUMENT, REMOTE_CONTROLS, SETUPS, TRACK_COLORS, TRACK_VOLUME, TRACKS, copy_profile_config  # noqa: E402
 from conformance.runner import FRESH_PROJECT_MS, MARKER_MS, OSC_PAUSE_MS, RESTART_REST_MS, RESTART_TIMEOUT_MS, RESTART_WAIT_MS  # noqa: E402
 from conformance_runner import DEFAULT_SETTLE_MS, check_expectations, led_state, matches, parse_hex, run_name, to_hex  # noqa: E402
+from dbm_host import NoteGrid  # noqa: E402
 from dbm_host.bridge import TICK_MS  # noqa: E402
 
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
@@ -98,6 +99,17 @@ PHASES[2] = {key: list(ids) for key, ids in PHASES[1].items()}
 PHASES[2][("launchcontrol_xl", "track_mix")] += ["lcxl.mix.device-page", "lcxl.mix.transport-click",
                                                   "lcxl.mix.transport-tempo", "lcxl.mix.transport-defeat"]
 PHASES[2][("launchcontrol_xl", "note_sequencer")] = ["lcxl.noteseq.device-page"]
+# Phase 3 (the step grid, doc/ZYNTHIAN_PLAN.md §3.5): the step sequencers on zynseq patterns
+PHASES[3] = {key: list(ids) for key, ids in PHASES[2].items()}
+PHASES[3][("launchcontrol_xl", "note_sequencer")] = [
+    "lcxl.noteseq.device-page", "lcxl.noteseq.create-note", "lcxl.noteseq.repeat", "lcxl.noteseq.panning",
+    "lcxl.noteseq.delete-note",
+]
+PHASES[3][("launchcontrol_xl", "drum_sequencer")] = [
+    "lcxl.drum.select-pad", "lcxl.drum.step-on", "lcxl.drum.knobs", "lcxl.drum.step-off", "lcxl.drum.pad-mute",
+    "lcxl.drum.pad-page",
+]
+
 # The Maschine Mk2 (doc/ZYNTHIAN_PLAN.md §7): not judged are automation (auto, shift-auto), the
 # arranger overdub (lock), note repeat, the loop and the step sequencer (phase 3)
 PHASES[2][("maschine_mk2", "global")] = [
@@ -108,6 +120,10 @@ PHASES[2][("maschine_mk2", "global")] = [
 PHASES[2][("maschine_mk2", "pad_modes")] = [
     "mk2.chords.play", "mk2.drum.play", "mk2.keyboard.play", "mk2.pattern.select", "mk2.scene.select",
     "mk2.variation.parameter",
+]
+PHASES[3][("maschine_mk2", "global")] = list(PHASES[2][("maschine_mk2", "global")])
+PHASES[3][("maschine_mk2", "pad_modes")] = PHASES[2][("maschine_mk2", "pad_modes")] + [
+    "mk2.drum.step-on", "mk2.drum.mute-step", "mk2.drum.step-off",
 ]
 
 # The differences of zynthian's model from Bitwig's which the judged scenarios show:
@@ -147,9 +163,39 @@ KNOWN_DIFFERENCES += [
      "Time and Position stay empty: zynthian has no song position (zynseq knows only the beat in the bar)"),
     ("mk2.drum.play", "step *: LED 90 24: zynthian 32 java 2A",
      "The first pad: Bitwig's Drum Machine reports its pads (colors), zynthian has no drum machine (the core's own pads)"),
+    ("*", "step *: STATE osc:/track/*/clip/1/hasContent: zynthian 0 java 1",
+     "Bitwig's fixture has an empty clip in slot 1 of Synth and Drums, which counts as content; an empty zynseq pattern does not"),
+    ("mk2.pattern.select", "step *: LED 90 24: zynthian 4C java 2D",
+     "Slot 1: Bitwig's fixture has an empty clip there, which counts as content; an empty zynseq pattern does not"),
     ("mk2.scene.select", "step *: LED 90 24: zynthian 4E java 4C",
      "Scene 1: zynthian always has a selected phrase (the first), Bitwig's fixture had no selected scene"),
 ]
+
+# The step sequencers (clip.py)
+KNOWN_DIFFERENCES += [
+    ("lcxl.noteseq.repeat", "bitwig /clip/step/0/1/*: expected 15, got 0", "zynseq has no note repeat (the step's repeat count)"),
+    ("lcxl.noteseq.panning", "bitwig /clip/step/0/1/*: expected -1.0, got 0.0", "zynseq notes have no panorama"),
+    ("lcxl.drum.*", "step *: LED 9B 0F: zynthian 2E java 0C",
+     "The knob of the step's panorama: zynseq notes have none (Bitwig's step was set to -1.0 in lcxl.drum.knobs)"),
+    ("lcxl.drum.pad-*", "step *: LED 9B *: *",
+     "The drum pads (Track Control row, Mute): zynthian has no drum machine (the first instrument has no pads)"),
+]
+# The fields of a step line (StepInfo::to_wire) zynseq has: state, selected, muted, duration,
+# velocity, chance enabled, chance; velocity and chance are compared within one 7-bit step
+STEP_FIELDS = {0: 0.0, 1: 0.0, 2: 0.0, 3: 1e-6, 4: 1.0 / 127, 12: 0.0, 13: 1.0 / 127}
+
+
+def step_known(ours, theirs):
+    """True if two step lines differ only in what zynseq does not have (the reason of the known
+    difference: STEP_REASON)."""
+    a, b = (ours or "0").split(), (theirs or "0").split()
+    if len(a) != 24 or len(b) != 24:
+        return False
+    return all(abs(float(a[i]) - float(b[i])) <= tolerance + 1e-9 for i, tolerance in STEP_FIELDS.items())
+
+
+STEP_REASON = ("The step's attributes zynseq has (velocity, duration, chance, muted) compare; the others (pan, repeat, "
+               "gain, …) zynseq notes do not have, velocity and chance are zynseq's 7-bit / 32-bit values")
 
 for _scenario in ("lcxl.mix.knobs", "lcxl.mix.device-page", "lcxl.mix.track-page", "lcxl.mix.transport-*"):
     # the later scenarios show the first page again, with the values of lcxl.mix.knobs
@@ -199,14 +245,13 @@ def fixture():
                     name, value, _ = control
                     zctrl.name = zctrl.short_name = name
                     zctrl.set_value(round(zctrl.value_min + value * (zctrl.value_max - zctrl.value_min)))
-    # The fixture's clips: slot 1 of Synth and Drums (Bitwig: an empty clip of a bar, which has
-    # content; zynthian: a pattern with notes)
+    # The fixture's clips: slot 1 of Synth and Drums, an empty clip of a bar (4 beats): an empty
+    # pattern of 4 beats (Bitwig's empty clip counts as content, a zynseq pattern only with notes)
     libseq = state.zynseq.libseq
     for chain_id in (1, 2):
         chan = state.chain_manager.chains[chain_id].midi_chan
         pattern = libseq.createPattern()
         libseq.addPattern(0, 0, chan, 0, 0, pattern, False)
-        libseq.patterns[pattern]["events"] = 1
     state.chain_manager.active_chain = state.chain_manager.chains[1]
     return state
 
@@ -271,6 +316,10 @@ class Session:
         self.received = []
         self.unknown_osc = []
         self.observer_page = 0
+        # The cursor clip as the conformance module observes it (ConformanceModule: 64 x 128 at
+        # the default step size, the reference host's state.py)
+        self.clip_grid = NoteGrid(64, 128, self.model.cursor_clip)
+        self.clip_steps = {}
 
     def on_midi_out(self, data):
         message = list(data)
@@ -404,6 +453,15 @@ class Session:
                 view[slot + "isPlaying"] = "1" if exists and launcher.play_state(phrase, chan) in (1, 3) else "0"
         selected = next((t for t in self.model.tracks() if t.selected), None)
         view["osc:/track/selected/name"] = selected.name if selected else ""
+        self.model.invalidate_clip()
+        clip = self.model.cursor_clip()
+        view["osc:/clip/exists"] = "1" if clip is not None else "0"
+        current = {f"osc:/clip/step/{channel}/{x}/{y}": line for (channel, x, y), line in self.clip_grid.steps().items()}
+        for address in self.clip_steps:
+            if address not in current:
+                self.clip_steps[address] = "0"
+        self.clip_steps.update(current)
+        view.update(self.clip_steps)
         transport = self.model.transport
         if transport is not None:
             view["osc:/click"] = "1" if transport.metronome else "0"
@@ -437,7 +495,10 @@ DEVICE_KEYS = ("exists", "name", "bypass", "page/selected/name")
 
 def is_modelled(key):
     parts = key.split("/")
-    if key in ("osc:/track/selected/name", "osc:/click", "osc:/tempo/raw", "osc:/play", "osc:/record", "osc:/overdub/launcher"):
+    if key in ("osc:/track/selected/name", "osc:/click", "osc:/tempo/raw", "osc:/play", "osc:/record", "osc:/overdub/launcher",
+               "osc:/clip/exists"):
+        return True
+    if len(parts) == 6 and parts[1:3] == ["clip", "step"]:
         return True
     if len(parts) >= 3 and parts[1] in ("device", "primary"):
         rest = "/".join(parts[2:])
@@ -521,6 +582,9 @@ def run_file(setup_name, file_name, phase=1, judge_all=False):
                 state = session.snapshot()
                 for key, value in theirs["bitwig"].items():
                     if is_modelled(key) and state.get(key) != value:
+                        if "/clip/step/" in key and step_known(state.get(key), value):
+                            entry.known.append(f"step {index + 1}: STATE {key} ({STEP_REASON})")
+                            continue
                         problems.append(f"STATE {key}: zynthian {state.get(key)} java {value}")
                 entry.problems += [f"step {index + 1}: {p}" for p in problems]
             if entry.judged:

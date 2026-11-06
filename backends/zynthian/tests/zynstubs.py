@@ -314,12 +314,14 @@ class FakeLibseq:
 
     def _launcher(self):
         if not hasattr(self, "patterns"):
-            self.patterns = {}          # pattern -> {"beats": n, "events": n}
+            self.patterns = {}          # pattern -> {"spb": n, "beats": n, "events": [event dicts]}
             self.sequence_patterns = {}  # (scene, phrase, chan) -> pattern
             self.play_states = {}       # (scene, phrase, chan) -> state
+            self.playheads = {}         # (scene, phrase, chan) -> play position in steps
             self.midi_record = False
             self.selected_sequence = None
             self.selected_pattern = None
+            self.modified = False
 
     def getPattern(self, scene, phrase, chan, track, pos):
         self._launcher()
@@ -328,7 +330,7 @@ class FakeLibseq:
     def createPattern(self):
         self._launcher()
         pattern = len(self.patterns) + 1
-        self.patterns[pattern] = {"beats": 4, "events": 0}
+        self.patterns[pattern] = {"spb": 4, "beats": 4, "events": []}
         return pattern
 
     def addPattern(self, scene, phrase, chan, track, pos, pattern, force):
@@ -337,10 +339,13 @@ class FakeLibseq:
         return True
 
     def setBeatsInPattern(self, pattern, beats):
-        self.patterns[pattern]["beats"] = beats
+        self.patterns[_value(pattern)]["beats"] = _value(beats)
+
+    def getBeatsInPattern(self, pattern):
+        return self.patterns[_value(pattern)]["beats"]
 
     def isPatternEmpty(self, pattern):
-        return self.patterns[pattern]["events"] == 0
+        return not self.patterns[_value(pattern)]["events"]
 
     def getPlayState(self, scene, phrase, chan):
         self._launcher()
@@ -358,7 +363,14 @@ class FakeLibseq:
 
     def selectPattern(self, pattern):
         self._launcher()
-        self.selected_pattern = pattern.value
+        pattern = _value(pattern)
+        if pattern not in self.patterns:
+            self.patterns[pattern] = {"spb": 4, "beats": 4, "events": []}  # zynseq creates it
+        self.selected_pattern = pattern
+
+    def getPatternIndex(self):
+        self._launcher()
+        return -1 if self.selected_pattern is None else self.selected_pattern
 
     def enableMidiRecord(self, enable):
         self._launcher()
@@ -367,6 +379,105 @@ class FakeLibseq:
     def isMidiRecord(self):
         self._launcher()
         return self.midi_record
+
+    # The functions on the selected pattern (zynseq.cpp, pattern.cpp)
+
+    def _pattern(self):
+        self._launcher()
+        return self.patterns.get(self.selected_pattern)
+
+    def getStepsPerBeat(self):
+        pattern = self._pattern()
+        return pattern["spb"] if pattern else 4
+
+    def getEventDataAt(self, index, data):
+        pattern = self._pattern()
+        index = _value(index)
+        if pattern is None or index >= len(pattern["events"]):
+            return -1
+        event = data._obj
+        for name, value in pattern["events"][index].items():
+            setattr(event, name, value)
+        return index
+
+    def addNote(self, step, note, velocity, duration, offset=0.0):
+        pattern = self._pattern()
+        step, note, velocity, duration, offset = (_value(v) for v in (step, note, velocity, duration, offset))
+        if pattern is None or step >= pattern["beats"] * pattern["spb"] or note > 127 or velocity > 127:
+            return False
+        kept, inherited = [], {}
+        end = step + duration
+        for event in pattern["events"]:
+            event_end = event["position"] + event["duration"]
+            overlap = event["val1_start"] == note and (step <= event["position"] < end or step < event_end <= end)
+            if overlap:
+                inherited = inherited or {k: event[k] for k in ("play_chance", "play_freq")}
+            else:
+                kept.append(event)
+        event = {"position": step, "offset": offset, "duration": duration, "command": 0x90, "val1_start": note,
+                 "val2_start": velocity, "play_chance": 1.0, "play_freq": 1}
+        event.update(inherited)
+        kept.append(event)
+        kept.sort(key=lambda e: (e["position"], e["val1_start"]))
+        pattern["events"] = kept
+        self.modified = True
+        return True
+
+    def _event(self, step, note):
+        pattern = self._pattern()
+        for event in pattern["events"] if pattern else []:
+            if event["position"] == _value(step) and event["val1_start"] == _value(note):
+                return event
+        return None
+
+    def removeNote(self, step, note):
+        event = self._event(step, note)
+        if event is not None:
+            self._pattern()["events"].remove(event)
+        self.modified = True
+
+    def clearNotes(self):
+        if self._pattern():
+            self._pattern()["events"] = []
+        self.modified = True
+
+    def setNoteVelocity(self, step, note, velocity):
+        event = self._event(step, note)
+        if event is not None:
+            event["val2_start"] = _value(velocity)
+        self.modified = True
+
+    def setNotePlayChance(self, step, note, chance):
+        event = self._event(step, note)
+        if event is not None:
+            event["play_chance"] = _value(chance)
+        self.modified = True
+
+    def setNotePlayFreq(self, step, note, freq):
+        event = self._event(step, note)
+        if event is not None:
+            event["play_freq"] = _value(freq)
+        self.modified = True
+
+    def transpose(self, value):
+        for event in self._pattern()["events"]:
+            event["val1_start"] = min(127, max(0, event["val1_start"] + _value(value)))
+        self.modified = True
+
+    def getPatternPlayhead(self):
+        self._launcher()
+        return self.playheads.get(self.selected_sequence, 0)
+
+    def add_test_note(self, pattern, position, key, velocity=100, duration=1.0, offset=0.0):
+        """A note in a pattern, as zynthian's pattern editor would add it."""
+        previous = self.selected_pattern
+        self.selectPattern(pattern)
+        self.addNote(position, key, velocity, duration, offset)
+        self.selected_pattern = previous
+
+
+def _value(value):
+    return getattr(value, "value", value)
 
 
 class FakeZynseq:

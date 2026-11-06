@@ -47,7 +47,7 @@ except ImportError:
 class TrackMixConformanceTest(unittest.TestCase):
 
     def test_track_mix(self):
-        result = conformance.run_file("launchcontrol_xl", "track_mix", phase=2)
+        result = conformance.run_file("launchcontrol_xl", "track_mix", phase=3)
         report = result.report(verbose=True)
         self.assertEqual(len(result.judged), 10, "All scenarios of the file", )
         self.assertTrue(result.ok, report)
@@ -56,12 +56,26 @@ class TrackMixConformanceTest(unittest.TestCase):
         self.assertEqual(result.unknown_osc, [], report)
         self.assertEqual(result.unhandled, [], report)
 
-    def test_note_sequencer_device_page(self):
-        result = conformance.run_file("launchcontrol_xl", "note_sequencer", phase=2)
+    def test_note_sequencer(self):
+        """The first instrument's pages and the note sequencer on the zynseq pattern (phase 3)."""
+        result = conformance.run_file("launchcontrol_xl", "note_sequencer", phase=3)
         report = result.report(verbose=True)
-        self.assertEqual([s.id for s in result.judged], ["lcxl.noteseq.device-page"], report)
+        self.assertEqual(len(result.judged), 5, report)
         self.assertTrue(result.ok, report)
-        self.assertFalse(result.judged[0].known, "No known differences")
+        known = {s.id: s.known for s in result.judged}
+        for scenario in ("lcxl.noteseq.device-page", "lcxl.noteseq.create-note", "lcxl.noteseq.delete-note"):
+            self.assertEqual(known[scenario], [], f"{scenario}: the same as Java on Bitwig")
+        self.assertEqual(result.core_errors, [], report)
+        self.assertEqual(result.unhandled, [], report)
+
+    def test_drum_sequencer(self):
+        result = conformance.run_file("launchcontrol_xl", "drum_sequencer", phase=3)
+        report = result.report(verbose=True)
+        self.assertEqual(len(result.judged), 6, report)
+        self.assertTrue(result.ok, report)
+        self.assertEqual(result.core_errors, [], report)
+        # The drum pads' mute: zynthian has no drum machine
+        self.assertEqual(result.unhandled, ["primary pad/<n>/mute"], report)
 
 
 @unittest.skipUnless(AVAILABLE and SETUPS["maschine_mk2"].profile_dir.is_dir(), "needs the profile of the maschine_mk2 setup")
@@ -71,7 +85,7 @@ class MaschineMk2ConformanceTest(unittest.TestCase):
     (keyboard, chords, drum), the clip and scene pads, the parameter selection."""
 
     def run_file(self, name, judged):
-        result = conformance.run_file("maschine_mk2", name, phase=2)
+        result = conformance.run_file("maschine_mk2", name, phase=3)
         report = result.report(verbose=True)
         self.assertEqual(len(result.judged), judged, report)
         self.assertTrue(result.ok, report)
@@ -84,9 +98,10 @@ class MaschineMk2ConformanceTest(unittest.TestCase):
         self.run_file("global", 13)
 
     def test_pad_modes(self):
-        result = self.run_file("pad_modes", 6)
+        result = self.run_file("pad_modes", 9)
         known = {s.id: s.known for s in result.judged}
-        for scenario in ("mk2.keyboard.play", "mk2.chords.play", "mk2.pattern.select", "mk2.variation.parameter"):
+        for scenario in ("mk2.keyboard.play", "mk2.chords.play", "mk2.variation.parameter",
+                         "mk2.drum.step-on", "mk2.drum.mute-step", "mk2.drum.step-off"):
             self.assertEqual(known[scenario], [], f"{scenario}: the same as Java on Bitwig")
 
 

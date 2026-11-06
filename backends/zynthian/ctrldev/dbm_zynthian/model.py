@@ -362,6 +362,11 @@ class ZynthianModel:
         self.devices = DeviceChain(self)
         self.transport = ZynTransport(zynseq) if zynseq is not None else None
         self.launcher = ZynLauncher(self, zynseq) if zynseq is not None else None
+        self.selected_notes = {}
+        """The notes the core selected, per pattern: {(position, key)} (zynseq has no selection)."""
+        self.clip_channel = 0
+        """The MIDI channel the core addresses the cursor clip's notes with (zynseq has none)."""
+        self._clip = None
         self.palette = [hex_to_rgb(color) or GRAY for color in palette or []]
         self.with_vu = with_vu
         self.note_input = None
@@ -409,6 +414,30 @@ class ZynthianModel:
             if master is not None:
                 tracks.append(master)
         return tracks
+
+    def cursor_clip(self):
+        """The cursor clip: the pattern of the cursor slot (clip.py), read once per collection or
+        command (``invalidate_clip``); None without a MIDI chain or pattern."""
+        if self._clip is not None:
+            return self._clip
+        launcher = self.launcher
+        if launcher is None or not launcher.available:
+            return None
+        selected = launcher.selected_sequence()
+        if selected is None:
+            return None
+        phrase, chan = selected
+        pattern = launcher.pattern(phrase, chan)
+        if pattern is None:
+            return None
+        from zyngine.ctrldev.dbm_zynthian.clip import ZynseqClip
+        clip = ZynseqClip(self, pattern, channel=self.clip_channel)
+        clip.phrase, clip.chan = phrase, chan
+        self._clip = clip
+        return clip
+
+    def invalidate_clip(self):
+        self._clip = None
 
     def color_of(self, chain):
         chan = chain.midi_chan

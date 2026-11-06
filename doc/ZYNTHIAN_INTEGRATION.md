@@ -320,6 +320,32 @@ the GUI shows) rather than zynmixer.
 | **Step grid** | zynseq patterns, as first analysis | as first analysis | phase 3 |
 | **Browser, markers** | – | – | not mapped |
 
+**zynseq's patterns, as the step grid needs them** [code: `zynlibs/zynseq/zynseq.h`, `zynseq.cpp`,
+`pattern.cpp`; checked in desktop mode]:
+- A pattern has `getStepsPerBeat()` steps per beat (1, 2, 3, 4, 6, 8, 12 or 24; the pattern
+  editor's setting) and `getBeatsInPattern()` beats. An event (`StepEvent`, packed to 30 bytes,
+  the same layout as zynseq.py's `event_data`) has an integer `position` in steps, a fractional
+  `offset` within the step, a `duration` in steps, velocity, `play_chance`, `play_freq` (0 = never
+  plays) and stutter values; no MIDI channel, no pan, gain, timbre or pressure.
+- The editing functions (`addNote`, `removeNote`, `clearNotes`, `setNoteVelocity`,
+  `setNotePlayChance`, `setNotePlayFreq`, `transpose`, `getEventDataAt`, `getStepsPerBeat`,
+  `getPatternPlayhead`) work on the **globally selected pattern** (`selectPattern`, which creates
+  a pattern that does not exist), the one the pattern editor shows; `getPatternIndex` returns −1
+  without one.
+- One note per key and step: `addNote` deletes the overlapping notes of its key (and inherits
+  their chance, frequency and stutter, `Pattern::addEvent`), `removeNote` and `getNoteData` address
+  a note by its integer step and key.
+- No `setNoteDuration`; `setNoteData` copies the event from the second value byte on, so not the
+  duration either: a duration changes by `addNote` again.
+- The edits mark the pattern modified; the pattern editor polls `isPatternModified()` in
+  `refresh_status` and redraws. That call reads **and clears** one global flag: another reader
+  would take the editor's redraw away.
+- `getPatternPlayhead()` is the play position of the C side's selected sequence (`g_nScene`,
+  `g_nPhrase`, `g_nSequence`, set by `selectSequence`) in steps of the selected pattern.
+- The Python `zynseq.state` (the launcher GUI's pads) changes only with `refresh_state()`.
+- `Pattern::setStepsPerBeat` does not move the events (§9 Z13); the GUI warns that changing it
+  "may alter timing".
+
 **The first instrument (`/primary`) without layers and pads** [code, core]: the layer modes of the
 core use the first instrument's layer bank only if `uses_layers` = `!hasDrumPads && hasLayers`
 (`src/framework/mode/parameter_mode.rs:349`), else its drum pad bank. Until the host reports pads,
@@ -450,4 +476,5 @@ fixes it.
 | Z10 | `zynlibs/zynseq/zynseq.h` (the `extern "C"` block) | `getTransportState()` is not declared | `libzynseq.so` exports only the mangled C++ name: no C/ctypes caller can read the transport state | present | fixed (declared in `zynseq.h`) |
 | Z11 | `zyngui/zynthian_gui_base.py:544` (`on_title_timeout`), `zyngui/zynthian_gui_mixer.py:1394` (`clear_tempo_highlight`) | `threading.Timer` callbacks call Tk | After the Tk main loop has ended (exit) they raise "main thread is not in main loop" [observed at exit in desktop mode] | present | – |
 | Z12 | `zynlibs/zynseq/zynseq.py:574-576` (`add_pattern`) | Calls `addPattern(chan, sequence, track, time, pattern, force)`: 6 arguments for `addPattern(scene, phrase, sequence, track, position, pattern, force)` | The arguments are shifted: the arranger GUI's call (`zyngui/zynthian_gui_arranger.py:752`, `add_pattern(scene, sequence, track, time, pattern)`) reaches the C function as phrase = sequence, sequence = track, track = time, position = pattern, pattern = 0, force undefined [from the code, not run] | present | dbm adapter calls libseq |
+| Z13 | `zynlibs/zynseq/pattern.cpp:665-692` (`Pattern::setStepsPerBeat`) | `float fScale = …` inside the `else` declares a new variable; the outer `fScale` stays 1.0 | Changing the steps per beat does not rescale the events' positions and durations: the notes move in time (the GUI warns "may alter timing") | present | not used by the dbm drivers |
 | N1 | nura: `zynautoconnect/zynthian_autoconnect.py:1463-1553` (`build_midi_port_name`) under PipeWire | No JACK aliases on PipeWire's MIDI bridge ports → uid without `/` | No dev_id: no device-specific driver matches or autoloads, `dev_in_2_dev_out` finds no output (§1) | present | fixed (`zynthian_pipewire_ports.py`) |

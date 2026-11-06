@@ -63,14 +63,17 @@ class ZynReporter(Reporter):
             ZynReporter.collect_transport,
             ZynReporter.collect_device,
             ZynReporter.collect_primary,
+            ZynReporter.collect_clip,
+            Reporter.collect_grids,
         ]
         self._counts = {"track": 0, "fxtrack": 0, "scene": 0}
         self._failed = set()
 
     def collect(self):
-        """As Reporter.collect, but a collector that fails (a zynthian object in an unexpected
+        """As Reporter.collect (the cursor clip is read once for it), but a collector that fails (a zynthian object in an unexpected
         state, a missing library function) is logged once and skipped: the others still report."""
         self.apply_pending_forgets()
+        self.daw.invalidate_clip()
         for collector in self.collectors:
             try:
                 collector(self)
@@ -338,3 +341,35 @@ class ZynReporter(Reporter):
         self.put("/primary/layer/count", 0)
         for index in range(NUM_DRUM_PADS):
             self.put(f"/primary/pad/{index}/exists", False)
+
+    def collect_clip(self):
+        """The cursor clip (clip.py): a pattern starts at 0 and loops over its beats; no
+        shuffle, no accent, no pinning. Reporting loopStart/loopLength switches the core to the
+        host's step grids."""
+        launcher = self.launcher()
+        if launcher is None:
+            return
+        launcher.flush()
+        clip = self.daw.cursor_clip()
+        exists = clip is not None
+        self.put("/clip/exists", exists)
+        if exists:
+            self.put("/clip/start", 0.0)
+        self.put("/clip/end", float(clip.beats) if exists else 0.0)
+        self.put("/clip/loop", exists)
+        if exists:
+            self.put("/clip/loopStart", 0.0)
+        self.put("/clip/loopLength", float(clip.beats) if exists else 0.0)
+        self.put("/clip/shuffle", False)
+        self.put("/clip/pinned", False)
+        color = (0, 0, 0)
+        if exists:
+            track = next((t for t in self.daw.tracks() if t.selected), None)
+            color = track.color if track is not None else (128, 128, 128)
+        self.put("/clip/color", color)
+
+    def playing_step(self, grid):
+        clip = self.daw.cursor_clip()
+        if clip is None:
+            return -1
+        return clip.playing_step(grid, clip.phrase, clip.chan)

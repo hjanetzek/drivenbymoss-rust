@@ -11,9 +11,11 @@ Status: 2026-11-06.
   with `ZYNTHIAN_CTRLDEV_PATH` (§2).
 - **The Native Instruments Maschine Mk2** (through dbm-nihost, §7): its driver, the note input
   (pads into the active chain, §3.4), the displays and paging, the conformance of its scenarios,
-  a desktop run with the device.
+  a desktop run with the device; confirmed by the user on the device.
+- **The step grid** (phase 3, pulled forward, §3.5): the cursor clip and its step grids on the
+  zynseq pattern of the selected sequence, the Mk2's STEP mode and the LCXL's sequencers.
 
-58 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
+72 tests. The analysis behind it: [ZYNTHIAN_INTEGRATION.md](ZYNTHIAN_INTEGRATION.md) ("analysis §n").
 
 **Goal.** zynthian controller drivers (ctrldev) host the DrivenByMoss core, so that the core's
 controllers drive zynthian: the core runs the controller (modes, LEDs, displays), zynthian is its
@@ -163,8 +165,8 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Recording | §3.3 | ✓ | – |
 | Scenes, slots | the phrases of zynseq's current scene; slot `s` of a MIDI chain = sequence (phrase `s`, its channel) | reported, select/launch/record/createClip (§3.3) | scene launch, stop, clip delete/duplicate: phase 3 |
 | Note inputs | §3.4 | ✓ (the Mk2's pads) | – |
+| Cursor clip, step grids `/clip/…` | §3.5: the pattern of the cursor slot | ✓ | no shuffle, accent, pinning; pan, gain, repeat … of the steps |
 | Pinning, loop | `/track/pinned -1`, `/device/pinned 0`, `/repeat 0` (zynthian has neither) | ✓ | without them the core lights a Pin button and never writes the loop LED |
-| Step grid `/clip/…` | the selected sequence's pattern | phase 3 | – |
 | Browser, markers, groove, application, `/eq`, `/drum` | – | – | not reported; their commands logged once |
 
 ### 3.3 Recording
@@ -224,6 +226,51 @@ Latency (analysis §2): dbm-nihost + 0–10 ms fast-thread poll + 35–45 µs in
 desktop mode) + 0–5.3 ms JACK period, so up to ~15 ms on top of dbm-nihost, 5–8 ms on average;
 waiting for the tick would add up to 30 ms. A real-time midiproc remains the option for less.
 
+### 3.5 The cursor clip and the step grids
+
+`dbm_zynthian/clip.py`. The cursor clip is the pattern (track 0, position 0) of the cursor slot
+(the active chain's sequence in the selected phrase, §3.3), the clip of zynthian's pattern
+editor. `ZynseqClip` is a `dbm_host.clip.Clip` whose notes are read from that pattern and whose
+changes go to it, so the reference host's `NoteGrid` (one per size of the model setup's
+`noteClips`: the steps in the core's format, toggle, set, setFrom, update, clear, rows, columns,
+moveY, the attributes, step size, scrolling, paging) and `CommandHandler.grid_command` work on it
+unchanged. The notes are read once per collection and per command.
+
+| Core | zynseq |
+| --- | --- |
+| `/clip/exists` | the cursor slot has a pattern (a MIDI chain) |
+| `/clip/start`, `loopStart` | 0 (only 0 is accepted) |
+| `/clip/end`, `loopLength` (+ commands, `/inc`) | `getBeatsInPattern` / `setBeatsInPattern` (whole beats, at least 1) |
+| `/clip/loop` | 1 (a pattern loops) |
+| `/clip/shuffle`, `/clip/pinned` | 0 (`shuffle`, `accent`, `pinned`, `name`, `color`, `duplicate` not handled) |
+| `/clip/color` | the chain's color |
+| `/clip/grid/<id>/playingStep` | `getPatternPlayhead` of the playing sequence, in the grid's steps, relative to its scroll; −1 when it does not play |
+| `/clip/grid/<id>/step/<ch>/<x>/<y>` | the events of the pattern; an emptied step once `0` |
+| `clip clear`, `grid/<id>/clearAll` | `clearNotes` |
+| `clip duplicateContent` | twice the beats, the notes again after the old length |
+| `clip transpose` | `transpose` |
+
+**Time.** A note at `start` beats is the event at `position = floor(start · S)`, `offset = start ·
+S − position` (S = the pattern's steps per beat), its duration `duration · S` steps. So every
+resolution the core's views set maps (1/3 beat on a 4-step pattern: position 1, offset 0.333).
+The pattern's resolution stays the user's (the adapter never calls `setStepsPerBeat`, analysis §9
+Z13). Limit: zynseq keeps one note per key and step, so with a core step finer than zynseq's a key
+holds one note per zynseq step; a second one replaces the first.
+
+**Attributes.** Mapped: velocity (7 bits), duration, chance (`play_chance`, always enabled), muted
+(`play_freq` 0/1). Not in zynseq: velocity spread, release velocity, pressure, timbre, pan,
+transpose, gain, occurrence, recurrence, repeat. They are reported with the values of a new
+Bitwig note, and setting them changes nothing, so the core's edit views show those values again.
+zynseq has no note channel: the notes are reported on the channel the core last addressed (0 at
+first). The note selection of the core's step editing is kept by the adapter.
+
+**zynthian's side.** The adapter selects the cursor pattern for each access and the previous one
+again (the pattern editor's selection is kept); it never calls `isPatternModified` (read and
+cleared by the pattern editor, which redraws on its own after the core's edits); it refreshes
+zynseq's Python state (the launcher GUI) at most every 0.5 s after a change. Race: the pattern
+editor (GUI thread) and the tick thread both select patterns; between the adapter's select and
+restore the GUI could read the wrong pattern [not observed].
+
 ## 4. Phases
 
 ### Phase 1: the Launch Control XL on the mixer — done
@@ -256,9 +303,12 @@ transport functions and the first instrument's pages are handled.
 
 ### Phase 3: Launchpad and zynseq
 
-Scope: the rest of the launcher (scene launch, stop, clip delete/duplicate, the play states as the
-Launchpad shows them), the note inputs into the chains, the step grid; a Launchpad (X or Mini MK3
-on port 2) driver module. The scenes, slots, select/launch/record/createClip are in place (§3.3).
+Done (pulled forward): the scenes and slots with select, launch, record, createClip (§3.3), the
+note inputs (§3.4), the cursor clip and the step grids (§3.5) with the Mk2's STEP mode and the
+LCXL's note and drum sequencers, conformance and a desktop check (§6, §7).
+
+Open: the rest of the launcher (stopping, deleting and duplicating clips and scenes, the play
+states as the Launchpad shows them) and a Launchpad (X or Mini MK3 on port 2) driver module.
 
 Acceptance: session view launches and stops sequences with the right LED states; scene launch
 starts the phrase; the note view plays the active chain; the step sequencer edits the selected
@@ -296,7 +346,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (58), from this repository, after `cargo build`:
+**(a) The driver tests** (72), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -314,7 +364,8 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_launchcontrol_xl.py` | 6: the core with the LCXL on simulated time |
 | `test_driver.py` | 9: the LCXL driver class (thread, MIDI, snapshot-only state, sleep/wake, end); the Mk2 driver with the core (its note input, pads into the active chain at once, note-off to the note-on's chain, no hanging notes, no note without a MIDI chain, the cost of a note) |
 | `test_pipewire_ports.py` | 2: the drivers' dev_ids against zynthian's PipeWire uids (the LCXL's controls port, not HUI; dbm-nihost's Mk2 port, not the JAM's or the Mk2's own MIDI port) |
-| `test_conformance_lcxl.py` | 4: §6 b (the LCXL, the Mk2) |
+| `test_conformance_lcxl.py` | 5: §6 b (the LCXL's track mix, note and drum sequencers; the Mk2) |
+| `test_clip.py` | 13: the cursor clip on a zynseq pattern (properties, steps both ways, resolutions that don't divide, one note per zynseq step, the attributes zynseq has and those it doesn't, set/update/moveY, rows, columns, length, duplicate, transpose, clear, the playhead, the pattern editor's selection kept, the note selection, zynseq's Python state); the Mk2's STEP mode with the core (a pad writes the pattern, a note added in zynseq lights its pad, the playhead, the step off) |
 | `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
@@ -331,6 +382,13 @@ differences with reasons. Results (phase 2):
   (the knob values, carried into the later scenarios); with Solo held the scenes, where zynthian
   always has a selected phrase; Track Focus 5 (undo) with Record Arm held: zynthian has no undo.
 - `maschine_mk2/global.toml`, `pad_modes.toml`: §7.
+- Phase 3 (`… 3`): `note_sequencer.toml` (5 scenarios: the first instrument's pages, create and
+  delete a note the same as Java; the repeat count and the panning of a step are zynseq's
+  missing attributes), `drum_sequencer.toml` (6: steps on and off the same; the knobs of a step
+  compare in velocity, duration and chance, within one 7-bit step; the drum pads' mute and paging
+  are the missing drum machine). The fixture has empty 4-beat patterns where Bitwig's has its two
+  empty clips; Bitwig's empty clip counts as content, a zynseq pattern only with notes (the slot's
+  `hasContent`, the PATTERN pad of the Mk2).
 - Not judged: the rest of `note_sequencer.toml` (step grid, phase 3), `layer_mix.toml` (zynthian
   has no layers: the core shows nothing where Bitwig shows the Instrument Layer's 2 layers,
   §3.2), `drum_sequencer.toml`, `equalizer.toml`.
@@ -369,6 +427,38 @@ in the track modes the encoder up/down = the track bank page (tests only).
 
 **Pads:** §3.4. In play, keyboard and chords mode the core's key table maps the pads to notes (the
 chord's further notes come through `process_midi_arg`); in drum mode to the drum notes (36…).
+
+**The clip launcher (PATTERN, SCENE)**: the sequences as slots, the phrases as scenes (§3.3);
+**verified by the user on the device** (2026-11-06).
+
+**STEP mode** (§3.5): in drum mode (PAD MODE) STEP shows the 16 steps of the selected drum cell
+(the pad played last; without one the pads do nothing, the core's behaviour); a pad toggles its
+step in the zynseq pattern of the selected chain's sequence, the pads light the steps and the
+playhead while zynseq plays. In play mode STEP is the note sequencer on the same pattern. Paging
+(steps, octaves, the resolution) is the core's own: it sets the grid's step size and scroll
+position, the adapter maps them to zynseq's steps. Conformance: `mk2.drum.step-on`, `mute-step`
+(MUTE + pad mutes the step: `play_freq` 0) and `step-off` the same as Java on Bitwig.
+
+Desktop run with the device (2026-11-06; PAD MODE, pad 1, STEP and the pads injected as dbm-nihost
+sends them, an MDA DX10 chain on channel 1, its pattern of 4 beats at 4 steps per beat): pad 13
+wrote the note at zynseq step 12 and its pad LED went from 0 to 45; zynseq's Python state (the
+launcher GUI) had the event; a note added in zynseq at step 13 lit pad 14 and was reported as
+the step line; while the sequence played (120 BPM) the reported playhead ran 0…15 and wrapped,
+with the pads' LEDs following; stopped: −1; pad 13 again removed the note. Not observed: the
+pattern editor's redraw (it would have meant driving the Tk screen from the probe), the pads and
+the sound on the device.
+
+**Checklist for STEP mode** (a chain with a synth selected, its pattern open in zynthian's
+pattern editor):
+
+1. PAD MODE, play a pad (it selects the drum cell), STEP: the 16 pads show the steps of that
+   note; press pads: the notes appear in zynthian's pattern editor, the pads light.
+2. Add or delete a note in the pattern editor: the Mk2's pad follows.
+3. Start the sequence (PATTERN mode, or zynthian's launcher): the playhead runs over the pads.
+4. MUTE + pad: the step is muted (zynthian: the note does not play).
+5. The resolution (the Mk2's step length setting) and paging: the notes land where zynthian's
+   editor shows them; with a resolution finer than the pattern's, one note per key and step.
+6. PLAY mode + STEP (the note sequencer): the same pattern, notes by pitch.
 
 **Conformance** (`zyn_conformance.py maschine_mk2 global|pad_modes 2`): 13 scenarios of
 `global.toml` and 6 of `pad_modes.toml` judged, all the same as Java on Bitwig apart from model
@@ -424,9 +514,9 @@ with a synth, e.g. MDA DX10, selected):
 
 ## 8. State (2026-11-06)
 
-drivenbymoss-rust (after `03bd3a7`, not committed): the Mk2 driver, the note input, the reports
-the Mk2 needs (pinning, loop, playing notes, slot colors), scene commands, the Mk2 conformance,
-this plan, the analysis.
+drivenbymoss-rust (after `ecb1d95`, not committed): the step grid (`dbm_zynthian/clip.py`, the
+cursor clip in the model, reporter and commands, the stand-in libseq's pattern store,
+`test_clip.py`, phase 3 of the conformance), this plan, the analysis.
 
 zynthian-ui `dbm`: no changes since `bc396034`.
 
