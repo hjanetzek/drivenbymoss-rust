@@ -24,8 +24,11 @@ idea or an assumption.
   grid/<id>/scroll`, `stepSize`), but not **which grid is on the pads** nor the **key rows** the
   pads show: these stay inside the core. [code]
 - Smallest useful step: a pull-style "controller window" API in zynthian (one base-class method,
-  one GUI signal without payload), a frame in the Tk mixer and launcher, and the DBM driver
-  publishing `track_offset/num_tracks` and `scene_offset/num_scenes`. The UI should **mark**, not
+  one GUI signal without payload), a **shared, toolkit-independent module**
+  (`zyngui/zynthian_ctrldev_window_data.py`, like the other `*_data.py` modules shared by the Tk
+  and the Qt UI) which turns the drivers' windows into ranges per view, the frames in the **Qt UI
+  first** (`zynqt/`), and the DBM driver publishing `track_offset/num_tracks` and
+  `scene_offset/num_scenes`. The Tk UI can use the same module later. The UI should **mark**, not
   follow; following already happens through the shared selection (§6).
 
 ## 1. What zynthian has today
@@ -321,9 +324,20 @@ Pull, not push, so a screen shown later draws the current state and several cont
    would then work for the stock Launchpads and the APC too (upstream value). [guess]
 2. `zyngine/zynthian_signal_manager.py`: `SS_GUI_CTRLDEV_WINDOW = 8` (1 line; fits
    `last_subsignal = 10`). [code for the limit]
-3. GUI: on the signal (and in `build_view`), iterate
-   `state_manager.ctrldev_manager.drivers.values()`, collect the non-None windows, redraw the
-   frames. [guess]
+3. Shared module `zyngui/zynthian_ctrldev_window_data.py` (no toolkit imports, like
+   `zynthian_pated_data.py`, `zynthian_midi_learn_data.py`): iterates
+   `state_manager.ctrldev_manager.drivers.values()`, collects the non-None windows and gives each
+   view what it draws: per mixer strip the controllers covering its chain (by chain id, so the
+   main chain, mixbuses and pinned chains need no special case), per launcher cell the
+   controllers covering chain × phrase, the step band of the pattern editor's pattern; each with
+   the controller's colour and inset. Pure functions plus one "changed" check, so it can get unit
+   tests without a UI. ~50 lines. [guess]
+3a. Qt UI (first target): `SignalBridge` passes `SS_GUI_CTRLDEV_WINDOW` on (it passes no `S_GUI`
+   signals today, §1.6); a small `QObject` model exposes the module's ranges as a list property;
+   the QML mixer strip, launcher cell and pattern editor delegates draw a border from it. ~60-80
+   lines. [guess]
+3b. Tk UI (later, through the same module): `zynthian_gui_mixer.py` and the pattern editor call
+   it on the signal and in `build_view` and only move a few canvas items. [guess]
 4. DBM driver (`backends/zynthian/ctrldev/zynthian_ctrldev_base_dbm.py`): after `bridge.tick` in
    `step` (`:345-358`), compute the window from `bridge.banks` and `self.model.track_list(...)`
    (chain ids of `[track_offset, track_offset+num_tracks)`), store it if it changed and call
@@ -331,8 +345,9 @@ Pull, not push, so a screen shown later draws the current state and several cont
    indication flags (sends, device parameters), `track indicate` stored, ~30 lines in
    `commands.py`/`model.py`/`device.py`.
 
-Lines, roughly: zynthian base + signal 20-25, Tk mixer/launcher 80-100, Tk pattern editor 30,
-Qt 60-80; DBM side 30 (offsets) + 30 (indication) + 20 (step band). [guess]
+Lines, roughly: zynthian base + signal 20-25, shared module 50, Qt 60-80; later Tk
+mixer/launcher 50-70 and Tk pattern editor 20 on top of the shared module; DBM side 30 (offsets)
++ 30 (indication) + 20 (step band). [guess]
 
 ### Risks
 
@@ -379,16 +394,21 @@ Qt 60-80; DBM side 30 (offsets) + 30 (indication) + 20 (step band). [guess]
 
 ## 7. Recommendation: the first, smallest step
 
+The first target is the **Qt UI** (`zynqt/`); the logic goes into the **common UI code**, the
+toolkit-independent `zyngui/*_data.py` modules which the Qt port moved out of the Tk screens, so
+that the Tk UI (and upstream) can use it later without a second implementation.
+
 1. In zynthian (one patch, upstream-able): `SS_GUI_CTRLDEV_WINDOW = 8`,
-   `zynthian_ctrldev_base.get_gui_window()` (None) and `notify_gui_window()`, and in
-   `zynthian_gui_mixer.py` one `draw_ctrldev_windows()` that draws an outline around the window's
-   chains (mixer mode) or chains × phrases (launcher mode), registered like the other callbacks
-   and called after `build_mixer`, `build_launchers` and `set_launcher_mode`. ~100 lines.
-2. In the DBM driver: publish `chain ids of [track_offset, +num_tracks)` and `(scene_offset,
+   `zynthian_ctrldev_base.get_gui_window()` (None) and `notify_gui_window()`. ~25 lines.
+2. The shared module `zyngui/zynthian_ctrldev_window_data.py`: the drivers' windows → ranges per
+   view (mixer strips by chain id, launcher cells chain × phrase), with unit tests. ~50 lines.
+3. Qt: `SignalBridge` passes the new signal on, a small model, a border in the mixer strip and
+   launcher cell delegates. ~60-80 lines.
+4. In the DBM driver: publish `chain ids of [track_offset, +num_tracks)` and `(scene_offset,
    num_scenes)` after each tick when they change. ~30 lines. No core change, no new host
    feature, so the command streams and tests stay as they are.
 
-Then, in this order: Qt (`SignalBridge`, a model, the strip/pad delegates); `indication` in the
-adapter so the frame narrows to what the controls address and the launcher frame shows only in
-session mode; the pattern editor's step band; last, a core command for the sequencer views' key
-window.
+Then, in this order: the pattern editor's step band (shared module + Qt view); `indication` in
+the adapter so the frame narrows to what the controls address and the launcher frame shows only
+in session mode; the Tk mixer, launcher and pattern editor on the same shared module; last, a
+core command for the sequencer views' key window.
