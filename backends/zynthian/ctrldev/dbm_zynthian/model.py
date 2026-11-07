@@ -355,11 +355,15 @@ class ZynthianModel:
         LAUNCHER_COLOUR); ``with_vu``: report the peak meters; ``zynseq``: the sequencer, for the
         transport (phase 2; None: no transport)."""
         # Phase 2: the devices and the transport (imported here: they import this module)
+        from zyngine.ctrldev.dbm_zynthian.browser import ZynBrowser
         from zyngine.ctrldev.dbm_zynthian.device import DeviceChain
         from zyngine.ctrldev.dbm_zynthian.launcher import ZynLauncher
         from zyngine.ctrldev.dbm_zynthian.transport import ZynTransport
         self.chain_manager = chain_manager
         self.devices = DeviceChain(self)
+        self.browser = ZynBrowser(self)
+        """The core's browser on the cursor device's banks and presets (browser.py); its ``ui``
+        (zynthian's preset view) is set by the driver."""
         self.transport = ZynTransport(zynseq) if zynseq is not None else None
         self.launcher = ZynLauncher(self, zynseq) if zynseq is not None else None
         self.selected_notes = {}

@@ -34,8 +34,10 @@ Phase 2 adds the transport (``collect_transport``, only with zynseq), the cursor
 its siblings and parameter pages (``collect_device``) and the first instrument
 (``collect_primary``).
 
-Not reported, so the core keeps its defaults for them: markers, the
-browser, ``/drum``, ``/eq``, the layers and drum pads of ``/primary``, the arranger position and loop, ``/track/<p>/active``
+The browser (``collect_browser``, browser.py): the banks and presets of the cursor device,
+``/browser/exists 0`` while it is closed (with it the core sends ``browser …`` commands).
+
+Not reported, so the core keeps its defaults for them: markers, ``/drum``, ``/eq``, the layers and drum pads of ``/primary``, the arranger position and loop, ``/track/<p>/active``
 (zynthian has no deactivated chains), ``/track/hasPrevious|hasNext``. ``/track/pinned`` (-1) and ``/device/pinned`` (0) are reported:
 zynthian has no pinning.
 """
@@ -65,6 +67,7 @@ class ZynReporter(Reporter):
             ZynReporter.collect_device,
             ZynReporter.collect_primary,
             ZynReporter.collect_clip,
+            ZynReporter.collect_browser,
             Reporter.collect_grids,
         ]
         self._counts = {"track": 0, "fxtrack": 0, "scene": 0}
@@ -371,6 +374,17 @@ class ZynReporter(Reporter):
             track = next((t for t in self.daw.tracks() if t.selected), None)
             color = track.color if track is not None else (128, 128, 128)
         self.put("/clip/color", color)
+
+    def browser_pages(self):
+        """The page sizes of the filter columns and the results (model setup)."""
+        setup = self.banks.setup
+        return max(1, int(setup.get("numFilterColumnEntries", 16))), max(1, int(setup.get("numResults", 16)))
+
+    def collect_browser(self):
+        """The browser (§3.8): only ``/browser/exists`` while it is closed."""
+        browser = getattr(self.daw, "browser", None)
+        if browser is not None:
+            browser.collect(self, *self.browser_pages())
 
     def playing_step(self, grid):
         clip = self.daw.cursor_clip()

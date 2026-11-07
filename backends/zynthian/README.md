@@ -22,6 +22,10 @@ drivers (on the DAW ports) autoload; pick "DrivenByMoss Launchpad …" in the MI
 of the MIDI port (`Launchpad X IN 2`), which then unloads zynthian's driver of that device
 ([plan §7b](../../doc/ZYNTHIAN_PLAN.md)). The MkII has no zynthian driver and autoloads.
 
+The core's browser browses the banks and presets of the active chain's current processor (the
+Mk2's BROWSE: knob 1 the bank, knob 8 the preset, ENCODER PUSH loads, BROWSE again cancels);
+meanwhile zynthian shows its preset view of that processor ([plan §3.7](../../doc/ZYNTHIAN_PLAN.md)).
+
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
 

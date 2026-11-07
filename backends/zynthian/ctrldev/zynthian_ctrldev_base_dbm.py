@@ -45,6 +45,7 @@ from zyncoder.zyncore import lib_zyncore
 from zyngine.zynthian_signal_manager import zynsigman
 from zyngine.ctrldev.zynthian_ctrldev_base import zynthian_ctrldev_base
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge
+from zyngine.ctrldev.dbm_zynthian.browser import BrowserUI
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -99,6 +100,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         # "in" for the device's keys (fast thread), "out" for the core's played notes
         self.sounding = {}
         self.model.note_sink = self.send_core_note
+        # The core's browser shows zynthian's preset view (CUIAs)
+        self.model.browser.ui = BrowserUI(state_manager)
 
     @classmethod
     def get_config_dir(cls):

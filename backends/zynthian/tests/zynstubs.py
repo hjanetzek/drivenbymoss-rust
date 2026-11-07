@@ -266,6 +266,95 @@ class FakeSynthProcessor:
         self.bypassed = not self.bypassed
 
 
+class FakePresetEngine:
+    """An engine with banks and presets as ZynAddSubFX's (bank rows [path, msb, name, ...],
+    preset rows [path, [msb, lsb, prg], title, ext, file]) and the favourites of zynthian_engine
+    (in memory). Records set_bank and set_preset (preload: True for a preload)."""
+
+    def __init__(self, banks, favs=(), nickname="ZY"):
+        self.nickname = nickname
+        self.banks = banks
+        self.show_favs_bank = True
+        self.allow_preset_preload = True
+        self.calls = []
+        self.preset_favs = {}
+        for bank, title in favs:
+            bank_row = self.bank_list()[[row[2] for row in self.bank_list()].index(bank)]
+            preset = next(row for row in self.get_preset_list(bank_row) if row[2] == title)
+            self.preset_favs[str(preset[0])] = [bank_row, preset]
+
+    def get_name(self, processor):
+        return processor.name
+
+    def bank_list(self):
+        rows = [[None, 0, "System banks"]]  # A section title, as zynthian's lists have
+        for i, name in enumerate(self.banks):
+            rows.append([f"/banks/{name}", i, name, "_"])
+        return rows
+
+    def get_bank_list(self, processor=None):
+        return self.bank_list()
+
+    def set_bank(self, processor, bank):
+        self.calls.append(("set_bank", bank[2]))
+        return True
+
+    def get_preset_list(self, bank, processor=None):
+        return [[f"{bank[0]}/{i + 1:04}-{title}.xiz", [bank[1], 0, i], title, "xiz", f"{i + 1:04}-{title}.xiz"]
+                for i, title in enumerate(self.banks[bank[2]])]
+
+    def set_preset(self, processor, preset, preload=False):
+        self.calls.append(("preload" if preload else "set_preset", preset[2]))
+        return True
+
+    def cmp_presets(self, preset1, preset2):
+        try:
+            return preset1[0] == preset2[0]
+        except (TypeError, IndexError):
+            return False
+
+    def get_preset_favs(self, processor):
+        return self.preset_favs
+
+    def is_preset_fav(self, preset):
+        return str(preset[0]) in self.preset_favs
+
+    def add_processor(self, processor):
+        pass
+
+
+def preset_processor(chain, name, banks, favs=()):
+    """A zynthian_processor (its bank and preset functions) with a FakePresetEngine: banks is
+    {bank name: [preset titles]}, favs [(bank, title)]."""
+    from zyngine.zynthian_processor import zynthian_processor
+
+    class PresetProcessor(zynthian_processor):
+        def get_ctrl_screens(self):
+            return {}
+
+        def get_current_screen_index(self):
+            return 0
+
+        def set_current_screen_index(self, index):
+            pass
+
+        def get_state(self):
+            return {"bank_info": self.bank_info, "preset_info": self.preset_info}
+
+        def set_state(self, state):
+            # As zynthian_processor.set_state: the bank, then the preset into the engine
+            self.set_bank_by_info(state["bank_info"])
+            self.load_preset_list()
+            if state["preset_info"]:
+                self.set_preset_by_id(state["preset_info"][0], True, True)
+
+    processor = PresetProcessor("ZY", {"TYPE": "MIDI Synth", "NAME": name})
+    processor.set_engine(FakePresetEngine(banks, favs))
+    processor.set_chain(chain)
+    processor.midi_chan = chain.midi_chan
+    return processor
+
+
 class FakeLibseq:
     """zynseq's libseq: transport, tempo, metronome (records the calls)."""
 
@@ -734,6 +823,14 @@ class ZynthianState:
         chain.processors.append(proc)
         if chain.current_processor is None:
             chain.current_processor = proc
+        return proc
+
+    def add_preset_processor(self, chain_id, name, banks, favs=()):
+        """A processor with banks and presets (preset_processor), the chain's current one."""
+        chain = self.chain_manager.chains[chain_id]
+        proc = preset_processor(chain, name, banks, favs)
+        chain.processors.append(proc)
+        chain.current_processor = proc
         return proc
 
     def zctrl(self, chain_id, symbol):

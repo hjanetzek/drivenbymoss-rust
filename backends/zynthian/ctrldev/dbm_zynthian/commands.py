@@ -49,6 +49,11 @@ launchAlt|launchRelease|launchReleaseAlt|remove|duplicate|paste``, ``track <p>/s
 stop|stopAlt``, ``project createScene|createSceneFromPlayingLauncherClips``, ``clip duplicate``
 (the cursor slot).
 
+The browser (browser.py): ``browser replace/device``, ``stop``, ``preview``, ``contentType/+|-``
+(one content type), ``column/0/+|-|page/+|page/-|reset`` (the bank), ``result/+|-|page/+|page/-``
+(the preset); the device browser (``add/…``, ``insertBefore|insertAfter``, ``replace/slot|drum|
+primary/…``) and the columns 1..6 are not handled.
+
 Everything else is logged as not handled, e.g. ``send/<s>/active`` (zynthian's sends have no
 switch), ``device remove|duplicate``, slot and scene ``name``/``color``, the Reaper-only
 transport forms.
@@ -90,6 +95,7 @@ class ZynCommandHandler(CommandHandler):
         self.register("drum", self._drum)
         self.register("clip", self._clip)
         self.register("project", self._project)
+        self.register("browser", self._browser)
         if self.daw.transport is not None and self.daw.transport.available:
             self.register("transport", self._transport, TRANSPORT_FEATURES)
             self.register("tempo", self._tempo)
@@ -279,6 +285,18 @@ class ZynCommandHandler(CommandHandler):
         if cmd.command == "createSceneFromPlayingLauncherClips":
             return launcher.create_scene_from_playing()
         return False
+
+    def _browser(self, cmd):
+        """``browser …`` on the cursor device's banks and presets (browser.py)."""
+        browser = getattr(self.daw, "browser", None)
+        if browser is None:
+            return False
+        try:
+            return browser.command(cmd, *self.reporter.browser_pages())
+        except Exception as e:
+            # A processor in an unexpected state must not stop the tick thread
+            logger.exception("browser %s failed: %s", cmd.full_command, e)
+            return False
 
     def duplicate_cursor_slot(self):
         """``clip duplicate``: the cursor slot's pattern into the slot below."""

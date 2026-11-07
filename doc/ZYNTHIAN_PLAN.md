@@ -180,7 +180,8 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Note inputs | §3.4 | ✓ (the Mk2's pads) | – |
 | Cursor clip, step grids `/clip/…` | §3.5: the pattern of the cursor slot | ✓ | no shuffle, accent, pinning; pan, gain, repeat … of the steps |
 | Pinning, loop | `/track/pinned -1`, `/device/pinned 0`, `/repeat 0` (zynthian has neither) | ✓ | without them the core lights a Pin button and never writes the loop LED |
-| Browser, markers, groove, application, `/eq`, `/drum` | – | – | not reported; their commands logged once |
+| Browser `/browser/…` | §3.7: the cursor device's banks (filter column 0) and presets (the results); commit loads, cancel keeps; zynthian's preset view shown while it is open | ✓ (tests, Qt desktop run) | one content type ("Presets"), columns 1..6 absent, hit counts 0; the device browser (`add/…`, `insertBefore/After`, `replace/slot|drum|primary/…`) logged once |
+| Markers, groove, application, `/eq`, `/drum` | – | – | not reported; their commands logged once |
 
 ### 3.3 Recording
 
@@ -322,6 +323,60 @@ sequence on launch (zynseq has no queued restart), the alternative launch/stop q
 (zynseq's start/end mode is per sequence, `setSequenceMode`), clippy's audio launchers as slots
 (stop all stops them).
 
+### 3.7 The browser: banks and presets
+
+`dbm_zynthian/browser.py` (`ZynBrowser`, `BrowserUI`; tests `backends/zynthian/tests/test_browser.py`).
+The core sends `browser …` only to a host which reports `/browser/exists` (else its own Reaper
+preset browser runs, without commands: the Mk2's BROWSE then showed only `>Prese` and nothing
+could be done). The adapter reports `/browser/exists 0` from the start and the rest while the
+browser is open (HOST_BRIDGE_GUIDE §3.8):
+
+| Core | zynthian |
+| --- | --- |
+| `browser replace/device` (the Mk2's BROWSE with a cursor device) | open on the cursor device's processor (it becomes the chain's current processor) |
+| content types | one: `Presets` (`/browser/contentType/count 1`, `selected 0`, `selected/name Presets`) |
+| filter column 0 `Bank` | `processor.get_bank_list()` without section titles (rows without id or name); the favourites ("*** Favorites ***", `*FAVS*`) are a bank; no wildcard (`wildcard` empty) |
+| filter columns 1..6 | `exists 0` (`/browser/column/count 7`) |
+| results | the bank's presets (`load_preset_list()`) without section titles; "❤ " removed from the names |
+| cursors | at the start the processor's bank and its loaded preset; another bank: the loaded preset if it is in it, else the first |
+| `column/0/+\|-\|page/+\|page/-`, `column/0/reset` | the bank ±1, ± a page (`numFilterColumnEntries`), the first; the reported page always holds the cursor (`cursorIndex` never -1) |
+| `result/+\|-\|page/+\|page/-` | the preset ±1, ± a page (`numResults`) |
+| `preview <flag>` | zynthian's preset preload (`preload_preset` on each result move); at the start on if zynthian's "Preset Preload" (`preset_preload`) is |
+| `stop 1` (commit) | the bank (`set_bank`, into the engine only if it differs from the processor's) and the preset (`set_preset`; a preloaded one is not loaded again) |
+| `stop 0` (cancel) | a preload is undone (`restore_preset`), the processor keeps its bank, favourites flag and preset list |
+| `stop` while closed | ignored (the Mk2's browse mode commits again when it is left after a cancel) |
+| `contentType/+\|-` | accepted, nothing to switch |
+| not handled (logged once) | `add/track/<p>`, `add/master`, `insertBefore`, `insertAfter`, `replace/slot/<p>/<s>`, `replace/drum\|primary/pad/<i>`, `column/<1..6>/…` |
+
+While browsing, the processor's bank is the browsed one without loading it into the engine
+(`set_bank(index, set_engine=False)`, `set_show_fav_presets`), as zynthian's bank screen does
+before a preset is chosen; so zynthian's preset view lists the browsed bank. Cancel restores the
+processor's `bank_index`, `bank_name`, `bank_info`, `show_fav_presets` and `preset_list`; after a
+preload also the engine's bank (`restore_preset` sets the bank of the state before the preload).
+
+**The UI** (`BrowserUI`, CUIAs through the state manager's queue, which both UIs run in their own
+thread; no zynthian change):
+
+- open: `CHAIN_CONTROL` if the UI's `current_processor` is not the browsed processor (it becomes
+  the active chain's current processor), then `SHOW_SCREEN preset`;
+- another bank: `SHOW_SCREEN preset` again (the screen fills itself from the processor's preset
+  list), then `SELECT <index in the preset list>`; another preset: `SELECT` (moves the cursor,
+  loads nothing);
+- close (commit or cancel): `BACK` as often as screens were opened (two from the mixer, one from
+  the processor's chain control), if the preset view is still shown or not shown yet;
+- the core's selection only flows to the UI, the UI's selection is not read back (no loop). If
+  the user leaves the preset view (BACK, or a preset chosen there), the browser closes with the
+  next report: BACK = cancel; a preset chosen in the UI stays (its bank is set into the engine).
+  The core then leaves its browse mode; its `stop 1` finds the browser closed.
+
+Verified in the Qt UI (desktop run, §7); the Tk UI runs the same CUIAs, but its `SHOW_SCREEN`
+resets the screen history (`show_screen_reset`), so BACK does not return to the screen before:
+not checked (Tk support was not required).
+
+Not mapped: banks in sub-folders (`bank_subdir_info`; such a bank lists what its engine lists
+for the folder), the hit counts, the device browser (zynthian adds processors through its own
+chain screens), saving presets.
+
 ## 4. Phases
 
 ### Phase 1: the Launch Control XL on the mixer — done
@@ -413,7 +468,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (126), from this repository, after `cargo build`:
+**(a) The driver tests** (146), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -435,6 +490,7 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_maschine_jam.py` | 12: the JAM driver's dev_id (dbm-nihost's PipeWire port, the output; per port its driver: the JAM's only on the JAM, the Mk2's not there); the JAM with the core (the volume strips show and move the faders, the meters while playing, pan, sends, parameters; the session launch at the next bar, PLAY lit, MUTE + pad stops, scenes, group buttons; the note mode into the active chain, the note sequencer on the pattern) |
 | `test_clip.py` | 13: the cursor clip on a zynseq pattern (properties, steps both ways, resolutions that don't divide, one note per zynseq step, the attributes zynseq has and those it doesn't, set/update/moveY, rows, columns, length, duplicate, transpose, clear, the playhead, the pattern editor's selection kept, the note selection, zynseq's Python state); the Mk2's STEP mode with the core (a pad writes the pattern, a note added in zynseq lights its pad, the playhead, the step off) |
 | `test_launchpad.py` | 21: the Launchpad drivers' dev_ids (from the core's discovery names, not the stock drivers' ports, PipeWire), autoload against the stock drivers, the stock driver of the same device unloaded; the X and the Mini MkIII with the core (session launch, stop and LEDs, scenes, the note view through the driver, sequencer, drum view, clip length, mixer, device view); 2 expected failures: the core's blink color (§7b) |
+| `test_browser.py` | 20: the browser on zynthian_processor's bank and preset functions with a stand-in engine (closed, open with the loaded bank and preset, results and pages, the bank column, commit, commit in the same bank, cancel, preview with preload and restore, commit of the preloaded preset, the favourites bank, the favourite mark, the unsupported commands, no cursor device); the preset view through CUIAs with a stand-in of the Qt UI (open, select, other bank, close back to the mixer; from chain control; BACK in the UI cancels; a preset chosen in the UI stays; no UI); the Mk2 with the core (BROWSE opens, the display shows bank and preset, knob 1 the bank, knob 8 the presets, the encoder on the marked column, BROWSE cancels, ENCODER PUSH loads) |
 | `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
@@ -590,6 +646,49 @@ encoder and PAGE (injected as dbm-nihost sends them) changed the display as desc
 **Not verified (needs a person at the device):** that dbm-nihost draws the texts readably on the
 screens, the LEDs on the device, physical pads, encoder and buttons, the sound and the latency as
 played.
+
+**BROWSE: banks and presets** (§3.7). Desktop run (2026-11-07, **the Qt UI** in a headless labwc
+with screenshots, `ZYNTHIAN_CTRLDEV_PATH`, my-data on a copy, a ZynAddSubFX chain with "Pads /
+Sine Pad" loaded, the input injected as dbm-nihost sends it; probe
+`scratchpad/desktop/probe_qt_browse.py`):
+
+- BROWSE: the display (sent to the device) `Bank … >Prese` / `Pads … Sine P` (column 1 the bank,
+  column 8 the preset; the cells have 6 characters); the UI went mixer → chain control → the
+  preset view "1#ZynAddSubFX > Pads" with "Sine Pad" selected.
+- Knob 1 +1: `Plucke` / `Plucke` (bank "Plucked", its first preset); the preset view showed
+  "1#ZynAddSubFX > Plucked" (the processor's bank set without the engine).
+- Knob 8 +2: the preset view's selection moved to "Plucked 3"; zynthian preloaded "Plucked 2" and
+  "Plucked 3" (preview on: zynthian's Preset Preload is on).
+- ENCODER PUSH: "Plucked / Plucked 3" loaded (`Preset already preloaded`), the Mk2 back in its
+  volume mode, the UI back on the mixer with an empty history.
+- BROWSE, knob 8 +3 (preloads Plucked 4–6), BROWSE: cancel; "Plucked 3" restored
+  (`restore_preset`), the UI back on the mixer (one BACK: the UI's processor was already the
+  browsed one).
+- BROWSE, then BACK in the UI: the browser closed, the Mk2 left its browse mode.
+- No core errors; unhandled only `noterepeat …`. Not seen on the device itself (the texts on the
+  screens, the sound of the preload).
+
+The Mk2's browse mode: knob 1 = the bank, knobs 2–7 do nothing (no columns), knob 8 = the
+presets; the encoder turns the column marked with `>` (at the start the presets; the encoder's
+LEFT/RIGHT move the mark: seven times LEFT marks `>Bank`), ENCODER PUSH loads; BROWSE again cancels; another mode button leaves the
+browse mode and loads (`BrowseMode::on_deactivate` commits).
+
+**Checklist for BROWSE** (zynthian started with `ZYNTHIAN_UI=qt` and the run command, a chain with
+ZynAddSubFX selected, a preset loaded, zynthian's mixer shown):
+
+1. BROWSE (lit): the Mk2's display shows `Bank` with the loaded bank over knob 1 and `>Prese` with
+   the loaded preset over knob 8; zynthian shows the preset list of that bank with the loaded
+   preset selected.
+2. Knob 1: the next/previous bank on the Mk2; zynthian's preset view shows that bank's presets.
+3. Knob 8 (or the encoder): the next/previous preset on the Mk2; zynthian's selection follows and
+   the preset sounds (Preset Preload on). Encoder LEFT until `>Bank`: the encoder turns the bank.
+4. ENCODER PUSH: the preset is loaded (zynthian's chain shows it), the Mk2 returns to its mode,
+   zynthian returns to the mixer.
+5. BROWSE, knob 8 a few steps, BROWSE again: the preset loaded before sounds again, zynthian back
+   on the mixer.
+6. BROWSE, then BACK on zynthian (touch or key): the Mk2 leaves the browse mode.
+7. BROWSE, then choose a preset in zynthian's list: it is loaded, the Mk2 leaves the browse mode.
+8. BROWSE on a chain whose current processor has no presets (e.g. an audio chain): nothing opens.
 
 **Checklist for the device** (zynthian started with the run command, dbm-nihost running, a chain
 with a synth, e.g. MDA DX10, selected):
@@ -852,7 +951,11 @@ drivenbymoss-rust (after `476b2ac`, not committed): the Maschine JAM driver
 (status, §2, §4 phase 3, §6, §7c, §9), the README. No adapter change was needed for the JAM. Open
 are the device checks (§7, §7b, §7c) and the Shift view core bug of §7b.
 
-zynthian-ui `dbm`: no changes since `bc396034`.
+Then (not committed): the browser on the banks and presets of the cursor device
+(`dbm_zynthian/browser.py`, §3.7, the Mk2's BROWSE, §7), zynthian's preset view by CUIAs,
+`test_browser.py`, the preset processor stand-in in `zynstubs.py`.
+
+zynthian-ui `dbm`: no changes since `bc396034` (the preset view needs none: existing CUIAs).
 
 ## 9. Open questions
 

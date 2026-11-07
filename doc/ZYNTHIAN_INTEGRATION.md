@@ -320,7 +320,8 @@ the GUI shows) rather than zynmixer.
 | **Devices / parameters** | the active chain's processors without the mixer strip; `get_ctrl_screens()` (4 zctrls per screen, two per core page) | implemented in phase 2 (ZYNTHIAN_PLAN.md §3.2) | window, expand, pin, layers, drum pads |
 | **Transport / tempo** | `libseq.getTransportState()` (§0, §9 Z10), `getTempo`, `getBpb`, the metronome mode and volume | implemented in phase 2: play = zynseq's transport (decided) | position, loop, punch, automation, record |
 | **Step grid** | zynseq patterns, as first analysis | as first analysis | phase 3 |
-| **Browser, markers** | – | – | not mapped |
+| **Browser** | the cursor device's processor: `get_bank_list()` (rows `[id, msb, name, …]`, section titles with id `None`, the favourites row `*FAVS*` first if there are favourites), `load_preset_list()` (of `bank_info`, or the favourites with `show_fav_presets`; favourites marked "❤ " in the titles), `set_bank(i, set_engine=False)` (the bank without the engine, as the bank screen), `set_preset`, `preload_preset`/`restore_preset` (the preview) | implemented (ZYNTHIAN_PLAN.md §3.7); zynthian's preset view by the CUIAs `CHAIN_CONTROL`, `SHOW_SCREEN preset`, `SELECT`, `BACK` | the device browser, sub-folder banks, hit counts |
+| **Markers** | – | – | not mapped |
 
 **zynseq's patterns, as the step grid needs them** [code: `zynlibs/zynseq/zynseq.h`, `zynseq.cpp`,
 `pattern.cpp`; checked in desktop mode]:
