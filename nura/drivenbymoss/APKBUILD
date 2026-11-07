@@ -20,13 +20,23 @@ depends="python3"
 makedepends="cargo"
 builddir="$srcdir/$pkgname"
 
+# pmbootstrap sets RUSTC_WRAPPER=sccache, which CI's chroot doesn't have: cargo then fails
+# ("could not execute process `/usr/bin/sccache rustc -vV`")
+_no_missing_wrapper() {
+	if [ -n "${RUSTC_WRAPPER:-}" ] && ! command -v "$RUSTC_WRAPPER" >/dev/null; then
+		unset RUSTC_WRAPPER
+	fi
+}
+
 prepare() {
 	default_prepare
+	_no_missing_wrapper
 	export CARGO_HOME="$srcdir"/cargo
 	cargo fetch --locked
 }
 
 build() {
+	_no_missing_wrapper
 	export CARGO_HOME="$srcdir"/cargo
 	# With Lua (the default feature): mlua builds Lua 5.4 from its vendored C source, natively
 	cargo build --release --frozen --lib
