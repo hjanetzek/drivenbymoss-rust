@@ -473,7 +473,7 @@ no change.
   `/usr/share/drivenbymoss/zynthian/ctrldev/`, with zynthian's start script (`/usr/bin/zynthian`)
   reading the variable from a drop-in (a further zynthian-ui change; not needed while installing
   into `zyngine/ctrldev/` works).
-- `drivenbymoss`: `depends="python3 zynthian-ui"`, `makedepends="cargo"`,
+- `drivenbymoss`: `depends="python3"` (not zynthian-ui: pmbootstrap's cross build would install it for the host architecture too), `makedepends="cargo"`,
   `license="LGPL-3.0-only AND GPL-2.0-or-later"`, `arch="aarch64 x86_64"`. `dbm-nihost`:
   `makedepends="alsa-lib-dev cmake samurai"`, its `nihost-test` as `check()`.
 - Not in the kiosk package (`postmarketos-ui-zynthian`) yet: the packages are in the nura-builds

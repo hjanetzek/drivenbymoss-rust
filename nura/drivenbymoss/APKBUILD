@@ -13,7 +13,10 @@ url="https://github.com/hjanetzek/drivenbymoss-rust"
 arch="aarch64 x86_64"
 license="LGPL-3.0-only AND GPL-2.0-or-later"
 options="net !check"
-depends="python3 zynthian-ui"
+# Not zynthian-ui: abuild installs depends for the build too, and pmbootstrap's cross build
+# (crossdirect) also in the host chroot, where there is no zynthian-ui (it then tries to build
+# zynthian-ui and Qt 6.12 for x86_64). The drivers only run inside zynthian anyway.
+depends="python3"
 makedepends="cargo"
 builddir="$srcdir/$pkgname"
 
