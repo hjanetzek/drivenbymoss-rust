@@ -481,7 +481,11 @@ no change.
 - To check on the device: the user service starts in the kiosk session (tinydm, logind), the
   drivers load from `zyngine/ctrldev/`, the LCXL and the Mk2 work as in desktop mode.
 - ZynthianOS (no apk): an install script copies the drivers into `zyngine/ctrldev_user/`.
-- `nura/deploy.sh drivenbymoss zynthian-ui` (zynthian-ui's) updates a device.
+- **Local test build**: zynthian-ui's `nura/deploy.sh drivenbymoss dbm-nihost` builds both from
+  this checkout (`../drivenbymoss-rust` next to zynthian-ui, or `-m <checkout>`) and installs them on
+  the device; with `zynthian-ui` among the packages it builds that first. Once: link the recipes into
+  pmbootstrap's pmaports, `ln -sfn "$PWD/nura" <pmaports>/drivenbymoss` (zynthian-ui's README).
+  `--src` copies the checkout without what `.gitignore` lists (`/target`, `/.claude/`).
 
 ## 6. Testing
 
