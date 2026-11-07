@@ -69,7 +69,9 @@ class ModelTest(unittest.TestCase):
         self.assertEqual([t.name for t in model.effect_tracks()], ["Reverb", "Delay"])
         self.assertEqual(model.master().name, "Main")
         self.assertEqual([t.type_name for t in model.track_list(True)],
-                         ["INSTRUMENT", "INSTRUMENT", "AUDIO", "INSTRUMENT", "EFFECT", "EFFECT", "MASTER"])
+                         ["INSTRUMENT", "INSTRUMENT", "AUDIO", "INSTRUMENT", "AUDIO", "EFFECT", "EFFECT", "MASTER"],
+                         "The add chain placeholder after the chains")
+        self.assertEqual(model.track_list(True)[4].name, "+")
 
     def test_values_and_texts(self):
         host = Host()
@@ -101,7 +103,7 @@ class ReporterTest(unittest.TestCase):
                          "No transportCommands without zynseq")
         self.assertEqual((report["/project/canUndo"], report["/project/canRedo"]), ("0", "0"))
         self.assertEqual(report["/track/offset"], "0")
-        self.assertEqual(report["/track/count"], "4")
+        self.assertEqual(report["/track/count"], "5", "The chains and the add chain placeholder")
         self.assertEqual(report["/track/0/name"], "Synth")
         self.assertEqual(report["/track/0/select"], "1")
         self.assertEqual(report["/track/1/select"], "0")
@@ -139,9 +141,10 @@ class ReporterTest(unittest.TestCase):
         host.report()
         host.state.remove_chain(3)
         report = host.report()
-        self.assertEqual(report["/track/count"], "3")
-        self.assertEqual(report["/track/3/exists"], "0")
+        self.assertEqual(report["/track/count"], "4")
+        self.assertEqual(report["/track/4/exists"], "0")
         self.assertEqual(report["/track/2/name"], "MIDI Tool")
+        self.assertEqual(report["/track/3/name"], "+", "The placeholder moves up")
 
     def test_new_mixbus_adds_sends(self):
         host = Host()

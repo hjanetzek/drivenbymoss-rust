@@ -778,9 +778,14 @@ class ZynthianState:
         self.zynmixer_bus = FakeZynmixer()
         self.zynseq = None
         self.busy = set()
+        self.cuias = []
+        """The CUIAs sent to the UI (send_cuia)."""
         self.next_chan = 0
         self.next_bus = 1
         self.add_chain(0, "Main", mixbus=True)
+
+    def send_cuia(self, cuia, params=None):
+        self.cuias.append((cuia, params))
 
     def is_busy(self, client=None):
         return client in self.busy if client else bool(self.busy)

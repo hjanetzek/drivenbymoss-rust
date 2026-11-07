@@ -32,7 +32,8 @@ DAW's. The host features are those of the registered handlers.
 
 Handled (phase 1): ``refresh``, ``bank``, ``track <p>/…`` and ``fxtrack <p>/…`` (select,
 volume, pan, mute, solo, solo/toggle, recarm, name, send/<s>/volume), ``track
-selectPrevious|selectNext``, ``master …``.
+selectPrevious|selectNext``, ``master …``. On the "add chain" placeholder after the last chain
+(model.py) ``select`` opens zynthian's Add Chain view, the other track commands are ignored.
 
 Phase 2: ``transport play|stop|restart|stopAndRewind|metronome|toggleMetronome|
 metronomeVolume[/inc]|tapTempo``, ``tempo <bpm>|+|-|++|--`` (with zynseq), and ``device …``: ``+``,
@@ -84,6 +85,7 @@ class ZynCommandHandler(CommandHandler):
         self.handlers = {}
         self.features = set()
         self.log = deque(maxlen=LOG_SIZE)
+        self._ignored_on_add_chain = set()
         self.register("refresh", self._refresh)
         self.register("bank", self._bank)
         self.register("track", self._track, TRACK_FEATURES)
@@ -131,7 +133,29 @@ class ZynCommandHandler(CommandHandler):
         position = parse_index(parts[0]) if parts else -1
         if not 0 <= position < len(tracks) or len(parts) < 2:
             return False
+        if tracks[position].is_placeholder:
+            return self.add_chain_command(tracks[position], position, parts[1:], cmd)
         return self.track_command(tracks[position], parts[1:], cmd)
+
+    def add_chain_command(self, track, position, sub, cmd):
+        """The "add chain" placeholder (model.py): select opens zynthian's Add Chain view, the
+        other commands are ignored (logged once each). The core keeps its own idea of the
+        selection after a select: the selection is reported again, the active chain as
+        selected."""
+        if sub == ["select"]:
+            if cmd.flag:
+                track.select()
+                self.reporter.forget(f"/track/{position}/select")
+                tracks = self.daw.track_list(self.banks.full_flat_track_list)
+                selected = next((p for p, t in enumerate(tracks) if t.selected), -1)
+                if selected >= 0:
+                    self.reporter.forget(f"/track/{selected}/select")
+            return True
+        key = "/".join("<n>" if part.isdigit() else part for part in sub)
+        if key not in self._ignored_on_add_chain:
+            self._ignored_on_add_chain.add(key)
+            logger.debug("Ignored on the add chain track: %s %s", cmd.processor, cmd.full_command)
+        return True
 
     def _fx_track(self, cmd):
         if cmd.command == "indicate":
@@ -150,7 +174,8 @@ class ZynCommandHandler(CommandHandler):
         return self.channel_command(master, cmd.parts, cmd)
 
     def select_neighbour(self, direction):
-        tracks = self.daw.track_list(self.banks.full_flat_track_list)
+        # Not onto the "add chain" placeholder: it would open the Add Chain view
+        tracks = [t for t in self.daw.track_list(self.banks.full_flat_track_list) if not t.is_placeholder]
         selected = next((position for position, track in enumerate(tracks) if track.selected), -1)
         position = selected + direction
         if selected >= 0 and 0 <= position < len(tracks):

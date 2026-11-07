@@ -40,7 +40,8 @@ zynthian's own (zynthian's model differs from Bitwig's):
   as processors with the same names and pages (two controller screens of 4 per page of 8, the
   first named as the page; the EQ+ as an audio effect with the reference host's pages); no clips
   or scenes, no drum pads or layers. The tracks have the fixture's colors (zynthian's own are by
-  MIDI channel), so the LEDs which show track colors compare.
+  MIDI channel), so the LEDs which show track colors compare. Without the "add chain"
+  placeholder track (Bitwig has none, it would move the effect tracks and the master).
 - The OSC steps: ``/click``, ``/tempo/raw``, ``/device|primary/page/N/selected`` and the track addresses (``/track/N/select|mute|solo|recarm|volume|pan``,
   ``/track/N/send/M/volume``, ``/track/bank/page/±``) with the observer's bank of 8 tracks that
   follows the selected track. Other addresses are skipped (``unknown_osc``).
@@ -352,6 +353,10 @@ class Session:
         self.setup = setup
         self.state = fixture()
         self.model = ZynthianModel(self.state.chain_manager, zynseq=self.state.zynseq)
+        # Bitwig's fixture has no "add chain" placeholder after the last track: without it the
+        # positions of the tracks, effect tracks and the master are the reference's (it is
+        # tested on its own: test_add_chain.py)
+        self.model.with_add_chain_track = False
         # zynthian colors a chain by its MIDI channel (gray without): the fixture takes Bitwig's
         # track colors, so the LEDs which show them compare
         colors = {chain_id: color for chain_id, color in enumerate(TRACK_COLORS, start=1)}

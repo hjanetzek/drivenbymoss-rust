@@ -102,6 +102,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.model.note_sink = self.send_core_note
         # The core's browser shows zynthian's preset view (CUIAs)
         self.model.browser.ui = BrowserUI(state_manager)
+        # The "add chain" track opens zynthian's Add Chain view (model.py)
+        self.model.send_cuia = state_manager.send_cuia
 
     @classmethod
     def get_config_dir(cls):

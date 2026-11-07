@@ -101,8 +101,10 @@ class LaunchControlXLTest(unittest.TestCase):
         self.assertEqual(self.led(0x98, MUTE), 0x7F, "The Mute mode of the Track Mix is on")
         # The model setup has hasFullFlatTrackList: the effect tracks and the master are tracks too
         self.assertTrue(self.bridge.banks.full_flat_track_list)
-        self.assertEqual(self.bridge.reporter.last_values["/track/count"], "7")
-        self.assertEqual(self.bridge.reporter.last_values["/track/6/type"], "MASTER")
+        # and the add chain placeholder after the chains
+        self.assertEqual(self.bridge.reporter.last_values["/track/count"], "8")
+        self.assertEqual(self.bridge.reporter.last_values["/track/4/name"], "+")
+        self.assertEqual(self.bridge.reporter.last_values["/track/7/type"], "MASTER")
         self.assert_clean()
 
     def test_faders_and_knobs(self):
@@ -160,7 +162,7 @@ class LaunchControlXLTest(unittest.TestCase):
         for chain_id in range(10, 16):
             self.state.add_chain(chain_id, f"Chain {chain_id}", midi_chan=chain_id - 7)
         self.bridge.advance(100)
-        self.assertEqual(self.bridge.reporter.last_values["/track/count"], "13")
+        self.assertEqual(self.bridge.reporter.last_values["/track/count"], "14")
         self.bridge.send([0xB8, TRACK_RIGHT, 127])
         self.bridge.send([0xB8, TRACK_RIGHT, 0])
         self.bridge.advance(300)

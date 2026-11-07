@@ -138,7 +138,7 @@ class ZynLauncher:
     @staticmethod
     def sequence_of(track):
         """The sequence channel of a track (its chain's MIDI channel), None without sequences."""
-        if track.is_master or track.is_effect:
+        if track.is_master or track.is_effect or track.chain is None:
             return None
         chan = track.chain.midi_chan
         if isinstance(chan, int) and 0 <= chan < NUM_SEQUENCE_CHANNELS:

@@ -55,6 +55,11 @@ The mapping (see doc/ZYNTHIAN_PLAN.md §3 of the DrivenByMoss port):
 
 A chain without a mixer strip (a MIDI chain) is a track without volume, pan, mute and solo:
 its values are reported as 0 and its commands are ignored.
+
+After the last chain the track list has one more track, the "add chain" placeholder
+(``AddChainTrack``): an empty slot named "+", black, without strip, sends or slots, before the
+mixbuses and the main chain of the full flat list. Selecting it opens zynthian's Add Chain view
+(the CUIA ``ADD_CHAIN``, as the "+" strip of zynthian's mixer) and selects no chain.
 """
 
 import math
@@ -72,6 +77,10 @@ VU_FLOOR_DB = -60.0
 VU_STEPS = 128
 
 GRAY = (128, 128, 128)
+BLACK = (0, 0, 0)
+
+# The CUIA which opens zynthian's Add Chain view (zynthian_gui and zynqt: ``cuia_add_chain``)
+ADD_CHAIN_CUIA = "ADD_CHAIN"
 
 
 def format_level(level):
@@ -219,6 +228,8 @@ class ChainSend:
 class ChainTrack:
     """A chain as a track, an effect track or the master of the core."""
 
+    is_placeholder = False
+
     def __init__(self, model, chain):
         self.model = model
         self.chain = chain
@@ -347,6 +358,80 @@ class ChainTrack:
         self.chain.set_title(name)
 
 
+class NoParameter:
+    """The volume and pan of the placeholder: always 0, changes ignored."""
+
+    exists = False
+    value = 0.0
+    default = 0.0
+    touched = False
+    indicated = False
+
+    def set(self, value):
+        return False
+
+    def set_immediately(self, value):
+        pass
+
+    def inc(self, delta):
+        pass
+
+    def reset(self):
+        pass
+
+    def touch(self, is_touched):
+        pass
+
+    def set_indication(self, is_indicated):
+        pass
+
+    def displayed(self):
+        return ""
+
+    def displayed_limited(self, limit):
+        return ""
+
+
+class AddChainTrack:
+    """The empty track after the last chain: selecting it opens zynthian's Add Chain view.
+
+    It duck-types ``ChainTrack`` for the reporter (no chain, no strip, no sends, no slots); it is
+    never selected, so the core's selection stays on the active chain. The commands on it
+    (``commands.py``) other than select are ignored."""
+
+    is_placeholder = True
+    is_master = False
+    is_effect = False
+    has_mixer = False
+    chain = None
+    chain_id = None
+    name = "+"
+    type_name = "AUDIO"
+    color = BLACK
+    selected = False
+    mute = False
+    solo = False
+    arm = False
+    can_hold_notes = False
+    can_hold_audio = False
+    sends = []
+
+    def __init__(self, model):
+        self.model = model
+        self.volume = NoParameter()
+        self.pan = NoParameter()
+
+    def vu(self):
+        return 0.0, 0.0
+
+    def select(self):
+        """Opens zynthian's Add Chain view; the active chain stays."""
+        self.model.ui_action(ADD_CHAIN_CUIA)
+
+    def controller(self, symbol):
+        return None
+
+
 class ZynthianModel:
     """zynthian as the DAW of a ``dbm_host.Bridge`` (``ZynBridge``)."""
 
@@ -384,7 +469,22 @@ class ZynthianModel:
         self.playing_notes = {}
         """The notes played through the note inputs which sound now (key -> velocity), reported as
         the cursor track's playing notes (the pads light while they are held)."""
+        self.send_cuia = None
+        """Sends a CUIA to zynthian's UI (``state_manager.send_cuia``), set by the driver."""
+        self.add_chain_track = AddChainTrack(self)
+        self.with_add_chain_track = True
+        """The placeholder after the last chain in the track list (off in the conformance runs:
+        Bitwig's fixture has no such track)."""
         self._tracks = {}
+        self._no_ui_logged = False
+
+    def ui_action(self, cuia, params=None):
+        if self.send_cuia is None:
+            if not self._no_ui_logged:
+                self._no_ui_logged = True
+                logger.info("No UI for the CUIA %s", cuia)
+            return
+        self.send_cuia(cuia, params)
 
     # The chains
 
@@ -412,9 +512,11 @@ class ZynthianModel:
         return self._track(chain) if chain is not None else None
 
     def track_list(self, with_effects_and_master):
-        """The core's track list; the full flat list (model setup ``hasFullFlatTrackList``) has the
-        effect tracks and the master after the tracks."""
+        """The core's track list: the tracks and the "add chain" placeholder; the full flat list
+        (model setup ``hasFullFlatTrackList``) has the effect tracks and the master after them."""
         tracks = self.tracks()
+        if self.with_add_chain_track:
+            tracks.append(self.add_chain_track)
         if with_effects_and_master:
             tracks += self.effect_tracks()
             master = self.master()

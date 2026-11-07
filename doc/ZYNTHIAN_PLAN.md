@@ -167,6 +167,7 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Tracks `/track/<p>` | chains without chain 0 and mixbuses, display order; with `hasFullFlatTrackList` (the LCXL) then the mixbuses and the master | ✓ | no `active`, `depth`, groups; colors from `LAUNCHER_COLOUR` by MIDI channel |
 | Volume, pan, mute, solo, recarm | strip zctrls `level`, `balance`, `mute`, `solo`, `record` (the audio recorder's arm) | ✓ | a MIDI chain without strip: values 0, commands ignored |
 | Selection | the active chain | ✓ | no auto-arm |
+| "Add chain" track | one placeholder track after the last chain (before the mixbuses and the master of the flat list): name `+`, black, no strip, sends or slots (`AddChainTrack`); `track <p>/select` sends the CUIA `ADD_CHAIN` (zynthian's Add Chain view, as the "+" strip of its mixer; zyngui and zynqt `cuia_add_chain`, the new chain goes after the active one), the active chain stays (its select is reported again); its other commands are ignored (logged once at debug level), `selectPrevious/Next` skip it; the conformance runs leave it out (Bitwig has none) | ✓ (tests) | the core lights it as an existing track: Maschine group buttons dim white, Launchpad Mix view a gray column (mute, solo, stop rows lit), LCXL Track Focus as any unselected track |
 | VU | `getDpm` dBFS −60..0 → 0..1 | ✓ | no hold values |
 | Effect tracks, sends | mixbus chains; `send_<id>_level` | ✓ | `send/<s>/active` not handled |
 | Master | chain 0 | ✓ | – |
@@ -761,7 +762,9 @@ with a synth, e.g. MDA DX10, selected):
    one step per short turn.
 4. Encoder up/down: "Page: …" and the next/previous pair of zynthian's screens.
 5. PAGE LEFT/RIGHT: "Selected device: …" and the parameters of the next device of the chain.
-6. The group buttons select the chains; MUTE/SOLO + group toggles them.
+6. The group buttons select the chains; MUTE/SOLO + group toggles them. The group button after
+   the last chain (dim white, "+" on the display) opens zynthian's Add Chain view; the selection
+   stays on the chain.
 7. Pads (PAD MODE, KEYBOARD): the synth plays, the pads light while held; notes do not hang when
    the selected chain changes while a pad is held.
 8. TEMPO + encoder changes zynthian's tempo; Shift (dbm-nihost's) + TAP toggles the metronome.
@@ -864,7 +867,8 @@ a chain with a synth selected, a pattern with notes in phrase 1, zynthian's laun
    press it: it flashes green, then pulses green while playing;
    again: it keeps playing; zynthian's launcher shows the same. Scene buttons: the phrase starts.
 5. Shift + Session (Mix): the fifth row stops a chain at the next sync point (the pad flashes
-   until then); the mute, solo and rec arm rows change zynthian's mixer.
+   until then); the mute, solo and rec arm rows change zynthian's mixer. The top row of the
+   column after the last chain (dark gray) opens zynthian's Add Chain view.
 6. Note, then the pad in row 4, column 1 (Sequencer): the top rows toggle notes in zynthian's
    pattern editor; the playhead runs while it plays. Note, row 6, column 1 (Drum): the 4×4 pads
    play drum notes, the upper half edits their steps.
@@ -996,7 +1000,8 @@ connected, a chain with a synth (e.g. MDA DX10) and a second chain, zynthian's m
 7. Scene buttons: the phrase starts (zynthian's phrase launcher); SELECT + pad: the chain and
    phrase are selected.
 8. PAD MODE + scene 1 (note): the pads play the synth and light while held; no hanging note when
-   the chain changes while a pad is held (group buttons A–H select the chains).
+   the chain changes while a pad is held (group buttons A–H select the chains; the dim white one
+   after the last chain opens zynthian's Add Chain view, the selection stays).
 9. STEP + scene 1 (note sequencer): pads toggle notes in zynthian's pattern editor; the playhead
    runs while it plays. STEP + scene 4 (drum sequencer): a drum pad selects the note, the step pads toggle its steps.
 10. TEMPO + encoder: zynthian's tempo; the encoder alone: the main chain's volume; Shift + PAGE
