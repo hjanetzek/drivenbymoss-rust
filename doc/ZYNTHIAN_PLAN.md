@@ -722,20 +722,14 @@ ZynAddSubFX selected, a preset loaded, zynthian's mixer shown):
    turn; 0..127 integers about one value per event); a change of direction or of the value from
    elsewhere drops the rest. Continuous zctrls are unchanged. Tests: `SteppedParameterTest`,
    `MaschineMk2ParametersTest` in `test_devices_transport.py`.
-3. *The 8 knobs scroll the browser lists too fast* (not fixed: needs the core). The Mk2's
-   `BrowseMode::on_knob_value` (`src/controller/maschine/mk/mode/browse.rs`, as Java's mk3
-   `BrowseMode`) moves `calc_stepped_knob_change(value)` entries per event, at least one; the
-   knobs without detents send many events per turn. The adapter only sees `browser column/0/+` and
-   `result/+`, the same for the main encoder (detents, one entry per click is right), so a divider
-   in the adapter would slow the encoder too. Options:
-   - in the core, a slow-down for the knobs (not `MAIN_ENCODER`) in the Mk2's browse mode, as the
-     Flexi's `increase_knob_movement` (a counter, `SCROLL_RATE`) or the jog wheel's setting
-     `encoder_knob_slow_down` (`JogWheelCommand`), ideally that setting; a deviation from Java,
-     where the Mk2 browses as fast;
-   - in the Mk2 driver (adapter), dividing the knob CCs 70–77 while the browser is open, before
-     they reach the core: possible, but it ties the driver to the core's mode and hides MIDI from
-     the core;
-   - meanwhile: the main encoder (LEFT/RIGHT mark the column) steps one entry per click.
+3. *The 8 knobs scrolled the browser lists too fast*: **fixed in the core** (2026-11-07). The
+   Mk2's `BrowseMode::on_knob_value` (`src/controller/maschine/mk/mode/browse.rs`, as Java's mk3
+   `BrowseMode`) moved at least one entry per knob event, and the knobs without detents send many
+   events per turn. The adapter could not tell them from the main encoder (both send `browser
+   column/0/+` and `result/+`). Now knobs 1–8 move one entry per `KNOB_SCROLL_RATE` (6) events in
+   the same direction (a change of direction starts again), as Flexi's `SCROLL_RATE`; the main
+   encoder still moves one entry per click. A deviation from Java (doc/BITWIG_DIVERGENCES.md §9),
+   for every host.
 
 **Checklist for the device** (zynthian started with the run command, dbm-nihost running, a chain
 with a synth, e.g. MDA DX10, selected):
@@ -1007,8 +1001,8 @@ Then (not committed): the browser on the banks and presets of the cursor device
 Then (not committed), from the user's tests on the Mk2 (§7): the preview on bank changes and the
 cancel after preloads in other banks (`browser.py`), the stepped zctrls on `/inc` (`device.py`:
 toggles, labels, integers), the tests (`test_browser.py`, `test_devices_transport.py`, stepped
-zctrls and the real `set_state` order in `zynstubs.py`); the browser's knob speed is left to the
-core (options in §7).
+zctrls and the real `set_state` order in `zynstubs.py`); the browser's knob speed is slowed in
+the core (§7).
 
 zynthian-ui `dbm`: no changes since `bc396034` (the preset view needs none: existing CUIAs).
 

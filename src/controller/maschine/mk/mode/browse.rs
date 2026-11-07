@@ -4,20 +4,50 @@
 
 //! The browser mode (former `BrowseMode`). The Reaper browser has no filter columns, therefore
 //! there only the last column (content type and result) is available.
+//!
+//! Difference to Java: the 8 knobs (endless, without detents) move one entry per
+//! [`KNOB_SCROLL_RATE`] events in the same direction instead of one per event, which scrolled
+//! the lists too fast; the main encoder (with detents) still moves one entry per click.
 
 use super::{shorten_and_fix_ascii, with_display, MAIN_ENCODER};
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::Mode;
 use crate::impl_as_any;
 
+/// The number of knob events in one direction for one entry (as Flexi's `SCROLL_RATE`).
+pub const KNOB_SCROLL_RATE: i32 = 6;
+
 /// Browse presets with the knobs.
 pub struct BrowseMode {
     sel_column: i32,
+    /// The knob events counted per knob: positive up, negative down.
+    knob_movement: [i32; 8],
 }
 
 impl BrowseMode {
     pub fn new(_ctx: &Ctx) -> Self {
-        BrowseMode { sel_column: 7 }
+        BrowseMode { sel_column: 7, knob_movement: [0; 8] }
+    }
+
+    /// Count an event of a knob (the sign of its change) and return the entries to move: -1, 0
+    /// or 1. A change of direction starts the count again.
+    fn knob_steps(&mut self, knob: usize, speed: i32) -> i32 {
+        let Some(movement) = self.knob_movement.get_mut(knob) else {
+            return speed.signum();
+        };
+        let direction = speed.signum();
+        if direction == 0 {
+            return 0;
+        }
+        if *movement != 0 && movement.signum() != direction {
+            *movement = 0;
+        }
+        *movement += direction;
+        if movement.abs() < KNOB_SCROLL_RATE {
+            return 0;
+        }
+        *movement = 0;
+        direction
     }
 
     pub fn select_parameter(&mut self, index: i32) {
@@ -98,7 +128,13 @@ impl Mode for BrowseMode {
     }
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {
-        let speed = ctx.model.value_changer().calc_stepped_knob_change(value);
+        let mut speed = ctx.model.value_changer().calc_stepped_knob_change(value);
+        if index != MAIN_ENCODER {
+            speed = self.knob_steps(index, speed);
+            if speed == 0 {
+                return;
+            }
+        }
         let column = if index == MAIN_ENCODER { self.sel_column } else { index as i32 };
         if speed < 0 {
             Self::select_previous(ctx, column, speed.unsigned_abs() as usize);
@@ -201,4 +237,31 @@ impl Mode for BrowseMode {
     }
 
     impl_as_any!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mode() -> BrowseMode {
+        BrowseMode { sel_column: 7, knob_movement: [0; 8] }
+    }
+
+    #[test]
+    fn knobs_move_one_entry_per_scroll_rate_events() {
+        let mut mode = mode();
+        let steps: Vec<i32> = (0..2 * KNOB_SCROLL_RATE).map(|_| mode.knob_steps(7, 1)).collect();
+        assert_eq!(steps.iter().filter(|s| **s == 1).count(), 2);
+        assert_eq!(steps[KNOB_SCROLL_RATE as usize - 1], 1);
+        // A change of direction starts the count again
+        for _ in 0..KNOB_SCROLL_RATE - 1 {
+            assert_eq!(mode.knob_steps(7, 3), 0);
+        }
+        assert_eq!(mode.knob_steps(7, -2), 0);
+        let down: i32 = (0..KNOB_SCROLL_RATE).map(|_| mode.knob_steps(7, -1)).sum();
+        assert_eq!(down, -1);
+        // Each knob counts for itself
+        assert_eq!(mode.knob_steps(0, 1), 0);
+        assert_eq!(mode.knob_movement[0], 1);
+    }
 }

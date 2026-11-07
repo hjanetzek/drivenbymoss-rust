@@ -482,3 +482,12 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   XL Mixer). Now the extension creates the main track bank unless `hasFullFlatTrackList`, as
   `ModelImpl` of the Java version, and the core adds the master only if the host does not list
   one (Reaper).
+
+## 9. Controller behaviour changed on purpose
+
+- **Maschine Mk2, browse mode:** the 8 knobs (endless, without detents) move one entry per 6
+  events in the same direction (`KNOB_SCROLL_RATE`, `src/controller/maschine/mk/mode/browse.rs`)
+  instead of one per event as in Java, which scrolled the preset lists too fast; the main encoder
+  (detents) still moves one entry per click. Found on Zynthian (doc/ZYNTHIAN_PLAN.md §7); it
+  applies to every host.
+

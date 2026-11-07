@@ -63,6 +63,9 @@ def project(favs=()):
     return state
 
 
+# The Mk2 browse mode's knob events per entry (KNOB_SCROLL_RATE in the core's browse.rs)
+KNOB_SCROLL_RATE = 6
+
 class FakeUI:
     """zynthian's Qt UI as far as the CUIAs of BrowserUI go (zynqt/ui.py): CHAIN_CONTROL makes
     the active chain's current processor the UI's and shows chain control, SHOW_SCREEN shows a
@@ -470,7 +473,10 @@ class MaschineMk2BrowseTest(unittest.TestCase):
         self.bridge.advance(200)
 
     def turn(self, cc, steps):
-        for _ in range(abs(steps)):
+        """Move ``steps`` entries: the encoder moves one per click, the 8 knobs one per
+        KNOB_SCROLL_RATE events (src/controller/maschine/mk/mode/browse.rs)."""
+        events = 1 if cc == ENCODER else KNOB_SCROLL_RATE
+        for _ in range(abs(steps) * events):
             self.bridge.send([0xB0, cc, 1 if steps > 0 else 127], 100)
         self.bridge.advance(200)
 
