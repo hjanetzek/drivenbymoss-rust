@@ -1057,3 +1057,39 @@ Found in use; documented here, not fixed yet.
      - (d) Keep the cut notes in the adapter and restore them when the length grows again:
        fragile.
      - A quick safety net (a) was tried and reverted; it needs a decision together with (b)/(c).
+
+## 11. To do
+
+Wanted by the user (2026-11-07), not started. The note event editor itself already works.
+
+1. **zynseq's note attributes on the controllers.**
+   - The Mk2's note edit mode (`src/controller/maschine/mk/mode/edit_note.rs`, as Java's for
+     Bitwig) has fixed pages with Bitwig's attributes: duration, velocity, velocity spread,
+     release velocity, chance, occurrence ("Note"); gain, pan, transpose, timbre, pressure
+     ("Expressions"); repeat count and curves ("Repeat"). The host only decides whether it has a
+     step grid (`NoteEditor::is_host_grid`): with it all pages show, without it (Reaper) only
+     duration and velocity. The host sends no list of attributes.
+   - On zynthian only velocity, duration, chance and mute reach zynseq (§3.5); the other pages
+     show defaults and change nothing.
+   - zynseq's own per-note attributes, as zynthian's note editor shows them: velocity, duration,
+     offset, stutter speed, stutter velocity (FLAT…), stutter ramp (NONE…), play frequency
+     (ALWAYS…), play chance, stutter frequency, stutter chance.
+   - Options:
+     - (a) In the adapter, map zynseq's attributes onto the nearest Bitwig slots: repeat count →
+       stutter speed, repeat curve → stutter ramp, repeat velocity curve → stutter velocity,
+       occurrence → play frequency, chance → play chance. No core change, but the labels on the
+       controller stay Bitwig's.
+     - (b) In the core, let the host report its note attributes (names, ranges, value texts) and
+       build the edit pages from them: zynseq's own names, also on other hosts. A protocol
+       addition (HOST_BRIDGE_GUIDE §3.7).
+2. **The "New notes" page:** zynseq's defaults for new notes (velocity, duration, offset, the
+   stutter and play settings), as zynthian's "New notes" screen shows them. Wanted: editable from
+   the controller, and used when the core adds notes. Today the adapter writes the velocity and
+   duration the core sends and leaves the rest to zynseq's defaults. To find out: where zynseq or
+   the pattern editor keeps these defaults, and which controller mode could show them (a page of
+   the note edit mode, or the sequencer's settings).
+3. **The pattern editor menu:** the settings of the pattern (beats, steps per beat, scale, tonic,
+   swing, …) from the controller, as zynthian's pattern editor menu offers them. The core has no
+   such menu; to decide which of them map to existing controller functions (clip length, the
+   sequencer's resolution) and which need a new mode.
+
