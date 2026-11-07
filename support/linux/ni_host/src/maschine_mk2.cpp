@@ -51,8 +51,8 @@ namespace dbm::nihost
             return;
 
         // report 0x01: [1..7] buttons (LSB first), [8] main encoder (4 bit
-        // counter, counts down clockwise), [9..24] encoders 1..8 (u16 LE,
-        // 10 bit counters, count up clockwise)
+        // counter, counts up clockwise, as in cabl's MaschineMK2.cpp), [9..24]
+        // encoders 1..8 (u16 LE, 10 bit counters, count up clockwise)
         if( report[0] == 0x01 && length >= 25 )
         {
             for( size_t i = 0; i < buttons.size(); i++ )
@@ -68,7 +68,7 @@ namespace dbm::nihost
             const int main = report[8] & 0x0F;
             if( mainPosition >= 0 && main != mainPosition )
             {
-                int steps = ( mainPosition - main ) & 0x0F;
+                int steps = ( main - mainPosition ) & 0x0F;
                 if( steps >= 8 )
                     steps -= 16;
                 listener.mk2MainEncoder( steps );

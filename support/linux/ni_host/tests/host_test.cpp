@@ -177,6 +177,19 @@ static void testMk2()
     CHECK( midi.has( { 0x90, 28, 127 } ) );
     CHECK( midi.has( { 0xB0, 70, 1 } ) );
 
+    // the main encoder: its 4 bit counter counts up clockwise (as in cabl), clockwise is +1
+    // (CC 7, twos complement), also across the wrap from 15 to 0
+    report[8] = 0x0F;
+    host.hidReport( report.data(), report.size() );
+    midi.midi.clear();
+    report[8] = 0x00;
+    host.hidReport( report.data(), report.size() );
+    CHECK( midi.has( { 0xB0, 7, 1 } ) );
+    midi.midi.clear();
+    report[8] = 0x0F;
+    host.hidReport( report.data(), report.size() );
+    CHECK( midi.has( { 0xB0, 7, 127 } ) );
+
     // pads: report 0x20, pad number in the top 4 bits; MaschineMk2 pad 0 = top left = NI pad 13
     Bytes pads( 65, 0 );
     pads[0] = 0x20;
