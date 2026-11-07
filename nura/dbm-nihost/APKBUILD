@@ -1,0 +1,42 @@
+# dbm-nihost for postmarketOS/Nura: the NI Maschine Mk2 and JAM as ALSA sequencer ports
+# (support/linux/ni_host), which the DrivenByMoss zynthian drivers of these controllers use.
+#
+# Built from a checkout of this repository:
+#   pmbootstrap build --src=/path/to/drivenbymoss-rust dbm-nihost
+pkgname=dbm-nihost
+pkgver=0.1.0
+pkgrel=0
+pkgdesc="NI Maschine Mk2 and JAM host for Linux (hidraw to ALSA sequencer MIDI)"
+url="https://github.com/hjanetzek/drivenbymoss-rust"
+arch="aarch64 x86_64"
+license="LGPL-3.0-only"
+depends=""
+makedepends="alsa-lib-dev cmake samurai"
+builddir="$srcdir/$pkgname"
+
+build() {
+	cmake -S support/linux/ni_host -B build-nihost -G Ninja \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr
+	cmake --build build-nihost
+}
+
+check() {
+	ctest --test-dir build-nihost --output-on-failure
+}
+
+package() {
+	DESTDIR="$pkgdir" cmake --install build-nihost
+	local share="$pkgdir"/usr/share/dbm-nihost
+
+	# hidraw access for the logged-in user
+	install -Dm644 "$share"/70-dbm-nihost.rules -t "$pkgdir"/usr/lib/udev/rules.d/
+
+	# The user service, started in every user session (the kiosk's too): the Maschine drivers need
+	# it. --virmidi only matters with snd-virmidi loaded (Bitwig); its files stay in
+	# /usr/share/dbm-nihost, not installed into modules-load.d
+	mkdir -p "$pkgdir"/usr/lib/systemd/user/default.target.wants
+	mv "$pkgdir"/usr/share/systemd/user/dbm-nihost.service "$pkgdir"/usr/lib/systemd/user/
+	rmdir -p "$pkgdir"/usr/share/systemd/user 2>/dev/null || true
+	ln -s ../dbm-nihost.service "$pkgdir"/usr/lib/systemd/user/default.target.wants/dbm-nihost.service
+}

@@ -445,30 +445,43 @@ drivers on two ports of one Launchpad.
 
 ### Phase 4: packaging and the device
 
-The drivenbymoss package (§5), the generator, settings, a test on the Duet; acceptance as before
+The drivenbymoss and dbm-nihost packages (§5: recipes in `nura/`, built by nura-builds' zynthian target), the generator, settings, a test on the Duet; acceptance as before
 (`pmbootstrap build` for aarch64/x86_64 without network, the LCXL on the Duet, tick thread CPU).
 
 ## 5. Packaging for Nura
 
-- **Native library.** `cargo build --release --frozen --no-default-features` natively in
-  pmbootstrap's chroot (aarch64 under qemu, x86_64); without Lua at first (the `lua` feature
-  builds Lua's C source: a C compiler for the target, a musl cross compiler when cross building).
-  No network in pmbootstrap: the crates as a `cargo vendor` tarball or in the distfiles cache.
-- **Package `drivenbymoss`**, built from this repository alone (the driver sources are here now):
-  - `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`);
-  - `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (the drivers' default
-    `DBM_PYTHON_DIR`);
-  - the drivers: `backends/zynthian/ctrldev/*` (without the tests) into
-    `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`. Not into the user's driver folder: on nura
-    that is `$ZYNTHIAN_MY_DATA_DIR/ctrldev` in the home directory, which a package cannot fill, and
-    a system `zyngine/ctrldev_user/` would hide it (analysis §1). Alternative with
-    `ZYNTHIAN_CTRLDEV_PATH`: `/usr/share/drivenbymoss/zynthian/ctrldev/`, with zynthian's start
-    script (`/usr/bin/zynthian`) reading the variable from a drop-in (a further zynthian-ui change;
-    not needed while installing into `zyngine/ctrldev/` works);
-  - `depends="python3 zynthian-ui"` (the `dbm` branch), `makedepends="cargo"`,
-    `license="LGPL-3.0-only AND GPL-2.0-or-later"`, `arch="aarch64 x86_64"`.
-  - ZynthianOS (no apk): an install script copies the drivers into `zyngine/ctrldev_user/`.
-- `nura/deploy.sh drivenbymoss zynthian-ui` updates a device.
+As for zynthian-ui: the recipes live in this repository (`nura/<package>/APKBUILD`), and
+nura-builds' zynthian target (`targets/zynthian.sh`) checks the repository out and builds them
+from the checkout (`pmbootstrap build --src`), in its `zynthian` stage after zynthian-ui. The
+zynthian-ui changes of the `dbm` branch (PipeWire uids, `ZYNTHIAN_CTRLDEV_PATH`,
+`getTransportState`) are merged into `nura` before that build, so zynthian-ui's own recipe needs
+no change.
+
+| Package | Recipe | Contents |
+| --- | --- | --- |
+| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/` |
+| `dbm-nihost` | `nura/dbm-nihost/APKBUILD` | `/usr/bin/dbm-nihost` (`support/linux/ni_host`), the udev rule (hidraw access, `/usr/lib/udev/rules.d/70-dbm-nihost.rules`), the systemd user service, enabled for every user session (`/usr/lib/systemd/user/default.target.wants/`), so the Mk2 and JAM ports exist in the kiosk session; the snd-virmidi files (Bitwig only) stay in `/usr/share/dbm-nihost/` |
+
+- **Native library.** `cargo build --release --frozen --lib` natively in pmbootstrap's chroot,
+  with the default `lua` feature (mlua builds Lua 5.4 from its vendored C source; a native build
+  needs no cross compiler). `--src` skips `$source`: `prepare()` fetches the crates of
+  `Cargo.lock` (`cargo fetch --locked`, `CARGO_HOME` in `$srcdir`, `options="net"`). Checked on
+  the desktop: fetch, then the offline build.
+- **The drivers' place.** Not the user's driver folder: on nura that is
+  `$ZYNTHIAN_MY_DATA_DIR/ctrldev` in the home directory, which a package cannot fill, and a system
+  `zyngine/ctrldev_user/` would hide it (analysis §1). Alternative with `ZYNTHIAN_CTRLDEV_PATH`:
+  `/usr/share/drivenbymoss/zynthian/ctrldev/`, with zynthian's start script (`/usr/bin/zynthian`)
+  reading the variable from a drop-in (a further zynthian-ui change; not needed while installing
+  into `zyngine/ctrldev/` works).
+- `drivenbymoss`: `depends="python3 zynthian-ui"`, `makedepends="cargo"`,
+  `license="LGPL-3.0-only AND GPL-2.0-or-later"`, `arch="aarch64 x86_64"`. `dbm-nihost`:
+  `makedepends="alsa-lib-dev cmake samurai"`, its `nihost-test` as `check()`.
+- Not in the kiosk package (`postmarketos-ui-zynthian`) yet: the packages are in the nura-builds
+  repository, `apk add drivenbymoss dbm-nihost` installs them. To decide: pull them into images.
+- To check on the device: the user service starts in the kiosk session (tinydm, logind), the
+  drivers load from `zyngine/ctrldev/`, the LCXL and the Mk2 work as in desktop mode.
+- ZynthianOS (no apk): an install script copies the drivers into `zyngine/ctrldev_user/`.
+- `nura/deploy.sh drivenbymoss zynthian-ui` (zynthian-ui's) updates a device.
 
 ## 6. Testing
 

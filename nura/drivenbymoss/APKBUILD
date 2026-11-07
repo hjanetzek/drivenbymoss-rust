@@ -1,0 +1,49 @@
+# DrivenByMoss (Rust port) for zynthian on postmarketOS/Nura: the core library, its Python
+# binding and reference host, and the zynthian controller drivers (doc/ZYNTHIAN_PLAN.md §5).
+#
+# Built from a checkout of this repository:
+#   pmbootstrap build --src=/path/to/drivenbymoss-rust drivenbymoss
+# (nura-builds' zynthian target does that in its zynthian stage.) prepare() fetches the crates
+# of Cargo.lock (network; --src skips $source).
+pkgname=drivenbymoss
+pkgver=26.1.0
+pkgrel=0
+pkgdesc="DrivenByMoss controller support (Rust port) with zynthian controller drivers"
+url="https://github.com/hjanetzek/drivenbymoss-rust"
+arch="aarch64 x86_64"
+license="LGPL-3.0-only AND GPL-2.0-or-later"
+options="net !check"
+depends="python3 zynthian-ui"
+makedepends="cargo"
+builddir="$srcdir/$pkgname"
+
+prepare() {
+	default_prepare
+	export CARGO_HOME="$srcdir"/cargo
+	cargo fetch --locked
+}
+
+build() {
+	export CARGO_HOME="$srcdir"/cargo
+	# With Lua (the default feature): mlua builds Lua 5.4 from its vendored C source, natively
+	cargo build --release --frozen --lib
+}
+
+package() {
+	install -Dm755 target/release/libdrivenbymoss.so -t "$pkgdir"/usr/lib/drivenbymoss/
+
+	# The binding and the reference host: the drivers' default DBM_PYTHON_DIR
+	local py="$pkgdir"/usr/share/drivenbymoss/python
+	mkdir -p "$py"
+	cp -r bindings/python/drivenbymoss bindings/python/dbm_host "$py"/
+
+	# The drivers into zynthian's own driver folder (the user's folder is in the home directory,
+	# which a package can't fill; see the plan §5)
+	local ctrldev="$pkgdir"/usr/share/zynthian/zynthian-ui/zyngine/ctrldev
+	mkdir -p "$ctrldev"
+	cp -r backends/zynthian/ctrldev/. "$ctrldev"/
+
+	find "$pkgdir" -type d -name __pycache__ -prune -exec rm -rf {} +
+	python3 -m compileall -q -d /usr/share/drivenbymoss/python "$py"
+	python3 -m compileall -q -d /usr/share/zynthian/zynthian-ui/zyngine/ctrldev "$ctrldev"
+}
