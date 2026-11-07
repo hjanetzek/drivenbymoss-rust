@@ -267,6 +267,17 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         except AttributeError:
             return True
 
+    def is_zynthian_busy(self):
+        """True while zynthian is busy (loading or saving a snapshot, …). The tick thread then
+        doesn't call into the core: the core's reports read zynseq, whose scene and phrase lists
+        are replaced while a snapshot loads, and reading them meanwhile crashed zynseq
+        (SequenceManager::getSequence, seen on the Duet). The controller freezes for that time;
+        its MIDI stays queued."""
+        try:
+            return bool(self.state_manager.is_busy())
+        except AttributeError:
+            return False
+
     # ---------------------------------------------------------------------------
     # The tick thread: the only thread which calls into the core
     # ---------------------------------------------------------------------------
@@ -289,12 +300,19 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
                 self.wake.wait(1.0)
                 self.wake.clear()
                 continue
+            if self.is_zynthian_busy():
+                # No call into the core (its reports read zynseq) while zynthian is busy
+                self.wake.wait(TICK_SECONDS)
+                self.wake.clear()
+                continue
             if self.bridge is None:
                 if not self.start_bridge():
                     continue
                 start = last_document = monotonic()
             self.wake.wait(TICK_SECONDS)
             self.wake.clear()
+            if self.is_zynthian_busy():
+                continue
             self.step((monotonic() - start) * 1000.0)
             now = monotonic()
             if now - last_document >= DOCUMENT_CACHE_SECONDS:

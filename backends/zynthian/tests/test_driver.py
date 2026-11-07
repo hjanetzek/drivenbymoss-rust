@@ -112,6 +112,19 @@ class DriverTest(unittest.TestCase):
         self.state.zctrl(2, "mute").set_value(1)
         self.assertTrue(wait_for(lambda: any(d[:2] == b"\x98\x4a" for d in self.sent())))
 
+    def test_no_core_calls_while_zynthian_is_busy(self):
+        """While a snapshot loads (or zynthian is busy otherwise) the tick thread doesn't call
+        into the core: its reports read zynseq, whose lists are being replaced (a crash on the
+        Duet). The device's MIDI stays queued and is handled after the load."""
+        self.start_device()
+        self.state.busy.add("load snapshot")
+        time.sleep(0.1)
+        self.driver.midi_event(b"\xb8\x4d\x7f")
+        time.sleep(0.3)
+        self.assertNotEqual(self.state.zctrl(1, "level").value, 1.0, "Not handled while busy")
+        self.state.busy.clear()
+        self.assertTrue(wait_for(lambda: self.state.zctrl(1, "level").value == 1.0), "Handled after the load")
+
     def test_state_and_sleep(self):
         self.start_device()
         self.assertTrue(wait_for(lambda: "dbm_document" in self.driver.get_state(), 3.0))
