@@ -476,9 +476,9 @@ no change.
 - `drivenbymoss`: `depends="python3"` (not zynthian-ui: pmbootstrap's cross build would install it for the host architecture too), `makedepends="cargo"`,
   `license="LGPL-3.0-only AND GPL-2.0-or-later"`, `arch="aarch64 x86_64"`. `dbm-nihost`:
   `makedepends="alsa-lib-dev cmake samurai"`, its `nihost-test` as `check()`.
-- Not in the kiosk package (`postmarketos-ui-zynthian`) yet: the packages are in the nura-builds
-  repository, `apk add drivenbymoss dbm-nihost` installs them. To decide: pull them into images.
-- To check on the device: the user service starts in the kiosk session (tinydm, logind), the
+- The kiosk package (`postmarketos-ui-zynthian`, zynthian-ui's `nura/`) depends on both since
+  pkgrel 15, so they are in images and come with an upgrade.
+- Checked by the user on the device (2026-11-07): the local build and install work. To check: the user service starts in the kiosk session (tinydm, logind), the
   drivers load from `zyngine/ctrldev/`, the LCXL and the Mk2 work as in desktop mode.
 - ZynthianOS (no apk): an install script copies the drivers into `zyngine/ctrldev_user/`.
 - **Local test build**: zynthian-ui's `nura/deploy.sh drivenbymoss dbm-nihost` builds both from
