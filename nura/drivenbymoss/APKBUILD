@@ -17,7 +17,8 @@ options="net !check"
 # (crossdirect) also in the host chroot, where there is no zynthian-ui (it then tries to build
 # zynthian-ui and Qt 6.12 for x86_64). The drivers only run inside zynthian anyway.
 depends="python3"
-makedepends="cargo python3"  # python3: compileall in package()
+# python3: compileall in package()
+makedepends="cargo python3"
 builddir="$srcdir/$pkgname"
 
 # pmbootstrap sets RUSTC_WRAPPER=sccache, which CI's chroot doesn't have: cargo then fails
