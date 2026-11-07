@@ -1074,6 +1074,32 @@ Found in use; documented here, not fixed yet.
      - (d) Keep the cut notes in the adapter and restore them when the length grows again:
        fragile.
      - A quick safety net (a) was tried and reverted; it needs a decision together with (b)/(c).
+   - Not an option: zynseq's phrase loops (checked 2026-11-07 on zynthian-ui `tomita`). They
+     loop launcher rows, not a clip: a phrase launcher with a relative follow action and a
+     negative offset jumps back n phrases, `followRepeat` times
+     (`zynlibs/zynseq/sequencemanager.cpp:329-343`, `zynseq.py` `get_phrase_loop_info`), and that
+     moves every column. Follow actions only fire for phrase launchers (`isPhraseLauncher()`,
+     `sequencemanager.cpp:331`); the sequences inside a phrase loop on their own (created with a
+     relative offset 0 and repeat 255, `sequencemanager.cpp:620-622`). So no phrase setting
+     makes one clip play 1 of its 2 bars.
+   - For (c): a sequence has tracks and a track holds patterns at clock positions
+     (`addPattern(scene, phrase, sequence, track, position, pattern, force)`, `getPatternAt`);
+     the sequence length follows its contents. The launcher only uses one track with one
+     pattern, and zynthian's disabled arranger (`zyngui/zynthian_gui_arranger.py`) was the UI for
+     the rest.
+
+2. **The transport loop as phrase loops** (an idea, 2026-11-07; nothing implemented).
+   - The core's transport loop (Bitwig's arranger loop: the LOOP button of the Mk2, JAM and
+     Launchpads, and the loop region) is not mapped: the adapter reports `/repeat` 0
+     (`dbm_zynthian/transport.py`).
+   - zynseq's phrase loops fit it: LOOP on loops the selected phrase on itself, or from the
+     phrase where the loop region starts back to the current one (the phrase launcher's
+     relative follow action, offset -n, `followRepeat` 0 = endless); LOOP off clears that
+     follow action. The loop region in bars could choose the first phrase of the loop and the
+     bars after which a phrase follows (zynthian's "next phrase after n bars").
+   - To check: what zynthian's launcher shows for phrase loops (its loop markers), the
+     follow-action reset when a loop is cleared, and nested loops (`get_phrase_loop_info_all`).
+     The clip loop range (1.) stays separate.
 
 ## 11. To do
 
@@ -1109,4 +1135,8 @@ Wanted by the user (2026-11-07), not started. The note event editor itself alrea
    swing, …) from the controller, as zynthian's pattern editor menu offers them. The core has no
    such menu; to decide which of them map to existing controller functions (clip length, the
    sequencer's resolution) and which need a new mode.
+4. **The phrase settings on the controllers:** each phrase has its own time signature, tempo
+   and an automatic jump to the next phrase after n bars (zynthian's launcher). The core has no
+   such settings for Bitwig's scenes; a page in the scene mode (or the transport loop, §10 2.)
+   could show them. To decide with the user.
 
