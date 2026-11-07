@@ -14,8 +14,9 @@ use crate::framework::ctx::Ctx;
 use crate::framework::feature::Mode;
 use crate::impl_as_any;
 
-/// The number of knob events in one direction for one entry (as Flexi's `SCROLL_RATE`).
-pub const KNOB_SCROLL_RATE: i32 = 6;
+/// The number of knob events in one direction for one entry (half of Flexi's `SCROLL_RATE`, tried
+/// on the Mk2).
+pub const KNOB_SCROLL_RATE: i32 = 3;
 
 /// Browse presets with the knobs.
 pub struct BrowseMode {

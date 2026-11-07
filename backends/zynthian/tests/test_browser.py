@@ -64,7 +64,7 @@ def project(favs=()):
 
 
 # The Mk2 browse mode's knob events per entry (KNOB_SCROLL_RATE in the core's browse.rs)
-KNOB_SCROLL_RATE = 6
+KNOB_SCROLL_RATE = 3
 
 class FakeUI:
     """zynthian's Qt UI as far as the CUIAs of BrowserUI go (zynqt/ui.py): CHAIN_CONTROL makes

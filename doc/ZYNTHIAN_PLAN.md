@@ -726,8 +726,8 @@ ZynAddSubFX selected, a preset loaded, zynthian's mixer shown):
    Mk2's `BrowseMode::on_knob_value` (`src/controller/maschine/mk/mode/browse.rs`, as Java's mk3
    `BrowseMode`) moved at least one entry per knob event, and the knobs without detents send many
    events per turn. The adapter could not tell them from the main encoder (both send `browser
-   column/0/+` and `result/+`). Now knobs 1–8 move one entry per `KNOB_SCROLL_RATE` (6) events in
-   the same direction (a change of direction starts again), as Flexi's `SCROLL_RATE`; the main
+   column/0/+` and `result/+`). Now knobs 1–8 move one entry per `KNOB_SCROLL_RATE` (3) events in
+   the same direction (a change of direction starts again), half of Flexi's `SCROLL_RATE`; the main
    encoder still moves one entry per click. A deviation from Java (doc/BITWIG_DIVERGENCES.md §9),
    for every host.
 
