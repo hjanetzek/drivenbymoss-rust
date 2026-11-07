@@ -425,7 +425,10 @@ class AddChainTrack:
         return 0.0, 0.0
 
     def select(self):
-        """Opens zynthian's Add Chain view; the active chain stays."""
+        """Opens zynthian's Add Chain view; the active chain stays. With ``browse_add_chain`` the
+        core's browser browses the view (add_chain.py), which then opens it."""
+        if self.model.browse_add_chain and self.model.browser.open_add_chain():
+            return
         self.model.ui_action(ADD_CHAIN_CUIA)
 
     def controller(self, symbol):
@@ -475,6 +478,10 @@ class ZynthianModel:
         self.with_add_chain_track = True
         """The placeholder after the last chain in the track list (off in the conformance runs:
         Bitwig's fixture has no such track)."""
+        self.browse_add_chain = False
+        """Selecting the placeholder also opens a browser session on the Add Chain view
+        (add_chain.py; the driver's ``browse_add_chain``: the controllers whose browse mode
+        follows a browser opened by the host, the Maschine Mk2)."""
         self._tracks = {}
         self._no_ui_logged = False
 

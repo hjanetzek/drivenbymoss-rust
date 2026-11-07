@@ -44,5 +44,8 @@ class zynthian_ctrldev_dbm_maschine_mk2(zynthian_ctrldev_base_dbm):
     driver_description = ("Native Instruments Maschine Mk2 (through dbm-nihost), run by DrivenByMoss: the displays show "
                           "the chains, devices and parameters; the pads play the active chain")
     autoload_flag = True  # zynthian has no other driver for this device
+    # The "+" group button enters the browse mode on zynthian's Add Chain view (the core's browse
+    # mode follows the browser opened by the host)
+    browse_add_chain = True
 
 # ------------------------------------------------------------------------------------------------------------------

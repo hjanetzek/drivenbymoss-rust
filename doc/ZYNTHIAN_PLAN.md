@@ -167,7 +167,7 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Tracks `/track/<p>` | chains without chain 0 and mixbuses, display order; with `hasFullFlatTrackList` (the LCXL) then the mixbuses and the master | ✓ | no `active`, `depth`, groups; colors from `LAUNCHER_COLOUR` by MIDI channel |
 | Volume, pan, mute, solo, recarm | strip zctrls `level`, `balance`, `mute`, `solo`, `record` (the audio recorder's arm) | ✓ | a MIDI chain without strip: values 0, commands ignored |
 | Selection | the active chain | ✓ | no auto-arm |
-| "Add chain" track | one placeholder track after the last chain (before the mixbuses and the master of the flat list): name `+`, black, no strip, sends or slots (`AddChainTrack`); `track <p>/select` sends the CUIA `ADD_CHAIN` (zynthian's Add Chain view, as the "+" strip of its mixer; zyngui and zynqt `cuia_add_chain`, the new chain goes after the active one), the active chain stays (its select is reported again); its other commands are ignored (logged once at debug level), `selectPrevious/Next` skip it; the conformance runs leave it out (Bitwig has none) | ✓ (tests) | the core lights it as an existing track: Maschine group buttons dim white, Launchpad Mix view a gray column (mute, solo, stop rows lit), LCXL Track Focus as any unselected track |
+| "Add chain" track | one placeholder track after the last chain (before the mixbuses and the master of the flat list): name `+`, black, no strip, sends or slots (`AddChainTrack`); `track <p>/select` sends the CUIA `ADD_CHAIN` (zynthian's Add Chain view, as the "+" strip of its mixer; zyngui and zynqt `cuia_add_chain`, the new chain goes after the active one), the active chain stays (its select is reported again); with the driver's `browse_add_chain` (the Maschine Mk2) the core's browser also browses that view and then the engine screen (§3.7b); its other commands are ignored (logged once at debug level), `selectPrevious/Next` skip it; the conformance runs leave it out (Bitwig has none) | ✓ (tests) | the core lights it as an existing track: Maschine group buttons dim white, Launchpad Mix view a gray column (mute, solo, stop rows lit), LCXL Track Focus as any unselected track |
 | VU | `getDpm` dBFS −60..0 → 0..1 | ✓ | no hold values |
 | Effect tracks, sends | mixbus chains; `send_<id>_level` | ✓ | `send/<s>/active` not handled |
 | Master | chain 0 | ✓ | – |
@@ -181,7 +181,7 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Note inputs | §3.4 | ✓ (the Mk2's pads) | – |
 | Cursor clip, step grids `/clip/…` | §3.5: the pattern of the cursor slot | ✓ | no shuffle, accent, pinning; pan, gain, repeat … of the steps |
 | Pinning, loop | `/track/pinned -1`, `/device/pinned 0`, `/repeat 0` (zynthian has neither) | ✓ | without them the core lights a Pin button and never writes the loop LED |
-| Browser `/browser/…` | §3.7: the cursor device's banks (filter column 0) and presets (the results); commit loads, cancel keeps; zynthian's preset view shown while it is open | ✓ (tests, Qt desktop run) | one content type ("Presets"), columns 1..6 absent, hit counts 0; the device browser (`add/…`, `insertBefore/After`, `replace/slot|drum|primary/…`) logged once |
+| Browser `/browser/…` | §3.7: the cursor device's banks (filter column 0) and presets (the results); commit loads, cancel keeps; zynthian's preset view shown while it is open; §3.7b: opened by the host on the Add Chain view and the engine screen (Mk2) | ✓ (tests, Qt desktop run; §3.7b tests only) | one content type ("Presets"), columns 1..6 absent, hit counts 0; the device browser (`add/…`, `insertBefore/After`, `replace/slot|drum|primary/…`) logged once |
 | Markers, groove, application, `/eq`, `/drum` | – | – | not reported; their commands logged once |
 
 ### 3.3 Recording
@@ -381,6 +381,66 @@ not checked (Tk support was not required).
 Not mapped: banks in sub-folders (`bank_subdir_info`; such a bank lists what its engine lists
 for the folder), the hit counts, the device browser (zynthian adds processors through its own
 chain screens), saving presets.
+
+### 3.7b The browser on the Add Chain view and the engine screen
+
+`dbm_zynthian/add_chain.py` (`ChainFlow` = `ZynBrowser.add_chain`, `AddChainSession`,
+`EngineSession`, `AddChainUI`; tests `AddChainBrowserTest`, `MaschineMk2AddChainTest` in
+`backends/zynthian/tests/test_add_chain.py`). Sessions **opened by the host**: the core follows a
+browser it did not open. `/browser/exists` is the browser's active state of a host browser
+(`Browser::set_host_active`, `src/parser.rs`); the Mk2's setup switches to `Modes::Browser` when it
+changes to active and back when it changes to inactive (`MaschineSetup::handle_changes`, as
+`BrowserObserver::check_mode`, the Launchpad's `check_view`; as in Bitwig, where a browser opened in
+Bitwig's own UI reaches the controller). The Mk2's browse mode then shows the reported columns and
+results, whatever the content type (only "Presets" at index 1 needs a cursor device).
+
+Only for the drivers with `browse_add_chain = True` (the Mk2; the others keep `ADD_CHAIN` alone:
+the Launchpad would switch to its browser view, the LCXL has none). Selecting the "+" track:
+
+| Core | zynthian (Qt UI) |
+| --- | --- |
+| "+" `track <p>/select` | `ADD_CHAIN` (the view shown, the new chain after the active one); the session opens, `/browser/exists 1`: the Mk2 enters its browse mode |
+| content type | one: `Add chain` |
+| filter column 0 `Chain` and the results | the view's entries (Instrument, Audio Input, Clip Launcher, MIDI, MIDI + Audio, Audio Generator, Special, Mixbus; line breaks as spaces): one list, one cursor, so knob 1, knob 8 and the main encoder all move it |
+| `column/0/…`, `result/…` | the cursor; `SELECT <index>` (the view's selection) |
+| `stop 1` (ENCODER PUSH) | `SELECT <index>`, `SELECT_ACTION` (the entry's action as a tap: zynthian's `modify_chain` with the chain type); the engine screen follows |
+| `stop 0` (BROWSE, ALL/SAVE) | `BACK` (if the view was not shown before): no chain |
+
+Then the engine screen (zynqt `Engine`: `filtered_engines_by_cat` of the chain type):
+
+| Core | zynthian (Qt UI) |
+| --- | --- |
+| content type | one: `Engine` |
+| filter column 0 `Category` | the screen's categories, the cursor on the one it shows (it remembers the last per type); a move: `ARROW_RIGHT`/`ARROW_LEFT` per step (the screen shows that category, its first engine selected) |
+| results | the category's engines as the screen lists them: `None` first for a MIDI or audio effect chain (an empty chain), without MI/MR/MX |
+| `result/…` | `SELECT <index>` |
+| `stop 1` | `SELECT <index>`, `SELECT_ACTION` (the screen's action); the browser closes, the Mk2 leaves its browse mode |
+| `stop 0` | `BACK` as zynthian's own on that screen: back to the Add Chain view; **no chain has been created yet** (zynthian creates it after the engine and, for a MIDI chain, the MIDI channel), so nothing is removed; the Add Chain session follows (its cursor on the type chosen before), a second cancel closes the view |
+
+What zynthian does after the engine (`ChainEdit.next_step`, `ZynUI.modify_chain`):
+
+- Instrument, MIDI, MIDI + Audio, Special: the **MIDI channel** screen (`midi_chan`, mode ADD); the
+  chain is created when a channel is chosen there (in zynthian's UI; not browsed), then shown.
+- Audio Input, Audio Generator, Mixbus (no MIDI channel): the chain is created at once.
+- Clip Launcher: created at once by the Add Chain entry (engine `CL` given), no engine screen; the
+  launcher screen is shown, the browser closes.
+- The new chain becomes the active chain (`set_active_chain_by_id`), so the core's selected track;
+  zynthian then shows its bank (or preset) list if the engine has banks and no preset is loaded
+  (`chain_control(force_bank_preset=True)`), else its controllers. The preset browser could follow
+  there (not done: BROWSE opens it).
+
+**Following zynthian's screens** (`ChainFlow.poll`, before each report): one session at a time.
+Between two sessions at least one report has `/browser/exists 0`: the Mk2's ENCODER PUSH leaves the
+browse mode itself (`MaschineEncoderPressCommand`: `stop 1`, `restore_mode`), and the core enters
+it again only on a change of the active state. The next session opens when zynthian shows its
+screen (the engine screen with its lists filled; waited for up to 50 reports while the screen
+before is shown, else dropped). The user's own moves in the UI are followed the same way: an entry
+tapped in the Add Chain view opens the engine session, BACK on the engine screen the Add Chain
+session again; BACK on the Add Chain view, or another screen, closes. `stop` while a session
+follows is ignored (the Mk2's browse mode commits again when it is left). BROWSE (`replace/device`)
+closes these sessions first. The Add Chain entries are read from the view (`list_screens`; Tk:
+`screens["add_chain"].config`), the built-in list until it has been filled once; the engine lists
+only from the Qt UI's screen (Tk: no engine session).
 
 ## 4. Phases
 
@@ -713,6 +773,27 @@ ZynAddSubFX selected, a preset loaded, zynthian's mixer shown):
 6. BROWSE, then BACK on zynthian (touch or key): the Mk2 leaves the browse mode.
 7. BROWSE, then choose a preset in zynthian's list: it is loaded, the Mk2 leaves the browse mode.
 8. BROWSE on a chain whose current processor has no presets (e.g. an audio chain): nothing opens.
+
+**Checklist for the "+" group button: Add chain** (§3.7b; zynthian with `ZYNTHIAN_UI=qt`, the
+mixer shown, fewer than 8 chains so "+" is on a group button):
+
+1. The group button after the last chain ("+", dim white): zynthian shows "Add Chain..."; the Mk2
+   enters the browse mode: `Chain`/`Instru` over knob 1, `>Add c`/`Instru` over knob 8.
+2. The encoder (or knob 1/8): the entry moves on the Mk2, zynthian's grid selects the same one.
+3. BROWSE: zynthian back on the mixer, no chain, the Mk2 leaves the browse mode.
+4. "+", the encoder on Instrument, ENCODER PUSH: zynthian shows "Engine (MIDI Synth)"; after a
+   moment the Mk2 is in the browse mode again: `Ctgory` with zynthian's category over knob 1, the
+   engines over knob 8 / the encoder; zynthian's list follows the encoder, knob 1 switches the
+   category on both.
+5. BROWSE on the engines: zynthian back on "Add Chain..." with Instrument selected, the Mk2 shows the
+   chain types again; BROWSE again: the mixer.
+6. "+", Audio Input, PUSH, an engine (or `None`), PUSH: the chain is added after the active one and
+   selected (its group button lit), zynthian shows it; the Mk2 leaves the browse mode.
+7. "+", Instrument, PUSH, an engine, PUSH: zynthian asks for the MIDI channel (in the UI); the chain
+   appears when a channel is chosen.
+8. "+", Clip Launcher, PUSH: the clip launcher chain is added at once, zynthian shows the launcher.
+9. "+", then tap an entry on zynthian's screen: the Mk2 follows with the engines; BACK on zynthian:
+   the chain types again; BACK: the Mk2 leaves the browse mode.
 
 **From the user's tests on the Mk2 (2026-11-07)**:
 

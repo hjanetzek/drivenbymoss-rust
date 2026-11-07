@@ -45,6 +45,7 @@ from zyncoder.zyncore import lib_zyncore
 from zyngine.zynthian_signal_manager import zynsigman
 from zyngine.ctrldev.zynthian_ctrldev_base import zynthian_ctrldev_base
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge
+from zyngine.ctrldev.dbm_zynthian.add_chain import AddChainUI
 from zyngine.ctrldev.dbm_zynthian.browser import BrowserUI
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel
 
@@ -80,6 +81,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     autoload_flag = False       # The subclasses decide
     replaces_dev_ids = []       # The device IDs of the device's other ports whose drivers this one replaces
     with_vu = True              # Report the peak meters of the mixer strips
+    browse_add_chain = False    # The "+" track also browses the Add Chain view (dbm_zynthian/add_chain.py)
 
     def __init__(self, state_manager, idev_in, idev_out=None):
         super().__init__(state_manager, idev_in, idev_out)
@@ -102,6 +104,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.model.note_sink = self.send_core_note
         # The core's browser shows zynthian's preset view (CUIAs)
         self.model.browser.ui = BrowserUI(state_manager)
+        self.model.browser.add_chain.ui = AddChainUI(state_manager)
+        self.model.browse_add_chain = self.browse_add_chain
         # The "add chain" track opens zynthian's Add Chain view (model.py)
         self.model.send_cuia = state_manager.send_cuia
 

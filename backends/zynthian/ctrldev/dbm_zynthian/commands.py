@@ -33,7 +33,8 @@ DAW's. The host features are those of the registered handlers.
 Handled (phase 1): ``refresh``, ``bank``, ``track <p>/…`` and ``fxtrack <p>/…`` (select,
 volume, pan, mute, solo, solo/toggle, recarm, name, send/<s>/volume), ``track
 selectPrevious|selectNext``, ``master …``. On the "add chain" placeholder after the last chain
-(model.py) ``select`` opens zynthian's Add Chain view, the other track commands are ignored.
+(model.py) ``select`` opens zynthian's Add Chain view (with ``browse_add_chain`` also the
+browser's session on it, add_chain.py), the other track commands are ignored.
 
 Phase 2: ``transport play|stop|restart|stopAndRewind|metronome|toggleMetronome|
 metronomeVolume[/inc]|tapTempo``, ``tempo <bpm>|+|-|++|--`` (with zynseq), and ``device …``: ``+``,
@@ -54,6 +55,8 @@ The browser (browser.py): ``browser replace/device``, ``stop``, ``preview``, ``c
 (one content type), ``column/0/+|-|page/+|page/-|reset`` (the bank), ``result/+|-|page/+|page/-``
 (the preset); the device browser (``add/…``, ``insertBefore|insertAfter``, ``replace/slot|drum|
 primary/…``) and the columns 1..6 are not handled.
+While a session opened by the host is open (add_chain.py: the Add Chain view, the engine screen),
+the ``browser`` commands go to it.
 
 Everything else is logged as not handled, e.g. ``send/<s>/active`` (zynthian's sends have no
 switch), ``device remove|duplicate``, slot and scene ``name``/``color``, the Reaper-only

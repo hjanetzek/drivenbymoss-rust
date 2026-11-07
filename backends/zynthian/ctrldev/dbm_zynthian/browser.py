@@ -47,6 +47,10 @@ Not mapped (reported absent or logged as not handled): the device browser (``bro
 add/…``, ``insertBefore``, ``insertAfter``, ``replace/slot/…``, ``replace/drum|primary/pad/…``),
 the filter columns 1..6, the hit counts (0), banks in sub-folders (``bank_subdir_info``: such a
 bank lists what its engine lists without the folder level).
+
+The host opens sessions of its own on zynthian's Add Chain view and engine screen
+(``ZynBrowser.add_chain``, add_chain.py); while one is open or follows, the commands and the
+reports are its own; ``replace/device`` closes it first.
 """
 
 import copy
@@ -101,6 +105,10 @@ class ZynBrowser:
         self.preview = preset_preload_enabled()
         self.saved = None
         """The processor's bank, favourites flag, preset list and preset when the browser opened."""
+        from zyngine.ctrldev.dbm_zynthian.add_chain import ChainFlow
+        self.add_chain = ChainFlow(model)
+        """The other sessions: zynthian's Add Chain view and engine screen (add_chain.py), opened
+        by the host."""
 
     @property
     def is_open(self):
@@ -110,6 +118,7 @@ class ZynBrowser:
 
     def open(self, processor):
         """Browse the banks and presets of the processor; False if it has none."""
+        self.add_chain.close()
         if self.is_open:
             self.stop(False)
         try:
@@ -334,12 +343,27 @@ class ZynBrowser:
             # restore_preset set the processor's own bank (_preload): browse on in the browsed one
             self._apply_bank()
 
+    def open_add_chain(self):
+        """The "add chain" track was selected: browse zynthian's Add Chain view (add_chain.py),
+        which it shows; False without zynthian's UI (nothing shown)."""
+        if self.add_chain.is_open:
+            return True
+        if not self.add_chain.available():
+            return False
+        if self.is_open:
+            self.stop(False)
+        return self.add_chain.open()
+
     # The core's commands
 
     def command(self, cmd, page_columns, page_results):
         """``browser …`` (§4.9); False if not handled."""
         c = cmd.command
         parts = cmd.parts
+        if c == "replace/device":
+            self.add_chain.close()
+        elif self.add_chain.busy:
+            return self.add_chain.command(cmd, page_columns, page_results)
         if c == "replace/device":
             device = self.model.devices.cursor()
             if device is None:
@@ -383,44 +407,17 @@ class ZynBrowser:
 
     def collect(self, reporter, page_columns, page_results):
         self.poll_ui()
-        reporter.put("/browser/exists", self.is_open)
-        if not self.is_open:
+        self.add_chain.poll()
+        if self.add_chain.busy:
+            self.add_chain.collect(reporter, page_columns, page_results)
             return
-        reporter.put("/browser/preview", self.preview)
-        reporter.put("/browser/contentType/count", 1)
-        reporter.put("/browser/contentType/0/name", CONTENT_TYPE)
-        reporter.put("/browser/contentType/selected", 0)
-        reporter.put("/browser/contentType/selected/name", CONTENT_TYPE)
-        reporter.put("/browser/column/count", NUM_COLUMNS)
-        for column in range(NUM_COLUMNS):
-            prefix = f"/browser/column/{column}/"
-            exists = column == BANK_COLUMN
-            items = [row for _, row in self.banks] if exists else []
-            cursor = self.bank if exists else -1
-            self._collect_items(reporter, prefix + "item/", items, cursor, page_columns, hits=True)
-            reporter.put(prefix + "exists", exists)
-            reporter.put(prefix + "name", BANK_COLUMN_NAME if exists else "")
-            reporter.put(prefix + "wildcard", "")
-            reporter.put(prefix + "cursor/exists", 0 <= cursor < len(items))
-            reporter.put(prefix + "cursor/name", row_name(items[cursor]) if 0 <= cursor < len(items) else "")
-            reporter.put(prefix + "cursorIndex", cursor % page_columns if 0 <= cursor < len(items) and page_columns else -1)
-        rows = [row for _, row in self.presets]
-        self._collect_items(reporter, "/browser/result/", rows, self.result, page_results, hits=False)
-        reporter.put("/browser/result/cursor/name", row_name(rows[self.result]) if 0 <= self.result < len(rows) else "")
-
-    @staticmethod
-    def _collect_items(reporter, prefix, rows, cursor, page, hits):
-        """The page of the items which holds the cursor."""
-        start = cursor // page * page if page and cursor > 0 else 0
-        for i in range(page):
-            position = start + i
-            exists = position < len(rows)
-            item = f"{prefix}{i}/"
-            reporter.put(item + "exists", exists)
-            reporter.put(item + "name", row_name(rows[position]) if exists else "")
-            reporter.put(item + "select", exists and position == cursor)
-            if hits:
-                reporter.put(item + "hits", 0)
+        if not self.is_open:
+            reporter.put("/browser/exists", False)
+            return
+        banks = [row_name(row) for _, row in self.banks]
+        presets = [row_name(row) for _, row in self.presets]
+        report_session(reporter, CONTENT_TYPE, self.preview, {BANK_COLUMN: (BANK_COLUMN_NAME, banks, self.bank)}, presets,
+                       self.result, page_columns, page_results)
 
 
 class BrowserUI:
@@ -509,3 +506,45 @@ class BrowserUI:
             self.seen = True
             return False
         return self.seen
+
+
+def report_session(reporter, content_type, preview, columns, results, result_cursor, page_columns, page_results):
+    """The reports of an open browser session (HOST_BRIDGE_GUIDE §3.8): one content type, the
+    filter columns ``{index: (name, item names, cursor)}`` (the others reported absent), the
+    result names and their cursor; the pages shown hold the cursors."""
+    reporter.put("/browser/exists", True)
+    reporter.put("/browser/preview", preview)
+    reporter.put("/browser/contentType/count", 1)
+    reporter.put("/browser/contentType/0/name", content_type)
+    reporter.put("/browser/contentType/selected", 0)
+    reporter.put("/browser/contentType/selected/name", content_type)
+    reporter.put("/browser/column/count", NUM_COLUMNS)
+    for column in range(NUM_COLUMNS):
+        prefix = f"/browser/column/{column}/"
+        name, items, cursor = columns.get(column, ("", [], -1))
+        exists = column in columns
+        valid = 0 <= cursor < len(items)
+        _report_items(reporter, prefix + "item/", items, cursor, page_columns, hits=True)
+        reporter.put(prefix + "exists", exists)
+        reporter.put(prefix + "name", name)
+        reporter.put(prefix + "wildcard", "")
+        reporter.put(prefix + "cursor/exists", valid)
+        reporter.put(prefix + "cursor/name", items[cursor] if valid else "")
+        reporter.put(prefix + "cursorIndex", cursor % page_columns if valid and page_columns else -1)
+    _report_items(reporter, "/browser/result/", results, result_cursor, page_results, hits=False)
+    reporter.put("/browser/result/cursor/name", results[result_cursor] if 0 <= result_cursor < len(results) else "")
+
+
+
+def _report_items(reporter, prefix, names, cursor, page, hits):
+    """The page of the items which holds the cursor."""
+    start = cursor // page * page if page and cursor > 0 else 0
+    for i in range(page):
+        position = start + i
+        exists = position < len(names)
+        item = f"{prefix}{i}/"
+        reporter.put(item + "exists", exists)
+        reporter.put(item + "name", names[position] if exists else "")
+        reporter.put(item + "select", exists and position == cursor)
+        if hits:
+            reporter.put(item + "hits", 0)

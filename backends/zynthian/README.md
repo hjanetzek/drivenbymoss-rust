@@ -29,6 +29,13 @@ With zynthian's Preset Preload on, the preset under the cursor sounds, also afte
 cancel brings back the bank and preset loaded before. The Mk2's knobs move one entry per knob
 event (the core's browse mode), fast on knobs without detents; the encoder steps one per click.
 
+On the Mk2 the group button of the "+" track (after the last chain) opens zynthian's Add Chain
+view and the browse mode on its entries (the encoder moves, zynthian's grid follows; ENCODER PUSH
+picks the chain type, BROWSE cancels); then the browse mode continues with zynthian's engine
+screen (knob 1 the category, the encoder the engine; PUSH picks it, BROWSE goes back to the chain
+types). zynthian then asks for the MIDI channel of a MIDI chain, or adds the chain at once
+([plan §3.7b](../../doc/ZYNTHIAN_PLAN.md)).
+
 Knobs (relative changes) move stepped parameters (on/off switches, labels, integers) by whole
 steps: a short turn switches a toggle (right on, left off) or moves one label
 ([plan §7](../../doc/ZYNTHIAN_PLAN.md)).
