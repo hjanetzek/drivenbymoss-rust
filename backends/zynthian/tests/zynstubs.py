@@ -237,6 +237,16 @@ class FakeSynthProcessor:
             for symbol in symbols:
                 if symbol.startswith("mode"):
                     options = {"labels": ["saw", "square", "sine"], "value": 0, "processor": self}
+                elif symbol.startswith("toggle"):
+                    # A switch with labels (LV2 toggled ports, zynthian_engine's "off|on")
+                    options = {"labels": ["off", "on"], "value_max": 127, "value": 0, "processor": self}
+                elif symbol.startswith("switch"):
+                    # A toggle without labels (0 / 1)
+                    options = {"is_toggle": True, "value_min": 0, "value_max": 1, "value": 0, "processor": self}
+                elif symbol.startswith("steps"):
+                    options = {"value_min": 0, "value_max": 3, "value": 0, "is_integer": True, "processor": self}
+                elif symbol.startswith("float"):
+                    options = {"value_min": 0.0, "value_max": 1.0, "value": 0.5, "is_integer": False, "processor": self}
                 else:
                     options = {"value_min": 0, "value_max": 127, "value_default": 64, "value": 64, "is_integer": True, "processor": self}
                 zctrl = zynthian_controller(engine, symbol, options)
@@ -343,10 +353,11 @@ def preset_processor(chain, name, banks, favs=()):
 
         def set_state(self, state):
             # As zynthian_processor.set_state: the bank, then the preset into the engine
-            self.set_bank_by_info(state["bank_info"])
+            if state["bank_info"]:
+                self.set_bank_by_info(state["bank_info"])
             self.load_preset_list()
-            if state["preset_info"]:
-                self.set_preset_by_id(state["preset_info"][0], True, True)
+            if "preset_info" in state:
+                self.set_preset(state["preset_info"], force_set_engine=False)
 
     processor = PresetProcessor("ZY", {"TYPE": "MIDI Synth", "NAME": name})
     processor.set_engine(FakePresetEngine(banks, favs))

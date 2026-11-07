@@ -34,6 +34,7 @@ doc/HOST_BRIDGE_GUIDE.md §3.5, §4.6).
 | page name | the name of the first of the two screens |
 | selected page | ``current_screen_index // 2``; ``parameterPage p`` selects screen ``2p`` |
 | parameter value | the zctrl, normalized: by index for zctrls with ticks/labels, else linear between ``value_min`` and ``value_max`` |
+| ``param/<i>/value/inc`` | stepped zctrls (ticks/labels, toggles, integers) by whole steps: the increments are summed up to a step, at the most ``MAX_STEP_DISTANCE`` (a toggle switches with a short turn in either direction); continuous ones linear |
 | parameter text | ``get_value2label()`` |
 
 The first instrument (``/primary``, the model setup's ``deviceIds`` ``FIRST_INSTRUMENT``) is the
@@ -50,13 +51,25 @@ SCREENS_PER_PAGE = 2
 PARAMS_PER_PAGE = PARAMS_PER_SCREEN * SCREENS_PER_PAGE
 MIXER_ENGINES = ("MI", "MR")
 INSTRUMENT_TYPE = "MIDI Synth"
+MAX_STEP_DISTANCE = 0.05
+"""A relative change (``/inc``) moves a stepped zctrl by one step after this normalized
+distance at the most (the Maschine Mk2: about 6 knob events), also if its steps are wider: a
+toggle switches with a short turn."""
 
 
 class DeviceParameter(ZctrlParameter):
-    """A processor's zctrl as a normalized value; zctrls with ticks (labels, enums) by index."""
+    """A processor's zctrl as a normalized value; zctrls with ticks (labels, enums) by index.
 
-    def __init__(self, get_zctrl):
+    Stepped zctrls (ticks, toggles, integers) change by whole steps on ``inc``: the core's
+    increments (a knob event of the Mk2 is about 1/118) are summed per zctrl (``remainders``,
+    kept by the device) until they reach a step, or ``MAX_STEP_DISTANCE`` for wide steps; a
+    change of direction or of the value from elsewhere starts the sum anew. Rounding a small
+    increment on the value itself would never cross a toggle's middle or an integer's next
+    value (zynthian: ``int()``, the toggle's ``value_mid``)."""
+
+    def __init__(self, get_zctrl, remainders=None):
         super().__init__(get_zctrl)
+        self.remainders = remainders if remainders is not None else {}
 
     @staticmethod
     def _ticks(zctrl):
@@ -67,6 +80,28 @@ class DeviceParameter(ZctrlParameter):
     def _usable(zctrl):
         return zctrl is not None and not getattr(zctrl, "is_path", False) and isinstance(zctrl.value, (int, float))
 
+    @classmethod
+    def _steps(cls, zctrl):
+        """The values of a stepped zctrl in their order (ticks, the toggle's two values, the
+        integers of the range), None if it is continuous."""
+        ticks = cls._ticks(zctrl)
+        if ticks:
+            return list(ticks)
+        if zctrl.value_min is None or zctrl.value_max is None or zctrl.value_max <= zctrl.value_min:
+            return None
+        if getattr(zctrl, "is_toggle", False):
+            return [zctrl.value_min, zctrl.value_max]
+        if getattr(zctrl, "is_integer", False) and not getattr(zctrl, "is_logarithmic", False):
+            return None if zctrl.value_max - zctrl.value_min < 1 else range(int(zctrl.value_min), int(zctrl.value_max) + 1)
+        return None
+
+    @staticmethod
+    def _index(steps, value):
+        """The index of the step closest to the value."""
+        if isinstance(steps, range):
+            return max(0, min(len(steps) - 1, round(value) - steps.start))
+        return min(range(len(steps)), key=lambda i: abs(steps[i] - value))
+
     @property
     def value(self):
         zctrl = self.zctrl
@@ -74,10 +109,7 @@ class DeviceParameter(ZctrlParameter):
             return 0.0
         ticks = self._ticks(zctrl)
         if ticks:
-            try:
-                return ticks.index(zctrl.value) / (len(ticks) - 1)
-            except ValueError:
-                pass
+            return self._index(ticks, zctrl.value) / (len(ticks) - 1)
         return self._normalize(zctrl, zctrl.value)
 
     @property
@@ -99,6 +131,32 @@ class DeviceParameter(ZctrlParameter):
             zctrl.set_value(zctrl.value_min + value * (zctrl.value_max - zctrl.value_min))
         return True
 
+    def inc(self, delta):
+        zctrl = self.zctrl
+        if not self._usable(zctrl):
+            return
+        delta = float(delta)
+        steps = self._steps(zctrl)
+        if steps is None or len(steps) < 2 or not delta:
+            self.set(self.value + delta)
+            return
+        key = getattr(zctrl, "symbol", None) or id(zctrl)
+        index = self._index(steps, zctrl.value)
+        last_index, remainder = self.remainders.get(key, (index, 0.0))
+        if last_index != index or remainder * delta < 0:
+            remainder = 0.0
+        # Normalized distance per step: the step, at the most MAX_STEP_DISTANCE
+        distance = min(1.0 / (len(steps) - 1), MAX_STEP_DISTANCE)
+        remainder += delta / distance
+        move = int(remainder)  # Towards 0: the rest stays for the next increment
+        remainder -= move
+        target = max(0, min(len(steps) - 1, index + move))
+        if target in (0, len(steps) - 1) and target != index + move:
+            remainder = 0.0  # At the end: no rest to turn back first
+        if target != index:
+            zctrl.set_value(steps[target])
+        self.remainders[key] = (self._index(steps, zctrl.value), remainder)
+
     def reset(self):
         zctrl = self.zctrl
         if self._usable(zctrl) and zctrl.value_default is not None:
@@ -117,6 +175,8 @@ class ProcessorDevice:
 
     def __init__(self, processor):
         self.processor = processor
+        self.remainders = {}
+        """The rests of the relative changes of its stepped zctrls (DeviceParameter.inc)."""
 
     @property
     def name(self):
@@ -172,7 +232,7 @@ class ProcessorDevice:
         return zctrls[position] if position < len(zctrls) else None
 
     def parameter(self, index):
-        return DeviceParameter(lambda: self.zctrl(index))
+        return DeviceParameter(lambda: self.zctrl(index), self.remainders)
 
 
 class DeviceChain:

@@ -172,7 +172,7 @@ classes, zynthian's state read live. The `dbm_host` change: `Bridge.reporter_cla
 | Master | chain 0 | ✓ | – |
 | Undo | `/project/canUndo 0`, `/project/canRedo 0` | ✓ | `undo`/`redo` not handled |
 | Host features | `valueInc valueReset immediately soloToggle transportCommands deviceCommands` | ✓ | no `indication` |
-| Cursor device `/device` | the active chain's processors without the mixer strip; cursor = `current_processor`; page of 8 = two screens of 4; values linear or by index (ticks/labels); texts `get_value2label`; bypass; sibling window | ✓ | no window/expand/pin/remove/duplicate/move |
+| Cursor device `/device` | the active chain's processors without the mixer strip; cursor = `current_processor`; page of 8 = two screens of 4; values linear or by index (ticks/labels); relative changes (`/inc`) of stepped zctrls (ticks/labels, toggles, integers) by whole steps, summed per zctrl, a step after at most 0.05 (§7: a toggle switches with a short knob turn); texts `get_value2label`; bypass; sibling window | ✓ | no window/expand/pin/remove/duplicate/move |
 | First instrument `/primary` (`deviceIds` `FIRST_INSTRUMENT`) | the active chain's first processor of type "MIDI Synth" (the synth engine): name, bypass, pages and parameters as the cursor device; commands `parameterPage`, `param/<i>/…`, `bypass`, `select` | ✓ | `hasDrumPads 0`, `hasLayers 0`, `layer/count 0`, the 128 pads reported absent (`pad/<i>/exists 0`): the core's layer and pad views find no item (unlit, no layer commands); Track Select next stays lit (the core keeps 128 pads); `primary pad/<n>/mute` is still sent by the Mute mode and logged once as not handled (analysis §4) |
 | Transport, tempo | `getTransportState`, `transportStart(6)`/`transportStop(255)`, tempo, tap, bpb, metronome mode `TRANSPORT`/`OFF` and volume | ✓ | no position, loop, punch, automation |
 | Recording | §3.3 | ✓ | – |
@@ -341,7 +341,7 @@ browser is open (HOST_BRIDGE_GUIDE §3.8):
 | cursors | at the start the processor's bank and its loaded preset; another bank: the loaded preset if it is in it, else the first |
 | `column/0/+\|-\|page/+\|page/-`, `column/0/reset` | the bank ±1, ± a page (`numFilterColumnEntries`), the first; the reported page always holds the cursor (`cursorIndex` never -1) |
 | `result/+\|-\|page/+\|page/-` | the preset ±1, ± a page (`numResults`) |
-| `preview <flag>` | zynthian's preset preload (`preload_preset` on each result move); at the start on if zynthian's "Preset Preload" (`preset_preload`) is |
+| `preview <flag>` | zynthian's preset preload (`preload_preset`) on each result move and on each bank change (the preset the cursor lands on: the loaded one if it is in the bank, else the first; so a bank with one preset can be listened to); at the start on if zynthian's "Preset Preload" (`preset_preload`) is |
 | `stop 1` (commit) | the bank (`set_bank`, into the engine only if it differs from the processor's) and the preset (`set_preset`; a preloaded one is not loaded again) |
 | `stop 0` (cancel) | a preload is undone (`restore_preset`), the processor keeps its bank, favourites flag and preset list |
 | `stop` while closed | ignored (the Mk2's browse mode commits again when it is left after a cancel) |
@@ -352,7 +352,11 @@ While browsing, the processor's bank is the browsed one without loading it into 
 (`set_bank(index, set_engine=False)`, `set_show_fav_presets`), as zynthian's bank screen does
 before a preset is chosen; so zynthian's preset view lists the browsed bank. Cancel restores the
 processor's `bank_index`, `bank_name`, `bank_info`, `show_fav_presets` and `preset_list`; after a
-preload also the engine's bank (`restore_preset` sets the bank of the state before the preload).
+preload `restore_preset` sets the processor's bank and preset into the engine again. For that the
+adapter sets the processor's `preload_state` itself before the first preload: zynthian's
+`get_state` with the processor's own bank (the browsed bank is the processor's while browsing, so
+zynthian's own state of that moment would restore the browsed bank, and the preset would not be
+found in it); without a preload it is cleared again.
 
 **The UI** (`BrowserUI`, CUIAs through the state manager's queue, which both UIs run in their own
 thread; no zynthian change):
@@ -468,7 +472,7 @@ The drivenbymoss package (§5), the generator, settings, a test on the Duet; acc
 
 ## 6. Testing
 
-**(a) The driver tests** (146), from this repository, after `cargo build`:
+**(a) The driver tests** (153), from this repository, after `cargo build`:
 
 ```sh
 python3 backends/zynthian/tests/run_tests.py [-v]
@@ -490,8 +494,8 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_maschine_jam.py` | 12: the JAM driver's dev_id (dbm-nihost's PipeWire port, the output; per port its driver: the JAM's only on the JAM, the Mk2's not there); the JAM with the core (the volume strips show and move the faders, the meters while playing, pan, sends, parameters; the session launch at the next bar, PLAY lit, MUTE + pad stops, scenes, group buttons; the note mode into the active chain, the note sequencer on the pattern) |
 | `test_clip.py` | 13: the cursor clip on a zynseq pattern (properties, steps both ways, resolutions that don't divide, one note per zynseq step, the attributes zynseq has and those it doesn't, set/update/moveY, rows, columns, length, duplicate, transpose, clear, the playhead, the pattern editor's selection kept, the note selection, zynseq's Python state); the Mk2's STEP mode with the core (a pad writes the pattern, a note added in zynseq lights its pad, the playhead, the step off) |
 | `test_launchpad.py` | 21: the Launchpad drivers' dev_ids (from the core's discovery names, not the stock drivers' ports, PipeWire), autoload against the stock drivers, the stock driver of the same device unloaded; the X and the Mini MkIII with the core (session launch, stop and LEDs, scenes, the note view through the driver, sequencer, drum view, clip length, mixer, device view); 2 expected failures: the core's blink color (§7b) |
-| `test_browser.py` | 20: the browser on zynthian_processor's bank and preset functions with a stand-in engine (closed, open with the loaded bank and preset, results and pages, the bank column, commit, commit in the same bank, cancel, preview with preload and restore, commit of the preloaded preset, the favourites bank, the favourite mark, the unsupported commands, no cursor device); the preset view through CUIAs with a stand-in of the Qt UI (open, select, other bank, close back to the mixer; from chain control; BACK in the UI cancels; a preset chosen in the UI stays; no UI); the Mk2 with the core (BROWSE opens, the display shows bank and preset, knob 1 the bank, knob 8 the presets, the encoder on the marked column, BROWSE cancels, ENCODER PUSH loads) |
-| `test_devices_transport.py` | 20: devices, `/primary`, transport, recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
+| `test_browser.py` | 22: the browser on zynthian_processor's bank and preset functions with a stand-in engine (closed, open with the loaded bank and preset, results and pages, the bank column, commit, commit in the same bank, cancel, preview with preload and restore, the preview on bank changes (the first preset, the loaded one, none without preview, cancel restores bank and preset into the engine), commit after a bank change, commit of the preloaded preset, the favourites bank, the favourite mark, the unsupported commands, no cursor device); the preset view through CUIAs with a stand-in of the Qt UI (open, select, other bank, close back to the mixer; from chain control; BACK in the UI cancels; a preset chosen in the UI stays; no UI); the Mk2 with the core (BROWSE opens, the display shows bank and preset, knob 1 the bank, knob 8 the presets, the encoder on the marked column, BROWSE cancels, ENCODER PUSH loads) |
+| `test_devices_transport.py` | 25: devices, `/primary`, transport, stepped zctrls on `/inc` (toggles with and without labels, labels, small and wide integers, continuous, a change from elsewhere), the Mk2's parameter mode with the core (the knobs switch toggles, step labels and integers), recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
 `python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [1|2|all]`. It reuses
@@ -679,16 +683,59 @@ ZynAddSubFX selected, a preset loaded, zynthian's mixer shown):
 1. BROWSE (lit): the Mk2's display shows `Bank` with the loaded bank over knob 1 and `>Prese` with
    the loaded preset over knob 8; zynthian shows the preset list of that bank with the loaded
    preset selected.
-2. Knob 1: the next/previous bank on the Mk2; zynthian's preset view shows that bank's presets.
+2. Knob 1: the next/previous bank on the Mk2; zynthian's preset view shows that bank's presets;
+   with Preset Preload on, the preset the cursor lands on sounds (also in a bank with one preset).
 3. Knob 8 (or the encoder): the next/previous preset on the Mk2; zynthian's selection follows and
    the preset sounds (Preset Preload on). Encoder LEFT until `>Bank`: the encoder turns the bank.
 4. ENCODER PUSH: the preset is loaded (zynthian's chain shows it), the Mk2 returns to its mode,
    zynthian returns to the mixer.
 5. BROWSE, knob 8 a few steps, BROWSE again: the preset loaded before sounds again, zynthian back
-   on the mixer.
+   on the mixer. The same after knob 1 to other banks (with their preloads): the bank and preset
+   loaded before sound again, zynthian's chain shows them.
 6. BROWSE, then BACK on zynthian (touch or key): the Mk2 leaves the browse mode.
 7. BROWSE, then choose a preset in zynthian's list: it is loaded, the Mk2 leaves the browse mode.
 8. BROWSE on a chain whose current processor has no presets (e.g. an audio chain): nothing opens.
+
+**From the user's tests on the Mk2 (2026-11-07)**:
+
+1. *A bank change did not preload* (fixed, adapter): the preview preloaded only on result moves,
+   so a bank with one preset could not be listened to. `ZynBrowser.select_bank` now preloads the
+   preset the cursor lands on (the loaded one if it is in the bank, else the first). Cancel after
+   preloads in other banks: zynthian's `preload_state` of the first preload held the browsed bank
+   (the processor's while browsing), so `restore_preset` set the browsed bank and could not find
+   the original preset in it; the adapter now sets `preload_state` with the processor's own bank
+   (§3.7). Tests: `test_preview_follows_the_bank`, `test_preview_commit_after_a_bank_change`.
+2. *The knobs did not switch on/off parameters* (fixed, adapter). The core sends relative changes
+   (`device param/<i>/value/inc <delta>`, feature `valueInc`); a Mk2 knob event is
+   `calc_knob_change(±1) / 128` ≈ ±0.0085. The adapter added the delta to the zctrl's value and
+   rounded: to the tick index (labels: `round(0.0085 × 1)` = 0), at zynthian's toggle middle
+   (`_set_value` of `is_toggle`), or by `int()` (integers: up stuck below the next value on small
+   ranges). So every event fell back on the same value; nothing accumulates, because the core
+   keeps no value of its own with `valueInc` (it waits for the report). Bitwig: Java's
+   `RangedValueImpl.inc` hands the increment to Bitwig (`rangedValue.inc(increment, upperBound)`),
+   and Bitwig applies it to its discrete parameter (a 2-step parameter toggles with a knob turn,
+   by Bitwig's own handling, not by DrivenByMoss); the core and Java do nothing with the step
+   count themselves (`/param/<i>/steps` is optional, unused). Now `DeviceParameter.inc` sums
+   the increments of stepped zctrls (ticks/labels, toggles with or without labels, integers) per
+   zctrl in whole steps, with at most 0.05 per step (about 6 knob events: a toggle switches with a
+   short turn, right = on, left = off; labels and small integers likewise one step per short
+   turn; 0..127 integers about one value per event); a change of direction or of the value from
+   elsewhere drops the rest. Continuous zctrls are unchanged. Tests: `SteppedParameterTest`,
+   `MaschineMk2ParametersTest` in `test_devices_transport.py`.
+3. *The 8 knobs scroll the browser lists too fast* (not fixed: needs the core). The Mk2's
+   `BrowseMode::on_knob_value` (`src/controller/maschine/mk/mode/browse.rs`, as Java's mk3
+   `BrowseMode`) moves `calc_stepped_knob_change(value)` entries per event, at least one; the
+   knobs without detents send many events per turn. The adapter only sees `browser column/0/+` and
+   `result/+`, the same for the main encoder (detents, one entry per click is right), so a divider
+   in the adapter would slow the encoder too. Options:
+   - in the core, a slow-down for the knobs (not `MAIN_ENCODER`) in the Mk2's browse mode, as the
+     Flexi's `increase_knob_movement` (a counter, `SCROLL_RATE`) or the jog wheel's setting
+     `encoder_knob_slow_down` (`JogWheelCommand`), ideally that setting; a deviation from Java,
+     where the Mk2 browses as fast;
+   - in the Mk2 driver (adapter), dividing the knob CCs 70–77 while the browser is open, before
+     they reach the core: possible, but it ties the driver to the core's mode and hides MIDI from
+     the core;
+   - meanwhile: the main encoder (LEFT/RIGHT mark the column) steps one entry per click.
 
 **Checklist for the device** (zynthian started with the run command, dbm-nihost running, a chain
 with a synth, e.g. MDA DX10, selected):
@@ -698,7 +745,9 @@ with a synth, e.g. MDA DX10, selected):
 2. Knobs 1–8 in Volume mode move the chains' faders in zynthian's mixer; the values on the screen
    follow.
 3. Params (button 8 above the display): the synth's parameter names and values; a knob turns a
-   parameter in zynthian's control screen and its value changes on the Mk2.
+   parameter in zynthian's control screen and its value changes on the Mk2. An on/off parameter
+   switches with a short turn (right on, left off); a parameter with a few labels or values moves
+   one step per short turn.
 4. Encoder up/down: "Page: …" and the next/previous pair of zynthian's screens.
 5. PAGE LEFT/RIGHT: "Selected device: …" and the parameters of the next device of the chain.
 6. The group buttons select the chains; MUTE/SOLO + group toggles them.
@@ -954,6 +1003,12 @@ are the device checks (§7, §7b, §7c) and the Shift view core bug of §7b.
 Then (not committed): the browser on the banks and presets of the cursor device
 (`dbm_zynthian/browser.py`, §3.7, the Mk2's BROWSE, §7), zynthian's preset view by CUIAs,
 `test_browser.py`, the preset processor stand-in in `zynstubs.py`.
+
+Then (not committed), from the user's tests on the Mk2 (§7): the preview on bank changes and the
+cancel after preloads in other banks (`browser.py`), the stepped zctrls on `/inc` (`device.py`:
+toggles, labels, integers), the tests (`test_browser.py`, `test_devices_transport.py`, stepped
+zctrls and the real `set_state` order in `zynstubs.py`); the browser's knob speed is left to the
+core (options in §7).
 
 zynthian-ui `dbm`: no changes since `bc396034` (the preset view needs none: existing CUIAs).
 

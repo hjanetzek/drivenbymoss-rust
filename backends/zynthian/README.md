@@ -25,6 +25,13 @@ of the MIDI port (`Launchpad X IN 2`), which then unloads zynthian's driver of t
 The core's browser browses the banks and presets of the active chain's current processor (the
 Mk2's BROWSE: knob 1 the bank, knob 8 the preset, ENCODER PUSH loads, BROWSE again cancels);
 meanwhile zynthian shows its preset view of that processor ([plan §3.7](../../doc/ZYNTHIAN_PLAN.md)).
+With zynthian's Preset Preload on, the preset under the cursor sounds, also after a bank change;
+cancel brings back the bank and preset loaded before. The Mk2's knobs move one entry per knob
+event (the core's browse mode), fast on knobs without detents; the encoder steps one per click.
+
+Knobs (relative changes) move stepped parameters (on/off switches, labels, integers) by whole
+steps: a short turn switches a toggle (right on, left off) or moves one label
+([plan §7](../../doc/ZYNTHIAN_PLAN.md)).
 
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.

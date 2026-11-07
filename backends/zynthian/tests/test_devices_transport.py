@@ -118,7 +118,7 @@ class DeviceTest(unittest.TestCase):
         host.command("device", "param/1/value", 1.0)
         self.assertEqual(synth.controllers_dict["p11"].value, 127)
         host.command("device", "param/1/value/inc", -0.5)
-        self.assertEqual(synth.controllers_dict["p11"].value, 63)
+        self.assertEqual(synth.controllers_dict["p11"].value, 64, "127 - 63.5 steps: whole steps, the rest is kept")
         host.command("device", "param/1/value/reset")
         self.assertEqual(synth.controllers_dict["p11"].value, 64)
         host.command("device", "param/20/value", 1.0)
@@ -349,6 +349,122 @@ class ReportsForTheMaschineTest(unittest.TestCase):
         self.assertEqual(host.commands.unhandled, [])
         host.command("scene", "1/name", "x")
         self.assertEqual(host.commands.unhandled, ["scene <n>/name"])
+
+
+class SteppedParameterTest(unittest.TestCase):
+    """Relative changes (``/inc``, the Mk2's knobs) of stepped zctrls: whole steps, a toggle
+    switches with a short turn in either direction."""
+
+    KNOB_EVENT = 1.09 / 128  # The Mk2's knob event: calc_knob_change(1) / upper bound 128
+
+    def setUp(self):
+        self.state = zynstubs.project()
+        self.proc = self.state.add_processor(1, "Switches", [("main", ["toggle", "switch", "steps", "mode"]), ("more", ["float", "p0"])])
+        self.model = ZynthianModel(self.state.chain_manager)
+        self.device = self.model.devices.cursor()
+
+    def turn(self, index, events, delta=KNOB_EVENT):
+        parameter = self.device.parameter(index)
+        for _ in range(abs(events)):
+            parameter.inc(delta if events > 0 else -delta)
+
+    def zctrl(self, symbol):
+        return self.proc.controllers_dict[symbol]
+
+    def test_toggles(self):
+        for index, symbol, on in ((0, "toggle", 127), (1, "switch", 1)):
+            zctrl = self.zctrl(symbol)
+            self.turn(index, 5)
+            self.assertEqual(zctrl.value, 0, f"{symbol}: not yet")
+            self.turn(index, 1)
+            self.assertEqual(zctrl.value, on, f"{symbol}: on after 6 knob events")
+            self.turn(index, 50)
+            self.assertEqual(zctrl.value, on, f"{symbol}: stays on")
+            self.turn(index, -6)
+            self.assertEqual(zctrl.value, 0, f"{symbol}: off again, no rest to turn back first")
+            self.assertAlmostEqual(self.device.parameter(index).value, 0.0)
+            # One fast event (larger delta) switches at once
+            self.turn(index, 1, 0.1)
+            self.assertEqual(zctrl.value, on)
+
+    def test_labels_and_small_integers(self):
+        self.turn(3, 6)
+        self.assertEqual(self.zctrl("mode").get_value2label(), "square")
+        self.turn(3, 12)
+        self.assertEqual(self.zctrl("mode").get_value2label(), "sine")
+        self.turn(3, -6)
+        self.assertEqual(self.zctrl("mode").get_value2label(), "square")
+        self.turn(2, 6)
+        self.assertEqual(self.zctrl("steps").value, 1)
+        self.turn(2, 12)
+        self.assertEqual(self.zctrl("steps").value, 3)
+        self.turn(2, -3)
+        self.assertEqual(self.zctrl("steps").value, 3, "A change of direction starts anew")
+        self.turn(2, -3)
+        self.assertEqual(self.zctrl("steps").value, 2)
+
+    def test_a_change_from_elsewhere_starts_anew(self):
+        self.turn(2, 4)
+        self.zctrl("steps").set_value(2)
+        self.turn(2, 2)
+        self.assertEqual(self.zctrl("steps").value, 2, "The rest of before the change is dropped")
+        self.turn(2, 4)
+        self.assertEqual(self.zctrl("steps").value, 3)
+
+    def test_wide_integers_and_continuous(self):
+        p0 = self.zctrl("p0")  # 0..127, 64
+        self.turn(5, 1)
+        self.assertEqual(p0.value, 65, "About one value per knob event, up")
+        self.turn(5, -2)
+        self.assertEqual(p0.value, 63, "and down")
+        self.turn(5, 118)
+        self.assertEqual(p0.value, 127)
+        self.turn(4, 10)
+        self.assertAlmostEqual(self.zctrl("float").value, 0.5 + 10 * self.KNOB_EVENT)
+
+
+class MaschineMk2ParametersTest(unittest.TestCase):
+    """The Maschine Mk2's parameter mode with the core: the knobs switch toggles."""
+
+    KNOB_1 = 70
+    PARAMETERS = 29  # The 8th button above the display
+
+    def setUp(self):
+        from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_mk2 import zynthian_ctrldev_dbm_maschine_mk2 as mk2
+        self.temp = tempfile.TemporaryDirectory(prefix="dbm-zynthian-mk2-params-")
+        self.state = zynstubs.project()
+        self.proc = self.state.add_processor(1, "Switches", [("main", ["toggle", "switch", "steps", "mode"])])
+        self.model = ZynthianModel(self.state.chain_manager)
+        self.bridge = ZynBridge(self.model, mk2.dbm_controller_id, self.temp.name, "zynthian", midi_sink=lambda data: None)
+        self.bridge.start()
+        self.bridge.wait_for_startup()
+        self.bridge.advance(100)
+
+    def tearDown(self):
+        self.bridge.close()
+        self.temp.cleanup()
+
+    def turn(self, knob, events):
+        for _ in range(abs(events)):
+            self.bridge.send([0xB0, self.KNOB_1 + knob, 1 if events > 0 else 127], 20)
+        self.bridge.advance(200)
+
+    def test_knobs_switch_toggles(self):
+        self.bridge.send([0xB0, self.PARAMETERS, 127])
+        self.bridge.send([0xB0, self.PARAMETERS, 0], 200)
+        self.bridge.advance(200)
+        zctrls = self.proc.controllers_dict
+        self.turn(0, 8)
+        self.assertEqual(zctrls["toggle"].value, 127, "A short turn to the right: on")
+        self.turn(0, -8)
+        self.assertEqual(zctrls["toggle"].value, 0, "to the left: off")
+        self.turn(1, 8)
+        self.assertEqual(zctrls["switch"].value, 1)
+        self.turn(2, 8)
+        self.assertEqual(zctrls["steps"].value, 1)
+        self.turn(3, 8)
+        self.assertEqual(zctrls["mode"].get_value2label(), "square")
+        self.assertEqual(list(self.bridge.core_errors()), [])
 
 
 class LaunchControlXLDeviceTest(unittest.TestCase):

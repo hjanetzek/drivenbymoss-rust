@@ -259,6 +259,47 @@ class BrowserMappingTest(unittest.TestCase):
         self.assertEqual((host.proc.bank_name, host.proc.get_preset_name()), ("Pads", "Glass Pad"))
         self.assertIsNone(host.proc.preload_info)
 
+    def test_preview_follows_the_bank(self):
+        host = Host()
+        host.browser("replace/device")
+        host.browser("preview", 1)
+        host.proc.engine.calls.clear()
+        # Another bank: its first preset is preloaded (a bank with one preset can be listened to)
+        host.browser("column/0/+")
+        self.assertEqual(host.proc.engine.calls, [("preload", "Fat Bass")])
+        host.browser("result/+")
+        self.assertEqual(host.proc.engine.calls[1:], [("preload", "Sub Bass")])
+        # Back in the loaded preset's bank: the cursor and the preload on the loaded preset
+        host.browser("column/0/-")
+        self.assertEqual(host.proc.engine.calls[2:], [("preload", "Glass Pad")])
+        host.browser("column/0/reset")
+        self.assertEqual(host.proc.engine.calls[3:], [("preload", "Arp 1")])
+        # Without the preview a bank change preloads nothing
+        host.browser("preview", 0)
+        del host.proc.engine.calls[:]
+        host.browser("column/0/+")
+        self.assertEqual(host.proc.engine.calls, [])
+        host.browser("preview", 1)
+        host.browser("column/0/+")
+        self.assertEqual(host.proc.engine.calls[-1], ("preload", "Fat Bass"))
+        # Cancel: the bank and the preset of the state before the first preload
+        del host.proc.engine.calls[:]
+        host.browser("stop", 0)
+        self.assertEqual(host.proc.engine.calls, [("set_bank", "Pads"), ("set_preset", "Glass Pad")])
+        self.assertEqual((host.proc.bank_name, host.proc.get_preset_name()), ("Pads", "Glass Pad"))
+        self.assertEqual([row[2] for row in host.proc.preset_list][:2], ["Warm Pad", "Glass Pad"])
+        self.assertIsNone(host.proc.preload_info)
+
+    def test_preview_commit_after_a_bank_change(self):
+        host = Host()
+        host.browser("replace/device")
+        host.browser("preview", 1)
+        host.browser("column/0/+")
+        host.proc.engine.calls.clear()
+        host.browser("stop", 1)
+        self.assertEqual((host.proc.bank_name, host.proc.get_preset_name()), ("Bass", "Fat Bass"))
+        self.assertIsNone(host.proc.preload_info)
+
     def test_preview_commit_of_the_preloaded_preset(self):
         host = Host()
         host.browser("preview", 1)

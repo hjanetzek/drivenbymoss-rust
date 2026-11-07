@@ -34,9 +34,9 @@ cursor device (the active chain's current processor, device.py).
 | results | the bank's presets (``processor.preset_list`` after ``load_preset_list``) without section titles, "❤ " removed |
 | cursor of a column / result | the bank (at the start the processor's) / the preset (at the start the loaded one, else the bank's first) |
 | ``+``, ``-``, ``page/+``, ``page/-``, ``reset`` | the cursor ±1, ±a page (``numFilterColumnEntries``, ``numResults``), the first bank; the page shown always holds the cursor |
-| ``preview`` | zynthian's preset preload (``preload_preset``), at the start on if zynthian's "Preset Preload" is |
+| ``preview`` | zynthian's preset preload (``preload_preset``) of the preset under the cursor, also when the bank changes (the preset the cursor lands on); at the start on if zynthian's "Preset Preload" is |
 | ``stop 1`` (commit) | the bank (``set_bank``) and the preset (``set_preset``) are loaded |
-| ``stop 0`` (cancel) | the preset preloaded for the preview is undone (``restore_preset``), the processor keeps its bank and preset |
+| ``stop 0`` (cancel) | the preset preloaded for the preview is undone (``restore_preset``, to the state with the processor's own bank, ``_preload``), the processor keeps its bank and preset |
 
 While browsing, the processor's bank is the browsed one without loading it into the engine
 (``set_bank(index, set_engine=False)``, as zynthian's bank screen before a preset is chosen):
@@ -218,18 +218,11 @@ class ZynBrowser:
         return None
 
     def _cancel(self):
-        processor, saved = self.processor, self.saved
-        browsed_bank = copy.deepcopy(processor.bank_info)
-        preloaded = processor.preload_info is not None
-        if preloaded:
-            # Back to the state before the first preload (its bank: the one browsed then)
-            processor.restore_preset()
+        if self.processor.preload_info is not None:
+            # Back to the state before the first preload: the processor's bank and preset
+            # (_preload), into the engine
+            self.processor.restore_preset()
         self._restore_bank()
-        if preloaded and saved["bank_info"] and browsed_bank != saved["bank_info"]:
-            try:
-                processor.engine.set_bank(processor, saved["bank_info"])
-            except Exception as e:
-                logger.warning("Browser: can't set the bank again: %s", e)
 
     # The UI
 
@@ -293,6 +286,10 @@ class ZynBrowser:
             return
         self.bank = position
         self._apply_bank()
+        # The preview follows the cursor into the bank (its first preset, or the loaded one):
+        # a bank with a single preset can be listened to as well
+        if self.preview:
+            self._preload()
         self._show(refill=True)
 
     def select_result(self, position):
@@ -307,11 +304,24 @@ class ZynBrowser:
         self._show(refill=False)
 
     def _preload(self):
-        if 0 <= self.result < len(self.presets):
-            try:
-                self.processor.preload_preset(self.presets[self.result][0])
-            except Exception as e:
-                logger.warning("Browser: preload failed: %s", e)
+        if not 0 <= self.result < len(self.presets):
+            return
+        processor = self.processor
+        try:
+            if processor.preload_state is None:
+                # The state restore_preset goes back to: the processor's, with its own bank
+                # instead of the browsed one (set without the engine), so restore_preset sets
+                # that bank and its preset in the engine
+                state = processor.get_state()
+                state["bank_info"] = copy.deepcopy(self.saved["bank_info"])
+                state["show_fav_presets"] = self.saved["show_fav_presets"]
+                processor.preload_state = state
+            processor.preload_preset(self.presets[self.result][0])
+        except Exception as e:
+            logger.warning("Browser: preload failed: %s", e)
+        finally:
+            if processor.preload_info is None:
+                processor.preload_state = None  # Nothing preloaded
 
     def set_preview(self, preview):
         self.preview = bool(preview)
@@ -321,7 +331,7 @@ class ZynBrowser:
             self._preload()
         elif self.processor.preload_info is not None:
             self.processor.restore_preset()
-            # restore_preset sets the bank of the state before the preload: browse on
+            # restore_preset set the processor's own bank (_preload): browse on in the browsed one
             self._apply_bank()
 
     # The core's commands
