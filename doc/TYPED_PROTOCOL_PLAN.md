@@ -1,8 +1,8 @@
 # A typed, binary protocol between the core and its hosts: plan
 
 Status: **steps 0a, 0b and 1 done, step 2 in progress** (2026-11-08, branch `typed-protocol`; the
-Python hosts report and receive the commands in the binary form, the dual run passes; open: the
-collectors on keys, the `CmdId` dispatch, the CPU gain, §6.4): the command table and
+Python hosts report by key and dispatch the commands by `CmdId` in the binary form, the dual run
+passes; open: more typed handlers, then step 3, Bitwig, §6.4): the command table and
 the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
 binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
 `dbm_protocol.hpp`, `protocol.py`; the replay passes in both forms. Bitwig still uses the text protocol.
@@ -1033,7 +1033,7 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 `Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`
 (the ops instead of the suffix splitting), the Zynthian adapter, and the dual-run check.
 
-### 6.4 Step 2 (in progress: parts 1–4 done, see the hand-over at the end)
+### 6.4 Step 2 (Python hosts done for the hot paths: parts 1–5, see the hand-over at the end)
 
 **Decided (2026-11-08): the goal is binary messages everywhere.** No performance work on the
 transition paths: neither the text protocol, nor the text ↔ binary conversions, nor
@@ -1189,29 +1189,69 @@ The binary pass got 17 % cheaper and is now level with the text pass; the text p
 cheaper too (its collectors are the same key collectors). Most of the remaining pass is reading
 the zynthian model (§4); the idle puts are about 127 ns × 227 ≈ 29 µs of it.
 
-**Hand-over: what the next run starts with** (step 2 is not finished)
-1. (Done in part 4.) **Streamline `Reporter._put_record`/`put` for keys**: one dict for the last value in binary
-   (the raw compare and the normalized compare merged: normalize first, compare once), the kind
-   and the writer resolved per ID once (a tuple per ID instead of three dict lookups), no
-   `changed` list unless `take()` needs the text (tests), and measure `round` against exact
-   doubles (dropping the rounding is §5.1's separate change; the check protocol would then
-   compare parsed values with a tolerance of 5e-7 instead of bytes).
-2. (Done in part 4.) **The collectors to keys:** `dbm_host/reporter.py` and `dbm_zynthian/reporter.py` build
-   prefixes (`f"/track/{p}/"`) and the ZynReporter caches address strings (`_prefixes`,
-   `_slot_addresses`, `_param_addresses`): replace them by key bases (`protocol.key(0,
-   ChKind.TRACK, p)` OR'ed with the ID, `Msg.CHANNEL_NAME | base`). `put` already accepts keys;
-   the text protocol turns a key back into its address (`key_address`). The dual run
-   (`DBM_HOST_PROTOCOL=check` over the three suites) proves each change. Then rerun
-   `test_cpu.py` and `bench_put.py` (scratch script: a loop of 1,000 `put`s, idle and with
-   `dump_all`).
-3. **`CommandHandler` on `CmdId`:** `Bridge.process_commands` overriding the default: a table
-   `CmdId → handler(view)` (ops from `view.op` instead of `Command.parse`'s suffix splitting),
-   with the conversion to a legacy line as the fallback for the IDs without a typed handler, so
-   the move can go processor by processor. Note `ZynCommandHandler` overrides `channel_command`,
-   `set_value`, `track_command`, `slot_command`, … with the text `Command`; the typed handlers
-   must keep those hooks (e.g. a `Command`-like object built from the view). `commands.log`
-   (read by `test_host.py:927` and `test_devices_transport.py:539`) needs the processor and
-   the legacy command. Then the coverage test of §2.5 (`CMD_IDS` minus an explicit
-   `UNHANDLED` set) and the `handled` bitset for `use_binary_commands`.
-4. `forget(prefix)` still takes text prefixes (resolved through `key_address`); `forget(entity)`
-   by key ranges comes with 2./3.
+**Part 5: the commands by `CmdId`** (done)
+- `CommandHandler.process_commands(buffer)` (`Bridge.process_commands` overrides the binding's
+  default): for each record of `protocol.iter_commands`, the typed handler of its ID
+  (`CommandHandler.typed`, `register_typed`); the IDs without one, and the records a typed
+  handler leaves to the text (it returns `FALLBACK` before doing anything), go through their
+  legacy text (`handle_text`: the core's conversion of that record, `drivenbymoss.legacy_commands`,
+  then `handle` as before; the transition path).
+- **The hooks stay:** a typed handler resolves its item from the view (`ChanKind`, `Processor`,
+  the signed index) and calls the same hooks as the text handlers with constant `sub` lists:
+  `typed_master`/`typed_track` → `channel_command`, `track_command` (→ `send_command`,
+  `value_command`, `set_value`); `typed_param` → `parameter_command` (the reference host) or
+  `value_command` (Zynthian). `ZynCommandHandler` overrides `typed_master`, `typed_track` (its
+  track list with the "add chain" placeholder) and `typed_param` (cursor device and the first
+  instrument); its text overrides (`channel_command`, `set_value`, `track_command`, …) serve
+  both forms. `handle`'s Zynthian override became `before_command` (called before every command
+  of both forms: the pattern is read again, the next pass is full).
+- **`ViewCommand`** (a `Command` subclass): `reset`, `increment`, `immediately` from the record's
+  op, the value (a flag as 1/0, a double, None) read once from the record; `processor`,
+  `full_command`, `command` from the core's legacy text of the record, converted only when they
+  are read (logs, the not handled list, `commands.log` readers). Report again: the typed handlers
+  call `forget_later` with the prefix of their item (still text prefixes, below).
+- **Typed so far:** `REFRESH`; `CHANNEL_MUTE`, `_SOLO`, `_SOLO_TOGGLE`, `_SELECT`, `_VOLUME`,
+  `_PAN`, `_SEND_VOLUME`, `TRACK_REC_ARM` of the master, tracks and effect tracks (pads and layers
+  through the text); `PARAM_VALUE`, `_TOUCH`, `_INDICATE` of the cursor device (and of the first
+  instrument on Zynthian). Everything else goes through the text, processor by processor.
+- **The dual run of the commands:** with `DBM_HOST_PROTOCOL=check` every typed command is compared
+  with its legacy text (`_check_typed`: number, flag, text, reset, inc, immediately).
+- **The coverage test of §2.5** (`dbm_host/coverage.py`; `test_host.CommandCoverageTest`,
+  Zynthian `test_commands.py`): a record of every `CmdId` with plausible indices and values
+  (a track, the cursor device, a 16 × 8 grid; `COMMAND_OVERRIDES` for the few which need other
+  values) goes through `process_commands` of a fresh handler; the IDs which end unhandled must be
+  exactly the handler's `UNHANDLED_COMMANDS` (reference host 70 of 236, Zynthian 152).
+  `handled_commands()` (all IDs minus that set) is passed to `use_binary_commands`, so the core
+  logs a command the host does not execute once, with its text. Known imprecision: Zynthian's
+  set assumes zynseq; without it the transport commands are declared handled but are not (phase
+  1 is diagnostics only).
+- A test each (reference host, Zynthian) runs the same commands as text and as records and
+  compares the model, the log and the report-again state.
+
+**Measured** (1,000 `track <n>/volume` set commands on the reference host, `process_commands`):
+typed 6.7 µs per command, all through the text fallback 20.6 µs, `handle` with the text
+directly 6.0 µs (without the ctypes callback and the line split which the text protocol pays
+per command). Most of it is the handler itself (the undo edit of `set_value`, the report again);
+the typed dispatch (view, `ViewCommand`, the resolution) costs about as much as `handle`'s
+`Command.parse`. The dispatch is not on the Zynthian idle path (no commands when idle).
+
+**Hand-over: what the next run starts with** (step 2: the Python side is done for the hot paths)
+1. **More typed handlers, processor by processor** (both hosts): transport (`TRANSPORT_*`,
+   `PLAY_TOGGLE`, tempo), `BANK_SCROLL`, slots and scenes, device actions, the clip and grid
+   commands. Each moved ID drops out of the fallback; when a processor has no text-only IDs left
+   its text handler can go (the text protocol of the Python hosts is a transition path, §6.4
+   "Decided").
+2. **Report again by key:** `forget_later` still takes text prefixes, applied through the
+   addresses of the keys (`key_address`, cached). `forget(entity)` by key ranges (the IDs of a
+   channel family with `ch_kind`/`ch_pos` in slots 0/1, a parameter by owner/index) would remove
+   the last string work after a command.
+3. **The rounding:** dropping `round(v, 6)` in the reporter (§5.1, a separate change; the check
+   protocol then compares parsed values with a tolerance of 5e-7) saves about 270 ns per written
+   double.
+4. **Zero-copy command buffer** (§2.3 note): a `memoryview` over the core's buffer needs
+   `ViewCommand` to copy its record when it is logged.
+5. **Step 3 (Bitwig/Java) needs the user:** real Bitwig runs and `mvn install` of the extension.
+   Start from `Protocol.java` (generated), the `Writer` for the reports (`BitwigModel`'s
+   `ModelReporter` by key, a `long` key plus a fallback map for 4-index steps, §2.4), the
+   command buffer read from the native segment, and the exhaustive `switch` over `Cmd` (§2.5).
+   Reaper stays on the text protocol (out of scope).

@@ -50,6 +50,9 @@ __all__ = [
     "MidiDevice",
     "Setting",
     "SettingState",
+    "dispatch_legacy_line",
+    "legacy_command",
+    "legacy_commands",
     "list_controllers",
     "messages_from_text",
     "messages_to_text",
@@ -225,27 +228,50 @@ def _unescape(text: str) -> str:
     return "".join(out)
 
 
-def dispatch_legacy_line(backend: Backend, line: str) -> None:
-    """Call the text callback of a legacy command line (messages_to_text of a command:
-    ``<kind>\t<processor>\t<command>[\t<value>...]``)."""
+def legacy_command(line: str) -> tuple[str, str, str, Any]:
+    """(kind, processor, command, value) of a legacy command line (messages_to_text of a
+    command: ``<kind>\t<processor>\t<command>[\t<value>...]``): the value as the text callback
+    gets it (None, an int, a float, a str, a list of str; enable: the flag)."""
     fields = [_unescape(f) for f in line.split("\t")]
     kind = fields[0]
     processor = fields[1] if len(fields) > 1 else ""
     command = fields[2] if len(fields) > 2 else ""
+    value: Any = None
+    if kind == "int":
+        value = int(fields[3])
+    elif kind == "double":
+        value = float(fields[3])
+    elif kind == "string":
+        value = fields[3] if len(fields) > 3 else ""
+    elif kind == "strings":
+        value = fields[3:]
+    elif kind == "enable":
+        value = command == "1"
+    return kind, processor, command, value
+
+
+def legacy_commands(text: str) -> list[tuple[str, str, str, Any]]:
+    """legacy_command of every line of messages_to_text."""
+    return [legacy_command(line) for line in _lines(text)]
+
+
+def dispatch_legacy_line(backend: Backend, line: str) -> None:
+    """Call the text callback of a legacy command line (legacy_command)."""
+    kind, processor, command, value = legacy_command(line)
     if kind == "noArg":
         backend.process_no_arg(processor, command)
     elif kind == "int":
-        backend.process_int_arg(processor, command, int(fields[3]))
+        backend.process_int_arg(processor, command, value)
     elif kind == "double":
-        backend.process_double_arg(processor, command, float(fields[3]))
+        backend.process_double_arg(processor, command, value)
     elif kind == "string":
-        backend.process_string_arg(processor, command, fields[3] if len(fields) > 3 else "")
+        backend.process_string_arg(processor, command, value)
     elif kind == "strings":
-        backend.process_string_args(processor, command, fields[3:])
+        backend.process_string_args(processor, command, value)
     elif kind == "delay":
         backend.delay_updates(processor)
     elif kind == "enable":
-        backend.enable_updates(processor, command == "1")
+        backend.enable_updates(processor, value)
     else:
         logger.error("Not a command line: %s", line)
 

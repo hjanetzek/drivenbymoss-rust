@@ -67,9 +67,9 @@ import logging
 from collections import deque
 
 from dbm_host import CommandHandler, NoteGrid
-from dbm_host.commands import parse_index
+from dbm_host.commands import FALLBACK, parse_index
 from dbm_host.reporter import NUM_SIBLINGS, M, channel_key
-from drivenbymoss.protocol import ChKind
+from drivenbymoss.protocol import ChKind, Cmd
 
 logger = logging.getLogger("dbm_zynthian")
 
@@ -82,6 +82,57 @@ DEVICE_FEATURES = ("deviceCommands",)
 
 
 class ZynCommandHandler(CommandHandler):
+
+    UNHANDLED_COMMANDS = frozenset((
+        Cmd.TRANSPORT_TOGGLE_METRONOME_TICKS, Cmd.TRANSPORT_TOGGLE_PUNCH_IN,
+        Cmd.TRANSPORT_TOGGLE_PUNCH_OUT, Cmd.TRANSPORT_TOGGLE_FILL, Cmd.PLAY_TOGGLE, Cmd.STOP_TOGGLE,
+        Cmd.REPEAT_TOGGLE, Cmd.TRANSPORT_METRONOME_TICKS, Cmd.TRANSPORT_TOGGLE_PREROLL_METRONOME,
+        Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.INI_FILE_PREROLL_MEASURES, Cmd.TRANSPORT_PUNCH_IN,
+        Cmd.TRANSPORT_PUNCH_OUT, Cmd.TRANSPORT_FILL, Cmd.TRANSPORT_END, Cmd.TRANSPORT_CROSSFADE,
+        Cmd.TIME_SET, Cmd.TIME_SET_INT, Cmd.TIME_SET_NO_SNAP, Cmd.TIME_LOOP_START, Cmd.TIME_LOOP_LENGTH,
+        Cmd.TIME_SIGNATURE, Cmd.BEATS_POSITION, Cmd.BEATS_POSITION_NO_SNAP, Cmd.BEATS_LOOP_START,
+        Cmd.BEATS_LOOP_LENGTH, Cmd.AUTOMATION_MODE, Cmd.AUTOMATION_TOGGLE_ARRANGER,
+        Cmd.AUTOMATION_TOGGLE_LAUNCHER, Cmd.AUTOMATION_RESET_OVERRIDES, Cmd.QUANTIZE, Cmd.UNDO,
+        Cmd.REDO, Cmd.ACTION, Cmd.PROJECT_ENGINE, Cmd.APPLICATION_LAYOUT, Cmd.APPLICATION_LAYOUT_STEP,
+        Cmd.APPLICATION_TOGGLE_NOTE_EDITOR, Cmd.APPLICATION_TOGGLE_AUTOMATION_EDITOR,
+        Cmd.APPLICATION_TOGGLE_DEVICES, Cmd.APPLICATION_TOGGLE_INSPECTOR, Cmd.APPLICATION_TOGGLE_MIXER,
+        Cmd.APPLICATION_TOGGLE_FULL_SCREEN, Cmd.APPLICATION_TOGGLE_BROWSER, Cmd.APPLICATION_DUPLICATE,
+        Cmd.APPLICATION_DELETE_SELECTION, Cmd.APPLICATION_ARROW_LEFT, Cmd.APPLICATION_ARROW_UP,
+        Cmd.APPLICATION_ARROW_RIGHT, Cmd.APPLICATION_ARROW_DOWN, Cmd.APPLICATION_ZOOM_OUT,
+        Cmd.APPLICATION_ZOOM_IN, Cmd.APPLICATION_DEC_TRACK_HEIGHT, Cmd.APPLICATION_INC_TRACK_HEIGHT,
+        Cmd.APPLICATION_ENTER, Cmd.APPLICATION_ESCAPE, Cmd.APPLICATION_SLICE_TO_SAMPLER,
+        Cmd.APPLICATION_SLICE_TO_DRUM_MACHINE, Cmd.APPLICATION_RECORD_QUANTIZATION,
+        Cmd.APPLICATION_TOGGLE_RECORD_QUANTIZATION_NOTE_LENGTH, Cmd.ARRANGER_TOGGLE_CUE_MARKERS,
+        Cmd.ARRANGER_TOGGLE_PLAYBACK_FOLLOW, Cmd.ARRANGER_TOGGLE_TRACK_ROW_HEIGHT,
+        Cmd.ARRANGER_TOGGLE_CLIP_LAUNCHER, Cmd.ARRANGER_TOGGLE_TIME_LINE,
+        Cmd.ARRANGER_TOGGLE_IO_SECTION, Cmd.ARRANGER_TOGGLE_EFFECT_TRACKS,
+        Cmd.MIXER_TOGGLE_CLIP_LAUNCHER_SECTION, Cmd.MIXER_TOGGLE_CROSS_FADE_SECTION,
+        Cmd.MIXER_TOGGLE_DEVICE_SECTION, Cmd.MIXER_TOGGLE_IO_SECTION, Cmd.MIXER_TOGGLE_METER_SECTION,
+        Cmd.MIXER_TOGGLE_SENDS_SECTION, Cmd.PROJECT_PREVIOUS, Cmd.PROJECT_NEXT, Cmd.PROJECT_SAVE,
+        Cmd.PROJECT_LOAD, Cmd.PROJECT_UNSOLO_ALL, Cmd.PROJECT_UNMUTE_ALL, Cmd.PROJECT_CUE,
+        Cmd.CHANNEL_COLOR, Cmd.CHANNEL_ACTIVE, Cmd.CHANNEL_REMOVE, Cmd.CHANNEL_DUPLICATE,
+        Cmd.CHANNEL_SEND_ACTIVE, Cmd.TRACK_TOGGLE_MULTI_SELECT, Cmd.TRACK_GROUP_EXPANDED,
+        Cmd.TRACK_MONITOR, Cmd.TRACK_AUTO_MONITOR, Cmd.TRACK_RETURN_TO_ARRANGEMENT,
+        Cmd.TRACK_IN_QUANT_RESOLUTION, Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_MOVE_PREV, Cmd.TRACK_MOVE_NEXT,
+        Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.TRACK_SCROLL_TO, Cmd.TRACK_PINNED_TOGGLE,
+        Cmd.TRACK_PINNED, Cmd.TRACK_ADD, Cmd.SLOT_COLOR, Cmd.SLOT_INSERT_FILE, Cmd.SCENE_NAME,
+        Cmd.SCENE_COLOR, Cmd.DEVICE_INDEX_BYPASS, Cmd.DEVICE_INDEX_REMOVE, Cmd.DEVICE_INDEX_DUPLICATE,
+        Cmd.DEVICE_INDEX_MOVE_PREV, Cmd.DEVICE_INDEX_MOVE_NEXT, Cmd.DEVICE_PINNED, Cmd.DEVICE_ADD,
+        Cmd.DEVICE_PRESET, Cmd.DRUM_CLEAR_MUTE, Cmd.DRUM_CLEAR_SOLO, Cmd.EQ_ADD, Cmd.EQ_BAND_TYPE,
+        Cmd.TRACK_PARAM_VALUE, Cmd.MASTER_CROSSFADER, Cmd.CLIP_PINNED, Cmd.CLIP_NAME, Cmd.CLIP_COLOR,
+        Cmd.CLIP_SHUFFLE, Cmd.CLIP_ACCENT, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET,
+        Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW,
+        Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.BROWSER_REPLACE_DEVICE, Cmd.BROWSER_REPLACE_SLOT,
+        Cmd.BROWSER_REPLACE_PAD, Cmd.BROWSER_ADD_TO_TRACK, Cmd.BROWSER_ADD_TO_MASTER,
+        Cmd.BROWSER_INSERT_BEFORE, Cmd.BROWSER_INSERT_AFTER, Cmd.MARKER_ACTION, Cmd.MARKER_ADD,
+        Cmd.MARKER_PREVIOUS, Cmd.MARKER_NEXT, Cmd.NAVIGATOR_STEP, Cmd.NAVIGATOR_SELECT_TRACK,
+        Cmd.NOTE_REPEAT_ACTIVE, Cmd.NOTE_REPEAT_RATE, Cmd.NOTE_REPEAT_NOTE_LENGTH,
+        Cmd.NOTE_REPEAT_VELOCITY, Cmd.NOTE_REPEAT_MODE, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT,
+        Cmd.GROOVE_PARAM,
+    ))
+    """The CmdIds zynthian does not execute (no arranger, no automation, no undo, no markers,
+    no note repeat, …; the transport only with zynseq). The coverage test of
+    TYPED_PROTOCOL_PLAN §2.5 (test_commands.CommandCoverageTest) keeps the set exact."""
 
     def __init__(self, daw, banks, reporter, clock=lambda: 0.0):
         super().__init__(daw, banks, reporter, clock)
@@ -114,7 +165,7 @@ class ZynCommandHandler(CommandHandler):
         self.note_grids = [NoteGrid(int(steps), int(rows), self.daw.cursor_clip) for steps, rows in self.banks.setup.get("noteClips", [])]
         self.reporter.note_grids = self.note_grids
 
-    def handle(self, processor, command, value=None):
+    def before_command(self):
         # A command sees the pattern as it is now (also changes made in zynthian)
         self.daw.invalidate_clip()
         # The core relies on the reports after its commands: the next pass reads the whole model
@@ -122,7 +173,32 @@ class ZynCommandHandler(CommandHandler):
         request_full = getattr(self.reporter, "request_full", None)
         if request_full is not None:
             request_full()
-        super().handle(processor, command, value)
+
+    # The typed commands (the binary form, dbm_host.commands.CommandHandler.process_commands):
+    # the channel and parameter commands resolve their items as _track, _fx_track, _master,
+    # _device and _primary
+
+    def typed_master(self, sub, cmd):
+        master = self.daw.master()
+        if master is None:
+            return False
+        return self.channel_command(master, sub, cmd)
+
+    def typed_track(self, fx, position, sub, cmd):
+        tracks = self.daw.effect_tracks() if fx else self.daw.track_list(self.banks.full_flat_track_list)
+        if not 0 <= position < len(tracks):
+            return False
+        if not fx and tracks[position].is_placeholder:
+            return self.add_chain_command(tracks[position], position, sub, cmd)
+        return self.track_command(tracks[position], sub, cmd)
+
+    def typed_param(self, processor, index, name, cmd):
+        if processor not in ("device", "primary"):
+            return FALLBACK
+        device = self.daw.devices.cursor() if processor == "device" else self.daw.devices.primary()
+        if device is None or index < 0:
+            return True
+        return self.value_command(device.parameter(index), [] if name == "value" else [name], cmd)
 
     def set_value(self, parameter, cmd):
         """No undo history in zynthian."""

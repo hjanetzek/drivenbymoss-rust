@@ -31,7 +31,11 @@ way.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
+
+import drivenbymoss
+from drivenbymoss import protocol
+from drivenbymoss.protocol import ChanKind, Cmd, Processor, signed
 
 from .banks import Banks
 from .clip import ATTRIBUTES, NoteGrid, set_attribute, update_from_wire
@@ -116,6 +120,99 @@ def parse_index(text: str) -> int:
 Handler = Callable[[Command], bool]
 
 
+# The typed commands (TYPED_PROTOCOL_PLAN §2.7, §6.4): the binary form of the core's commands is
+# dispatched by CmdId; the IDs without a typed handler go through their legacy text (the
+# processor handlers above, the transition). A typed handler gets the view of the record and a
+# ViewCommand and calls the same hooks as the text handlers (channel_command, track_command,
+# value_command, set_value, …) with constant ``sub`` lists, so the overrides of a host
+# (ZynCommandHandler) work for both forms. It returns True (handled), False (not handled:
+# logged) or FALLBACK (the text handler decides, nothing was done yet).
+
+FALLBACK = None
+
+# The sub commands of the typed channel commands (the parts after the channel in the text form)
+CHANNEL_SUBS = {
+    Cmd.CHANNEL_MUTE: ["mute"], Cmd.CHANNEL_SOLO: ["solo"], Cmd.CHANNEL_SOLO_TOGGLE: ["solo", "toggle"],
+    Cmd.CHANNEL_SELECT: ["select"], Cmd.TRACK_REC_ARM: ["recarm"],
+}
+CHANNEL_VALUES = {Cmd.CHANNEL_VOLUME: "volume", Cmd.CHANNEL_PAN: "pan"}
+# The suffix of a value command by its op (/touch, /indicate; set, inc, reset, immediately are
+# the flags of the command)
+OP_SUBS = {protocol.OP_TOUCH: ["touch"], protocol.OP_INDICATE: ["indicate"]}
+PARAM_SUBS = {Cmd.PARAM_VALUE: "value", Cmd.PARAM_TOUCH: "touch", Cmd.PARAM_INDICATE: "indicate"}
+# The processors of the typed parameter commands (the field dev of PARAM_*)
+PARAM_PROCESSORS = {Processor.DEVICE: "device", Processor.PRIMARY: "primary", Processor.EQ: "eq", Processor.DRUM: "drum"}
+
+
+def _record_text(view) -> str:
+    """The legacy text of the record of a view (the core's conversion, transition)."""
+    n = view.h[7]
+    return drivenbymoss.messages_to_text(protocol.HEADER + bytes(view.b[view.p:view.p + 24 + ((n + 7) & ~7)]))
+
+
+_NO_VALUE = object()
+
+
+class ViewCommand(Command):
+    """A command of the binary form with the interface of Command: the operation (``reset``,
+    ``increment``, ``immediately``) and the value from the record; ``processor``,
+    ``full_command`` and ``command`` from the core's legacy text of the record, converted only
+    when they are read (logs, the not handled list, check)."""
+
+    def __init__(self, view):  # noqa: D107 - no dataclass __init__: the fields are properties
+        self.view = view
+        self._legacy = None
+        op = view.h[2]
+        self.immediately = op == protocol.OP_IMMEDIATELY
+        self.increment = op == protocol.OP_INC
+        self.reset = op == protocol.OP_RESET
+        # The value of the typed kinds, read once (as the text form's: a flag as 1/0)
+        self._value = _NO_VALUE
+        if view.KIND in ("bool", "value_op", "none"):
+            value = view.value
+            self._value = int(value) if type(value) is bool else value
+
+    @property
+    def legacy(self) -> tuple:
+        """(kind, processor, command, value) of the legacy text."""
+        if self._legacy is None:
+            lines = drivenbymoss.legacy_commands(_record_text(self.view))
+            self._legacy = lines[0] if lines else ("", "", "", None)
+        return self._legacy
+
+    @property
+    def processor(self) -> str:
+        return self.legacy[1]
+
+    @property
+    def full_command(self) -> str:
+        return self.legacy[2]
+
+    @property
+    def command(self) -> str:
+        return Command.parse(self.processor, self.full_command, None).command
+
+    @property
+    def value(self):
+        """As the text form's value: a flag as 1/0, a double, None (no value, a reset); the
+        others from the legacy text."""
+        return self.legacy[3] if self._value is _NO_VALUE else self._value
+
+    @property
+    def number(self) -> float:
+        value = self.value
+        if value is None:
+            return 1.0
+        if type(value) in (int, float):
+            return float(value)
+        return Command.number.fget(self)
+
+    def __repr__(self) -> str:
+        return f"ViewCommand({self.processor!r}, {self.full_command!r}, {self.value!r})"
+
+TypedHandler = Callable[[Any, ViewCommand], "bool | None"]
+
+
 class CommandHandler:
     """Maps the commands of the core to model operations."""
 
@@ -135,6 +232,11 @@ class CommandHandler:
         """The clip launcher navigator, if the controller wants it (``configure``)."""
         self.note_grids: list[NoteGrid] = []
         """The step grids of the note clips (``configure``)."""
+        self.typed: dict[int, TypedHandler] = {}
+        """The typed handlers of the binary form by CmdId (process_commands)."""
+        self.register_typed((Cmd.REFRESH,), lambda view, cmd: self._refresh(cmd))
+        self.register_typed((*CHANNEL_SUBS, *CHANNEL_VALUES, Cmd.CHANNEL_SEND_VOLUME), self._typed_channel)
+        self.register_typed(PARAM_SUBS, self._typed_param)
 
         self.register("refresh", self._refresh)
         self.register("bank", self._bank)
@@ -183,7 +285,11 @@ class CommandHandler:
 
     # Entry point (the process_* callbacks)
 
+    def before_command(self) -> None:
+        """Called before every command (both forms)."""
+
     def handle(self, processor: str, command: str, value: Any = None) -> None:
+        self.before_command()
         cmd = Command.parse(processor, command, value)
         self.log.append(cmd)
         if not isinstance(value, (str, list)):
@@ -196,6 +302,149 @@ class CommandHandler:
             handled = False
         if not handled:
             self.not_handled(cmd)
+
+    # The binary form (TYPED_PROTOCOL_PLAN §6.4)
+
+    UNHANDLED_COMMANDS: frozenset[int] = frozenset((
+        Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.TRANSPORT_END, Cmd.TRANSPORT_CROSSFADE,
+        Cmd.PROJECT_ENGINE, Cmd.APPLICATION_LAYOUT_STEP, Cmd.APPLICATION_TOGGLE_NOTE_EDITOR,
+        Cmd.APPLICATION_TOGGLE_AUTOMATION_EDITOR, Cmd.APPLICATION_TOGGLE_DEVICES,
+        Cmd.APPLICATION_TOGGLE_INSPECTOR, Cmd.APPLICATION_TOGGLE_MIXER,
+        Cmd.APPLICATION_TOGGLE_FULL_SCREEN, Cmd.APPLICATION_TOGGLE_BROWSER, Cmd.APPLICATION_DUPLICATE,
+        Cmd.APPLICATION_DELETE_SELECTION, Cmd.APPLICATION_ARROW_LEFT, Cmd.APPLICATION_ARROW_UP,
+        Cmd.APPLICATION_ARROW_RIGHT, Cmd.APPLICATION_ARROW_DOWN, Cmd.APPLICATION_ZOOM_OUT,
+        Cmd.APPLICATION_ZOOM_IN, Cmd.APPLICATION_DEC_TRACK_HEIGHT, Cmd.APPLICATION_INC_TRACK_HEIGHT,
+        Cmd.APPLICATION_ENTER, Cmd.APPLICATION_ESCAPE, Cmd.APPLICATION_SLICE_TO_SAMPLER,
+        Cmd.APPLICATION_SLICE_TO_DRUM_MACHINE, Cmd.APPLICATION_RECORD_QUANTIZATION,
+        Cmd.APPLICATION_TOGGLE_RECORD_QUANTIZATION_NOTE_LENGTH, Cmd.PROJECT_PREVIOUS, Cmd.PROJECT_NEXT,
+        Cmd.PROJECT_CREATE_SCENE_FROM_PLAYING_LAUNCHER_CLIPS, Cmd.PROJECT_SAVE, Cmd.PROJECT_LOAD,
+        Cmd.PROJECT_UNSOLO_ALL, Cmd.PROJECT_UNMUTE_ALL, Cmd.PROJECT_CUE, Cmd.TRACK_IN_QUANT_RESOLUTION,
+        Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.SLOT_INSERT_FILE, Cmd.DEVICE_ADD,
+        Cmd.TRACK_PARAM_VALUE, Cmd.MASTER_CROSSFADER, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET,
+        Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW,
+        Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.BROWSER_CONTENT_TYPE, Cmd.BROWSER_PREVIEW,
+        Cmd.BROWSER_COLUMN_STEP, Cmd.BROWSER_COLUMN_PAGE, Cmd.BROWSER_COLUMN_RESET,
+        Cmd.BROWSER_REPLACE_DEVICE, Cmd.BROWSER_REPLACE_SLOT, Cmd.BROWSER_REPLACE_PAD,
+        Cmd.BROWSER_ADD_TO_TRACK, Cmd.BROWSER_ADD_TO_MASTER, Cmd.BROWSER_INSERT_BEFORE,
+        Cmd.BROWSER_INSERT_AFTER, Cmd.BROWSER_STOP, Cmd.BROWSER_RESULT_STEP, Cmd.BROWSER_RESULT_PAGE,
+        Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT, Cmd.GROOVE_PARAM,
+    ))
+    """The CmdIds the handler does not execute (later steps: the application and project
+    commands, the browser, groove, the clip notes, …). The coverage test of TYPED_PROTOCOL_PLAN
+    §2.5 (test_host.CommandCoverageTest) keeps the set exact."""
+
+    def handled_commands(self) -> set[int]:
+        """The CmdIds the handler executes, for App.use_binary_commands (the core logs a command
+        of another ID once)."""
+        return set(protocol.CMD_IDS) - self.UNHANDLED_COMMANDS
+
+    def register_typed(self, command_ids: Iterable[int], handler: TypedHandler) -> None:
+        """Handle the commands of the IDs in the binary form with a typed handler."""
+        for command_id in command_ids:
+            self.typed[int(command_id)] = handler
+
+    def process_commands(self, buffer) -> None:
+        """The commands of one call in the binary form (Backend.process_commands): by CmdId
+        through the typed handlers; the others, and those a typed handler leaves to the text
+        (FALLBACK), through their legacy text (``handle``)."""
+        typed = self.typed
+        for view in protocol.iter_commands(buffer):
+            handler = typed.get(view.h[0])
+            if handler is None or not self.handle_typed(handler, view):
+                self.handle_text(view)
+
+    def handle_typed(self, handler: TypedHandler, view) -> bool:
+        """A command by its typed handler; False if the handler left it to the text."""
+        cmd = ViewCommand(view)
+        self.before_command()
+        try:
+            handled = handler(view, cmd)
+        except (IndexError, ValueError, TypeError) as error:
+            logger.warning("Command %s %s %r failed: %s", cmd.processor, cmd.full_command, cmd.value, error)
+            handled = False
+        if handled is FALLBACK:
+            return False
+        self.log.append(cmd)
+        if getattr(self.reporter, "check", False):
+            self._check_typed(cmd)
+        if not handled:
+            self.not_handled(cmd)
+        return True
+
+    def handle_text(self, view) -> None:
+        """A command through its legacy text (the core's conversion; the transition)."""
+        for kind, processor, command, value in drivenbymoss.legacy_commands(_record_text(view)):
+            if kind not in ("delay", "enable"):
+                self.handle(processor, command, value)
+
+    @staticmethod
+    def _check_typed(cmd: ViewCommand) -> None:
+        """The dual run of the commands (DBM_HOST_PROTOCOL=check): the operation and the value
+        of a typed command are the text form's."""
+        _kind, processor, command, value = cmd.legacy
+        text = Command.parse(processor, command, value)
+        typed = (cmd.number, cmd.flag, cmd.text, cmd.reset, cmd.increment, cmd.immediately)
+        expected = (text.number, text.flag, text.text, text.reset, text.increment, text.immediately)
+        if typed != expected:
+            raise AssertionError(f"The typed command {cmd!r} differs from its text {processor} {command} {value!r}: {typed} != {expected}")
+
+    def _typed_channel(self, view, cmd: ViewCommand) -> "bool | None":
+        """CHANNEL_MUTE, _SOLO, _SOLO_TOGGLE, _SELECT, _VOLUME, _PAN, _SEND_VOLUME,
+        TRACK_REC_ARM of the master, the tracks and the effect tracks (typed_master,
+        typed_track); the pads and layers through the text."""
+        h = view.h
+        id_ = h[0]
+        name = CHANNEL_VALUES.get(id_)
+        if name is not None:
+            sub = [name, *OP_SUBS.get(h[2], ())]
+        elif id_ == Cmd.CHANNEL_SEND_VOLUME:
+            sub = ["send", str(signed(h[6])), "volume", *OP_SUBS.get(h[2], ())]
+        else:
+            sub = CHANNEL_SUBS[id_]
+        kind = h[3]
+        if kind == ChanKind.MASTER:
+            handled = self.typed_master(sub, cmd)
+            if handled is not FALLBACK:
+                self.reporter.forget_later("/master/")
+            return handled
+        if kind == ChanKind.TRACK and h[4] in (Processor.TRACK, Processor.FX_TRACK):
+            fx = h[4] == Processor.FX_TRACK
+            position = signed(h[5])
+            handled = self.typed_track(fx, position, sub, cmd)
+            if handled is not FALLBACK and position >= 0:
+                self.reporter.forget_later(f"/{'fxtrack' if fx else 'track'}/{position}/")
+            return handled
+        return FALLBACK
+
+    def typed_master(self, sub: list[str], cmd: Command) -> "bool | None":
+        """A typed channel command of the master (as ``_master``)."""
+        return self.channel_command(self.daw.master, sub, cmd)
+
+    def typed_track(self, fx: bool, position: int, sub: list[str], cmd: Command) -> "bool | None":
+        """A typed channel command of a track or effect track (as ``_track``, ``_fx_track``)."""
+        tracks = self.daw.effect_tracks if fx else self.track_list()
+        if not 0 <= position < len(tracks):
+            return False
+        return self.track_command(tracks[position], position, sub, cmd, tracks)
+
+    def _typed_param(self, view, cmd: ViewCommand) -> "bool | None":
+        """PARAM_VALUE, _TOUCH, _INDICATE (typed_param)."""
+        h = view.h
+        processor = PARAM_PROCESSORS.get(h[3])
+        if processor is None or (h[0] == Cmd.PARAM_VALUE and h[2] in OP_SUBS):
+            return FALLBACK
+        index = signed(h[4])
+        handled = self.typed_param(processor, index, PARAM_SUBS[h[0]], cmd)
+        if handled is not FALLBACK:
+            self.reporter.forget_later(f"/{processor}/param/{index}/")
+        return handled
+
+    def typed_param(self, processor: str, index: int, name: str, cmd: Command) -> "bool | None":
+        """``<processor> param/<index>/<name>`` (name: value, touch, indicate): the cursor
+        device (``parameter_command``); the others through the text."""
+        if processor != "device":
+            return FALLBACK
+        return self.parameter_command(self.daw.cursor_device, ["param", str(index), name], cmd, cursor=True)
 
     def not_handled(self, cmd: Command) -> None:
         """Log a command which is not handled, once (DbmExtension.unhandled)."""

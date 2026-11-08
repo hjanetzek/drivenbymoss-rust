@@ -9,6 +9,7 @@ Run from the repository root (after 'cargo build')::
     python3 -m unittest discover -s bindings/python/tests
 """
 
+import logging
 import re
 import sys
 import tempfile
@@ -22,6 +23,8 @@ from dbm_host.device import EQ_PLUS, Equalizer, eq_plus, format_eq_frequency, fo
 from dbm_host.parameter import VOLUME_0DB, format_pan, format_three_digits, format_volume, limit_text  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
 from dbm_host import reporter as reporter_module  # noqa: E402
+from dbm_host.coverage import unhandled_commands  # noqa: E402
+import drivenbymoss  # noqa: E402
 from drivenbymoss import protocol  # noqa: E402
 
 LAUNCH_CONTROL_XL = "5AFA5045-FF92-4737-A091-5B371CD5E529"
@@ -297,6 +300,54 @@ class ClipLauncherTest(unittest.TestCase):
         self.assertTrue(daw.tracks[0].slots[3].selected)
         daw.tracks[1].slots[0].select()
         self.assertFalse(daw.tracks[0].slots[3].selected)
+
+
+COVERAGE_SETUP = {"numTracks": 8, "numSends": 2, "numScenes": 8, "hasFullFlatTrackList": True, "noteClips": [[16, 8]], "numMarkers": 8,
+                  "deviceIds": ["FIRST_INSTRUMENT", "EQ"], "wantsClipLauncherNavigator": True}
+
+
+def coverage_host() -> "Host":
+    """The host of the coverage test: COVERAGE_SETUP, a device on the cursor track."""
+    daw = project()
+    daw.tracks[0].devices.add(Device("Polysynth", pages=["OSC1", "OSC2"]))
+    return Host(daw, COVERAGE_SETUP)
+
+
+class CommandCoverageTest(unittest.TestCase):
+
+    def test_handled_commands(self):
+        """Every command ID is handled, typed or through its text, or in UNHANDLED_COMMANDS (the
+        set passed to the core, App.use_binary_commands)."""
+        logging.disable(logging.CRITICAL)
+        self.addCleanup(logging.disable, logging.NOTSET)
+        unhandled = unhandled_commands(lambda: coverage_host().commands)
+        declared = CommandHandler.UNHANDLED_COMMANDS
+        self.assertEqual(sorted(protocol.Cmd(i).name for i in unhandled - declared), [], "Not handled, not declared")
+        self.assertEqual(sorted(protocol.Cmd(i).name for i in declared - unhandled), [], "Declared unhandled, but handled")
+        self.assertEqual(Host().commands.handled_commands(), set(protocol.CMD_IDS) - declared)
+
+    def test_typed_and_text_dispatch(self):
+        """The typed handlers (channel values, mute, send volume, parameters) and the text
+        fallback give the same model and the same log as the text form."""
+        hosts = [Host(), Host()]
+        lines = ["track\t0/volume\t0.25", "track\t1/mute\t1", "track\t0/send/1/volume/inc\t0.125", "master\tvolume/reset",
+                 "fxtrack\t1/solo\t1", "device\tparam/2/value\t0.75", "track\t2/volume/touch\t1", "transport\tplay"]
+        for line in lines:
+            processor, command, *value = line.split("\t")
+            parsed = (float(value[0]) if "." in value[0] else int(value[0])) if value else None
+            hosts[0].commands.handle(processor, command, parsed)
+        kinds = {int: "int", float: "double", type(None): "noArg"}
+        text = "\n".join(kinds[type(c.value)] + "\t" + c.processor + "\t" + c.full_command + ("" if c.value is None else "\t" + str(c.value))
+                         for c in hosts[0].commands.log)
+        buffer = drivenbymoss.messages_from_text(text)
+        hosts[1].commands.process_commands(buffer)
+        typed = [type(c).__name__ for c in hosts[1].commands.log]
+        self.assertEqual(typed, ["ViewCommand"] * 7 + ["Command"], "The transport through its text")
+        for a, b in zip(hosts[0].commands.log, hosts[1].commands.log):
+            self.assertEqual((a.processor, a.full_command, a.command, a.number, a.reset, a.increment), (b.processor, b.full_command, b.command, b.number, b.reset, b.increment))
+        self.assertEqual(hosts[1].daw.tracks[0].volume.value, 0.25)
+        self.assertEqual(hosts[0].reporter.collect(), hosts[1].reporter.collect())
+        self.assertEqual(hosts[0].reporter.pending, hosts[1].reporter.pending, "Reported again")
 
 
 class ReporterTest(unittest.TestCase):

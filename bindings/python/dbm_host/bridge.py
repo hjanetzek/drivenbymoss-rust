@@ -85,7 +85,7 @@ class Bridge(drivenbymoss.Backend):
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
         self.app.set_time(int(self.clock_ms))
         # The note inputs can only be created while the controller starts (DbmExtension.init)
-        if self.reporter.binary and not self.app.use_binary_commands():
+        if self.reporter.binary and not self.app.use_binary_commands(self.commands.handled_commands()):
             logger.warning("The library refused the binary commands: they stay text")
         self._initializing = True
         self.daw.note_input = None
@@ -192,6 +192,10 @@ class Bridge(drivenbymoss.Backend):
 
     def process(self, processor: str, command: str, value) -> None:
         self.commands.handle(processor, command, value)
+
+    def process_commands(self, buffer: bytes) -> None:
+        """The binary form: dispatched by CmdId (CommandHandler.process_commands)."""
+        self.commands.process_commands(buffer)
 
     def open_midi_input(self, device_id: int) -> bool:
         return device_id == DEVICE
