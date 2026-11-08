@@ -688,16 +688,17 @@ protocol.
    generator binary for the other languages (§2.1).
 2. ~~Commands~~: **decided**: one buffer per call, read through generated view wrappers in every
    language (§2.7).
-3. **The handled-commands bitset:** should it eventually replace `/host/features` for binary
-   hosts, or only diagnose (phase 1)?
+3. ~~The handled-commands bitset~~: **decided**: for binary hosts it eventually replaces
+   `/host/features` (§2.5). First it diagnoses (phase 1); the text hosts (Reaper) keep
+   `/host/features` and the progressive detection.
 4. ~~The Reaper-only forms~~: **decided**: Reaper is out of scope and stays on the text protocol.
    The Reaper-only forms (≈30 addresses, ≈25 commands, §1.2/§1.5) stay in the table only as far
    as the core's text path for the Reaper backend needs them (their legacy text), not in the
    typed host API; unused ones (e.g. `cursor`, `Processor::Session/PlayingNotes/Cursor`) can be
    dropped when the table is written.
-5. **Recordings by binary hosts:** keep the text `.rec` format through `dbm_messages_to_text`
-   (recommended), or a binary `.rec` with a converter? And should the recorder move into the
-   core, so that all hosts can record?
+5. ~~Recordings by binary hosts~~: **decided**: the `.rec` format stays text (through
+   `dbm_messages_to_text`), and the recorder moves into the core, so that every host can record
+   (today only the Bitwig extension's `ProtocolRecorder` does).
 6. **Doubles in new recordings:** the shortest round-trip form (exact, recommended), or `%.6f`
    (matches old recordings, loses precision)?
 7. **The grid id:** pack `steps<<8|rows` into one u16 index (needs both ≤ 255), or a fifth index
