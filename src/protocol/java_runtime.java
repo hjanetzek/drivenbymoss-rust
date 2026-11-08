@@ -469,7 +469,8 @@
 
 
         /**
-         * Reserve a record and write its head: the ID and the indices of the key, the fourth
+         * Reserve a record and write its head (the segment may be replaced by a larger one: the
+         * callers read this.segment after the call): the ID and the indices of the key, the fourth
          * index, the type, the operation and the payload size.
          *
          * @return The position of the record
@@ -505,7 +506,8 @@
          */
         public void putNone (final long key, final int i3)
         {
-            this.segment.set (LE_LONG, this.head (key, i3, T_NONE, OP_SET, 0) + 16, 0);
+            final long p = this.head (key, i3, T_NONE, OP_SET, 0);
+            this.segment.set (LE_LONG, p + 16, 0);
         }
 
 
@@ -519,7 +521,8 @@
          */
         public void putLong (final long key, final int i3, final int type, final long value)
         {
-            this.segment.set (LE_LONG, this.head (key, i3, type, OP_SET, 0) + 16, value);
+            final long p = this.head (key, i3, type, OP_SET, 0);
+            this.segment.set (LE_LONG, p + 16, value);
         }
 
 
@@ -558,7 +561,8 @@
          */
         public void putDouble (final long key, final int i3, final double value)
         {
-            this.segment.set (LE_DOUBLE, this.head (key, i3, T_F64, OP_SET, 0) + 16, value);
+            final long p = this.head (key, i3, T_F64, OP_SET, 0);
+            this.segment.set (LE_DOUBLE, p + 16, value);
         }
 
 
@@ -603,7 +607,8 @@
          */
         public void putInline (final long key, final int i3, final int type, final int op, final long value)
         {
-            this.segment.set (LE_LONG, this.head (key, i3, type, op, 0) + 16, value);
+            final long p = this.head (key, i3, type, op, 0);
+            this.segment.set (LE_LONG, p + 16, value);
         }
 
 

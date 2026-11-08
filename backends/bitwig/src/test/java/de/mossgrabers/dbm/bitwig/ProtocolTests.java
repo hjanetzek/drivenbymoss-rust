@@ -205,6 +205,19 @@ public final class ProtocolTests
         check (view.next () && List.of (view.textList ()).equals (List.of ("a", "ü")), "a text list");
         check (view.next () && view.scene () == 2 && view.colorPart (0) == 10 && view.colorPart (1) == 20 && view.colorPart (2) == 30 && view.colorPart (3) == 1, "a color");
         check (!view.next (), "the end of the buffer");
+        // The writer grows (the records before the growth stay)
+        final Protocol.Writer growing = new Protocol.Writer (64);
+        for (int i = 0; i < 1000; i++)
+        {
+            growing.putInline (Protocol.key (Cmd.SCENE_ACTION.id, i, 0, 0), 0, Protocol.T_NONE, Protocol.OP_SET, 0);
+            growing.putDouble (Protocol.key (Protocol.Msg.TEMPO, 0, 0, 0), 0, i);
+            growing.putText (Protocol.key (Protocol.Msg.PROJECT_NAME, 0, 0, 0), 0, "name " + i);
+        }
+        view.reset (growing.buffer ());
+        boolean grown = true;
+        for (int i = 0; i < 1000; i++)
+            grown &= view.next () && view.scene () == i && view.next () && view.doubleValue () == i && view.next () && view.text ().equals ("name " + i);
+        check (grown && !view.next (), "a writer which grew keeps its records");
         // A wrong header
         final byte [] wrong = w.toByteArray ();
         wrong[0] = 'X';
