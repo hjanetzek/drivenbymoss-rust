@@ -50,6 +50,10 @@ class zynthian_ctrldev_dbm_maschine_mk2(zynthian_ctrldev_base_dbm):
     # must not run then (only one process can drive the device)
     hid_ids = [(0x17CC, 0x1140)]
     nihost_kind = nihost.KIND_MK2
+    # The Mk2's own USB MIDI ports (its MIDI mode): zynthian must not connect them while this
+    # driver drives the device over hidraw, using them disturbs the HID connection (the device
+    # drops out and re-enumerates)
+    hid_claimed_midi_dev_ids = ["Maschine Controller MK2 IN 1", "Maschine Controller MK2 OUT 1"]
     # dbm-nihost creates the ports also without the device: the controller runs only while the Mk2
     # is there (its hello, which also says that dbm-nihost sends the Shift button)
     nihost_hello = bytes.fromhex("F07D44424D1101F7")

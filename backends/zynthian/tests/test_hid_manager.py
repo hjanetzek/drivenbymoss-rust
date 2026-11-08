@@ -114,6 +114,17 @@ class HidManagerTest(unittest.TestCase):
         self.assertEqual(self.manager.update_hid_drivers(self.sysfs), [])
         self.assertIn(JAM_UID, self.manager.hid_drivers)
 
+    def test_claimed_midi_ports(self):
+        """The loaded Mk2 driver keeps the Mk2's own USB MIDI ports away from zynthian"""
+        self.assertEqual(self.manager.get_hid_claimed_midi_dev_ids(), set())
+        self.plug("hidraw3", "0003:000017CC:00001500")
+        self.manager.update_hid_drivers(self.sysfs)
+        self.assertEqual(self.manager.get_hid_claimed_midi_dev_ids(), set(), "The JAM claims none")
+        self.plug("hidraw4", "0003:000017CC:00001140")
+        self.manager.update_hid_drivers(self.sysfs)
+        self.assertEqual(self.manager.get_hid_claimed_midi_dev_ids(),
+                         {"Maschine Controller MK2 IN 1", "Maschine Controller MK2 OUT 1"})
+
     def test_disabled(self):
         self.plug("hidraw3", "0003:000017CC:00001500")
         self.manager.update_hid_drivers(self.sysfs)
