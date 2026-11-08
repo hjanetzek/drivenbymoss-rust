@@ -81,10 +81,11 @@ public final class BitwigModel
     final Parameter []       grooveParameters;
     /** The names of the groove parameters for the core. */
     static final String []   GROOVE_PARAMETERS = { "enabled", "shuffleAmount", "shuffleRate", "accentAmount", "accentRate", "accentPhase" };
-    /** All command forms of the core's HostFeature (see HOST_BRIDGE_GUIDE.md §2). */
-    private static final String HOST_FEATURES = "valueInc valueReset immediately indication soloToggle transportCommands deviceCommands layoutStep";
-    /** The feature of the clip launcher navigator, only if the controller wants it. */
-    private static final String HOST_FEATURE_NAVIGATOR = "clipLauncherNavigator";
+    /**
+     * The value operations of the core's HostFeature (see HOST_BRIDGE_GUIDE.md §2); the command
+     * features come from the handled commands (CommandHandler.handledBitset).
+     */
+    private static final String HOST_FEATURES = "valueInc valueReset immediately indication";
     final Application        application;
     final Arranger           arranger;
     final Mixer              mixer;
@@ -534,7 +535,7 @@ public final class BitwigModel
     {
         // The command forms this extension handles (HostFeature of the core); reported once and
         // with every dump
-        reporter.put (Msg.HOST_FEATURES, this.navigator == null ? HOST_FEATURES : HOST_FEATURES + " " + HOST_FEATURE_NAVIGATOR);
+        reporter.put (Msg.HOST_FEATURES, HOST_FEATURES);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         this.collectEffectTracks (reporter);

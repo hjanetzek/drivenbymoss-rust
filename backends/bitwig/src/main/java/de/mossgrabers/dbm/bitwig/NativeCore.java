@@ -5,7 +5,6 @@ package de.mossgrabers.dbm.bitwig;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
@@ -43,20 +42,6 @@ public final class NativeCore implements AutoCloseable
      */
     public interface Callbacks
     {
-        void processNoArg (String processor, String command);
-
-        void processStringArg (String processor, String command, String value);
-
-        void processStringArgs (String processor, String command, String [] values);
-
-        void processIntArg (String processor, String command, int value);
-
-        void processDoubleArg (String processor, String command, double value);
-
-        void delayUpdates (String processor);
-
-        void enableUpdates (String processor, boolean enable);
-
         boolean openMidiInput (int deviceId);
 
         boolean openMidiOutput (int deviceId);
@@ -98,7 +83,6 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  destroy;
     private final MethodHandle  startInfrastructure;
     private final MethodHandle  tick;
-    private final MethodHandle  updateModel;
     private final MethodHandle  onMidiEvent;
     private final MethodHandle  getModelSetup;
     private final MethodHandle  getSettings;
@@ -137,7 +121,6 @@ public final class NativeCore implements AutoCloseable
         this.destroy = downcall (lookup, "dbm_destroy", FunctionDescriptor.ofVoid (ADDRESS));
         this.startInfrastructure = downcall (lookup, "dbm_start_infrastructure", FunctionDescriptor.ofVoid (ADDRESS));
         this.tick = downcall (lookup, "dbm_tick", FunctionDescriptor.ofVoid (ADDRESS));
-        this.updateModel = downcall (lookup, "dbm_update_model", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS));
         this.onMidiEvent = downcall (lookup, "dbm_on_midi_event", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, ADDRESS, JAVA_INT));
         this.getModelSetup = downcall (lookup, "dbm_get_model_setup", FunctionDescriptor.of (ADDRESS, ADDRESS));
         this.getSettings = downcall (lookup, "dbm_get_settings", FunctionDescriptor.of (ADDRESS, ADDRESS));
@@ -160,13 +143,15 @@ public final class NativeCore implements AutoCloseable
         final MemorySegment [] fields =
         {
             MemorySegment.NULL,
-            this.upcall ("upcallNoArg", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS)),
-            this.upcall ("upcallStringArg", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS, ADDRESS)),
-            this.upcall ("upcallStringArgs", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS, ADDRESS, JAVA_INT)),
-            this.upcall ("upcallIntArg", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS, JAVA_INT)),
-            this.upcall ("upcallDoubleArg", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS, JAVA_DOUBLE)),
-            this.upcall ("upcallDelayUpdates", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS)),
-            this.upcall ("upcallEnableUpdates", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, JAVA_INT)),
+            // The text callbacks of the commands (process_no_arg … enable_updates): none, the
+            // commands arrive in the binary form (setCommandCallback, before the start)
+            MemorySegment.NULL,
+            MemorySegment.NULL,
+            MemorySegment.NULL,
+            MemorySegment.NULL,
+            MemorySegment.NULL,
+            MemorySegment.NULL,
+            MemorySegment.NULL,
             this.upcall ("upcallProcessMidiArg", FunctionDescriptor.ofVoid (ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)),
             // get_midi_inputs, get_midi_outputs: not used for a single controller
             MemorySegment.NULL,
@@ -239,22 +224,6 @@ public final class NativeCore implements AutoCloseable
 
 
     /**
-     * Send model data to the core: lines of "address value".
-     *
-     * @param data The data
-     */
-    public void updateModel (final String data)
-    {
-        if (!this.isValid () || data.isEmpty ())
-            return;
-        try (final Arena call = Arena.ofConfined ())
-        {
-            invoke (this.updateModel, this.app, call.allocateFrom (data));
-        }
-    }
-
-
-    /**
      * Does the library have the binary protocol of the extension (the same major version)?
      *
      * @return The protocol identity of the library ("major.minor, hash"), null if it has none or
@@ -281,8 +250,9 @@ public final class NativeCore implements AutoCloseable
 
     /**
      * Switch the commands of the core to the binary form (dbm_set_command_callback): they are
-     * delivered to {@link Callbacks#processCommands(MemorySegment)} instead of the text callbacks.
-     * Call it before {@link #startInfrastructure()}.
+     * delivered to {@link Callbacks#processCommands(MemorySegment)} (the text callbacks are not
+     * set). Call it before {@link #startInfrastructure()}, and again to update the handled
+     * commands (the core derives the command features from them).
      *
      * @param handled The bitset of the handled command IDs (word i bit j = ID 0x8000 + 64 * i + j)
      * @return True if the core switched
@@ -550,104 +520,6 @@ public final class NativeCore implements AutoCloseable
 
 
     // The upcalls, called by the core; the first argument is the (unused) user pointer
-
-    @SuppressWarnings("unused")
-    private void upcallNoArg (final MemorySegment user, final MemorySegment processor, final MemorySegment command)
-    {
-        try
-        {
-            this.callbacks.processNoArg (readString (processor), readString (command));
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("processNoArg", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallStringArg (final MemorySegment user, final MemorySegment processor, final MemorySegment command, final MemorySegment value)
-    {
-        try
-        {
-            this.callbacks.processStringArg (readString (processor), readString (command), readString (value));
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("processStringArg", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallStringArgs (final MemorySegment user, final MemorySegment processor, final MemorySegment command, final MemorySegment values, final int count)
-    {
-        try
-        {
-            this.callbacks.processStringArgs (readString (processor), readString (command), readStrings (values, count));
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("processStringArgs", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallIntArg (final MemorySegment user, final MemorySegment processor, final MemorySegment command, final int value)
-    {
-        try
-        {
-            this.callbacks.processIntArg (readString (processor), readString (command), value);
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("processIntArg", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallDoubleArg (final MemorySegment user, final MemorySegment processor, final MemorySegment command, final double value)
-    {
-        try
-        {
-            this.callbacks.processDoubleArg (readString (processor), readString (command), value);
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("processDoubleArg", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallDelayUpdates (final MemorySegment user, final MemorySegment processor)
-    {
-        try
-        {
-            this.callbacks.delayUpdates (readString (processor));
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("delayUpdates", ex);
-        }
-    }
-
-
-    @SuppressWarnings("unused")
-    private void upcallEnableUpdates (final MemorySegment user, final MemorySegment processor, final int enable)
-    {
-        try
-        {
-            this.callbacks.enableUpdates (readString (processor), enable != 0);
-        }
-        catch (final Throwable ex)
-        {
-            this.callbacks.error ("enableUpdates", ex);
-        }
-    }
-
 
     @SuppressWarnings("unused")
     private int upcallOpenMidiInput (final MemorySegment user, final int deviceId)

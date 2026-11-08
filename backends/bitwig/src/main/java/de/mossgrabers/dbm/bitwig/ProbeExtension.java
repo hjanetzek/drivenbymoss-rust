@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -69,20 +70,14 @@ public class ProbeExtension extends ControllerExtension
     {
         final ControllerHost host = this.getHost ();
         this.model = new BitwigModel (host, MODEL_SETUP, null);
-        // The text protocol without the core: the addresses of the clip and the grid
-        this.reporter = new ModelReporter (ModelReporter.Mode.TEXT, new ModelReporter.Conversions ()
+        // The records of the clip and the grid, formatted as text lines by the probe itself (it
+        // has no core): probeLines
+        this.reporter = new ModelReporter (new ModelReporter.Conversions ()
         {
             @Override
             public String messagesToText (final MemorySegment buffer, final long size)
             {
-                return probeAddress (buffer);
-            }
-
-
-            @Override
-            public byte [] messagesFromText (final String text)
-            {
-                return new byte [0];
+                return probeLines (buffer.asSlice (0, size), null, true);
             }
 
 
@@ -174,7 +169,8 @@ public class ProbeExtension extends ControllerExtension
         noteClip.collectClip (this.reporter);
         noteClip.collectGrid (this.reporter);
         this.reporter.finishCollection ();
-        final StringBuilder lines = new StringBuilder (this.reporter.getLines ());
+        final Protocol.Writer writer = this.reporter.getWriter ();
+        final StringBuilder lines = new StringBuilder (writer.isEmpty () ? "" : probeLines (writer.segment ().asSlice (0, writer.size ()), this.probeValues, dump));
         final PlayingNote [] notes = this.model.cursorTrack.playingNotes ().get ();
         this.putProbe (lines, "/probe/version", this.getHost ().getHostProduct () + " " + this.getHost ().getHostVersion (), dump);
         this.putProbe (lines, "/probe/playingNotes", Arrays.stream (notes).sorted (Comparator.comparingInt (PlayingNote::pitch)).map (n -> n.pitch () + ":" + n.velocity ()).collect (Collectors.joining (" ")), dump);
@@ -194,20 +190,92 @@ public class ProbeExtension extends ControllerExtension
 
 
     /**
-     * The address of the record of a buffer (the clip properties and the grid of the cursor clip,
-     * as the core's text form; the probe has no core).
+     * The text lines of the records of a buffer: the clip properties and the grid of the cursor
+     * clip as the text protocol had them (the addresses of doc/BACKEND_PROTOCOL.md, doubles with
+     * 6 decimals, the steps as StepInfo::to_wire), so that the lines stay those of the Java
+     * reference runs. The probe has no core, so it formats them itself.
+     *
+     * @param buffer The buffer (with the header)
+     * @param last The last text of each address: only the lines whose text changed (unless
+     *            dump), null for all
+     * @param dump All lines
+     * @return The lines
      */
-    static String probeAddress (final MemorySegment buffer)
+    static String probeLines (final MemorySegment buffer, final Map<String, String> last, final boolean dump)
     {
+        final StringBuilder lines = new StringBuilder ();
         final Protocol.View view = new Protocol.View ();
-        if (!view.reset (buffer) || !view.next ())
+        if (!view.reset (buffer))
             return "";
+        while (view.next ())
+        {
+            final String address = probeAddress (view);
+            final String value = probeValue (view);
+            if (last != null && !dump && value.equals (last.get (address)))
+                continue;
+            if (last != null)
+                last.put (address, value);
+            lines.append (address).append (' ').append (value).append ('\n');
+        }
+        return lines.toString ();
+    }
+
+
+    /** The address of a record (the core's text form of the clip and the grid). */
+    private static String probeAddress (final Protocol.View view)
+    {
         final int id = view.id ();
         if (id == Protocol.Msg.GRID_PLAYING_STEP)
             return "/clip/grid/" + view.idx (0) + "x" + view.idx (1) + "/playingStep";
         if (id == Protocol.Msg.GRID_STEP)
             return "/clip/grid/" + view.idx (0) + "x" + view.idx (1) + "/step/" + (view.idx (2) >> 7) + "/" + view.idx (3) + "/" + (view.idx (2) & 127);
         return Protocol.msgTemplate (id);
+    }
+
+
+    /** The value of a record as text: flags 1/0, doubles with 6 decimals, colors "r g b", steps. */
+    private static String probeValue (final Protocol.View view)
+    {
+        return switch (view.type ())
+        {
+            case Protocol.T_BOOL -> view.boolValue () ? "1" : "0";
+            case Protocol.T_I32 -> Integer.toString (view.intValue ());
+            case Protocol.T_F64 -> String.format (Locale.ROOT, "%.6f", Double.valueOf (view.doubleValue ()));
+            case Protocol.T_TEXT -> view.text ();
+            case Protocol.T_COLOR -> view.colorPart (0) + " " + view.colorPart (1) + " " + view.colorPart (2);
+            case Protocol.T_STRUCT -> stepText (view);
+            default -> "";
+        };
+    }
+
+
+    /** The step values which are ints in the text form (StepInfo::to_wire). */
+    private static final boolean [] STEP_INTS = new boolean [24];
+    static
+    {
+        for (final int i: new int [] { 0, 1, 2, 12, 14, 15, 16, 17, 18, 19, 20 })
+            STEP_INTS[i] = true;
+    }
+
+
+    /** The text form of a step (as StepInfo::to_wire of the core), "0" for an empty step. */
+    private static String stepText (final Protocol.View view)
+    {
+        final int count = view.payloadSize () / 8;
+        if (count == 0)
+            return "0";
+        final StringBuilder text = new StringBuilder ();
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+                text.append (' ');
+            final double value = view.payloadDouble (8 * i);
+            if (i < STEP_INTS.length && STEP_INTS[i])
+                text.append ((int) value);
+            else
+                text.append (Double.toString (value));
+        }
+        return text.toString ();
     }
 
 

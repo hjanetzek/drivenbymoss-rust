@@ -76,13 +76,20 @@ public final class CommandHandler
     }
 
 
+    /** The commands of the clip launcher navigator: handled only with a navigator. */
+    public static final Set<Cmd>      NAVIGATOR          = EnumSet.of (Cmd.NAVIGATOR_STEP, Cmd.NAVIGATOR_SELECT_TRACK);
+
+
     /**
      * The bitset of the handled commands for dbm_set_command_callback (word i bit j = ID 0x8000 +
-     * 64 * i + j): all commands of the table except {@link #UNHANDLED}.
+     * 64 * i + j): all commands of the table except {@link #UNHANDLED}, and the navigator's only
+     * with a navigator. The core derives the command features of the extension from it
+     * (TYPED_PROTOCOL_PLAN §6.6), e.g. clipLauncherNavigator from the navigator's commands.
      *
+     * @param withNavigator True if the model setup has the clip launcher navigator
      * @return The words
      */
-    public static long [] handledBitset ()
+    public static long [] handledBitset (final boolean withNavigator)
     {
         int maxIndex = 0;
         for (final Cmd cmd: Cmd.values ())
@@ -90,10 +97,21 @@ public final class CommandHandler
         final long [] words = new long [maxIndex / 64 + 1];
         for (final Cmd cmd: Cmd.values ())
         {
-            if (!UNHANDLED.contains (cmd))
+            if (!UNHANDLED.contains (cmd) && (withNavigator || !NAVIGATOR.contains (cmd)))
                 words[(cmd.id & 0x7FFF) / 64] |= 1L << (cmd.id & 0x7FFF) % 64;
         }
         return words;
+    }
+
+
+    /**
+     * The bitset of the handled commands of the model setup (see {@link #handledBitset(boolean)}).
+     *
+     * @return The words
+     */
+    public long [] handledBitset ()
+    {
+        return handledBitset (this.model.navigator != null);
     }
 
 

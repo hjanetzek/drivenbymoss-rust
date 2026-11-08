@@ -24,7 +24,6 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -39,10 +38,10 @@ import de.mossgrabers.dbm.bitwig.Protocol.Cmd;
  * goes through the command handler on a stand-in of the Bitwig API; the commands which end as not
  * handled must be exactly {@link CommandHandler#UNHANDLED};</li>
  * <li>the writer and the view: the records of every command read back;</li>
- * <li>the rounding of the doubles as the text protocol's "%.6f";</li>
+ * <li>the probe's text lines of the clip and the grid;</li>
  * <li>with the native library (system property dbm.library, skipped if it does not exist): the
- * dual run of the reports (every record equals the core's conversion of the text line) for
- * every report ID and the value forms of the extension; the addresses of the keys.</li>
+ * core reads every record of every report ID with the value forms of the extension (exact
+ * doubles); the addresses of the keys; report again.</li>
  * </ul>
  */
 public final class ProtocolTests
@@ -64,8 +63,8 @@ public final class ProtocolTests
      */
     public static void main (final String [] args)
     {
-        testRound6 ();
         testWriterAndView ();
+        testProbeLines ();
         testCommandCoverage ();
         testHandledBitset ();
         final String library = System.getProperty ("dbm.library", "");
@@ -91,28 +90,27 @@ public final class ProtocolTests
 
 
     // ------------------------------------------------------------------------------------------
-    // Rounding
+    // The probe
 
-    /** The fast path of round6 gives the same double as the text. */
-    private static void testRound6 ()
+    /** The probe formats the records of the clip and the grid as the text protocol did. */
+    private static void testProbeLines ()
     {
-        final Random random = new Random (42);
-        final double [] special = { 0, -0.0, 0.5, 0.25, 1, -1, 0.1, 0.123456, 0.0078125, 1.0000005, 0.0000005, -0.0000004, 1e-9, -1e-9, 123456.1234565, 0.7086614173228346, 1e15, 3.0 / 16384 };
-        for (final double value: special)
-            checkRound6 (value);
-        for (int i = 0; i < 100_000; i++)
-        {
-            checkRound6 (random.nextDouble ());
-            checkRound6 (random.nextInt (2_000_001) / 1e6 - 1);
-            checkRound6 (random.nextInt (16384) / 16384.0);
-        }
-    }
-
-
-    private static void checkRound6 (final double value)
-    {
-        final double expected = Double.parseDouble (ModelReporter.formatDouble (value));
-        check (Double.doubleToRawLongBits (ModelReporter.round6 (value)) == Double.doubleToRawLongBits (expected), "round6 (" + value + ") = " + ModelReporter.round6 (value) + ", the text gives " + expected);
+        final ModelReporter reporter = new ModelReporter (null);
+        reporter.startCollection ();
+        reporter.put (Protocol.Msg.CLIP_EXISTS, true);
+        reporter.put (Protocol.Msg.CLIP_START, 4.0);
+        reporter.putColor (Protocol.Msg.CLIP_COLOR, 1, 0.5, 0);
+        reporter.put (Protocol.Msg.GRID_PLAYING_STEP | Protocol.key (0, 64, 128, 0), -1);
+        final long step = Protocol.Msg.GRID_STEP | Protocol.key (0, 64, 128, 1 << 7 | 60);
+        reporter.putStep (step, 3, new double [] { 1, 0, 0, 0.25, 0.7874015748031497, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0 });
+        reporter.putStep (step, 4, null);
+        reporter.finishCollection ();
+        final Map<String, String> last = new java.util.HashMap<> ();
+        final String lines = ProbeExtension.probeLines (reporter.getWriter ().segment ().asSlice (0, reporter.getWriter ().size ()), last, false);
+        check (lines.equals ("/clip/exists 1\n/clip/start 4.000000\n/clip/color 255 128 0\n/clip/grid/64x128/playingStep -1\n"
+                + "/clip/grid/64x128/step/1/3/60 1 0 0 0.25 0.7874015748031497 0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0\n"
+                + "/clip/grid/64x128/step/1/4/60 0\n"), "the probe's lines: " + lines);
+        check (ProbeExtension.probeLines (reporter.getWriter ().segment ().asSlice (0, reporter.getWriter ().size ()), last, false).isEmpty (), "only changed texts");
     }
 
 
@@ -235,7 +233,7 @@ public final class ProtocolTests
     /** The commands which a fresh handler does not handle (as CommandHandler.UNHANDLED). */
     private static void testCommandCoverage ()
     {
-        final ModelReporter reporter = new ModelReporter (ModelReporter.Mode.BINARY, null);
+        final ModelReporter reporter = new ModelReporter (null);
         final Set<Cmd> unhandled = EnumSet.noneOf (Cmd.class);
         final List<String> messages = new ArrayList<> ();
         for (final Cmd cmd: Cmd.values ())
@@ -270,12 +268,16 @@ public final class ProtocolTests
     /** The bitset of the core: every command except UNHANDLED. */
     private static void testHandledBitset ()
     {
-        final long [] words = CommandHandler.handledBitset ();
-        for (final Cmd cmd: Cmd.values ())
+        for (final boolean withNavigator: new boolean [] { true, false })
         {
-            final int index = cmd.id & 0x7FFF;
-            final boolean bit = index / 64 < words.length && (words[index / 64] >>> index % 64 & 1) != 0;
-            check (bit == !CommandHandler.UNHANDLED.contains (cmd), cmd + ": the bit of the handled commands");
+            final long [] words = CommandHandler.handledBitset (withNavigator);
+            for (final Cmd cmd: Cmd.values ())
+            {
+                final int index = cmd.id & 0x7FFF;
+                final boolean bit = index / 64 < words.length && (words[index / 64] >>> index % 64 & 1) != 0;
+                final boolean handled = !CommandHandler.UNHANDLED.contains (cmd) && (withNavigator || !CommandHandler.NAVIGATOR.contains (cmd));
+                check (bit == handled, cmd + ": the bit of the handled commands (navigator " + withNavigator + ")");
+            }
         }
     }
 
@@ -396,7 +398,10 @@ public final class ProtocolTests
     }
 
 
-    /** The dual run of the reports: every record equals the core's conversion of the text line. */
+    /**
+     * The core reads every record of every report ID with the value forms of the extension; the
+     * addresses of the keys are the templates; the doubles are exact.
+     */
     private static void testReportsWithTheCore (final Path library)
     {
         final NativeCore core;
@@ -421,22 +426,15 @@ public final class ProtocolTests
 
 
             @Override
-            public byte [] messagesFromText (final String text)
-            {
-                return core.messagesFromText (text);
-            }
-
-
-            @Override
             public void log (final String message)
             {
                 log.add (message);
             }
         };
-        final ModelReporter reporter = new ModelReporter (ModelReporter.Mode.CHECK, conversions);
-        final ModelReporter text = new ModelReporter (ModelReporter.Mode.TEXT, conversions);
+        final ModelReporter reporter = new ModelReporter (conversions);
         final Set<String> unknown = new TreeSet<> ();
         int ids = 0;
+        int records = 0;
         for (int id = 0; id < 0x1000; id++)
         {
             final int type = Protocol.msgType (id);
@@ -452,112 +450,129 @@ public final class ProtocolTests
             }
             final long key = Protocol.key (id, idx[0], idx[1], idx[2]);
             final int i3 = idx[3];
-            putSamples (reporter, id, type, key, i3);
-            // The address of the key in the text form is the template of the ID
-            text.startCollection ();
-            text.requestDump ();
-            text.put4 (key, i3, type == Protocol.T_TEXT ? "x" : "0");
-            final String line = text.getLines ();
-            if (line.isEmpty () || line.startsWith ("#"))
-                unknown.add (Protocol.msgName (id) + ": " + line);
+            for (final String text: putSamples (reporter, id, type, key, i3))
+            {
+                records++;
+                // Every record is read by the core: one line, its address the template of the ID
+                if (text.isEmpty () || text.contains ("\n") || text.startsWith ("#"))
+                    unknown.add (Protocol.msgName (id) + ": '" + text + "'");
+            }
         }
         check (ids > 200, "the report IDs: " + ids);
-        check (unknown.isEmpty (), "keys without an address: " + unknown);
-        check (reporter.getCheckErrors () == 0, "the records differ from the text: " + log);
-        check (reporter.getCheckedRecords () > 1000, "records compared: " + reporter.getCheckedRecords ());
-        System.out.println ("Dual run: " + reporter.getCheckedRecords () + " records of " + ids + " report IDs compared with the text");
+        check (records > 1000, "the records: " + records);
+        check (unknown.isEmpty (), "records the core does not read: " + unknown);
+        check (log.isEmpty (), "values of a wrong type: " + log);
+        System.out.println ("Reports: " + records + " records of " + ids + " report IDs read by the core");
+
+        // The doubles are exact
+        reporter.startCollection ();
+        reporter.requestDump ();
+        reporter.put (Protocol.Msg.CHANNEL_VOLUME | BitwigModel.channelKey (Protocol.ChKind.TRACK, 2), 0.123456789);
+        reporter.put (Protocol.Msg.TEMPO, 120.0000004);
+        reporter.finishCollection ();
+        check (reporter.getText ().equals ("/track/2/volume 0.123456789\n/tempo 120.0000004"), "exact doubles: " + reporter.getText ());
+        // A value of a type which does not fit is logged once
+        log.clear ();
+        reporter.startCollection ();
+        reporter.put (Protocol.Msg.TEMPO, "fast");
+        reporter.put (Protocol.Msg.TEMPO, "faster");
+        reporter.finishCollection ();
+        check (log.size () == 1 && reporter.getText ().isEmpty (), "a text for a double: " + log);
 
         testForget (conversions);
         core.close ();
     }
 
 
-    private static void put (final ModelReporter reporter, final Runnable put)
+    private static String put (final ModelReporter reporter, final Runnable put)
     {
         reporter.startCollection ();
         reporter.requestDump ();
         put.run ();
         reporter.finishCollection ();
+        return reporter.getText ();
     }
 
 
     /** The value forms of the extension for a report ID. */
-    private static void putSamples (final ModelReporter r, final int id, final int type, final long key, final int i3)
+    private static List<String> putSamples (final ModelReporter r, final int id, final int type, final long key, final int i3)
     {
+        final List<String> texts = new ArrayList<> ();
         if (id == Protocol.Msg.CHANNEL_TYPE)
         {
-            for (final String name: new String [] { "AUDIO", "INSTRUMENT", "HYBRID", "GROUP", "EFFECT", "MASTER", "BOGUS" })
-                put (r, () -> r.put4 (key, i3, name));
-            return;
+            for (final String name: new String [] { "AUDIO", "INSTRUMENT", "HYBRID", "GROUP", "EFFECT", "MASTER" })
+                texts.add (put (r, () -> r.put4 (key, i3, name)));
+            return texts;
         }
         if (id == Protocol.Msg.RECORD_QUANTIZATION)
         {
             for (final String name: new String [] { "OFF", "1/32", "1/16", "1/8", "1/4", "bogus", " 1/8 " })
-                put (r, () -> r.put4 (key, i3, name));
-            return;
+                texts.add (put (r, () -> r.put4 (key, i3, name)));
+            return texts;
         }
         switch (type)
         {
             case Protocol.T_BOOL ->
             {
                 for (final boolean value: new boolean [] { true, false })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
                 for (final int value: new int [] { 0, 1, 2 })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
             }
             case Protocol.T_I32 ->
             {
                 for (final int value: new int [] { 0, 7, -1, 100000 })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
                 for (final boolean value: new boolean [] { true, false })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
             }
             case Protocol.T_F64 ->
             {
                 for (final double value: new double [] { 0, 0.5, -0.0, 0.123456789, 0.0000005, -0.0000004, 1e-9, -1e-9, 0.7086614173228346, 1.0000005, 0.0078125, 123456.1234565, 1.0 / 3, 2.0 / 3 })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
                 for (final int value: new int [] { 0, 3 })
-                    put (r, () -> r.put4 (key, i3, value));
-                put (r, () -> r.put4 (key, i3, true));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
+                texts.add (put (r, () -> r.put4 (key, i3, true)));
             }
             case Protocol.T_TEXT ->
             {
                 for (final String value: new String [] { "abc", "", "two\nlines", "cr\rhere", "ümlaut ♪", " spaces ", "tab\there" })
-                    put (r, () -> r.put4 (key, i3, value));
+                    texts.add (put (r, () -> r.put4 (key, i3, value)));
             }
             case Protocol.T_COLOR ->
             {
-                put (r, () -> r.putColor (key, 0.5, 0.25, 1));
-                put (r, () -> r.putColor (key, 0, 0, 0));
-                put (r, () -> r.putColor (key, 1, 1, 1));
-                put (r, () -> r.putColor (key, 0.2, 0.4, 0.6));
+                texts.add (put (r, () -> r.putColor (key, 0.5, 0.25, 1)));
+                texts.add (put (r, () -> r.putColor (key, 0, 0, 0)));
+                texts.add (put (r, () -> r.putColor (key, 1, 1, 1)));
+                texts.add (put (r, () -> r.putColor (key, 0.2, 0.4, 0.6)));
             }
             case Protocol.T_STRUCT_ARRAY ->
             {
-                put (r, () -> r.putPlayingNotes (key, new int [] { 60, 100, 64, 90 }, 2));
-                put (r, () -> r.putPlayingNotes (key, new int [0], 0));
+                texts.add (put (r, () -> r.putPlayingNotes (key, new int [] { 60, 100, 64, 90 }, 2)));
+                texts.add (put (r, () -> r.putPlayingNotes (key, new int [0], 0)));
             }
             case Protocol.T_STRUCT ->
             {
                 final double [] step = { 1, 0, 1, 0.25, 0.7874015748031497, 0, 0.5, 0, 0, 0.1, -12, 0.5, 1, 0.8, 0, 3, 1, 4, 5, 1, 2, 0.5, -0.5, 0.25 };
-                put (r, () -> r.putStep (key, i3, step));
-                put (r, () -> r.putStep (key, i3, null));
+                texts.add (put (r, () -> r.putStep (key, i3, step)));
+                texts.add (put (r, () -> r.putStep (key, i3, null)));
             }
             case Protocol.T_NONE ->
             {
-                put (r, () -> r.put4 (key, i3, 3));
-                put (r, () -> r.put4 (key, i3, 1.5));
-                put (r, () -> r.put4 (key, i3, "x"));
+                texts.add (put (r, () -> r.put4 (key, i3, 3)));
+                texts.add (put (r, () -> r.put4 (key, i3, 1.5)));
+                texts.add (put (r, () -> r.put4 (key, i3, "x")));
             }
             default -> check (false, Protocol.msgName (id) + ": no samples for the type " + type);
         }
+        return texts;
     }
 
 
     /** Report again: a forgotten thing is reported again, the others not. */
     private static void testForget (final ModelReporter.Conversions conversions)
     {
-        final ModelReporter r = new ModelReporter (ModelReporter.Mode.BINARY, conversions);
+        final ModelReporter r = new ModelReporter (conversions);
         final long track3 = BitwigModel.channelKey (Protocol.ChKind.TRACK, 3);
         final long track4 = BitwigModel.channelKey (Protocol.ChKind.TRACK, 4);
         final Runnable collect = () -> {
@@ -588,10 +603,10 @@ public final class ProtocolTests
         check (report.get ().isEmpty (), "the delay is not over");
         r.requestDump ();
         check (report.get ().lines ().count () == 6, "a dump");
-        // A changed double is reported even if the text is the same
+        // A changed double is reported (exactly)
         r.startCollection ();
         r.put (Protocol.Msg.CHANNEL_VOLUME | track3, 0.5000000001);
         r.finishCollection ();
-        check (r.getText ().equals ("/track/3/volume 0.5"), "a changed double: " + r.getText ());
+        check (r.getText ().equals ("/track/3/volume 0.5000000001"), "a changed double: " + r.getText ());
     }
 }

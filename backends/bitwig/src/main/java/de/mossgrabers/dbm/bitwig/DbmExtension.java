@@ -29,10 +29,9 @@ import java.util.TreeSet;
  * the core. In dev mode (environment variable DBM_DEV_LIBRARY) it watches the library and
  * restarts the extension when it was rebuilt.
  *
- * The reports and commands use the binary protocol (doc/TYPED_PROTOCOL_PLAN.md, step 3); the
- * environment variable DBM_HOST_PROTOCOL selects "check" (binary, every report compared with the
- * core's conversion of its text line) or "text" (the text protocol, a debug switch until step 5),
- * see ModelReporter.
+ * The reports and commands use the binary protocol (doc/TYPED_PROTOCOL_PLAN.md, steps 3 and 5): the
+ * reports as records (ModelReporter), the commands as buffers of records (CommandHandler). The
+ * handled commands are passed to the core, which derives the command features from them.
  */
 public class DbmExtension extends ControllerExtension implements NativeCore.Callbacks
 {
@@ -159,7 +158,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         }
         final NativeCore nativeCore = this.core;
-        this.reporter = new ModelReporter (ModelReporter.Mode.fromEnvironment (), new ModelReporter.Conversions ()
+        this.reporter = new ModelReporter (new ModelReporter.Conversions ()
         {
             @Override
             public String messagesToText (final MemorySegment buffer, final long size)
@@ -169,44 +168,22 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
 
             @Override
-            public byte [] messagesFromText (final String text)
-            {
-                return nativeCore.messagesFromText (text);
-            }
-
-
-            @Override
             public void log (final String message)
             {
                 DbmExtension.this.errorln (message);
             }
         });
-        if (this.reporter.getMode () != ModelReporter.Mode.TEXT)
-        {
-            try
-            {
-                if (!this.core.setCommandCallback (CommandHandler.handledBitset ()))
-                {
-                    this.errorln ("The core did not switch to the binary commands.");
-                    this.closeCore ();
-                    return;
-                }
-            }
-            catch (final ReflectiveOperationException ex)
-            {
-                this.error ("Could not bind the command callback", ex);
-                this.closeCore ();
-                return;
-            }
-        }
-        if (this.reporter.getMode () != ModelReporter.Mode.BINARY)
-            this.println ("Protocol: " + this.reporter.getMode ().name ().toLowerCase (java.util.Locale.ROOT) + " (DBM_HOST_PROTOCOL).");
+        // The navigator's commands only once the model setup is known (see below)
+        final long [] handled = CommandHandler.handledBitset (false);
+        if (!this.setCommandCallback (handled))
+            return;
 
         this.recorder = ProtocolRecorder.create (this.definition.getHardwareModel (), this.devLibrary);
         if (this.recorder != null)
         {
             this.recorder.init (this.definition.getCoreId (), appVersion, configFolder);
             this.println ("Recording the protocol to " + this.recorder.getFile ());
+            this.recordHandled (handled);
         }
 
         // One device ID per port: the index of the port (several for e.g. MCU extenders)
@@ -241,6 +218,11 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         final NoteInput defaultNoteInput = this.noteInputs.get (Integer.valueOf (0));
         this.model = new BitwigModel (host, modelSetup, defaultNoteInput == null ? null : defaultNoteInput.arpeggiator ());
         this.commands = new CommandHandler (this.model, this.reporter, command -> this.unhandled (command));
+        // The handled commands of the model setup (the navigator)
+        final long [] modelHandled = this.commands.handledBitset ();
+        if (!this.setCommandCallback (modelHandled))
+            return;
+        this.recordHandled (modelHandled);
         // The settings in Bitwig's UI; Bitwig keeps their values (the document settings in the
         // project), they replace the values the core loaded
         this.settings = new HostSettings (host, this.core.getSettings (), (id, value) -> {
@@ -270,11 +252,44 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void exit ()
     {
         this.isRunning = false;
-        if (this.reporter != null && this.reporter.getMode () == ModelReporter.Mode.CHECK)
-            this.println ("Protocol check: " + this.reporter.getCheckedRecords () + " records compared with the text, " + this.reporter.getCheckErrors () + " differences.");
         this.closeCore ();
         if (this.recorder != null)
             this.recorder.close ();
+    }
+
+
+    /**
+     * Switch the core's commands to the binary form with the handled commands (again, to update
+     * them); closes the core if it fails.
+     *
+     * @return True if the core switched
+     */
+    private boolean setCommandCallback (final long [] handled)
+    {
+        try
+        {
+            if (this.core.setCommandCallback (handled))
+                return true;
+            this.errorln ("The core did not switch to the binary commands.");
+        }
+        catch (final ReflectiveOperationException ex)
+        {
+            this.error ("Could not bind the command callback", ex);
+        }
+        this.closeCore ();
+        return false;
+    }
+
+
+    /** Record the handled commands (the replay derives the command features from them). */
+    private void recordHandled (final long [] handled)
+    {
+        if (this.recorder == null)
+            return;
+        final String [] words = new String [handled.length];
+        for (int i = 0; i < handled.length; i++)
+            words[i] = Long.toHexString (handled[i]);
+        this.recorder.event ("handled", String.join (" ", words));
     }
 
 
@@ -358,22 +373,12 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.reporter.startCollection ();
         this.model.collect (this.reporter);
         this.reporter.finishCollection ();
-        if (this.reporter.getMode () == ModelReporter.Mode.TEXT)
+        final Protocol.Writer writer = this.reporter.getWriter ();
+        if (!writer.isEmpty ())
         {
-            final String lines = this.reporter.getLines ();
-            if (!lines.isEmpty ())
-                this.record ("model", lines);
-            this.core.updateModel (lines);
-        }
-        else
-        {
-            final Protocol.Writer writer = this.reporter.getWriter ();
-            if (!writer.isEmpty ())
-            {
-                if (this.recorder != null)
-                    this.record ("model", this.reporter.getText ());
-                this.core.updateModelBin (writer.segment (), writer.size ());
-            }
+            if (this.recorder != null)
+                this.record ("model", this.reporter.getText ());
+            this.core.updateModelBin (writer.segment (), writer.size ());
         }
         this.record ("tick");
         this.core.tick ();
@@ -446,91 +451,6 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             if (view.cmd () == Protocol.Cmd.REFRESH)
                 this.reporter.requestDump ();
         }
-    }
-
-
-    // The text callbacks (the debug switch DBM_HOST_PROTOCOL=text): recorded and converted to
-    // the binary form by the core, executed as the binary commands
-
-    /** {@inheritDoc} */
-    @Override
-    public void processNoArg (final String processor, final String command)
-    {
-        this.record ("noArg", processor, command);
-        this.dispatchText ("noArg", processor, command);
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void processStringArg (final String processor, final String command, final String value)
-    {
-        this.record ("string", processor, command, value);
-        this.dispatchText ("string", processor, command, value);
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void processStringArgs (final String processor, final String command, final String [] values)
-    {
-        final String [] fields = new String [values.length + 2];
-        fields[0] = processor;
-        fields[1] = command;
-        System.arraycopy (values, 0, fields, 2, values.length);
-        if (this.recorder != null)
-            this.recorder.event ("strings", fields);
-        this.dispatchText ("strings", fields);
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void processIntArg (final String processor, final String command, final int value)
-    {
-        this.record ("int", processor, command, Integer.toString (value));
-        this.dispatchText ("int", processor, command, Integer.toString (value));
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void processDoubleArg (final String processor, final String command, final double value)
-    {
-        this.record ("double", processor, command, Double.toString (value));
-        this.dispatchText ("double", processor, command, Double.toString (value));
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void delayUpdates (final String processor)
-    {
-        this.record ("delay", processor);
-    }
-
-
-    /** {@inheritDoc} */
-    @Override
-    public void enableUpdates (final String processor, final boolean enable)
-    {
-        this.record ("enable", processor, enable ? "1" : "0");
-    }
-
-
-    /**
-     * Execute a command of the text callbacks: its legacy line converted by the core.
-     */
-    private void dispatchText (final String kind, final String... fields)
-    {
-        final StringBuilder line = new StringBuilder (kind);
-        for (final String field: fields)
-            line.append ('\t').append (field.replace ("\\", "\\\\").replace ("\n", "\\n").replace ("\t", "\\t"));
-        final byte [] buffer = this.core.messagesFromText (line.toString ());
-        if (buffer.length > Protocol.HEADER_SIZE)
-            this.dispatch (MemorySegment.ofArray (buffer));
-        else
-            this.unhandled (kind + " " + String.join (" ", fields));
     }
 
 

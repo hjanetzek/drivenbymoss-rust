@@ -7,7 +7,6 @@ import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
 
 
@@ -18,50 +17,12 @@ import java.util.Map;
  * key and only reports changes, unless a full dump was requested (the core's refresh command).
  * An unchanged value costs one lookup in an open addressing table and a compare.
  *
- * The protocol ({@link Mode}, the environment variable DBM_HOST_PROTOCOL):
- * <ul>
- * <li>binary (the default): records;</li>
- * <li>check: binary, and every record is compared with the core's conversion of the text line
- * which the text protocol reports (the dual run, TYPED_PROTOCOL_PLAN §3); a difference is
- * logged;</li>
- * <li>text: the lines "address value" of the text protocol, the address of a key from the core
- * (a debug switch until step 5).</li>
- * </ul>
- * Doubles are rounded as the text protocol's "%.6f" (TYPED_PROTOCOL_PLAN §5.1, the transition until
- * step 5), so that both protocols carry the same double; a changed double is always reported.
+ * Doubles are reported exactly (no rounding, TYPED_PROTOCOL_PLAN §6.6); a changed double is always
+ * reported. A value whose type does not fit the report is logged once per ID and not reported.
  */
 public final class ModelReporter
 {
-    /** The protocol of the reports. */
-    public enum Mode
-    {
-        TEXT,
-        BINARY,
-        CHECK;
-
-
-        /**
-         * The protocol of the environment variable DBM_HOST_PROTOCOL (text, binary, check),
-         * binary by default.
-         *
-         * @return The mode
-         */
-        public static Mode fromEnvironment ()
-        {
-            final String value = System.getenv ("DBM_HOST_PROTOCOL");
-            if (value == null)
-                return BINARY;
-            return switch (value.trim ().toLowerCase (Locale.ROOT))
-            {
-                case "text" -> TEXT;
-                case "check" -> CHECK;
-                default -> BINARY;
-            };
-        }
-    }
-
-
-    /** The conversions of the core: the text forms (text and check mode, unusual values). */
+    /** The conversions of the core (the text of the reports for the recordings and logs). */
     public interface Conversions
     {
         /**
@@ -72,15 +33,6 @@ public final class ModelReporter
          * @return The lines
          */
         String messagesToText (MemorySegment buffer, long size);
-
-
-        /**
-         * The binary buffer of a text (dbm_messages_from_text).
-         *
-         * @param text The text
-         * @return The buffer with the header
-         */
-        byte [] messagesFromText (String text);
 
 
         /**
@@ -173,14 +125,6 @@ public final class ModelReporter
     private static final byte          REPORTED      = 1;
     private static final byte          FORGOTTEN     = 2;
 
-    /** The step values which are ints in the text form (BitwigNoteClip). */
-    private static final boolean []    STEP_INTS     = new boolean [24];
-    static
-    {
-        for (final int i: new int [] { 0, 1, 2, 12, 14, 15, 16, 17, 18, 19, 20 })
-            STEP_INTS[i] = true;
-    }
-
     /** The position of the slot "limit" by report ID (2 or 3, -1 if none). */
     private static final int []        LIMIT_SLOTS   = new int [0x1000];
     static
@@ -189,17 +133,13 @@ public final class ModelReporter
             LIMIT_SLOTS[id] = Arrays.asList (Protocol.msgSlots (id).split (",")).indexOf ("limit");
     }
 
-    private final Mode                 mode;
     private final Conversions          conversions;
     private final Protocol.Writer      writer        = new Protocol.Writer (16384);
-    private final StringBuilder        lines         = new StringBuilder ();
     private boolean                    dumpAll       = true;
     /** The things to report again and when (System.nanoTime), see forgetLater. */
     private final Map<Entity, Long>    pending       = new HashMap<> ();
-    /** The number of records which differed from the text in the check mode. */
-    private int                        checkErrors;
-    /** The number of records written in the check mode. */
-    private long                       checkedRecords;
+    /** The report IDs logged with a value of a type which does not fit. */
+    private final boolean []           wrongTypes    = new boolean [0x1000];
 
     // The last values: an open addressing table (linear probing) over the key and the fourth
     // index slot; entries are never removed (the keys of a model are a bounded set)
@@ -208,57 +148,20 @@ public final class ModelReporter
     private byte []                    states;
     private byte []                    tags;
     private long []                    raws;
-    /** The texts (text values; the text form in the text protocol), notes and steps. */
+    /** The texts, notes and steps. */
     private Object []                  objects;
-    /** The addresses of the keys (text form), resolved by the core when needed. */
-    private String []                  addresses;
     private int                        count;
 
 
     /**
      * Constructor.
      *
-     * @param mode The protocol
      * @param conversions The conversions of the core
      */
-    public ModelReporter (final Mode mode, final Conversions conversions)
+    public ModelReporter (final Conversions conversions)
     {
-        this.mode = mode;
         this.conversions = conversions;
         this.allocate (4096);
-    }
-
-
-    /**
-     * The protocol.
-     *
-     * @return The mode
-     */
-    public Mode getMode ()
-    {
-        return this.mode;
-    }
-
-
-    /**
-     * The number of records which differed from the text line in the check mode.
-     *
-     * @return The number
-     */
-    public int getCheckErrors ()
-    {
-        return this.checkErrors;
-    }
-
-
-    /**
-     * The number of records compared in the check mode.
-     *
-     * @return The number
-     */
-    public long getCheckedRecords ()
-    {
-        return this.checkedRecords;
     }
 
 
@@ -322,7 +225,6 @@ public final class ModelReporter
     public void startCollection ()
     {
         this.writer.clear ();
-        this.lines.setLength (0);
         if (this.pending.isEmpty ())
             return;
         final long now = System.nanoTime ();
@@ -340,8 +242,7 @@ public final class ModelReporter
 
 
     /**
-     * End a collection: the report is in {@link #getWriter()} (binary) or {@link #getLines()}
-     * (text) until the next collection.
+     * End a collection: the report is in {@link #getWriter()} until the next collection.
      */
     public void finishCollection ()
     {
@@ -350,7 +251,7 @@ public final class ModelReporter
 
 
     /**
-     * The records of the last collection (binary and check mode).
+     * The records of the last collection.
      *
      * @return The writer
      */
@@ -361,26 +262,13 @@ public final class ModelReporter
 
 
     /**
-     * The lines of the last collection (text mode).
-     *
-     * @return The lines, empty if nothing changed
-     */
-    public String getLines ()
-    {
-        return this.lines.toString ();
-    }
-
-
-    /**
-     * The text of the last collection (for the recordings and logs): the lines of the text mode,
-     * the core's text of the records else.
+     * The text of the last collection (for the recordings and logs): the core's text of the
+     * records.
      *
      * @return The text
      */
     public String getText ()
     {
-        if (this.mode == Mode.TEXT)
-            return this.getLines ();
         return this.writer.isEmpty () ? "" : this.conversions.messagesToText (this.writer.segment (), this.writer.size ());
     }
 
@@ -410,26 +298,18 @@ public final class ModelReporter
     public void put4 (final long key, final int i3, final boolean value)
     {
         final long raw = value ? 1 : 0;
-        int slot = this.find (key, i3);
+        final int slot = this.find (key, i3);
         if (this.isUnchanged (slot, TAG_BOOL, raw))
             return;
-        slot = this.store (slot, key, i3, TAG_BOOL, raw);
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, value ? "1" : "0");
-            return;
-        }
-        final long start = this.writer.size ();
+        this.store (slot, key, i3, TAG_BOOL, raw);
         switch (Protocol.msgType (Protocol.keyId (key)))
         {
             case Protocol.T_BOOL -> this.writer.putBool (key, i3, value);
             case Protocol.T_I32 -> this.writer.putInt (key, i3, value ? 1 : 0);
             case Protocol.T_F64 -> this.writer.putDouble (key, i3, value ? 1 : 0);
             case Protocol.T_NONE -> this.writer.putNone (key, i3);
-            default -> this.convert (slot, value ? "1" : "0");
+            default -> this.wrongType (key, "a flag");
         }
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, value ? "1" : "0");
     }
 
 
@@ -454,26 +334,18 @@ public final class ModelReporter
      */
     public void put4 (final long key, final int i3, final int value)
     {
-        int slot = this.find (key, i3);
+        final int slot = this.find (key, i3);
         if (this.isUnchanged (slot, TAG_INT, value))
             return;
-        slot = this.store (slot, key, i3, TAG_INT, value);
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, Integer.toString (value));
-            return;
-        }
-        final long start = this.writer.size ();
+        this.store (slot, key, i3, TAG_INT, value);
         switch (Protocol.msgType (Protocol.keyId (key)))
         {
             case Protocol.T_I32 -> this.writer.putInt (key, i3, value);
             case Protocol.T_BOOL -> this.writer.putBool (key, i3, value > 0);
             case Protocol.T_F64 -> this.writer.putDouble (key, i3, value);
             case Protocol.T_NONE -> this.writer.putNone (key, i3);
-            default -> this.convert (slot, Integer.toString (value));
+            default -> this.wrongType (key, "an integer");
         }
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, Integer.toString (value));
     }
 
 
@@ -499,30 +371,16 @@ public final class ModelReporter
     public void put4 (final long key, final int i3, final double value)
     {
         final long raw = Double.doubleToRawLongBits (value);
-        int slot = this.find (key, i3);
-        if (this.mode == Mode.TEXT)
-        {
-            // As the text protocol: a change of the text
-            final String text = formatDouble (value);
-            if (slot >= 0 && !this.dumpAll && this.states[slot] == REPORTED && this.tags[slot] == TAG_DOUBLE && text.equals (this.objects[slot]))
-                return;
-            slot = this.store (slot, key, i3, TAG_DOUBLE, raw);
-            this.objects[slot] = text;
-            this.line (slot, text);
-            return;
-        }
+        final int slot = this.find (key, i3);
         if (this.isUnchanged (slot, TAG_DOUBLE, raw))
             return;
-        slot = this.store (slot, key, i3, TAG_DOUBLE, raw);
-        final long start = this.writer.size ();
+        this.store (slot, key, i3, TAG_DOUBLE, raw);
         switch (Protocol.msgType (Protocol.keyId (key)))
         {
-            case Protocol.T_F64 -> this.writer.putDouble (key, i3, round6 (value));
+            case Protocol.T_F64 -> this.writer.putDouble (key, i3, value);
             case Protocol.T_NONE -> this.writer.putNone (key, i3);
-            default -> this.convert (slot, formatDouble (value));
+            default -> this.wrongType (key, "a double");
         }
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, formatDouble (value));
     }
 
 
@@ -554,12 +412,6 @@ public final class ModelReporter
             return;
         slot = this.store (slot, key, i3, TAG_TEXT, 0);
         this.objects[slot] = text;
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, text);
-            return;
-        }
-        final long start = this.writer.size ();
         final int id = Protocol.keyId (key);
         switch (Protocol.msgType (id))
         {
@@ -571,12 +423,10 @@ public final class ModelReporter
                 if (number >= 0)
                     this.writer.putInt (key, i3, number);
                 else
-                    this.convert (slot, text);
+                    this.wrongType (key, "the text '" + text + "'");
             }
-            default -> this.convert (slot, text);
+            default -> this.wrongType (key, "a text");
         }
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, text);
     }
 
 
@@ -594,29 +444,20 @@ public final class ModelReporter
         final long g = Math.round (green * 255);
         final long b = Math.round (blue * 255);
         final long raw = (r & 0x1FFFFF) << 42 | (g & 0x1FFFFF) << 21 | b & 0x1FFFFF;
-        int slot = this.find (key, 0);
+        final int slot = this.find (key, 0);
         if (this.isUnchanged (slot, TAG_COLOR, raw))
             return;
-        slot = this.store (slot, key, 0, TAG_COLOR, raw);
-        final String text = this.mode == Mode.BINARY ? null : r + " " + g + " " + b;
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, text);
-            return;
-        }
-        final long start = this.writer.size ();
+        this.store (slot, key, 0, TAG_COLOR, raw);
         if (Protocol.msgType (Protocol.keyId (key)) == Protocol.T_COLOR)
             this.writer.putColor (key, 0, clampColor (r), clampColor (g), clampColor (b), r >= 0);
         else
-            this.convert (slot, r + " " + g + " " + b);
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, text);
+            this.wrongType (key, "a color");
     }
 
 
     /**
-     * Report the playing notes of a channel (in the text form "0:0:0:0:0:pitch:velocity;…", no
-     * start, end, channel and flags).
+     * Report the playing notes of a channel (pitch and velocity; no start, end, channel and
+     * flags).
      *
      * @param key The key
      * @param notes The pitch and the velocity of each note, in pairs
@@ -629,24 +470,6 @@ public final class ModelReporter
             return;
         slot = this.store (slot, key, 0, TAG_NOTES, 0);
         this.objects[slot] = Arrays.copyOf (notes, 2 * numNotes);
-        String text = null;
-        if (this.mode != Mode.BINARY)
-        {
-            final StringBuilder builder = new StringBuilder ();
-            for (int i = 0; i < numNotes; i++)
-            {
-                if (i > 0)
-                    builder.append (';');
-                builder.append ("0:0:0:0:0:").append (notes[2 * i]).append (':').append (notes[2 * i + 1]);
-            }
-            text = builder.toString ();
-        }
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, text);
-            return;
-        }
-        final long start = this.writer.size ();
         final double [] zeros = new double [numNotes];
         final int [] none = new int [numNotes];
         final int [] pitches = new int [numNotes];
@@ -657,8 +480,6 @@ public final class ModelReporter
             velocities[i] = notes[2 * i + 1];
         }
         this.writer.putNotes (key, 0, numNotes, zeros, zeros, none, pitches, velocities, none);
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, text);
     }
 
 
@@ -677,16 +498,7 @@ public final class ModelReporter
             return;
         slot = this.store (slot, key, i3, TAG_STEP, 0);
         this.objects[slot] = values == null ? null : values.clone ();
-        final String text = this.mode == Mode.BINARY ? null : stepText (values);
-        if (this.mode == Mode.TEXT)
-        {
-            this.line (slot, text);
-            return;
-        }
-        final long start = this.writer.size ();
         this.writer.putDoubles (key, i3, values == null ? new double [0] : values);
-        if (this.mode == Mode.CHECK)
-            this.check (slot, start, text);
     }
 
 
@@ -717,36 +529,7 @@ public final class ModelReporter
 
 
     // ------------------------------------------------------------------------------------------
-    // The conversions
-
-    /**
-     * Round a double as the text protocol's "%.6f" does (TYPED_PROTOCOL_PLAN §5.1, the transition
-     * until step 5): the double which the text gives.
-     *
-     * @param value The value
-     * @return The rounded value
-     */
-    static double round6 (final double value)
-    {
-        // A value with at most 6 decimals is its own text
-        final double scaled = value * 1e6;
-        if (scaled == Math.rint (scaled) && Math.abs (scaled) < 1e15 && scaled / 1e6 == value)
-            return value;
-        return Double.parseDouble (formatDouble (value));
-    }
-
-
-    /**
-     * The text of a double in the text protocol.
-     *
-     * @param value The value
-     * @return The text
-     */
-    static String formatDouble (final double value)
-    {
-        return String.format (Locale.ROOT, "%.6f", Double.valueOf (value));
-    }
-
+    // Helpers
 
     private static int clampColor (final long value)
     {
@@ -768,90 +551,15 @@ public final class ModelReporter
     }
 
 
-    /** The text form of a step (as StepInfo::to_wire of the core), "0" for an empty step. */
-    private static String stepText (final double [] values)
+    /** A value of a type which does not fit the report: logged once per ID. */
+    private void wrongType (final long key, final String what)
     {
-        if (values == null)
-            return "0";
-        final StringBuilder text = new StringBuilder ();
-        for (int i = 0; i < values.length; i++)
-        {
-            if (i > 0)
-                text.append (' ');
-            if (i < STEP_INTS.length && STEP_INTS[i])
-                text.append ((int) values[i]);
-            else
-                text.append (Double.toString (values[i]));
-        }
-        return text.toString ();
-    }
-
-
-    /** The record of a value which has no direct form: the core's conversion of its text line. */
-    private void convert (final int slot, final String text)
-    {
-        final byte [] buffer = this.conversions.messagesFromText (this.address (slot) + " " + text);
-        if (buffer.length > Protocol.HEADER_SIZE)
-            this.writer.putRecords (Arrays.copyOfRange (buffer, Protocol.HEADER_SIZE, buffer.length));
-    }
-
-
-    /** The dual run: the written record must equal the core's conversion of the text line. */
-    private void check (final int slot, final long start, final String text)
-    {
-        this.checkedRecords++;
-        final String line = this.address (slot) + " " + text;
-        final byte [] expected = this.conversions.messagesFromText (line);
-        final byte [] actual = this.writer.buffer ().asSlice (start).toArray (java.lang.foreign.ValueLayout.JAVA_BYTE);
-        final byte [] expectedRecords = expected.length > Protocol.HEADER_SIZE ? Arrays.copyOfRange (expected, Protocol.HEADER_SIZE, expected.length) : new byte [0];
-        if (Arrays.equals (actual, expectedRecords))
+        final int id = Protocol.keyId (key);
+        if (this.wrongTypes[id])
             return;
-        this.checkErrors++;
-        if (this.checkErrors <= 100)
-            this.conversions.log ("Protocol check: the record of '" + line + "' differs from the text: " + this.recordText (actual) + " != " + this.recordText (expectedRecords));
-    }
-
-
-    private String recordText (final byte [] records)
-    {
-        if (records.length == 0)
-            return "(none)";
-        final Protocol.Writer w = new Protocol.Writer (records.length + Protocol.HEADER_SIZE);
-        w.putRecords (records);
-        return "'" + this.conversions.messagesToText (w.segment (), w.size ()) + "'";
-    }
-
-
-    /** The address of the key of an entry (the core's text form), resolved once. */
-    private String address (final int slot)
-    {
-        String address = this.addresses[slot];
-        if (address != null)
-            return address;
-        final long key = this.keys[slot];
-        final int i3 = this.slots3[slot] & 0xFFFF;
-        final int type = Protocol.msgType (Protocol.keyId (key));
-        final Protocol.Writer w = new Protocol.Writer (64);
-        switch (type)
-        {
-            case Protocol.T_BOOL, Protocol.T_I32, Protocol.T_COLOR -> w.putLong (key, i3, type, 0);
-            case Protocol.T_F64 -> w.putDouble (key, i3, 0);
-            case Protocol.T_TEXT -> w.putText (key, i3, "");
-            case Protocol.T_STRUCT -> w.putDoubles (key, i3, new double [0]);
-            case Protocol.T_STRUCT_ARRAY -> w.putPayload (key, i3, Protocol.T_STRUCT_ARRAY, Protocol.OP_SET, 0, new byte [0]);
-            default -> w.putNone (key, i3);
-        }
-        final String text = this.conversions.messagesToText (w.segment (), w.size ());
-        final int space = text.indexOf (' ');
-        address = space < 0 ? text : text.substring (0, space);
-        this.addresses[slot] = address;
-        return address;
-    }
-
-
-    private void line (final int slot, final String text)
-    {
-        this.lines.append (this.address (slot)).append (' ').append (text).append ('\n');
+        this.wrongTypes[id] = true;
+        if (this.conversions != null)
+            this.conversions.log ("The report " + Protocol.msgName (id) + " does not take " + what + ".");
     }
 
 
@@ -872,7 +580,6 @@ public final class ModelReporter
         this.tags = new byte [capacity];
         this.raws = new long [capacity];
         this.objects = new Object [capacity];
-        this.addresses = new String [capacity];
         this.count = 0;
     }
 
@@ -934,7 +641,6 @@ public final class ModelReporter
         final byte [] oldTags = this.tags;
         final long [] oldRaws = this.raws;
         final Object [] oldObjects = this.objects;
-        final String [] oldAddresses = this.addresses;
         this.allocate (2 * oldKeys.length);
         for (int i = 0; i < oldKeys.length; i++)
         {
@@ -947,7 +653,6 @@ public final class ModelReporter
             this.tags[slot] = oldTags[i];
             this.raws[slot] = oldRaws[i];
             this.objects[slot] = oldObjects[i];
-            this.addresses[slot] = oldAddresses[i];
             this.count++;
         }
     }
