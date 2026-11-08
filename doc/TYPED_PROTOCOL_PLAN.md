@@ -10,9 +10,13 @@ numbers are from [ZYNTHIAN_CPU.md](ZYNTHIAN_CPU.md).
 - **Size:** about 250 host → core address templates (about 420 once they are expanded per
   device, channel bank and named parameter) and about 300 core → host command forms (plus 6
   value operations). The 21 recordings use 363 and 104 of them.
-- **The table:** a declarative file `src/protocol/messages.def`, read by the existing `build.rs`
-  with no new dependency. It generates the Rust enums, which the core uses, and the bindings for
-  C, C++, Python and Java, which are committed like `include/drivenbymoss.h`.
+- **The table** (decided 2026-11-08): Rust tables in `src/protocol/` (a `macro_rules!` table),
+  which the core uses directly. A generator binary, like `dbm-catalog`, writes the definitions for
+  C, C++, Python and Java from them. They are committed like `include/drivenbymoss.h`, and a test
+  fails if one is stale.
+- **The host API** (decided 2026-11-08): generated view wrappers in every language. A message acts
+  like an object (`msg.track`, `msg.value`) over a record in the shared buffer, without copying or
+  decoding it (§2.7).
 - **The wire format:** fixed 24-byte little-endian records (id, op, 4 × u16 indices, an 8-byte
   inline value), with strings and lists as a padded payload after the record.
   - Host → core: one buffer per report.
@@ -216,11 +220,28 @@ counted as one.
 
 | Option | Pro | Con |
 | --- | --- | --- |
-| A. A Rust table (`macro_rules!` or `const` arrays) in `src/protocol/` | the type checker sees it; no parser | the other languages need a generator that can read Rust: a `src/bin/` tool that links the crate (like `src/bin/dbm-catalog.rs`) and runs as a separate step, so the outputs can go stale |
-| **B. A declarative text file + `build.rs`** (recommended) | one file for people and generators; `build.rs` already exists and already writes a committed artifact only when it changed (`build.rs`, the header); a line-based format needs about 200 lines of parser in `build.rs`, no dependency | build.rs grows; errors in the file show as build errors (which is the point) |
+| **A. A Rust table (`macro_rules!` or `const` arrays) in `src/protocol/`** (decided) | the type checker sees it; no parser; the core uses the same table | the other languages need a generator that can read Rust: a `src/bin/` tool that links the crate (like `src/bin/dbm-catalog.rs`); staleness is caught by a test (below) |
+| B. A declarative text file + `build.rs` (the first recommendation) | one file for people and generators; `build.rs` already exists and already writes a committed artifact only when it changed (`build.rs`, the header); a line-based format needs about 200 lines of parser in `build.rs`, no dependency | build.rs grows; errors in the file show as build errors (which is the point) |
 | C. An IDL (protobuf, FlatBuffers, capnp) | tooling | new dependencies in every host, against the no-deps rule |
 
-**The file:** `src/protocol/messages.def`. One line per message. A message family that differs
+**Decision (2026-11-08): option A.** The table is Rust, in `src/protocol/`, and the core uses it
+directly:
+- A `macro_rules!` table, one entry per message with the same fields as the sketch below (id,
+  name, text template, value type, `legacy=`, `ops=`, `feature=`, `entity=`, `detects=`),
+  expands into the Rust enums (`Msg`, `Cmd`, `MsgId`, `CmdId`, the domain enums), the record
+  encode/decode, the text and legacy conversions, and a `const` metadata table
+  (`&[MessageInfo]`).
+- The generator binary `src/bin/dbm-protocol-gen.rs` (like `dbm-catalog`) links the crate, walks
+  the metadata table and writes the definitions of the other languages (the outputs below).
+- **Staleness:** a test in `cargo test` runs the generator in memory and compares its output with
+  the committed files, so a stale binding fails the tests (and CI) at once, not only when someone
+  remembers to run the generator. The test can also print the command that updates them.
+- No new dependency; `build.rs` stays as it is (cbindgen for `ffi.rs`).
+
+The sketch below shows the fields as a declarative file; in the Rust table they are the macro's
+arguments.
+
+**The fields (sketch):** one line per message. A message family that differs
 only by owner is one line with an enum index. Sketch:
 
 ```
@@ -269,21 +290,19 @@ cmd  0x8902  DELAY_UPDATES      {area}                                 -        
   points), so the text conversion is exact.
 - **`ops=`** declares the value operations of a value command and the host feature of each.
 
-**Generated outputs** (written by `build.rs`, only when their content changed, as the header
-today):
+**Generated outputs.** The Rust part comes from the macro (no `OUT_DIR`); the others are written
+by `dbm-protocol-gen` and checked by the staleness test:
 
 | Output | Content | Committed |
 | --- | --- | --- |
-| `$OUT_DIR/protocol.rs`, `include!`d by `src/protocol/mod.rs` | `enum Msg<'a>` (host → core, with typed fields, strings borrowed from the buffer), `enum Cmd` (core → host), the domain enums, `MsgId`/`CmdId` (`#[repr(u16)]`), encode/decode of records, text ↔ typed conversion, legacy `(kind, processor, command, value)` conversion, a per-id metadata table (name, template, value type, feature, entity) | no (build output) |
+| `src/protocol/` (the macro's expansion) | `enum Msg<'a>` (host → core, with typed fields, strings borrowed from the buffer), `enum Cmd` (core → host), the domain enums, `MsgId`/`CmdId` (`#[repr(u16)]`), encode/decode of records, text ↔ typed conversion, legacy `(kind, processor, command, value)` conversion, a per-id metadata table (name, template, value type, feature, entity) | the table is the source |
 | `include/dbm_protocol.h` | `enum DbmMsgId`, `enum DbmCmdId`, domain enums, `DbmRecord`, value type and op constants, `DBM_PROTOCOL_VERSION`, `DBM_PROTOCOL_HASH`, `static inline` writers (`dbm_put_f64(buf, id, i0, i1, v)`, …) and a reader (`dbm_next_record`) | yes; `drivenbymoss.h` includes it (cbindgen `after_includes`) |
 | `bindings/cpp/include/dbm_protocol.hpp` | `enum class` per direction, a `Writer` (std::vector<uint8_t>), a `Reader` (range-for over records), `toText`/`fromText` through the C ABI | yes |
 | `bindings/python/drivenbymoss/protocol.py` | `IntEnum`s, precompiled `struct.Struct`s, `Writer` (one reusable `bytearray`), `iter_commands(memoryview)`, per-id metadata | yes |
 | `backends/bitwig/src/main/java/de/mossgrabers/dbm/bitwig/protocol/Protocol.java` | `enum Msg`, `enum Cmd` with their ids, a `Writer` on a reusable `MemorySegment`, a `Reader` | yes |
 
-CI (`ci/linux.sh`) runs `cargo build` and then `git diff --exit-code` on the generated files, so
-a stale binding cannot be committed. cbindgen is not needed for these outputs. They are written
-directly by `build.rs`, because cbindgen cannot see code in `OUT_DIR`. cbindgen stays for
-`ffi.rs`.
+The staleness test (in `cargo test`, so also in CI) keeps the committed files in step with the
+table. cbindgen is not needed for these outputs; it stays for `ffi.rs`.
 
 **In the core:**
 - `Cmd` replaces the strings at the 236 send sites: `ctx.send(Cmd::ChannelMute { bank, p, value })`
@@ -471,6 +490,62 @@ error-prone:
 
 ---
 
+### 2.7 The host API: generated view wrappers
+
+**Decision (2026-11-08):** every language gets generated view classes, so that a message acts
+like an object while it stays a record in the shared buffer. This is the idea of
+FlatBuffers/Cap'n Proto readers, generated from our own table, without their dependencies.
+
+- **Readers** (core → host, one buffer per call, §2.3): a small view per record, whose fields
+  are properties that read from the buffer when they are accessed. Nothing is copied or decoded
+  up front, and a host reads only the fields it uses. One call crosses the boundary for all
+  commands of the call: that matters in the hosts where a crossing is expensive (ctypes
+  callbacks in Python, FFM upcalls in Java).
+- **Writers** (host → core, one buffer per report): generated per-message setters that append a
+  record to a reusable buffer (`w.track_volume(3, 0.5)`), and the whole report crosses in one
+  call (`dbm_update_model_bin`).
+- **Typed:** the view of a message has exactly that message's fields (`msg.track`, `msg.send`,
+  `msg.value` with its type), and the id is an enum, so the host's dispatch is a `match`/`switch`
+  over generated constants.
+
+Per language:
+
+| Language | Buffer | Reader | Writer |
+| --- | --- | --- | --- |
+| Rust (core) | `&[u8]` | `Msg<'a>` borrowing strings from the buffer (from the macro) | `Cmd` encode |
+| C | `const uint8_t*` | `dbm_next_record` + `static inline` accessors | `dbm_put_*` |
+| C++ | `std::span<const uint8_t>` | a range over view structs, `msg.as<DbmCmd::TrackMute>()` | `Writer` |
+| Python | `memoryview` | classes with `__slots__` and properties over precompiled `struct.Struct`s, `iter_commands(buf)` yields the view of each record | `Writer` on a reusable `bytearray` |
+| Java | `MemorySegment` | records or flyweight views over the segment, for exhaustive `switch` | `Writer` on a reusable segment |
+
+Example (Python host):
+
+```python
+for msg in protocol.iter_commands(buf):      # one crossing for the whole call
+    match msg.id:
+        case Cmd.TRACK_MUTE:
+            chain(msg.track).mute = msg.value
+        case Cmd.TRACK_VOLUME:
+            chain(msg.track).volume = msg.value
+```
+
+Example (writing a report):
+
+```python
+w = protocol.Writer()                        # reused for every report
+w.track_volume(3, 0.5)
+w.track_name(3, "Synth")
+app.update_model_bin(w.buffer())
+```
+
+Notes:
+- A view is valid only during the callback (the buffer belongs to the core), as the strings of
+  the text callbacks today. A host which keeps a message copies it (`msg.copy()`).
+- Python cost: a view object per record is cheap compared with formatting and parsing text, but
+  for the hottest paths the generator can also emit a flat dispatch (`id, i0, i1, value =
+  unpack_from(...)`) without objects. Measure both in step 2.
+- The test that every message id has a handler (Python, §2.5) runs over the generated metadata.
+
 ## 3. Migration
 
 The text protocol stays until the last host has moved. Each step is proven by the test suites
@@ -490,7 +565,7 @@ that already exist, run unchanged.
 
 | Step | Content | Proof | Effort |
 | --- | --- | --- | --- |
-| **0a. Table + generator + `Cmd`** (the recommended first step) | `messages.def` for the commands, the `build.rs` generator (Rust only at first), `Cmd` and the legacy conversion; `ctx.send(Cmd)` at the 236 sites; `Sender`/`Backend` take `&Cmd` and `FfiBackend` formats the legacy text. No change on the wire, in the C ABI or in the hosts | `cargo test` (all 238 `BackendCall` assertions unchanged, because `RecordingBackend` records the legacy text), replay unchanged | 4–6 days (table ≈2, generator ≈2, call sites ≈2) |
+| **0a. Table + generator + `Cmd`** (the recommended first step) | the Rust table for the commands in `src/protocol/` (the macro, Rust only at first), `Cmd` and the legacy conversion; `ctx.send(Cmd)` at the 236 sites; `Sender`/`Backend` take `&Cmd` and `FfiBackend` formats the legacy text. No change on the wire, in the C ABI or in the hosts | `cargo test` (all 238 `BackendCall` assertions unchanged, because `RecordingBackend` records the legacy text), replay unchanged | 4–6 days (table ≈2, generator ≈2, call sites ≈2) |
 | **0b. `Msg` + `apply`** | the address part of the table; text → `Msg` (generated trie), hand-written exhaustive `apply` replacing `parser.rs`'s matching; `ParserEvent` stays | the 41 parser tests and 147 text feeds unchanged, replay, Python conformance `--all`, Zynthian tests (all hosts still send text) | 6–8 days |
 | **1. Binary ABI in the core + the C header and C++ wrapper** | record encode/decode, `dbm_update_model_bin`, `dbm_set_command_callback` with per-call buffering, the conversions, `dbm_protocol.h`, `dbm_protocol.hpp` | **the replay in a binary mode**: each `model` text is converted to binary and fed through `dbm_update_model_bin`; the commands come through the binary callback, converted to legacy text, compared with the recording. All 21 recordings must pass in both modes, which shows that the binary path changes nothing. Plus round-trip tests text → bin → text for every table line, and the C++ wrapper tests on the typed API | 4–5 days |
 | **2. Python: binding, `dbm_host`, Zynthian** | `protocol.py`; `Reporter.put(id, idx, value)` writing records; `last_values` keyed by int; `CommandHandler` dispatch on `CmdId` (replacing `Command.parse`'s suffix splitting with `op`); `forget(entity)`; Zynthian's `ZynReporter` prefixes become prebuilt keys | **dual run**: a check mode in which the reporter builds both forms and asserts `dbm_messages_to_text(bin) == text` every pass, run over all 195 scenarios and the Zynthian tests; then conformance `--all` and the Zynthian suite on the binary path alone. Tests that read `reporter.last_values["/track/4/name"]` (Zynthian tests) use a text view (`reporter.text_snapshot()`) | 5–7 days |
@@ -585,13 +660,14 @@ findability.
   round-trip tests and the existing suites, but writing it is the largest single task of step 0.
   The Reaper-only forms and the edge cases of §1.5 each need a decision when they are written:
   keep, rename or drop.
-- **`build.rs` writes into `bindings/` and `backends/`**, as it already does for `include/`. A
-  build in a read-only checkout must not fail: write only when the content changed, and warn
-  instead of failing (as for the header today).
+- **The generator writes into `include/`, `bindings/` and `backends/`.** It runs by hand (or in
+  CI); the staleness test makes a forgotten run fail the tests instead of shipping stale
+  bindings. A normal build never writes these files, so a read-only checkout builds.
 - **The ABI between the Bitwig extension and a reloaded library** (`DBM_DEV_LIBRARY`):
   `dbm_set_command_callback` refuses a different major version and the extension falls back to
   text. That fallback needs a test.
-- **The no-deps rule** holds: the generator is plain Rust in `build.rs`, and the bindings use
+- **The no-deps rule** holds: the table is a `macro_rules!` macro, the generator is a plain Rust
+  binary of the crate, and the bindings use
   only `struct`/`ctypes` (Python), FFM (Java) and the standard library (C++).
 
 ### 5.2 Effort
@@ -601,9 +677,10 @@ Reaper step the least certain: no tests, the most hand-written code.
 
 ### 5.3 Open questions for the decision
 
-1. **Where the table lives:** the declarative `src/protocol/messages.def` with `build.rs`
-   (recommended), or a Rust table plus a generator binary?
-2. **Commands:** one buffer per call (recommended), or one typed callback per command?
+1. ~~Where the table lives~~: **decided**: Rust tables in `src/protocol/`, used by the core, and a
+   generator binary for the other languages (§2.1).
+2. ~~Commands~~: **decided**: one buffer per call, read through generated view wrappers in every
+   language (§2.7).
 3. **The handled-commands bitset:** should it eventually replace `/host/features` for binary
    hosts, or only diagnose (phase 1)?
 4. **The Reaper-only forms** (≈30 addresses, ≈25 commands, §1.2/§1.5) and the basic/feature
@@ -627,10 +704,11 @@ Reaper step the least certain: no tests, the most hand-written code.
 
 **Step 0a: the table and the generated `Cmd` enum, with the text protocol unchanged on the wire.**
 
-1. Write the command half of `src/protocol/messages.def` from §1.3: about 306 forms, each with
-   its `legacy=` kind, `ops=`, `feature=` and `entity=`.
-2. Add the generator to `build.rs` (Rust output only): `CmdId`, `Cmd` with typed fields, the
-   metadata table, `Cmd::legacy() -> (kind, processor, command, value)`.
+1. Write the command half of the Rust table in `src/protocol/` from §1.3: about 306 forms, each
+   with its `legacy=` kind, `ops=`, `feature=` and `entity=`.
+2. The macro expands it (Rust only at first): `CmdId`, `Cmd` with typed fields, the metadata
+   table, `Cmd::legacy() -> (kind, processor, command, value)`. The generator binary and the
+   other languages follow with step 1.
 3. Change `Sender`/`Backend` to take `&Cmd`. `FfiBackend` and `RecordingBackend` format the
    legacy text, so all hosts, `BackendCall` assertions and recordings stay byte-identical.
 4. Migrate the 236 send sites (`grep` for `.send(`, `send_int(`, … in `src/daw`, `src/framework`)
