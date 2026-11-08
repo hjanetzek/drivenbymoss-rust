@@ -6,6 +6,10 @@ current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.m
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
 numbers are from [ZYNTHIAN_CPU.md](ZYNTHIAN_CPU.md).
 
+**Scope** (decided 2026-11-08): the Bitwig extension, the Python binding with the reference host,
+the Zynthian adapter and the C++ wrapper. **Reaper is out of scope:** it is not a target of the
+project, and its backend stays on the text protocol, unchanged (§3, step 4).
+
 **Summary**
 - **Size:** about 250 host → core address templates (about 420 once they are expanded per
   device, channel bank and named parameter) and about 300 core → host command forms (plus 6
@@ -570,11 +574,13 @@ that already exist, run unchanged.
 | **1. Binary ABI in the core + the C header and C++ wrapper** | record encode/decode, `dbm_update_model_bin`, `dbm_set_command_callback` with per-call buffering, the conversions, `dbm_protocol.h`, `dbm_protocol.hpp` | **the replay in a binary mode**: each `model` text is converted to binary and fed through `dbm_update_model_bin`; the commands come through the binary callback, converted to legacy text, compared with the recording. All 21 recordings must pass in both modes, which shows that the binary path changes nothing. Plus round-trip tests text → bin → text for every table line, and the C++ wrapper tests on the typed API | 4–5 days |
 | **2. Python: binding, `dbm_host`, Zynthian** | `protocol.py`; `Reporter.put(id, idx, value)` writing records; `last_values` keyed by int; `CommandHandler` dispatch on `CmdId` (replacing `Command.parse`'s suffix splitting with `op`); `forget(entity)`; Zynthian's `ZynReporter` prefixes become prebuilt keys | **dual run**: a check mode in which the reporter builds both forms and asserts `dbm_messages_to_text(bin) == text` every pass, run over all 195 scenarios and the Zynthian tests; then conformance `--all` and the Zynthian suite on the binary path alone. Tests that read `reporter.last_values["/track/4/name"]` (Zynthian tests) use a text view (`reporter.text_snapshot()`) | 5–7 days |
 | **3. Bitwig (Java over FFM)** | `Protocol.java`; `ModelReporter` on a reusable `MemorySegment` (no `String.format`); `CommandHandler` as switch expressions over `Cmd` (the 293 `case` labels become enum cases); `reportAgain` by entity; `ProtocolRecorder` via `dbm_messages_to_text` | the dual-run check of step 2 in the extension (dev mode); recordings made before and after the change replay the same; the Bitwig conformance runs (all setups) must give the same results as before. Note the rounding risk (§5.1) | 6–8 days |
-| **4. Reaper (C++)** | `Collectors::Collect*Value` write records (the address strings disappear from `DataCollector.cpp`, `Track.cpp`, …); `OscParser` + `*Processor` dispatch on `DbmCmdId` (the `std::deque<std::string>` splitting disappears) | no automated tests: the dual-run check (text and binary built side by side, compared, in a debug build) while using Reaper with the controllers of STATUS.md item 1; a recording through the new core recorder, if that is done, replayed | 8–12 days (the most hand-written code, `TrackProcessor.cpp` 751 lines, `ClipProcessor.cpp` 552, …) |
+| ~~4. Reaper (C++)~~ | **Out of scope** (decided 2026-11-08): Reaper is not a target of the project (unless a Reaper license comes with a reason to port to it). The Reaper backend stays on the text protocol as it is, unchanged; the core keeps the text path for it (the legacy conversion of `Cmd` and the text parser feeding `Msg`) | – | – |
 | **5. Retire the text path in the hosts** | remove `format_value`, the text `put`s and the text command handlers from the hosts. In the core, keep `dbm_update_model` and the text callbacks: they are cheap to keep and serve logs, recordings and simple hosts | everything above | 1–2 days |
 
-**Total:** about 35–50 days. Steps 0a and 0b are useful on their own and carry no risk to the
-hosts. Steps 2–4 are independent of each other once step 1 is done.
+**Total:** about 27–38 days without the Reaper step (out of scope). Steps 0a and 0b are useful on
+their own and carry no risk to the hosts. Steps 2 and 3 are independent of each other once step 1
+is done. The text path stays in the core for the Reaper backend (and for logs, recordings and
+replays).
 
 ---
 
@@ -672,8 +678,9 @@ findability.
 
 ### 5.2 Effort
 
-Step 0 takes 10–14 days, step 1 4–5, steps 2–5 20–30. **In total about 35–50 days**, with the
-Reaper step the least certain: no tests, the most hand-written code.
+Step 0 takes 10–14 days, step 1 4–5, steps 2, 3 and 5 12–18. **In total about 27–38 days.** The
+Reaper step (8–12 days, the least certain one) is out of scope: Reaper stays on the text
+protocol.
 
 ### 5.3 Open questions for the decision
 
@@ -683,9 +690,11 @@ Reaper step the least certain: no tests, the most hand-written code.
    language (§2.7).
 3. **The handled-commands bitset:** should it eventually replace `/host/features` for binary
    hosts, or only diagnose (phase 1)?
-4. **The Reaper-only forms** (≈30 addresses, ≈25 commands, §1.2/§1.5) and the basic/feature
-   pairs: carry them all into the table unchanged (recommended, as Reaper stays a host), or drop
-   the ones no host uses any more (e.g. `cursor`, `Processor::Session/PlayingNotes/Cursor`)?
+4. ~~The Reaper-only forms~~: **decided**: Reaper is out of scope and stays on the text protocol.
+   The Reaper-only forms (≈30 addresses, ≈25 commands, §1.2/§1.5) stay in the table only as far
+   as the core's text path for the Reaper backend needs them (their legacy text), not in the
+   typed host API; unused ones (e.g. `cursor`, `Processor::Session/PlayingNotes/Cursor`) can be
+   dropped when the table is written.
 5. **Recordings by binary hosts:** keep the text `.rec` format through `dbm_messages_to_text`
    (recommended), or a binary `.rec` with a converter? And should the recorder move into the
    core, so that all hosts can record?

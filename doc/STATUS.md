@@ -215,9 +215,9 @@ that is formatted on one side and parsed on the other.
   - The text form stays for logs, the protocol recordings (`.rec`) and the replays, with a
     conversion between both forms.
 - **Scope:** `src/parser.rs`, the commands in `src/backend.rs` and the `daw` types, the C ABI
-  (`src/ffi.rs`, `include/drivenbymoss.h`), the hosts (Reaper `backends/reaper`, Bitwig
-  `backends/bitwig`, the Python binding and reference host, the Zynthian adapter), the recorder
-  and the replay test.
+  (`src/ffi.rs`, `include/drivenbymoss.h`), the hosts (Bitwig `backends/bitwig`, the Python
+  binding and reference host, the Zynthian adapter), the recorder and the replay test. Reaper is
+  out of scope: not a target of the project, its backend stays on the text protocol.
 - **Migration:**
   - The hosts move one by one, keeping the text protocol until the last one has moved.
   - The conformance replays must stay valid, recorded or converted.
