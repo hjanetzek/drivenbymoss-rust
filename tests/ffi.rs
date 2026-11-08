@@ -440,4 +440,9 @@ fn binary_protocol() {
     // A buffer which is not of the protocol is logged
     unsafe { dbm_update_model_bin(host.app, b"nonsense".as_ptr(), 8) };
     assert!(host.rec().logs.iter().any(|l| l.contains("Not a buffer of the binary protocol")), "{:?}", host.rec().logs);
+    // Called again (e.g. once the model setup is known): the new handled commands, still binary
+    assert_eq!(unsafe { dbm_set_command_callback(host.app, major, Some(binary_commands), user, std::ptr::null(), 0) }, 1);
+    host.rec().commands.clear();
+    unsafe { dbm_tick(host.app) };
+    assert!(host.rec().commands.iter().all(|c| c.starts_with("BIN ")), "{:?}", host.rec().commands);
 }

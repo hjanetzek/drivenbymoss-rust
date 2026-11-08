@@ -203,8 +203,12 @@ void dbm_protocol_info(uint32_t *major, uint32_t *minor, uint64_t *hash);
 // the call. Call it before [`dbm_start_infrastructure`] (its first commands are `refresh` and
 // `bank fxtrack 0`). `handled` is an optional bitset over the command IDs the host handles
 // (word i bit j = ID 0x8000 + 64*i + j), null for all: the library logs a command the host does
-// not handle once, with its text. Returns 1, or 0 (and keeps the text callbacks) if `major`
-// differs from the library's major version or `callback` is null.
+// not handle once, with its text, and the command features of the host come from it (a feature
+// is supported if the host handles at least one of its commands; `/host/features` then only
+// counts for the value operations, TYPED_PROTOCOL_PLAN §6.6). It can be called again, e.g. once
+// the model setup is known, to update the callback and the handled commands. Returns 1, or 0
+// (and keeps the previous form) if `major` differs from the library's major version or
+// `callback` is null.
 //
 // # Safety
 // `app` must be a valid handle (or null); `handled` must be null or point to `handled_words`

@@ -229,7 +229,7 @@ fn replay(path: &Path, binary: bool) -> Vec<String> {
             continue;
         }
         let input_port = midi_port(&event.kind, "in");
-        if input_port.is_none() && !matches!(event.kind.as_str(), "documentSettings" | "setting" | "start" | "model" | "tick" | "in" | "mark") {
+        if input_port.is_none() && !matches!(event.kind.as_str(), "documentSettings" | "setting" | "start" | "model" | "tick" | "in" | "mark" | "handled") {
             continue;
         }
         // The outputs of the previous input are complete
@@ -247,6 +247,13 @@ fn replay(path: &Path, binary: bool) -> Vec<String> {
             "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),
             "setting" => app.set_setting(event.fields[0].parse().unwrap_or(-1), &replace_paths(event.fields.get(1).map_or("", String::as_str))),
             "start" => app.start_infrastructure(),
+            // The commands a binary host handles (hex words, word i bit j = ID 0x8000 + 64*i + j,
+            // none: all): its command features (TYPED_PROTOCOL_PLAN §6.6). Recordings before it
+            // name all features in /host/features.
+            "handled" => {
+                let words = event.fields.first().map_or(Vec::new(), |f| f.split(' ').filter_map(|w| u64::from_str_radix(w, 16).ok()).collect());
+                *backend.handled.borrow_mut() = Some(words);
+            }
             "model" if binary => app.update_model_bin(drivenbymoss::protocol::bin::from_text(&event.fields[0], &mut |_| {}).as_bytes()),
             "model" => app.update_model(&event.fields[0]),
             "tick" => app.tick(),

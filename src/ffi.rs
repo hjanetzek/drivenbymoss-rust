@@ -100,11 +100,13 @@ struct BinaryCommands {
 pub struct FfiBackend {
     callbacks: DbmCallbacks,
     binary: RefCell<Option<BinaryCommands>>,
+    /// The command features of the binary form, derived from the handled commands (None: text).
+    command_features: std::cell::Cell<Option<u32>>,
 }
 
 impl FfiBackend {
     fn new(callbacks: DbmCallbacks) -> Self {
-        FfiBackend { callbacks, binary: RefCell::new(None) }
+        FfiBackend { callbacks, binary: RefCell::new(None), command_features: std::cell::Cell::new(None) }
     }
 
     /// Deliver the buffered commands of the binary form (before any other callback and at the
@@ -148,6 +150,10 @@ impl FfiBackend {
 }
 
 impl Backend for FfiBackend {
+    fn command_features(&self) -> Option<u32> {
+        self.command_features.get()
+    }
+
     /// Deliver the legacy form of the command (`process_no_arg`, `process_int_arg`, …), as before
     /// the command table: the text is byte-identical.
     fn send_command(&self, cmd: &Cmd) {
@@ -603,8 +609,12 @@ pub unsafe extern "C" fn dbm_protocol_info(major: *mut u32, minor: *mut u32, has
 /// the call. Call it before [`dbm_start_infrastructure`] (its first commands are `refresh` and
 /// `bank fxtrack 0`). `handled` is an optional bitset over the command IDs the host handles
 /// (word i bit j = ID 0x8000 + 64*i + j), null for all: the library logs a command the host does
-/// not handle once, with its text. Returns 1, or 0 (and keeps the text callbacks) if `major`
-/// differs from the library's major version or `callback` is null.
+/// not handle once, with its text, and the command features of the host come from it (a feature
+/// is supported if the host handles at least one of its commands; `/host/features` then only
+/// counts for the value operations, TYPED_PROTOCOL_PLAN §6.6). It can be called again, e.g. once
+/// the model setup is known, to update the callback and the handled commands. Returns 1, or 0
+/// (and keeps the previous form) if `major` differs from the library's major version or
+/// `callback` is null.
 ///
 /// # Safety
 /// `app` must be a valid handle (or null); `handled` must be null or point to `handled_words`
@@ -629,8 +639,19 @@ pub unsafe extern "C" fn dbm_set_command_callback(app: *mut DbmApp, major: u32, 
         let Some(ffi) = &guard.1 else {
             return 0;
         };
-        // Commands so far went to the text callbacks
-        *ffi.binary.borrow_mut() = Some(BinaryCommands { callback, user, writer: Writer::new(), handled, warned: Default::default() });
+        ffi.flush();
+        ffi.command_features.set(Some(crate::daw::context::command_features(&handled)));
+        let mut binary = ffi.binary.borrow_mut();
+        match binary.as_mut() {
+            // Called again: the new callback and handled commands, the warnings stay
+            Some(b) => {
+                b.callback = callback;
+                b.user = user;
+                b.handled = handled;
+            }
+            // Commands so far went to the text callbacks
+            None => *binary = Some(BinaryCommands { callback, user, writer: Writer::new(), handled, warned: Default::default() }),
+        }
         1
     }));
     result.unwrap_or(0)

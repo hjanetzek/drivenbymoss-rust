@@ -61,10 +61,20 @@ pub(crate) struct TransportSnapshot {
     pub position: f64,
 }
 
-/// A command form which the host understands in addition to the basic (Reaper) commands. The
-/// host reports them with `/host/features <names>` (see HOST_BRIDGE_GUIDE.md). Features which the
-/// core detects from the host's own reports (host paging from `/track/offset`, the automation and
-/// overdub switches, the pinned track, ...) are no host features.
+/// A command form which the host understands in addition to the basic (Reaper) commands.
+///
+/// - **Command features** ([`HostFeature::is_command_feature`]: the `feature =` of the commands in
+///   the protocol table): a host on the binary command form (`dbm_set_command_callback`) has
+///   those whose commands it handles (the handled bitset, [`command_features`]). A text host
+///   reports them with `/host/features <names>`.
+/// - **Value operation features** (`valueInc`, `valueReset`, `immediately`, `indication`): the
+///   operations of the value commands (the `op` of the record, not a command of its own), so the
+///   bitset of the command IDs cannot express them; every host reports them with
+///   `/host/features` (see HOST_BRIDGE_GUIDE.md).
+///
+/// Features which the core detects from the host's own reports (host paging from
+/// `/track/offset`, the automation and overdub switches, the pinned track, ...) are no host
+/// features.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostFeature {
     /// Relative value changes `<value command>/inc <normalized delta>` (Bitwig
@@ -128,9 +138,29 @@ impl HostFeature {
         HostFeature::ALL.into_iter().find(|f| f.name() == name)
     }
 
-    fn bit(self) -> u32 {
+    pub(crate) fn bit(self) -> u32 {
         1 << (self as u32)
     }
+
+    /// True for the features of command forms (the `feature =` of commands in the protocol
+    /// table, a test keeps this in step): a binary host has them if it handles their commands.
+    /// The others are value operations, reported with `/host/features` by every host.
+    pub fn is_command_feature(self) -> bool {
+        matches!(self, HostFeature::SoloToggle | HostFeature::TransportCommands | HostFeature::DeviceCommands | HostFeature::LayoutStep | HostFeature::ClipLauncherNavigator)
+    }
+}
+
+/// The command features (bit set of [`HostFeature`]) of a host which handles the commands of the
+/// bitset (word i bit j = ID 0x8000 + 64*i + j; empty: all commands): a feature is supported if
+/// the host handles at least one of its commands. The commands of a feature are alternative forms
+/// of the basic commands, and a host handles those its DAW has (zynthian: `transport play`, but no
+/// punch or fill), as `/host/features` named a feature for the forms a host knows.
+pub fn command_features(handled: &[u64]) -> u32 {
+    let is_handled = |id: u16| {
+        let bit = usize::from(id & 0x7FFF);
+        handled.is_empty() || handled.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0)
+    };
+    crate::protocol::COMMANDS.iter().filter(|info| is_handled(info.id as u16)).filter_map(|info| info.feature).fold(0, |set, f| set | f.bit())
 }
 
 /// Marks the master track in places where a track position is stored.
@@ -170,11 +200,19 @@ impl DawContext {
         self.shared.host_paging.set(true);
     }
 
-    /// True if the host understands the command form of the feature. A host which reported
-    /// `/host/features` supports exactly the listed ones. For compatibility a host which pages
-    /// (`/track/offset`) but never reported its features supports all of them (the Bitwig
-    /// extension before `/host/features`); Reaper reports neither and supports none.
+    /// True if the host understands the command form of the feature. A command feature of a
+    /// host on the binary command form comes from the commands it handles ([`command_features`],
+    /// `Backend::command_features`); a command feature in its `/host/features` is ignored.
+    /// Otherwise: a host which reported `/host/features` supports exactly the listed ones. For
+    /// compatibility a host which pages (`/track/offset`) but never reported its features supports
+    /// all of them (the Bitwig extension before `/host/features`); Reaper reports neither and
+    /// supports none.
     pub fn host_supports(&self, feature: HostFeature) -> bool {
+        if feature.is_command_feature() {
+            if let Some(features) = self.sender.backend().command_features() {
+                return features & feature.bit() != 0;
+            }
+        }
         match self.shared.host_features.get() {
             Some(features) => features & feature.bit() != 0,
             None => self.is_host_paging(),

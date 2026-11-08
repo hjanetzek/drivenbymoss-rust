@@ -2058,6 +2058,41 @@ mod tests {
         assert!(model.ctx().host_supports(HostFeature::TransportCommands) && !model.ctx().host_supports(HostFeature::ValueInc));
     }
 
+    /// A host on the binary command form: its command features come from its handled commands
+    /// (a feature with at least one handled command), `/host/features` only counts for the value
+    /// operations; the command features in it are ignored.
+    #[test]
+    fn host_features_of_a_binary_host() {
+        use crate::daw::context::command_features;
+        use crate::protocol::{CmdId, COMMANDS};
+        // The command features are those of the table
+        for f in HostFeature::ALL {
+            assert_eq!(f.is_command_feature(), COMMANDS.iter().any(|c| c.feature == Some(f)), "{f:?}");
+        }
+        let bits = |ids: &[CmdId]| {
+            let mut words = vec![0u64; 64];
+            for &id in ids {
+                let bit = usize::from(id as u16 & 0x7FFF);
+                words[bit / 64] |= 1 << (bit % 64);
+            }
+            words
+        };
+        let all_command_features = HostFeature::ALL.into_iter().filter(|f| f.is_command_feature()).fold(0, |set, f| set | f.bit());
+        assert_eq!(command_features(&[]), all_command_features, "No bitset: all commands");
+        assert_eq!(command_features(&bits(&[CmdId::TransportPlay, CmdId::ChannelMute])), HostFeature::TransportCommands.bit());
+
+        let (mut model, mut parser, backend, _) = create(ModelSetup::default());
+        *backend.handled.borrow_mut() = Some(bits(&[CmdId::TransportPlay, CmdId::DeviceToggleWindow]));
+        let supported = |model: &Model| HostFeature::ALL.into_iter().filter(|f| model.ctx().host_supports(*f)).collect::<Vec<_>>();
+        assert_eq!(supported(&model), vec![HostFeature::TransportCommands, HostFeature::DeviceCommands], "Before any report");
+        feed(&mut model, &mut parser, &["/track/offset 0"]);
+        let mut expected = vec![HostFeature::ValueInc, HostFeature::ValueReset, HostFeature::Immediately, HostFeature::Indication];
+        expected.extend([HostFeature::TransportCommands, HostFeature::DeviceCommands]);
+        assert_eq!(supported(&model), expected, "Paging without /host/features: all value operations");
+        feed(&mut model, &mut parser, &["/host/features valueInc soloToggle layoutStep"]);
+        assert_eq!(supported(&model), vec![HostFeature::ValueInc, HostFeature::TransportCommands, HostFeature::DeviceCommands]);
+    }
+
     /// A paging host without the feature `valueInc` gets absolute values (and without
     /// `valueReset` and `soloToggle` the core's reset and solo values).
     #[test]

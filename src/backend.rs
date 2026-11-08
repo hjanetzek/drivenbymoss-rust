@@ -168,6 +168,14 @@ pub trait Backend {
     /// A log message of the library. The default ignores it.
     fn log(&self, _message: &str) {}
 
+    /// The command features of a host on the binary command form, derived from the commands it
+    /// handles ([`command_features`](crate::daw::context::command_features), bit set of
+    /// [`HostFeature`](crate::daw::context::HostFeature)); None for a text host, whose features
+    /// come from `/host/features`. The default: None.
+    fn command_features(&self) -> Option<u32> {
+        None
+    }
+
     /// True if the host shows the log itself ([`Backend::log`]); otherwise the library writes it
     /// to stderr.
     fn handles_log(&self) -> bool {
@@ -233,6 +241,10 @@ pub struct RecordingBackend {
     /// Send the commands through their binary form: each command is encoded as a record and
     /// decoded again before its legacy form is recorded (the binary mode of the replay).
     pub binary: std::cell::Cell<bool>,
+    /// The handled commands of a binary host (word i bit j = ID 0x8000 + 64*i + j, empty: all;
+    /// the `handled` event of a recording): the command features come from them
+    /// ([`Backend::command_features`]). None: a text host.
+    pub handled: RefCell<Option<Vec<u64>>>,
 }
 
 impl RecordingBackend {
@@ -262,6 +274,10 @@ impl RecordingBackend {
 impl Backend for RecordingBackend {
     fn log(&self, message: &str) {
         self.logs.borrow_mut().push(message.to_string());
+    }
+
+    fn command_features(&self) -> Option<u32> {
+        self.handled.borrow().as_deref().map(crate::daw::context::command_features)
     }
 
     /// Records the legacy form of the command, as the text hosts receive it.
