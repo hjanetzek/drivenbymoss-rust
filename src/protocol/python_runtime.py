@@ -324,6 +324,92 @@ class _WriterBase:
         """A record of any ID, the value written by the kind of the ID."""
         _PUTTERS[KINDS[id_]](self, id_, i0, i1, i2, i3, value)
 
+    # By key (key(): the ID and the four index slots in one int, the change tracking's key of
+    # TYPED_PROTOCOL_PLAN §2.4): the indices are packed as one u64, the key is not unpacked
+
+    def put_key_none(self, k, value=None):
+        p = self.size
+        if p + 24 > len(self.buf):
+            self.buf.extend(bytes(len(self.buf)))
+        _KREC_I64.pack_into(self.buf, p, k & 0xFFFF, 0, 0, k >> 16, 0, 0)
+        self.size = p + 24
+
+    def put_key_bool(self, k, value):
+        p = self.size
+        if p + 24 > len(self.buf):
+            self.buf.extend(bytes(len(self.buf)))
+        _KREC_I64.pack_into(self.buf, p, k & 0xFFFF, 1, 0, k >> 16, 0, 1 if value else 0)
+        self.size = p + 24
+
+    def put_key_i32(self, k, value):
+        p = self.size
+        if p + 24 > len(self.buf):
+            self.buf.extend(bytes(len(self.buf)))
+        _KREC_I64.pack_into(self.buf, p, k & 0xFFFF, 2, 0, k >> 16, 0, value)
+        self.size = p + 24
+
+    def put_key_f64(self, k, value):
+        p = self.size
+        if p + 24 > len(self.buf):
+            self.buf.extend(bytes(len(self.buf)))
+        _KREC_F64.pack_into(self.buf, p, k & 0xFFFF, 3, 0, k >> 16, 0, value)
+        self.size = p + 24
+
+    def put_key_text(self, k, value):
+        data = ("" if value is None else str(value)).encode("utf-8")
+        n = len(data)
+        p = self._reserve(24 + ((n + 7) & ~7))
+        _KREC_I64.pack_into(self.buf, p, k & 0xFFFF, T_TEXT, 0, k >> 16, n, 0)
+        self.buf[p + 24:self.size] = data + _PAD[n & 7]
+
+    def put_key_color(self, k, value):
+        """value: (r, g, b) 0..255, None: no color."""
+        p = self.size
+        if p + 24 > len(self.buf):
+            self.buf.extend(bytes(len(self.buf)))
+        if value is None:
+            _KREC_COLOR.pack_into(self.buf, p, k & 0xFFFF, T_COLOR, 0, k >> 16, 0, 0, 0, 0, 0)
+        else:
+            r, g, b = value
+            c = lambda v: 0 if v < 0 else 255 if v > 255 else int(v)  # noqa: E731
+            _KREC_COLOR.pack_into(self.buf, p, k & 0xFFFF, T_COLOR, 0, k >> 16, 0, c(r), c(g), c(b), 1)
+        self.size = p + 24
+
+    def put_key(self, k, value=None):
+        """A record of any ID by key, the value written by the kind of the ID."""
+        id_ = k & 0xFFFF
+        put = KEY_PUTTERS.get(KINDS[id_])
+        if put is None:
+            _PUTTERS[KINDS[id_]](self, id_, k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64 & 0xFFFF, value)
+        else:
+            put(self, k, value)
+
+
+_KREC_I64 = struct.Struct("<HBBQIq")
+_KREC_F64 = struct.Struct("<HBBQId")
+_KREC_COLOR = struct.Struct("<HBBQI4B4x")
+
+KEY_PUTTERS = {
+    "none": _WriterBase.put_key_none, "bool": _WriterBase.put_key_bool, "i32": _WriterBase.put_key_i32,
+    "f64": _WriterBase.put_key_f64, "text": _WriterBase.put_key_text, "color": _WriterBase.put_key_color,
+}
+"""The writers by key (put_key_*) by value kind: the inline values and texts."""
+
+
+def key_id(k: int) -> int:
+    """The ID of a key."""
+    return k & 0xFFFF
+
+
+def key_indices(k: int) -> tuple:
+    """The four index slots of a key."""
+    return (k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64 & 0xFFFF)
+
+
+def record_key(head) -> int:
+    """The key of a record head (the h of a Record, the heads of _records)."""
+    return head[0] | head[3] << 16 | head[4] << 32 | head[5] << 48 | head[6] << 64
+
 
 _PUTTERS = {
     "none": lambda w, id_, i0, i1, i2, i3, value: w.put_none(id_, i0, i1, i2, i3),

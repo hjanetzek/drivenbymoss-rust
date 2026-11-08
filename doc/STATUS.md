@@ -229,8 +229,9 @@ that is formatted on one side and parsed on the other.
   channel and row packed into one; plan §6). Step 2 in progress: the generated Python
   `protocol.py`, the binary API of the Python binding, the reference host and the Zynthian
   adapter on the binary path (reports and commands; the dual run against the text passes all
-  suites). Open: the collectors on int keys, the `CmdId` dispatch of the command handlers and
-  the CPU gain (plan §6.4).
+  suites); the reporters on int keys (one dict, the collectors by key bases; the Zynthian idle
+  pass 17 % cheaper, level with the text pass). Open: the `CmdId` dispatch of the command
+  handlers (plan §6.4).
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.

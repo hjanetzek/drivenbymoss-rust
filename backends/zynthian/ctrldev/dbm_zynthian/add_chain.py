@@ -60,6 +60,7 @@ Add Chain view tapped: the engine screen; BACK on the engine screen: the Add Cha
 
 import logging
 
+from dbm_host.reporter import M
 from zyngine.ctrldev.dbm_zynthian.browser import report_session
 
 logger = logging.getLogger("dbm_zynthian")
@@ -432,7 +433,7 @@ class ChainFlow:
 
     def collect(self, reporter, page_columns, page_results):
         if self.session is None:
-            reporter.put("/browser/exists", False)
+            reporter.put(M.BROWSER_EXISTS, False)
             self.gap_reported = True
             return
         self.session.collect(reporter, page_columns, page_results)

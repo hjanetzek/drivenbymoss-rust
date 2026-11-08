@@ -68,7 +68,8 @@ from collections import deque
 
 from dbm_host import CommandHandler, NoteGrid
 from dbm_host.commands import parse_index
-from dbm_host.reporter import NUM_SIBLINGS
+from dbm_host.reporter import NUM_SIBLINGS, M, channel_key
+from drivenbymoss.protocol import ChKind
 
 logger = logging.getLogger("dbm_zynthian")
 
@@ -153,11 +154,11 @@ class ZynCommandHandler(CommandHandler):
         if sub == ["select"]:
             if cmd.flag:
                 track.select()
-                self.reporter.forget(f"/track/{position}/select")
+                self.reporter.forget(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, position))
                 tracks = self.daw.track_list(self.banks.full_flat_track_list)
                 selected = next((p for p, t in enumerate(tracks) if t.selected), -1)
                 if selected >= 0:
-                    self.reporter.forget(f"/track/{selected}/select")
+                    self.reporter.forget(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, selected))
             return True
         key = "/".join("<n>" if part.isdigit() else part for part in sub)
         if key not in self._ignored_on_add_chain:

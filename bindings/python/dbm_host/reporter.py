@@ -36,6 +36,7 @@ from typing import Callable
 
 import drivenbymoss
 from drivenbymoss import protocol
+from drivenbymoss.protocol import ArrangerFlag, ChKind, Dev, MixerFlag, PadKind, ParamOwner
 
 from .banks import Banks
 from .device import EQ_NUM_BANDS
@@ -55,6 +56,40 @@ PARAMS_PER_PAGE = 8
 NUM_DRUM_PADS = 128
 NUM_LAYERS = 32
 NUM_MARKERS = 100
+
+
+class M:
+    """The IDs of protocol.Msg as plain ints: the keys of the reports (``M.CHANNEL_NAME |
+    channel_key(ChKind.TRACK, 3)``). A plain int is a faster dict key than the IntEnum member."""
+
+
+for _member in protocol.Msg:
+    setattr(M, _member.name, int(_member))
+
+
+def channel_key(kind: int, position: int) -> int:
+    """The key base of a channel (the slots ch_kind, ch_pos): OR'ed with a channel, send or
+    slot ID; a send or slot index goes into the third slot (``<< 48``)."""
+    return kind << 16 | position << 32
+
+
+def grid_key(grid) -> int:
+    """The key base of a step grid (``clip.NoteGrid``: the slots grid_steps, grid_rows); a step
+    adds ``(channel << 7 | row) << 48 | step << 64``."""
+    return grid.num_steps << 16 | grid.num_rows << 32
+
+
+# The flags of a slot (collect_slot): ID, attribute
+SLOT_FLAGS = ((M.SLOT_SELECTED, "selected"), (M.SLOT_PLAYING, "playing"), (M.SLOT_RECORDING, "recording"),
+              (M.SLOT_PLAY_QUEUED, "play_queued"), (M.SLOT_REC_QUEUED, "rec_queued"), (M.SLOT_STOP_QUEUED, "stop_queued"))
+
+# The drum machine of collect_specific (/drum: its own IDs, no index), next to Dev.DEVICE and
+# Dev.PRIMARY (the IDs of /device and /primary with the Dev index)
+DRUM = -1
+DEVICE_IDS = (M.DEVICE_EXISTS, M.DEVICE_NAME, M.DEVICE_BYPASS, M.DEVICE_WINDOW, M.DEVICE_EXPAND, M.DEVICE_PARAMETERS,
+              M.DEVICE_HAS_DRUM_PADS, M.DEVICE_HAS_LAYERS, M.DEVICE_HAS_MUTED_PADS, M.DEVICE_HAS_SOLOED_PADS)
+DRUM_IDS = (M.DRUM_EXISTS, M.DRUM_NAME, M.DRUM_BYPASS, M.DRUM_WINDOW, M.DRUM_EXPAND, M.DRUM_PARAMETERS,
+            M.DRUM_HAS_DRUM_PADS, M.DRUM_HAS_LAYERS, M.DRUM_HAS_MUTED_PADS, M.DRUM_HAS_SOLOED_PADS)
 
 
 def format_beats(beats: float, quarters_per_measure: int, offset: int) -> str:
@@ -95,10 +130,11 @@ def format_value(value) -> str:
     return ("" if value is None else str(value)).replace("\n", " ").replace("\r", " ")
 
 
-# No last raw value (None is a value)
+# No last value (None is a value)
 _NONE = object()
 
-# The values put keeps unformatted: they cannot change after the call (a tuple holds numbers)
+# The values put keeps as they are: they cannot change after the call (a tuple holds numbers);
+# others are kept as their text
 _IMMUTABLE = frozenset((bool, int, float, str, tuple, type(None)))
 
 # The protocols of the reports (Reporter.protocol, HostBridge's DBM_HOST_PROTOCOL)
@@ -134,8 +170,7 @@ def address_key(address: str) -> int | None:
         for dummy in _DUMMY_VALUES:
             buffer = drivenbymoss.messages_from_text(f"{address} {dummy}")
             if len(buffer) > protocol.HEADER_SIZE:
-                id_, _t, _op, i0, i1, i2, i3, _n = _HEAD.unpack_from(buffer, protocol.HEADER_SIZE)
-                k = protocol.key(id_, i0, i1, i2, i3)
+                k = protocol.record_key(_HEAD.unpack_from(buffer, protocol.HEADER_SIZE))
                 _KEY_ADDRESSES.setdefault(k, address)
                 break
         _ADDRESS_KEYS[address] = k
@@ -144,15 +179,16 @@ def address_key(address: str) -> int | None:
     return k
 
 
-def key_address(k: int) -> str:
-    """The address of a key (by the core's text form of a record)."""
+def key_address(k) -> str:
+    """The address of a key (by the core's text form of a record); an address stays itself."""
+    if type(k) is str:
+        return k
     address = _KEY_ADDRESSES.get(k)
     if address is None:
-        id_ = k & 0xFFFF
         w = protocol.Writer(64)
-        kind = protocol.KINDS[id_]
+        kind = protocol.KINDS[k & 0xFFFF]
         dummy = {"none": None, "bool": False, "i32": 0, "f64": 0.0, "text": "", "color": None, "notes": [], "step": None, "text_list": []}[kind]
-        w.put(id_, k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64 & 0xFFFF, dummy)
+        w.put_key(k, dummy)
         address = drivenbymoss.messages_to_text(w).split(" ", 1)[0]
         _KEY_ADDRESSES[k] = address
         _ADDRESS_KEYS.setdefault(address, k)
@@ -188,33 +224,70 @@ def _to_color(value):
     return _NONE
 
 
+_CHANNEL_TYPES = {member.name: int(member) for member in protocol.ChannelType}
+
+
+def _to_channel_type(value):
+    """The ChannelType names of the text as their numbers."""
+    return _CHANNEL_TYPES.get(value, _NONE) if type(value) is str else _to_i32(value)
+
+
 _NORMALIZERS = {"none": format_value, "bool": _to_bool, "i32": _to_i32, "f64": _to_f64, "text": _to_text, "color": _to_color}
 """The Python value of a report as the value of its record (by the value kind); _NONE: the value
-is converted by the core from its text (ChannelType names, notes, steps, unusual types). A message
-without a value (e.g. /track/offset, the value is ignored) is reported when the text changes."""
+is converted by the core from its text (notes, steps, unusual types). A message without a value
+(e.g. /track/offset, the value is ignored) is reported when the text changes."""
 
-_WRITERS = {"none": lambda w, id_, i0, i1, i2, i3, v: w.put_none(id_, i0, i1, i2, i3), "bool": protocol.Writer.put_bool, "i32": protocol.Writer.put_i32, "f64": protocol.Writer.put_f64,
-            "text": protocol.Writer.put_text, "color": protocol.Writer.put_color}
+
+def _converted(value):
+    return _NONE
+
+
+class _Spec:
+    """What the reporter needs of an ID: the normalizer and the writer by key."""
+
+    __slots__ = ("normalize", "write", "exact", "limit_shift")
+
+    def __init__(self, id_: int):
+        kind = protocol.KINDS[id_]
+        # The values compared as numbers, not by their records (_changed)
+        self.exact = kind == "f64"
+        self.normalize = _to_channel_type if id_ == protocol.Msg.CHANNEL_TYPE else _NORMALIZERS.get(kind, _converted)
+        self.write = protocol.KEY_PUTTERS.get(kind) if kind in _NORMALIZERS else None
+        # The position of the slot "limit" of the shortened texts (put_displayed)
+        self.limit_shift = 0
+        for index, slot in enumerate(protocol.MSG_INFO[id_].slots):
+            if slot[0][0] == "limit":
+                self.limit_shift = 16 * (index + 1)
+
+
+_SPECS: dict[int, _Spec] = {}
+
+
+def _spec(id_: int) -> _Spec:
+    spec = _SPECS.get(id_)
+    if spec is None:
+        spec = _SPECS[id_] = _Spec(id_)
+    return spec
 
 
 class _Converted(bytes):
-    """A record converted by the core from a text line, with that text."""
-
-    text = ""
+    """A record converted by the core from a text line."""
 
 
 class Reporter:
-    """Collects the reports for the core: lines for ``dbm_update_model`` (``protocol`` text) or
-    records for ``dbm_update_model_bin`` (binary, the default; TYPED_PROTOCOL_PLAN §2.4).
+    """Collects the reports for the core: records for ``dbm_update_model_bin`` (binary, the
+    default; TYPED_PROTOCOL_PLAN §2.4) or lines for ``dbm_update_model`` (``protocol`` text).
 
-    Remembers the last value of each address and reports only changes, unless a dump was
-    requested (the core's ``refresh``); an unchanged raw value is not even formatted. Starts with
+    Remembers the last value of each key and reports only changes, unless a dump was requested
+    (the core's ``refresh``); an unchanged value costs one dict lookup and a compare. Starts with
     a dump. The model is collected by the ``collectors``, in order; the later steps append theirs.
 
-    ``put`` takes an address (``"/track/3/name"``) or a key (``protocol.key(Msg.CHANNEL_NAME,
-    ChKind.TRACK, 3)``); the binary form keys everything by int and writes a record per
-    change. In the check protocol every record is compared with the core's conversion of the
-    text line which the text protocol reports (the dual run of TYPED_PROTOCOL_PLAN §3).
+    ``put`` takes a key (``protocol.key(Msg.CHANNEL_NAME, ChKind.TRACK, 3)``, the fast path) or
+    an address (``"/track/3/name"``, resolved to its key by the core once). The binary form
+    writes a record per change; the text form a line ``<address> <value>`` (the address of a key
+    from the core, once). In the check protocol every record is compared with the core's
+    conversion of the text line which the text protocol reports (the dual run of
+    TYPED_PROTOCOL_PLAN §3).
     """
 
     def __init__(self, daw: SimDaw, banks: Banks, clock: Callable[[], float] = lambda: 0.0,
@@ -228,18 +301,12 @@ class Reporter:
         self.protocol = protocol_ or default_protocol()
         self.binary = self.protocol != TEXT
         self.check = self.protocol == CHECK
-        self._last_values: dict[object, object] = {}
-        """The last value of each address (text: the line's value by address; binary: the
-        record's value by key)."""
-        self.last_raw: dict[object, object] = {}
-        """The last value of each address before formatting (``put`` compares it first; only
-        immutable values: flags, numbers, texts, colors)."""
-        self._limited_addresses: dict[str, tuple[str, ...]] = {}
+        self.last: dict[object, object] = {}
+        """The last value of each key (an address only if it is not in the table), as put (the
+        text of a value which is not immutable)."""
         self.lines: list[str] = []
         self.writer = protocol.Writer()
         self._spare = protocol.Writer()
-        self.changed: list[object] = []
-        """The keys written in this collection (binary)."""
         self.text_lines: list[str] = []
         """Lines which are not in the table (binary: sent as text)."""
         self.dump_all = True
@@ -249,7 +316,7 @@ class Reporter:
         self.note_grids: list = []
         """The step grids of the cursor clip (``clip.NoteGrid``, from the model setup's
         ``noteClips``; set by ``CommandHandler.configure``)."""
-        self._grid_steps: dict[str, set[str]] = {}
+        self._grid_steps: dict[int, set[int]] = {}
         self._converted: dict[tuple, bytes] = {}
         self.collectors: list[Callable[["Reporter"], None]] = [
             Reporter.collect_host_features,
@@ -275,14 +342,14 @@ class Reporter:
         """Report everything with the next collection."""
         self.dump_all = True
 
-    def _address(self, k) -> str:
-        return k if type(k) is str else key_address(k)
-
-    def forget(self, prefix: str) -> None:
-        """Report the values under the prefix again with the next collection."""
-        for k in [k for k in self._last_values if self._address(k).startswith(prefix)]:
-            del self._last_values[k]
-            self.last_raw.pop(k, None)
+    def forget(self, where) -> None:
+        """Report again with the next collection: a key, or the values under an address prefix
+        (by the addresses of the keys)."""
+        if type(where) is int:
+            self.last.pop(where, None)
+            return
+        for k in [k for k in self.last if key_address(k).startswith(where)]:
+            del self.last[k]
 
     def forget_later(self, prefix: str, delay_ms: float = REPORT_AGAIN_DELAY_MS) -> None:
         """As forget, after the delay counted from the last call for the prefix (HOST_BRIDGE_GUIDE
@@ -296,63 +363,77 @@ class Reporter:
                 self.forget(prefix)
                 del self.pending[prefix]
 
-    def put(self, where, value) -> None:
-        """Report a value: ``where`` is an address or a key (protocol.key)."""
-        if self.binary:
-            k = where if type(where) is int else address_key(where)
-            if k is None:
-                k = where
-        else:
-            k = where if type(where) is str else key_address(where)
-        # The same raw value as last time (of the same type: True, 1 and 1.0 have other texts)
-        # gives the same text: no formatting, nothing to report
-        if not self.dump_all:
-            last_raw = self.last_raw.get(k, _NONE)
-            if last_raw is not _NONE and type(last_raw) is type(value) and last_raw == value:
-                return
-        if type(value) in _IMMUTABLE:
-            self.last_raw[k] = value
-        else:
-            self.last_raw.pop(k, None)
-        if type(k) is int:
-            self._put_record(k, value)
+    def put(self, k, value) -> None:
+        """Report a value: ``k`` is a key (protocol.key) or an address."""
+        last = self.last.get(k, _NONE)
+        # The same value as last time (of the same type: True, 1 and 1.0 have other texts):
+        # nothing to report. An address of the table is never in ``last`` (keys only)
+        if last == value and type(last) is type(value) and not self.dump_all:
             return
-        text = format_value(value)
-        last = self._last_values.get(k)
-        self._last_values[k] = text
-        if self.dump_all or text != last:
-            if self.binary:
-                self.text_lines.append(f"{k} {text}")
-            else:
-                self.lines.append(f"{k} {text}")
+        self._changed(k, value, last)
 
-    def _put_record(self, k: int, value) -> None:
-        id_ = k & 0xFFFF
-        kind = protocol.KINDS[id_]
-        normalize = _NORMALIZERS.get(kind)
-        v = normalize(value) if normalize is not None else _NONE
+    def _changed(self, k, value, last) -> None:
+        if type(value) not in _IMMUTABLE:
+            value = format_value(value)
+        if type(k) is str:
+            resolved = address_key(k)
+            if resolved is None:
+                self._put_unknown(k, value)
+                return
+            k = resolved
+            last = self.last.get(k, _NONE)
+            if last == value and type(last) is type(value) and not self.dump_all:
+                return
+        if not self.binary:
+            self._put_line(k, value, last)
+            return
+        spec = _SPECS.get(k & 0xFFFF) or _spec(k & 0xFFFF)
+        v = spec.normalize(value)
         if v is _NONE:
             v = self._convert(k, format_value(value))
-        last = self._last_values.get(k, _NONE)
-        self._last_values[k] = v
-        if not self.dump_all and last is not _NONE and last == v and type(last) is type(v):
+            if last is not _NONE and not self.dump_all and self._convert(k, format_value(last)) == v:
+                self.last[k] = value
+                return
+        elif last is not _NONE and not self.dump_all and (last == value if spec.exact else spec.normalize(last) == v):
+            # Another value of the same record (1 and True; for a double only the same number,
+            # 1 and 1.0: a change of a double is reported even if the rounding of the
+            # transition (_to_f64) gives the same record)
+            self.last[k] = value
             return
+        self.last[k] = value
         w = self.writer
-        start = w.size
-        if type(v) is _Converted:
+        if self.check:
+            start = w.size
+            if type(v) is _Converted:
+                w.buf[w._reserve(len(v)):w.size] = v
+            else:
+                spec.write(w, k, v)
+            self._check(k, value, bytes(w.buf[start:w.size]))
+        elif type(v) is _Converted:
             w.buf[w._reserve(len(v)):w.size] = v
         else:
-            _WRITERS[kind](w, id_, k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64, v)
-        self.changed.append(k)
-        if self.check:
-            self._check(k, value, bytes(w.buf[start:w.size]))
+            spec.write(w, k, v)
+
+    def _put_line(self, k: int, value, last) -> None:
+        """The text protocol: a line if the text changed."""
+        text = format_value(value)
+        self.last[k] = value
+        if self.dump_all or last is _NONE or format_value(last) != text:
+            self.lines.append(f"{key_address(k)} {text}")
+
+    def _put_unknown(self, address: str, value) -> None:
+        """An address which is not in the table: a text line in both protocols."""
+        last = self.last.get(address, _NONE)
+        self.last[address] = value
+        text = format_value(value)
+        if self.dump_all or last is _NONE or format_value(last) != text:
+            (self.text_lines if self.binary else self.lines).append(f"{address} {text}")
 
     def _convert(self, k: int, text: str) -> bytes:
         """The record of a value by the core's conversion of its text line."""
         record = self._converted.get((k, text))
         if record is None:
             record = _Converted(drivenbymoss.messages_from_text(f"{key_address(k)} {text}")[protocol.HEADER_SIZE:])
-            record.text = text
             if len(self._converted) > 4096:
                 self._converted.clear()
             self._converted[(k, text)] = record
@@ -367,31 +448,37 @@ class Reporter:
 
     def text_value(self, k) -> str:
         """The text of the last value of a key or address."""
-        v = self._last_values[k]
-        if type(k) is str or not self.binary:
-            return v
-        if type(v) is _Converted:
-            return v.text
-        raw = self.last_raw.get(k, _NONE)
-        return format_value(v if raw is _NONE else raw)
+        return format_value(self.last[k])
 
-    def put_displayed(self, address: str, text: str, limited: list[str] | None = None) -> None:
-        """A displayed value and its shortened texts (``<address>/6``, ``/8``)."""
-        self.put(address, text)
-        addresses = self._limited_addresses.get(address)
-        if addresses is None:
-            addresses = self._limited_addresses[address] = tuple(f"{address}/{limit}" for limit in LIMITS)
-        for limited_address, short in zip(addresses, limited or [text[:limit] for limit in LIMITS]):
-            self.put(limited_address, short)
+    def put_displayed(self, k, text: str, limited: list[str] | None = None) -> None:
+        """A displayed value and its shortened texts (``<address>/6``, ``/8``; by key the slot
+        "limit")."""
+        self.put(k, text)
+        if type(k) is str:
+            keys = [f"{k}/{limit}" for limit in LIMITS]
+        else:
+            shift = (_SPECS.get(k & 0xFFFF) or _spec(k & 0xFFFF)).limit_shift
+            keys = [k | limit << shift for limit in LIMITS]
+        if limited is None:
+            limited = [text[:limit] for limit in LIMITS]
+        self.put(keys[0], limited[0])
+        self.put(keys[1], limited[1])
 
-    def put_parameter_text(self, address: str, parameter: Parameter) -> None:
-        self.put_displayed(address, parameter.displayed(), [parameter.displayed_limited(limit) for limit in LIMITS])
+    def put_parameter_text(self, k, parameter: Parameter) -> None:
+        self.put_displayed(k, parameter.displayed(), [parameter.displayed_limited(limit) for limit in LIMITS])
 
     def take(self) -> str:
         """The collected lines (empty if nothing changed); starts a new collection. In the binary
-        form the text of the records (for tests and logs)."""
+        form the text of the records (for tests and logs: the addresses by the keys, the values as
+        the text protocol formats them)."""
         if self.binary:
-            lines = [f"{self._address(k)} {self.text_value(k)}" for k in self.changed] + self.text_lines
+            last = self.last
+            lines = []
+            if not self.writer.empty():
+                for _p, head in protocol._records(self.writer.buf[:self.writer.size]):
+                    k = protocol.record_key(head)
+                    lines.append(f"{key_address(k)} {format_value(last[k])}")
+            lines += self.text_lines
             self.take_buffer()
         else:
             lines = self.lines
@@ -407,7 +494,6 @@ class Reporter:
         if w is not None:
             self.writer, self._spare = self._spare, w
             self.writer.clear()
-        self.changed = []
         self.text_lines = []
         self.dump_all = False
         return w, text
@@ -427,111 +513,114 @@ class Reporter:
     def snapshot(self) -> dict[str, str]:
         """The last reported value of every address as text (for tests and the conformance state
         view)."""
-        return {self._address(k): self.text_value(k) for k in self._last_values}
+        return {key_address(k): format_value(v) for k, v in self.last.items()}
 
     @property
     def last_values(self) -> "Mapping[str, str]":
         """The last reported value of every address as text (a live read-only view)."""
         return _TextView(self)
 
-
     # The model (BitwigModel.collect)
 
     def collect_host_features(self) -> None:
-        self.put("/host/features", " ".join(self.features()))
+        self.put(M.HOST_FEATURES, " ".join(self.features()))
 
     def collect_transport(self) -> None:
         """BitwigModel.collectTransport (without the application and project values)."""
         t = self.daw.transport
+        put = self.put
         qpm = max(1, int(4 * t.numerator / t.denominator))
-        self.put("/play", t.playing)
-        self.put("/record", t.recording)
-        self.put("/repeat", t.loop)
-        self.put("/tempo", float(t.tempo))
-        self.put("/numerator", t.numerator)
-        self.put("/denominator", t.denominator)
-        self.put("/time", t.seconds())
-        self.put("/beats/position", float(t.play_start))
-        self.put("/beats/loop/start", float(t.loop_start))
-        self.put("/beats/loop/length", float(t.loop_length))
-        self.put("/time/text", format_time(t.tempo, t.position) if t.tempo > 0 else "")
-        self.put("/beats/text", format_beats(t.position, qpm, 1))
-        self.put("/beats/loop/start/text", format_beats(t.loop_start, qpm, 1))
-        self.put("/beats/loop/length/text", format_beats(t.loop_length, qpm, 0))
-        self.put("/click", t.metronome)
-        self.put("/overdub/arranger", t.overdub_arranger)
-        self.put("/overdub/launcher", t.overdub_launcher)
-        self.put("/automode/arranger", t.automation_arranger)
-        self.put("/automode/launcher", t.automation_launcher)
+        put(M.PLAY, t.playing)
+        put(M.RECORD, t.recording)
+        put(M.REPEAT, t.loop)
+        put(M.TEMPO, float(t.tempo))
+        put(M.NUMERATOR, t.numerator)
+        put(M.DENOMINATOR, t.denominator)
+        put(M.TIME, t.seconds())
+        put(M.BEATS_POSITION, float(t.play_start))
+        put(M.BEATS_LOOP_START, float(t.loop_start))
+        put(M.BEATS_LOOP_LENGTH, float(t.loop_length))
+        put(M.TIME_TEXT, format_time(t.tempo, t.position) if t.tempo > 0 else "")
+        put(M.BEATS_TEXT, format_beats(t.position, qpm, 1))
+        put(M.BEATS_LOOP_START_TEXT, format_beats(t.loop_start, qpm, 1))
+        put(M.BEATS_LOOP_LENGTH_TEXT, format_beats(t.loop_length, qpm, 0))
+        put(M.METRONOME, t.metronome)
+        put(M.OVERDUB_ARRANGER, t.overdub_arranger)
+        put(M.OVERDUB_LAUNCHER, t.overdub_launcher)
+        put(M.AUTOMATION_ARRANGER, t.automation_arranger)
+        put(M.AUTOMATION_LAUNCHER, t.automation_launcher)
         modes = {"touch": 2, "write": 3, "latch": 4}
-        self.put("/automode", modes.get(t.automation_mode, 1) if t.automation_arranger or t.automation_launcher else 1)
-        self.put("/click/preroll", 2 if t.preroll_metronome else 0)
-        self.put("/click/prerollMeasures", max(0, PREROLLS.index(t.preroll)) if t.preroll in PREROLLS else 0)
-        self.put("/click/volume", t.metronome_volume.value)
+        put(M.AUTOMATION_MODE, modes.get(t.automation_mode, 1) if t.automation_arranger or t.automation_launcher else 1)
+        put(M.METRONOME_PREROLL, 2 if t.preroll_metronome else 0)
+        put(M.METRONOME_PREROLL_MEASURES, max(0, PREROLLS.index(t.preroll)) if t.preroll in PREROLLS else 0)
+        put(M.METRONOME_VOLUME, t.metronome_volume.value)
         # As TransportImpl.getMetronomeVolumeStr: the text limited to 6 and the unit
-        self.put("/click/volumeStr", t.metronome_volume.displayed_limited(6) + " dB")
-        self.put("/click/ticks", t.metronome_ticks)
-        self.put("/punchIn", t.punch_in)
-        self.put("/punchOut", t.punch_out)
-        self.put("/fill", t.fill)
-        self.put("/project/canUndo", self.daw.application.can_undo)
-        self.put("/project/canRedo", self.daw.application.can_redo)
+        put(M.METRONOME_VOLUME_STR, t.metronome_volume.displayed_limited(6) + " dB")
+        put(M.METRONOME_TICKS, t.metronome_ticks)
+        put(M.PUNCH_IN, t.punch_in)
+        put(M.PUNCH_OUT, t.punch_out)
+        put(M.FILL, t.fill)
+        put(M.PROJECT_CAN_UNDO, self.daw.application.can_undo)
+        put(M.PROJECT_CAN_REDO, self.daw.application.can_redo)
         self.collect_application()
 
     def collect_application(self) -> None:
         """BitwigModel.collectApplication (the simulated part): the panel layout, the visibility
         flags of the arranger and the mixer."""
         daw = self.daw
-        self.put("/layout", daw.application.panel_layout)
-        self.put("/followPlayback", daw.arranger.playback_follow)
+        self.put(M.LAYOUT, daw.application.panel_layout)
+        self.put(M.FOLLOW_PLAYBACK, daw.arranger.playback_follow)
         arranger, mixer = daw.arranger, daw.mixer
-        for name, value in (("cueMarkers", arranger.cue_markers), ("doubleRowTrackHeight", arranger.double_row_track_height),
-                            ("clipLauncher", arranger.clip_launcher), ("timeline", arranger.timeline), ("ioSection", arranger.io_section),
-                            ("effectTracks", arranger.effect_tracks)):
-            self.put("/arranger/" + name, value)
-        for name, value in (("clipLauncherSection", mixer.clip_launcher_section), ("crossFadeSection", mixer.cross_fade_section),
-                            ("deviceSection", mixer.device_section), ("ioSection", mixer.io_section), ("meterSection", mixer.meter_section),
-                            ("sendSection", mixer.send_section)):
-            self.put("/mixer/" + name, value)
+        for flag, value in ((ArrangerFlag.CUE_MARKERS, arranger.cue_markers), (ArrangerFlag.DOUBLE_ROW_TRACK_HEIGHT, arranger.double_row_track_height),
+                            (ArrangerFlag.CLIP_LAUNCHER, arranger.clip_launcher), (ArrangerFlag.TIMELINE, arranger.timeline),
+                            (ArrangerFlag.IO_SECTION, arranger.io_section), (ArrangerFlag.EFFECT_TRACKS, arranger.effect_tracks)):
+            self.put(M.ARRANGER | flag << 16, value)
+        for flag, value in ((MixerFlag.CLIP_LAUNCHER_SECTION, mixer.clip_launcher_section), (MixerFlag.CROSS_FADE_SECTION, mixer.cross_fade_section),
+                            (MixerFlag.DEVICE_SECTION, mixer.device_section), (MixerFlag.IO_SECTION, mixer.io_section),
+                            (MixerFlag.METER_SECTION, mixer.meter_section), (MixerFlag.SEND_SECTION, mixer.send_section)):
+            self.put(M.MIXER | flag << 16, value)
 
     def track_list(self) -> list[Channel]:
         return self.daw.track_list(self.banks.full_flat_track_list)
 
-    def collect_channel(self, prefix: str, channel: Channel) -> None:
-        """BitwigModel.collectChannel (with the shortened texts)."""
-        self.put(prefix + "name", channel.name)
-        self.put(prefix + "color", channel.color)
-        self.put(prefix + "mute", channel.mute)
-        self.put(prefix + "solo", channel.solo)
-        self.put(prefix + "active", channel.activated)
-        self.put(prefix + "volume", channel.volume.value)
-        self.put_parameter_text(prefix + "volume/str", channel.volume)
-        self.put(prefix + "pan", channel.pan.value)
-        self.put_parameter_text(prefix + "pan/str", channel.pan)
+    def collect_channel(self, base: int, channel: Channel) -> None:
+        """BitwigModel.collectChannel (with the shortened texts); ``base``: channel_key."""
+        put = self.put
+        put(M.CHANNEL_NAME | base, channel.name)
+        put(M.CHANNEL_COLOR | base, channel.color)
+        put(M.CHANNEL_MUTE | base, channel.mute)
+        put(M.CHANNEL_SOLO | base, channel.solo)
+        put(M.CHANNEL_ACTIVE | base, channel.activated)
+        put(M.CHANNEL_VOLUME | base, channel.volume.value)
+        self.put_parameter_text(M.CHANNEL_VOLUME_STR | base, channel.volume)
+        put(M.CHANNEL_PAN | base, channel.pan.value)
+        self.put_parameter_text(M.CHANNEL_PAN_STR | base, channel.pan)
 
-    def collect_vu(self, prefix: str, channel: Channel) -> None:
-        self.put(prefix + "vuleft", float(channel.vu_left))
-        self.put(prefix + "vuright", float(channel.vu_right))
-        self.put(prefix + "vu", (channel.vu_left + channel.vu_right) / 2.0)
+    def collect_vu(self, base: int, channel: Channel) -> None:
+        self.put(M.CHANNEL_VU_LEFT | base, float(channel.vu_left))
+        self.put(M.CHANNEL_VU_RIGHT | base, float(channel.vu_right))
+        self.put(M.CHANNEL_VU | base, (channel.vu_left + channel.vu_right) / 2.0)
 
-    def collect_sends(self, prefix: str, channel: Channel, with_color: bool) -> None:
+    def collect_sends(self, base: int, channel: Channel, with_color: bool) -> None:
         count = min(len(channel.sends), self.banks.num_sends)
+        put = self.put
         for index, send in enumerate(channel.sends[:count]):
-            send_prefix = f"{prefix}send/{index}/"
-            self.put(send_prefix + "name", send.name)
-            self.put(send_prefix + "volume", send.volume.value)
-            self.put_parameter_text(send_prefix + "volume/str", send.volume)
-            self.put(send_prefix + "active", send.enabled)
+            send_base = base | index << 48
+            put(M.SEND_NAME | send_base, send.name)
+            put(M.SEND_VOLUME | send_base, send.volume.value)
+            self.put_parameter_text(M.SEND_VOLUME_STR | send_base, send.volume)
+            put(M.SEND_ACTIVE | send_base, send.enabled)
             if with_color:
-                self.put(send_prefix + "color", send.color)
-        self.put(prefix + "send/count", count)
+                put(M.SEND_COLOR | send_base, send.color)
+        put(M.SEND_COUNT | base, count)
 
-    def collect_track_flags(self, prefix: str, track) -> None:
-        self.put(prefix + "recarm", track.arm)
-        self.put(prefix + "monitor", track.monitoring)
-        self.put(prefix + "autoMonitor", track.monitor_mode == "AUTO")
-        self.put(prefix + "canHoldNotes", track.can_hold_notes)
-        self.put(prefix + "canHoldAudio", track.can_hold_audio)
+    def collect_track_flags(self, base: int, track) -> None:
+        put = self.put
+        put(M.CHANNEL_REC_ARM | base, track.arm)
+        put(M.CHANNEL_MONITOR | base, track.monitoring)
+        put(M.CHANNEL_AUTO_MONITOR | base, track.monitor_mode == "AUTO")
+        put(M.CHANNEL_CAN_HOLD_NOTES | base, track.can_hold_notes)
+        put(M.CHANNEL_CAN_HOLD_AUDIO | base, track.can_hold_audio)
 
     @staticmethod
     def track_type(track) -> str:
@@ -541,68 +630,72 @@ class Reporter:
         """BitwigModel.collectTracks and collectSlots, for all tracks."""
         tracks = self.track_list()
         daw = self.daw
+        put = self.put
         selected = tracks.index(daw.selected_channel) if daw.selected_channel in tracks else -1
         cursor = tracks.index(daw.cursor_channel) if daw.cursor_channel in tracks else -1
-        self.put("/track/pinned", cursor if daw.cursor.pinned and cursor >= 0 else -1)
-        self.put("/track/hasPrevious", cursor > 0)
-        self.put("/track/hasNext", 0 <= cursor < len(tracks) - 1)
-        self.put("/track/offset", self.banks.track_offset)
+        put(M.TRACK_PINNED, cursor if daw.cursor.pinned and cursor >= 0 else -1)
+        put(M.TRACK_HAS_PREVIOUS, cursor > 0)
+        put(M.TRACK_HAS_NEXT, 0 <= cursor < len(tracks) - 1)
+        put(M.TRACK_OFFSET, self.banks.track_offset)
         # A deselection outside of the list (e.g. the track was removed)
         if self._last_selected != selected and self._last_selected >= len(tracks):
-            self.put(f"/track/{self._last_selected}/select", False)
+            put(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, self._last_selected), False)
         self._last_selected = selected
 
         num_scenes = len(daw.scenes)
         for position, track in enumerate(tracks):
-            prefix = f"/track/{position}/"
-            self.put(prefix + "exists", 1)
-            self.put(prefix + "number", position)
-            self.put(prefix + "type", self.track_type(track))
-            self.put(prefix + "isGroupExpanded", track.group_expanded)
+            base = channel_key(ChKind.TRACK, position)
+            put(M.CHANNEL_EXISTS | base, 1)
+            put(M.CHANNEL_NUMBER | base, position)
+            put(M.CHANNEL_TYPE | base, self.track_type(track))
+            put(M.CHANNEL_IS_GROUP_EXPANDED | base, track.group_expanded)
             if position != selected:
-                self.put(prefix + "select", False)
-            self.collect_track_flags(prefix, track)
-            self.collect_vu(prefix, track)
-            self.collect_channel(prefix, track)
-            self.collect_sends(prefix, track, with_color=True)
-            self.put(prefix + "isStopped", track.is_stopped)
-            self.put(prefix + "slot/count", num_scenes)
+                put(M.CHANNEL_SELECTED | base, False)
+            self.collect_track_flags(base, track)
+            self.collect_vu(base, track)
+            self.collect_channel(base, track)
+            self.collect_sends(base, track, with_color=True)
+            put(M.CHANNEL_IS_STOPPED | base, track.is_stopped)
+            put(M.SLOT_COUNT | base, num_scenes)
             for index in range(num_scenes):
-                self.collect_slot(f"{prefix}slot/{index}/", track.slots[index] if index < len(track.slots) else None)
-        self.put("/track/count", len(tracks))
+                self.collect_slot(base | index << 48, track.slots[index] if index < len(track.slots) else None)
+        put(M.TRACK_COUNT, len(tracks))
         if selected >= 0:
-            self.put(f"/track/{selected}/select", True)
+            put(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, selected), True)
         # The notes which play on the cursor track, in the note format of the core; the core
         # keeps one note cache: the notes of a new cursor track are reported again
+        notes_key = M.CHANNEL_PLAYING_NOTES | channel_key(ChKind.TRACK, cursor)
         if cursor != self._last_cursor:
             self._last_cursor = cursor
-            self.forget(f"/track/{cursor}/playingnotes")
+            self.forget(notes_key)
         if cursor >= 0:
             notes = getattr(tracks[cursor], "playing_notes", {})
-            self.put(f"/track/{cursor}/playingnotes", ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in notes.items()))
+            put(notes_key, ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in notes.items()))
 
-    def collect_slot(self, prefix: str, slot) -> None:
-        self.put(prefix + "exists", slot is not None)
-        self.put(prefix + "hasContent", slot is not None and slot.has_content)
-        self.put(prefix + "name", "" if slot is None else slot.name)
-        self.put(prefix + "color", (0, 0, 0) if slot is None else slot.color)
-        for field, attribute in (("selected", "selected"), ("playing", "playing"), ("recording", "recording"),
-                                 ("playQueued", "play_queued"), ("recQueued", "rec_queued"), ("stopQueued", "stop_queued")):
-            self.put(prefix + field, slot is not None and getattr(slot, attribute))
+    def collect_slot(self, base: int, slot) -> None:
+        """A slot; ``base``: the channel key with the slot index."""
+        put = self.put
+        put(M.SLOT_EXISTS | base, slot is not None)
+        put(M.SLOT_HAS_CONTENT | base, slot is not None and slot.has_content)
+        put(M.SLOT_NAME | base, "" if slot is None else slot.name)
+        put(M.SLOT_COLOR | base, (0, 0, 0) if slot is None else slot.color)
+        for id_, attribute in SLOT_FLAGS:
+            put(id_ | base, slot is not None and getattr(slot, attribute))
 
     def collect_effect_tracks(self) -> None:
         """BitwigModel.collectEffectTracks, for all effect tracks."""
-        self.put("/fxtrack/offset", self.banks.fx_track_offset)
+        put = self.put
+        put(M.EFFECT_TRACK_OFFSET, self.banks.fx_track_offset)
         for position, track in enumerate(self.daw.effect_tracks):
-            prefix = f"/fxtrack/{position}/"
-            self.put(prefix + "exists", 1)
-            self.put(prefix + "number", position)
-            self.put(prefix + "type", self.track_type(track))
-            self.put(prefix + "select", track.selected)
-            self.collect_track_flags(prefix, track)
-            self.collect_channel(prefix, track)
-            self.collect_sends(prefix, track, with_color=False)
-        self.put("/fxtrack/count", len(self.daw.effect_tracks))
+            base = channel_key(ChKind.EFFECT, position)
+            put(M.CHANNEL_EXISTS | base, 1)
+            put(M.CHANNEL_NUMBER | base, position)
+            put(M.CHANNEL_TYPE | base, self.track_type(track))
+            put(M.CHANNEL_SELECTED | base, track.selected)
+            self.collect_track_flags(base, track)
+            self.collect_channel(base, track)
+            self.collect_sends(base, track, with_color=False)
+        put(M.EFFECT_TRACK_COUNT, len(self.daw.effect_tracks))
 
     def collect_markers(self) -> None:
         """BitwigModel.collectMarkers (if the model setup has ``numMarkers`` > 0): the markers of
@@ -610,35 +703,38 @@ class Reporter:
         if int(self.banks.setup.get("numMarkers", 0)) <= 0:
             return
         markers = self.daw.markers.items
+        put = self.put
         for index in range(NUM_MARKERS):
             marker = markers[index] if index < len(markers) else None
-            prefix = f"/marker/{index}/"
-            self.put(prefix + "exists", marker is not None)
+            base = index << 16
+            put(M.MARKER_EXISTS | base, marker is not None)
             if marker is None:
                 continue
-            self.put(prefix + "number", index)
-            self.put(prefix + "name", marker.name)
-            self.put(prefix + "color", marker.color)
-            self.put(prefix + "position", float(marker.position))
-        self.put("/marker/count", min(len(markers), NUM_MARKERS))
+            put(M.MARKER_NUMBER | base, index)
+            put(M.MARKER_NAME | base, marker.name)
+            put(M.MARKER_COLOR | base, marker.color)
+            put(M.MARKER_POSITION | base, float(marker.position))
+        put(M.MARKER_COUNT, min(len(markers), NUM_MARKERS))
 
     def collect_scenes(self) -> None:
         """BitwigModel.collectScenes, for all scenes."""
-        self.put("/scene/offset", self.banks.scene_offset)
+        put = self.put
+        put(M.SCENE_OFFSET, self.banks.scene_offset)
         for position, scene in enumerate(self.daw.scenes):
-            prefix = f"/scene/{position}/"
-            self.put(prefix + "exists", True)
-            self.put(prefix + "number", position)
-            self.put(prefix + "name", scene.name)
-            self.put(prefix + "color", scene.color)
-            self.put(prefix + "select", scene.selected)
-        self.put("/scene/count", len(self.daw.scenes))
+            base = position << 16
+            put(M.SCENE_EXISTS | base, True)
+            put(M.SCENE_NUMBER | base, position)
+            put(M.SCENE_NAME | base, scene.name)
+            put(M.SCENE_COLOR | base, scene.color)
+            put(M.SCENE_SELECTED | base, scene.selected)
+        put(M.SCENE_COUNT, len(self.daw.scenes))
 
     def collect_master(self) -> None:
         master = self.daw.master
-        self.put("/master/select", master.selected)
-        self.collect_vu("/master/", master)
-        self.collect_channel("/master/", master)
+        base = channel_key(ChKind.MASTER, 0)
+        self.put(M.CHANNEL_SELECTED | base, master.selected)
+        self.collect_vu(base, master)
+        self.collect_channel(base, master)
 
     def collect_note_repeat(self) -> None:
         """BitwigModel.collectNoteRepeat: the arpeggiator of the default note input (nothing
@@ -648,48 +744,50 @@ class Reporter:
         if note_input is None:
             return
         arpeggiator = note_input.arpeggiator
-        self.put("/noterepeat/active", arpeggiator.enabled)
+        self.put(M.NOTE_REPEAT_ACTIVE, arpeggiator.enabled)
         if arpeggiator.rate > 0:
-            self.put("/noterepeat/period", 1.0 / arpeggiator.rate)
-        self.put("/noterepeat/notelength", float(arpeggiator.gate_length))
-        self.put("/noterepeat/mode", arpeggiator.mode_index)
-        self.put("/noterepeat/velocity", arpeggiator.use_pressure_to_velocity)
+            self.put(M.NOTE_REPEAT_PERIOD, 1.0 / arpeggiator.rate)
+        self.put(M.NOTE_REPEAT_NOTE_LENGTH, float(arpeggiator.gate_length))
+        self.put(M.NOTE_REPEAT_MODE, arpeggiator.mode_index)
+        self.put(M.NOTE_REPEAT_VELOCITY, arpeggiator.use_pressure_to_velocity)
 
     # Devices (BitwigModel.collectDevice, SpecificDevice.collect)
 
     def num_param_pages(self) -> int:
         return max(0, int(self.banks.setup.get("numParamPages", 8)))
 
-    def collect_pages(self, prefix: str, device, cursor: bool = False) -> None:
+    def collect_pages(self, owner: int, device, cursor: bool = False) -> None:
         """BitwigModel.collectPages and the page names: the parameters of the first
         ``numParamPages`` pages as one flat list, the page names, the selected page. The
         simulated parameters have no names and texts (device.py); the value of a parameter
-        which a command set is reported. ``cursor``: the pages as the cursor device shows
-        them."""
+        which a command set is reported. ``owner``: the ParamOwner (= PageOwner); ``cursor``:
+        the pages as the cursor device shows them."""
         num_pages = self.num_param_pages()
         pages = device.page_names(cursor) if device is not None else []
         used = min(len(pages), num_pages)
+        put = self.put
+        owner_base = owner << 16
         for index in range(num_pages * PARAMS_PER_PAGE):
-            param = f"{prefix}/param/{index}/"
+            base = owner_base | index << 32
             in_use = device is not None and index < used * PARAMS_PER_PAGE
             control = device.remote_control(index) if in_use and device.remote_controls else None
             if control is not None:
                 parameter = control.parameter
-                self.put(param + "name", control.name)
-                self.put(param + "value", parameter.value)
-                self.put_parameter_text(param + "value/str", parameter)
+                put(M.PARAM_NAME | base, control.name)
+                put(M.PARAM_VALUE | base, parameter.value)
+                self.put_parameter_text(M.PARAM_VALUE_STR | base, parameter)
             else:
                 parameter = device.parameters.get(index) if in_use and not device.remote_controls else None
-                self.put(param + "name", "")
-                self.put(param + "value", parameter.value if parameter is not None else 0)
-                self.put_displayed(param + "value/str", "", ["", ""])
-            self.put(param + "steps", -1)
-            self.put(param + "modulated", parameter.value if parameter is not None else 0)
-        self.put(prefix + "/param/count", used * PARAMS_PER_PAGE)
+                put(M.PARAM_NAME | base, "")
+                put(M.PARAM_VALUE | base, parameter.value if parameter is not None else 0)
+                self.put_displayed(M.PARAM_VALUE_STR | base, "", ["", ""])
+            put(M.PARAM_STEPS | base, -1)
+            put(M.PARAM_MODULATED | base, parameter.value if parameter is not None else 0)
+        put(M.PARAM_COUNT | owner_base, used * PARAMS_PER_PAGE)
         for index in range(used):
-            self.put(f"{prefix}/page/{index}/name", pages[index])
-        self.put(prefix + "/page/count", used)
-        self.put(prefix + "/page/selected", device.selected_page if device is not None else -1)
+            put(M.PAGE_NAME | owner_base | index << 32, pages[index])
+        put(M.PAGE_COUNT | owner_base, used)
+        put(M.PAGE_SELECTED | owner_base, device.selected_page if device is not None else -1)
 
     def collect_device(self) -> None:
         """BitwigModel.collectDevice: the cursor device of the cursor track, its siblings (the
@@ -699,90 +797,100 @@ class Reporter:
         device = self.daw.cursor_device
         exists = device is not None
         position = devices.index(device) if exists else -1
-        self.put("/device/count", len(devices))
-        self.put("/device/exists", exists)
-        self.put("/device/position", position)
-        self.put("/device/name", device.name if exists else "")
-        self.put("/device/bypass", exists and not device.enabled)
-        self.put("/device/window", exists and device.window_open)
-        self.put("/device/pinned", self.daw.cursor.device_pinned)
-        self.put("/device/expand", exists and device.expanded)
+        put = self.put
+        put(M.DEVICE_COUNT, len(devices))
+        put(M.DEVICE_EXISTS, exists)
+        put(M.DEVICE_POSITION, position)
+        put(M.DEVICE_NAME, device.name if exists else "")
+        put(M.DEVICE_BYPASS, exists and not device.enabled)
+        put(M.DEVICE_WINDOW, exists and device.window_open)
+        put(M.DEVICE_PINNED, self.daw.cursor.device_pinned)
+        put(M.DEVICE_EXPAND, exists and device.expanded)
         offset = chain.sibling_offset if chain is not None else 0
         for index in range(NUM_SIBLINGS):
             sibling_position = offset + index
             sibling = devices[sibling_position] if sibling_position < len(devices) else None
-            prefix = f"/device/sibling/{index + 1}/"
-            self.put(prefix + "name", sibling.name if sibling is not None else "")
-            self.put(prefix + "bypass", sibling is not None and not sibling.enabled)
-            self.put(prefix + "position", sibling_position if sibling is not None else -1)
-            self.put(prefix + "selected", sibling is not None and sibling_position == position)
-        self.collect_pages("/device", device, cursor=True)
+            # /device/sibling/<index + 1>/: the slot holds the index
+            base = index << 32
+            put(M.DEVICE_SIBLING_NAME | base, sibling.name if sibling is not None else "")
+            put(M.DEVICE_SIBLING_BYPASS | base, sibling is not None and not sibling.enabled)
+            put(M.DEVICE_SIBLING_POSITION | base, sibling_position if sibling is not None else -1)
+            put(M.DEVICE_SIBLING_SELECTED | base, sibling is not None and sibling_position == position)
+        self.collect_pages(ParamOwner.DEVICE, device, cursor=True)
 
     def num_device_layers(self) -> int:
         return max(0, int(self.banks.setup.get("numDeviceLayers", 8)))
 
-    def collect_specific(self, prefix: str, device, num_pads: int, num_layers: int, pages: bool, cursor: bool = False) -> None:
+    def collect_specific(self, dev: int, device, num_pads: int, num_layers: int, pages: bool, cursor: bool = False) -> None:
         """SpecificDevice.collect of the Bitwig extension: the device, its pages (``pages``),
         ``num_pads`` drum pads and ``num_layers`` layers (as the bank sizes of the Bitwig
-        extension, all items reported)."""
+        extension, all items reported). ``dev``: Dev.DEVICE, Dev.PRIMARY or DRUM (the drum
+        machine, its own IDs)."""
         exists = device is not None
-        self.put(prefix + "/exists", exists)
-        self.put(prefix + "/name", device.name if exists else "")
-        self.put(prefix + "/bypass", exists and not device.enabled)
-        self.put(prefix + "/window", exists and device.window_open)
-        self.put(prefix + "/expand", exists and device.expanded)
-        self.put(prefix + "/parameters", exists and device.parameters_visible)
-        self.put(prefix + "/hasDrumPads", exists and device.has_drum_pads)
-        self.put(prefix + "/hasLayers", exists and device.has_layers)
+        put = self.put
+        ids = DRUM_IDS if dev == DRUM else DEVICE_IDS
+        base = 0 if dev == DRUM else dev << 16
+        put(ids[0] | base, exists)
+        put(ids[1] | base, device.name if exists else "")
+        put(ids[2] | base, exists and not device.enabled)
+        put(ids[3] | base, exists and device.window_open)
+        put(ids[4] | base, exists and device.expanded)
+        put(ids[5] | base, exists and device.parameters_visible)
+        put(ids[6] | base, exists and device.has_drum_pads)
+        put(ids[7] | base, exists and device.has_layers)
         if pages:
-            self.collect_pages(prefix, device, cursor)
+            self.collect_pages(dev, device, cursor)
+        pad_dev = Dev.DEVICE if dev == DRUM else dev
         if num_pads > 0:
-            self.put(prefix + "/hasMutedPads", exists and device.has_muted_pads)
-            self.put(prefix + "/hasSoloedPads", exists and device.has_soloed_pads)
+            put(ids[8] | base, exists and device.has_muted_pads)
+            put(ids[9] | base, exists and device.has_soloed_pads)
             pads = device.drum_pads if exists and device.drum_pads is not None else []
+            pad_base = PadKind.PAD << 16 | pad_dev << 32 if dev != DRUM else PadKind.DRUM_PAD << 16
             for index in range(num_pads):
-                self.collect_layer(f"{prefix}/pad/{index}/", pads[index] if index < len(pads) else None)
+                self.collect_layer(pad_base | index << 48, pads[index] if index < len(pads) else None)
         if num_layers <= 0:
             return
         layers = device.layer_list() if exists else []
-        self.put(prefix + "/layer/count", min(len(layers), num_layers))
+        put(M.DEVICE_LAYER_COUNT | base, min(len(layers), num_layers))
+        layer_base = PadKind.LAYER << 16 | pad_dev << 32
         for index in range(num_layers):
-            self.collect_layer(f"{prefix}/layer/{index}/", layers[index] if index < len(layers) else None)
+            self.collect_layer(layer_base | index << 48, layers[index] if index < len(layers) else None)
 
-    def collect_layer(self, prefix: str, layer) -> None:
+    def collect_layer(self, base: int, layer) -> None:
         """SpecificDevice.collectItem: an empty item has the values of an empty Bitwig channel
-        (layer.py)."""
+        (layer.py). ``base``: the pad key (PadKind, Dev, index)."""
         exists = layer is not None and layer.exists
-        self.put(prefix + "exists", exists)
-        self.put(prefix + "select", exists and layer.selected)
-        self.put(prefix + "name", layer.name if exists else "")
-        self.put(prefix + "color", layer.color if exists else (0, 0, 0))
-        self.put(prefix + "mute", exists and layer.mute)
-        self.put(prefix + "solo", exists and layer.solo)
-        self.put(prefix + "active", layer.activated if exists else True)
-        self.put(prefix + "volume", layer.volume.value if exists else 0.0)
-        self.put(prefix + "volume/str", layer.volume.displayed() if exists else "")
-        self.put(prefix + "pan", layer.pan.value if exists else 0.0)
-        self.put(prefix + "pan/str", layer.pan.displayed() if exists else "")
+        put = self.put
+        put(M.PAD_EXISTS | base, exists)
+        put(M.PAD_SELECTED | base, exists and layer.selected)
+        put(M.PAD_NAME | base, layer.name if exists else "")
+        put(M.PAD_COLOR | base, layer.color if exists else (0, 0, 0))
+        put(M.PAD_MUTE | base, exists and layer.mute)
+        put(M.PAD_SOLO | base, exists and layer.solo)
+        put(M.PAD_ACTIVE | base, layer.activated if exists else True)
+        put(M.PAD_VOLUME | base, layer.volume.value if exists else 0.0)
+        put(M.PAD_VOLUME_STR | base, layer.volume.displayed() if exists else "")
+        put(M.PAD_PAN | base, layer.pan.value if exists else 0.0)
+        put(M.PAD_PAN_STR | base, layer.pan.displayed() if exists else "")
 
     def collect_device_layers(self) -> None:
         """``cursorDeviceLayers.collect``: the layers of the cursor device (``numDeviceLayers``),
         no pads, no pages."""
-        self.collect_specific("/device", self.daw.cursor_device, 0, self.num_device_layers(), pages=False)
+        self.collect_specific(Dev.DEVICE, self.daw.cursor_device, 0, self.num_device_layers(), pages=False)
 
     def collect_drum(self) -> None:
         """The first Drum Machine of the cursor track (``drumDevice``, if the model setup does not
         say ``wantsDrumDevice`` false): 128 pads, no layers, no pages."""
         if not bool(self.banks.setup.get("wantsDrumDevice", True)):
             return
-        self.collect_specific("/drum", self.daw.drum_device, NUM_DRUM_PADS, 0, pages=False)
+        self.collect_specific(DRUM, self.daw.drum_device, NUM_DRUM_PADS, 0, pages=False)
 
     def collect_primary(self) -> None:
         """SpecificDevice.collect for ``/primary`` (the first instrument of the cursor track: its
         pages, 128 pads, 32 layers), if the controller asks for it (``deviceIds``)."""
         if "FIRST_INSTRUMENT" not in self.banks.setup.get("deviceIds", []):
             return
-        self.collect_specific("/primary", self.daw.primary_device, NUM_DRUM_PADS, NUM_LAYERS, pages=True)
+        self.collect_specific(Dev.PRIMARY, self.daw.primary_device, NUM_DRUM_PADS, NUM_LAYERS, pages=True)
 
     # The cursor clip (BitwigNoteClip)
 
@@ -793,18 +901,19 @@ class Reporter:
         slot = daw.cursor_clip_slot
         clip = daw.cursor_clip
         exists = clip is not None
-        self.put("/clip/exists", exists)
+        put = self.put
+        put(M.CLIP_EXISTS, exists)
         if exists:
-            self.put("/clip/start", float(clip.play_start))
-        self.put("/clip/end", float(clip.play_stop) if exists else 0.0)
-        self.put("/clip/loop", exists and clip.loop)
+            put(M.CLIP_START, float(clip.play_start))
+        put(M.CLIP_END, float(clip.play_stop) if exists else 0.0)
+        put(M.CLIP_LOOP, exists and clip.loop)
         if exists:
-            self.put("/clip/loopStart", float(clip.loop_start))
-        self.put("/clip/loopLength", float(clip.loop_length) if exists else 0.0)
-        self.put("/clip/shuffle", exists and clip.shuffle)
-        self.put("/clip/accent", clip.accent.value if exists else 0.0)
-        self.put("/clip/pinned", daw.cursor.clip_pinned)
-        self.put("/clip/color", slot.clip_color if exists else (0, 0, 0))
+            put(M.CLIP_LOOP_START, float(clip.loop_start))
+        put(M.CLIP_LOOP_LENGTH, float(clip.loop_length) if exists else 0.0)
+        put(M.CLIP_SHUFFLE, exists and clip.shuffle)
+        put(M.CLIP_ACCENT, clip.accent.value if exists else 0.0)
+        put(M.CLIP_PINNED, daw.cursor.clip_pinned)
+        put(M.CLIP_COLOR, slot.clip_color if exists else (0, 0, 0))
 
     def playing_step(self, grid) -> int:
         """The step of the play position of the cursor clip in the grid, -1 if it does not play
@@ -823,15 +932,15 @@ class Reporter:
         """BitwigNoteClip.collectGrid: per grid the playing step and the steps which are not
         empty; a step which became empty is reported once as ``0``."""
         for grid in self.note_grids:
-            prefix = f"/clip/grid/{grid.id}/"
-            self.put(prefix + "playingStep", self.playing_step(grid))
-            current = {f"{prefix}step/{channel}/{x}/{y}": line for (channel, x, y), line in grid.steps().items()}
-            for address, line in current.items():
-                self.put(address, line)
-            reported = self._grid_steps.get(grid.id, set())
-            for address in sorted(reported - set(current)):
-                self.put(address, "0")
-            self._grid_steps[grid.id] = set(current)
+            base = grid_key(grid)
+            self.put(M.GRID_PLAYING_STEP | base, self.playing_step(grid))
+            current = {M.GRID_STEP | base | (channel << 7 | y) << 48 | x << 64: line for (channel, x, y), line in grid.steps().items()}
+            for k, line in current.items():
+                self.put(k, line)
+            reported = self._grid_steps.get(base, set())
+            for k in sorted(reported - set(current)):
+                self.put(k, "0")
+            self._grid_steps[base] = set(current)
 
     def collect_eq(self) -> None:
         """EqualizerDevice.collect of the Bitwig extension: the first EQ+ of the cursor track in
@@ -842,25 +951,27 @@ class Reporter:
             return
         device = self.daw.eq_device
         exists = device is not None
-        self.put("/eq/exists", exists)
-        self.put("/eq/name", device.name if exists else "")
-        self.put("/eq/bypass", exists and not device.enabled)
-        self.put("/eq/window", exists and device.window_open)
-        self.put("/eq/expand", exists and device.expanded)
+        put = self.put
+        eq = Dev.EQ << 16
+        put(M.DEVICE_EXISTS | eq, exists)
+        put(M.DEVICE_NAME | eq, device.name if exists else "")
+        put(M.DEVICE_BYPASS | eq, exists and not device.enabled)
+        put(M.DEVICE_WINDOW | eq, exists and device.window_open)
+        put(M.DEVICE_EXPAND | eq, exists and device.expanded)
         for index in range(3 * EQ_NUM_BANDS):
             parameter = device.equalizer.parameter(index) if exists else None
-            prefix = f"/eq/param/{index}/"
-            self.put(prefix + "name", parameter.name if parameter is not None else "")
-            self.put(prefix + "value", parameter.value if parameter is not None else 0)
+            base = eq | index << 32
+            put(M.PARAM_NAME | base, parameter.name if parameter is not None else "")
+            put(M.PARAM_VALUE | base, parameter.value if parameter is not None else 0)
             if parameter is not None:
-                self.put_parameter_text(prefix + "value/str", parameter)
+                self.put_parameter_text(M.PARAM_VALUE_STR | base, parameter)
             else:
-                self.put_displayed(prefix + "value/str", "", ["", ""])
-            self.put(prefix + "steps", -1)
-            self.put(prefix + "modulated", parameter.value if parameter is not None else 0)
-        self.put("/eq/param/count", 3 * EQ_NUM_BANDS if exists else 0)
+                self.put_displayed(M.PARAM_VALUE_STR | base, "", ["", ""])
+            put(M.PARAM_STEPS | base, -1)
+            put(M.PARAM_MODULATED | base, parameter.value if parameter is not None else 0)
+        put(M.PARAM_COUNT | eq, 3 * EQ_NUM_BANDS if exists else 0)
         for band in range(EQ_NUM_BANDS):
-            self.put(f"/eq/band/{band}/value", device.equalizer.reaper_type(band) if exists else -1)
+            put(M.EQ_BAND_TYPE | band << 16, device.equalizer.reaper_type(band) if exists else -1)
 
 
 class _TextView(Mapping):
@@ -870,22 +981,19 @@ class _TextView(Mapping):
         self.reporter = reporter
 
     def __getitem__(self, address: str) -> str:
-        r = self.reporter
-        k = address
-        if r.binary:
-            k = address_key(address)
-            if k is None:
-                k = address
-        if k not in r._last_values:
+        last = self.reporter.last
+        k = address_key(address)
+        if k is None:
+            k = address
+        if k not in last:
             raise KeyError(address)
-        return r.text_value(k)
+        return format_value(last[k])
 
     def __iter__(self):
-        r = self.reporter
-        return iter([r._address(k) for k in r._last_values])
+        return iter([key_address(k) for k in self.reporter.last])
 
     def __len__(self) -> int:
-        return len(self.reporter._last_values)
+        return len(self.reporter.last)
 
 
-__all__ = ["BINARY", "CHECK", "TEXT", "address_key", "default_protocol", "key_address", "LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]
+__all__ = ["BINARY", "CHECK", "TEXT", "M", "address_key", "channel_key", "grid_key", "default_protocol", "key_address", "LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]

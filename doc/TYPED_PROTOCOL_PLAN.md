@@ -400,6 +400,18 @@ size_t dbm_messages_from_text(const char *text, uint8_t *out, size_t capacity); 
 
 - **Ownership:** the host's buffer is valid during the call; the core's command buffer is valid
   during the callback (the same rule as strings today, header comment of `cbindgen.toml`).
+  Buffers stay owned by the sender and are borrowed by the receiver for the duration of the
+  call; there is no shared or reference-counted ownership: it would only save one `memcpy` of
+  the buffer, while the values a receiver keeps are converted to its own types anyway. Open
+  zero-copy items of the binary path:
+  - Python: `bindings/python/drivenbymoss/__init__.py` copies the command buffer with
+    `ctypes.string_at(data, n)` before `process_commands`. A `memoryview` over the pointer
+    would avoid that, with the rule that no view may escape the callback. Not done yet: the
+    command objects of `dbm_host` (§6.4) are kept in `CommandHandler.log` and read their record
+    lazily, so they escape the callback; with a borrowed buffer they would have to copy their
+    record (24 bytes plus payload) when they are logged.
+  - Java (step 3): read the command buffer directly from the native segment (FFM
+    `MemorySegment` / direct `ByteBuffer`), not through a `byte[]` copy.
 - **Threading:** unchanged. The calls are serialized per instance, callbacks run on the calling
   thread (or the internal timer thread without `DBM_FLAG_HOST_TICK`), and calling into the same
   instance from a callback deadlocks.
@@ -1021,7 +1033,7 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 `Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`
 (the ops instead of the suffix splitting), the Zynthian adapter, and the dual-run check.
 
-### 6.4 Step 2 (in progress: parts 1–3 done, see the hand-over at the end)
+### 6.4 Step 2 (in progress: parts 1–4 done, see the hand-over at the end)
 
 **Decided (2026-11-08): the goal is binary messages everywhere.** No performance work on the
 transition paths: neither the text protocol, nor the text ↔ binary conversions, nor
@@ -1122,14 +1134,69 @@ key lookup on top, and a written value costs the normalization (`round(v, 6)` al
 the writer call and the list of changed keys. The idle pass by key is at the text's level, not
 at the 38 ns of §4's dense slots. The gains of §4 need the next part.
 
+**Part 4: the reporter on keys** (done)
+- `Reporter.put(k, value)`: **one dict** (`Reporter.last`: key → the value as put). An
+  unchanged value costs one `dict.get`, one compare and one type check; nothing else is on that
+  path (no type test of the key: an address is never in `last`, so it falls through to the
+  slow path, which resolves it to its key once and compares again). A changed value: the per-ID
+  `_Spec` (normalizer, writer by key, the position of the slot "limit"), looked up once per ID
+  for the process; the normalized value is written with the new `Writer.put_key_*` (the four
+  indices packed as one u64, the key is not unpacked). The second compare (is the new value
+  another form of the same record?) uses the normalizer for flags, ints, texts and colors (`1`
+  and `True`), and the plain number for doubles: **decision:** a changed double is reported even
+  when the transition rounding (`round(v, 6)`) gives the same record; that saves the second
+  `round` per change, and in the final form (exact doubles) every change of a double is a change
+  anyway. No `changed` list: `take()` (tests, logs) reads the keys back from the written records.
+  The text protocol uses the same dict (the canonical key of an address); it formats the value
+  and the last value when the raw value changed. `last_values`/`snapshot()` format the kept
+  values (`format_value`), so the text the tests read is the text protocol's.
+- `protocol.py`'s runtime (`python_runtime.py`): `Writer.put_key_none|bool|i32|f64|text|color`,
+  `put_key(k, value)`, `KEY_PUTTERS`, `key_id`, `key_indices`, `record_key(head)`.
+- **The collectors on keys:** `dbm_host/reporter.py` (all collectors) and
+  `dbm_zynthian/reporter.py` (all, plus `browser.py`'s `report_session` and `add_chain.py`):
+  `M` (the `Msg` IDs as plain ints: a plain int is a faster dict key than the IntEnum member,
+  25 ns per lookup), key bases `channel_key(ChKind.TRACK, p)` (`| index << 48` for a send or
+  slot), `grid_key(grid)`, `owner << 16 | index << 32` for parameters, `PadKind << 16 | Dev << 32
+  | index << 48` for pads and layers; `put_displayed(k, …)` puts the shortened texts by the
+  slot "limit" of the ID. The ZynReporter caches key tuples instead of address strings (slots,
+  parameters, pads). `forget` takes a key (exact) or a text prefix (by the addresses of the
+  keys, transition); the playing notes and the Zynthian "add chain" selection forget by key.
+- The text dump of the reference host (5,671 lines, every collector, markers, EQ, primary) is
+  byte-identical before and after; every address of it is its key's address in the core's text
+  form, so the text protocol's lines do not change.
+
+**Measured after part 4** (`bench_put.py`: 1,000 `/track/<t>/send/<s>/volume` doubles):
+
+| | idle (unchanged) | full (dump) |
+| --- | --- | --- |
+| text, by address | 337 ns | 1,069 ns |
+| text, by key | 127 ns | 905 ns |
+| binary, by address | 359 ns | 1,489 ns |
+| binary, by key | 126 ns | 1,291 ns |
+
+(By address both protocols now pay the address → key resolution: addresses are the transition
+path.) A written double costs about 1.3 µs: `round(v, 6)` (270 ns, transition), the writer call
+(300 ns, mostly `pack_into`'s call overhead), the spec lookup and the dict. The Zynthian idle
+pass (`test_cpu.py`, Mk2, 300 ticks, 227 puts per tick, mean of 3 runs each):
+
+| | before part 4 | after part 4 |
+| --- | --- | --- |
+| text | 191–195 µs | 178–180 µs |
+| binary | 215–217 µs | 178–180 µs |
+| check | 215–218 µs | 178–179 µs |
+
+The binary pass got 17 % cheaper and is now level with the text pass; the text pass got a bit
+cheaper too (its collectors are the same key collectors). Most of the remaining pass is reading
+the zynthian model (§4); the idle puts are about 127 ns × 227 ≈ 29 µs of it.
+
 **Hand-over: what the next run starts with** (step 2 is not finished)
-1. **Streamline `Reporter._put_record`/`put` for keys**: one dict for the last value in binary
+1. (Done in part 4.) **Streamline `Reporter._put_record`/`put` for keys**: one dict for the last value in binary
    (the raw compare and the normalized compare merged: normalize first, compare once), the kind
    and the writer resolved per ID once (a tuple per ID instead of three dict lookups), no
    `changed` list unless `take()` needs the text (tests), and measure `round` against exact
    doubles (dropping the rounding is §5.1's separate change; the check protocol would then
    compare parsed values with a tolerance of 5e-7 instead of bytes).
-2. **The collectors to keys:** `dbm_host/reporter.py` and `dbm_zynthian/reporter.py` build
+2. (Done in part 4.) **The collectors to keys:** `dbm_host/reporter.py` and `dbm_zynthian/reporter.py` build
    prefixes (`f"/track/{p}/"`) and the ZynReporter caches address strings (`_prefixes`,
    `_slot_addresses`, `_param_addresses`): replace them by key bases (`protocol.key(0,
    ChKind.TRACK, p)` OR'ed with the ID, `Msg.CHANNEL_NAME | base`). `put` already accepts keys;

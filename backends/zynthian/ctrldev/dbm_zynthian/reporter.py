@@ -57,7 +57,8 @@ import logging
 import math
 
 from dbm_host import Reporter
-from dbm_host.reporter import NUM_DRUM_PADS, NUM_SIBLINGS
+from dbm_host.reporter import NUM_DRUM_PADS, NUM_SIBLINGS, M, channel_key, grid_key
+from drivenbymoss.protocol import ChKind, Dev, PadKind
 
 from zyngine.ctrldev.dbm_zynthian.device import PARAMS_PER_PAGE
 from zyngine.ctrldev.dbm_zynthian.launcher import slot_states
@@ -75,8 +76,14 @@ SUBTREES = ("host", "tracks", "mixer", "slots", "transport", "device", "clip", "
 ALL_SUBTREES = frozenset(SUBTREES)
 
 # The values of a slot, in the order of collect_slots
-SLOT_VALUES = ("exists", "hasContent", "name", "color", "selected", "playing", "playQueued", "stopQueued", "recording",
-               "recQueued")
+SLOT_VALUES = (M.SLOT_EXISTS, M.SLOT_HAS_CONTENT, M.SLOT_NAME, M.SLOT_COLOR, M.SLOT_SELECTED, M.SLOT_PLAYING,
+               M.SLOT_PLAY_QUEUED, M.SLOT_STOP_QUEUED, M.SLOT_RECORDING, M.SLOT_REC_QUEUED)
+
+# The values of a parameter, in the order of collect_pages
+PARAM_VALUES = (M.PARAM_NAME, M.PARAM_VALUE, M.PARAM_VALUE_STR, M.PARAM_STEPS, M.PARAM_MODULATED)
+
+# The banks of channel_base and collect_removed: the channel kind (None: the scenes)
+BANKS = {"track": ChKind.TRACK, "fxtrack": ChKind.EFFECT, "scene": None}
 
 
 class ZynReporter(Reporter):
@@ -131,18 +138,15 @@ class ZynReporter(Reporter):
         makes the pass collect all, collect_subtrees is the entry point for collecting only
         these)."""
         self._last_full_ms = None
-        # The peak meters [(prefix, channel)] and the playing notes address of the cursor track of
-        # the last full pass, for the fast passes
+        # The peak meters [(channel key, channel)] and the playing notes key of the cursor track
+        # of the last full pass, for the fast passes
         self._meters = []
         self._next_meters = []
-        self._notes_address = None
-        # The addresses, built once: track prefixes by (bank, position), slot addresses by
-        # (track prefix, phrase)
-        self._prefixes = {}
-        self._slot_addresses = {}
-        self._param_addresses = {}
-        self._pad_addresses = None
-        self._grid_addresses = {}
+        self._notes_key = None
+        # The keys of the slots by slot key base, of the parameters by (owner, index), built once
+        self._slot_keys = {}
+        self._param_keys = {}
+        self._pad_keys = None
         self.full_passes = 0
         self.fast_passes = 0
 
@@ -152,13 +156,10 @@ class ZynReporter(Reporter):
         self.dirty.update(subtrees)
         self.full_requested = True
 
-    def prefix(self, bank, position):
-        """``/<bank>/<position>/``."""
-        key = (bank, position)
-        prefix = self._prefixes.get(key)
-        if prefix is None:
-            prefix = self._prefixes[key] = f"/{bank}/{position}/"
-        return prefix
+    @staticmethod
+    def channel_base(bank, position):
+        """The key base of a channel (``bank``: "track" or "fxtrack", BANKS)."""
+        return channel_key(BANKS[bank], position)
 
     def is_full_due(self, now):
         if self.full_requested:
@@ -222,18 +223,15 @@ class ZynReporter(Reporter):
 
     def collect_meters(self):
         """The peak meters and the playing notes of the tracks of the last full pass."""
-        for prefix, channel in self._meters:
-            self.put_vu(prefix, channel)
-        if self._notes_address is not None:
-            self.put(self._notes_address, self.playing_notes_text())
+        for base, channel in self._meters:
+            self.put_vu(base, channel)
+        if self._notes_key is not None:
+            self.put(self._notes_key, self.playing_notes_text())
 
     def collect_playing_steps(self):
         """The playing step of each step grid (the steps themselves: collect_grids)."""
         for grid in self.note_grids:
-            address = self._grid_addresses.get(grid.id)
-            if address is None:
-                address = self._grid_addresses[grid.id] = f"/clip/grid/{grid.id}/playingStep"
-            self.put(address, self.playing_step(grid))
+            self.put(M.GRID_PLAYING_STEP | grid_key(grid), self.playing_step(grid))
 
     def playing_notes_text(self):
         notes = dict(self.daw.playing_notes)
@@ -241,39 +239,44 @@ class ZynReporter(Reporter):
 
     # The parts of a channel
 
-    def collect_channel(self, prefix, channel, values=True):
-        """Name and color (the track list), with ``values`` the mixer values."""
-        self.put(prefix + "name", channel.name)
-        self.put(prefix + "color", channel.color)
+    def collect_channel(self, base, channel, values=True):
+        """Name and color (the track list), with ``values`` the mixer values; ``base``: the
+        channel key."""
+        put = self.put
+        put(M.CHANNEL_NAME | base, channel.name)
+        put(M.CHANNEL_COLOR | base, channel.color)
         if not values:
             return
-        self.put(prefix + "mute", channel.mute)
-        self.put(prefix + "solo", channel.solo)
-        self.put(prefix + "volume", channel.volume.value)
-        self.put_parameter_text(prefix + "volume/str", channel.volume)
-        self.put(prefix + "pan", channel.pan.value)
-        self.put_parameter_text(prefix + "pan/str", channel.pan)
+        put(M.CHANNEL_MUTE | base, channel.mute)
+        put(M.CHANNEL_SOLO | base, channel.solo)
+        put(M.CHANNEL_VOLUME | base, channel.volume.value)
+        self.put_parameter_text(M.CHANNEL_VOLUME_STR | base, channel.volume)
+        put(M.CHANNEL_PAN | base, channel.pan.value)
+        self.put_parameter_text(M.CHANNEL_PAN_STR | base, channel.pan)
 
-    def collect_vu(self, prefix, channel):
+    def collect_vu(self, base, channel):
         """The peak meters (also kept for the fast passes)."""
-        self._next_meters.append((prefix, channel))
-        self.put_vu(prefix, channel)
+        self._next_meters.append((base, channel))
+        self.put_vu(base, channel)
 
-    def put_vu(self, prefix, channel):
+    def put_vu(self, base, channel):
         left, right = channel.vu()
-        self.put(prefix + "vuleft", left)
-        self.put(prefix + "vuright", right)
-        self.put(prefix + "vu", (left + right) / 2.0)
+        put = self.put
+        put(M.CHANNEL_VU_LEFT | base, left)
+        put(M.CHANNEL_VU_RIGHT | base, right)
+        put(M.CHANNEL_VU | base, (left + right) / 2.0)
 
-    def collect_track_flags(self, prefix, track):
-        self.put(prefix + "recarm", track.arm)
-        self.put(prefix + "canHoldNotes", track.can_hold_notes)
-        self.put(prefix + "canHoldAudio", track.can_hold_audio)
+    def collect_track_flags(self, base, track):
+        put = self.put
+        put(M.CHANNEL_REC_ARM | base, track.arm)
+        put(M.CHANNEL_CAN_HOLD_NOTES | base, track.can_hold_notes)
+        put(M.CHANNEL_CAN_HOLD_AUDIO | base, track.can_hold_audio)
 
     def collect_removed(self, bank, count):
         """Positions which no longer exist (a chain was removed) are reported as not existing."""
+        kind = BANKS[bank]
         for position in range(count, self._counts[bank]):
-            self.put(self.prefix(bank, position) + "exists", 0)
+            self.put(M.SCENE_EXISTS | position << 16 if kind is None else M.CHANNEL_EXISTS | channel_key(kind, position), 0)
         self._counts[bank] = count
 
     # The collectors
@@ -284,74 +287,76 @@ class ZynReporter(Reporter):
         mixer, slots = "mixer" in self.refreshing, "slots" in self.refreshing
         tracks = self.daw.track_list(self.banks.full_flat_track_list)
         selected = next((position for position, track in enumerate(tracks) if track.selected), -1)
-        self.put("/track/offset", self.banks.track_offset)
+        put = self.put
+        put(M.TRACK_OFFSET, self.banks.track_offset)
         # No pinning in zynthian: the cursor track follows the selection (without the report the
         # core keeps a cursor of its own); /device/pinned likewise (without it the core takes the
         # device as always pinned, as Reaper's, and lights a Pin button)
-        self.put("/track/pinned", -1)
+        put(M.TRACK_PINNED, -1)
         # A deselection outside of the list (the selected track was removed)
         if self._last_selected != selected and self._last_selected >= len(tracks):
-            self.put(f"/track/{self._last_selected}/select", False)
+            put(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, self._last_selected), False)
         self._last_selected = selected
         for position, track in enumerate(tracks):
-            prefix = self.prefix("track", position)
-            self.put(prefix + "exists", 1)
-            self.put(prefix + "number", position)
-            self.put(prefix + "type", track.type_name)
+            base = channel_key(ChKind.TRACK, position)
+            put(M.CHANNEL_EXISTS | base, 1)
+            put(M.CHANNEL_NUMBER | base, position)
+            put(M.CHANNEL_TYPE | base, track.type_name)
             if position != selected:
-                self.put(prefix + "select", False)
+                put(M.CHANNEL_SELECTED | base, False)
             if mixer:
-                self.collect_track_flags(prefix, track)
-            self.collect_vu(prefix, track)
-            self.collect_channel(prefix, track, mixer)
+                self.collect_track_flags(base, track)
+            self.collect_vu(base, track)
+            self.collect_channel(base, track, mixer)
             if mixer:
-                self.collect_sends(prefix, track, with_color=True)
+                self.collect_sends(base, track, with_color=True)
             if not slots:
                 continue
             try:
-                self.collect_slots(prefix, track)
+                self.collect_slots(base, track)
             except Exception as e:
                 # A failing launcher must not hide the tracks
                 if "collect_slots" not in self._failed:
                     self._failed.add("collect_slots")
                     logging.getLogger("dbm_zynthian").error("Reporter collect_slots failed: %s", e)
         self.collect_removed("track", len(tracks))
-        self.put("/track/count", len(tracks))
+        put(M.TRACK_COUNT, len(tracks))
         if selected >= 0:
-            self.put(f"/track/{selected}/select", True)
+            put(M.CHANNEL_SELECTED | channel_key(ChKind.TRACK, selected), True)
         # The notes played on the cursor track (the core keeps one note cache: the notes of a new
         # cursor track are reported again)
+        notes_key = M.CHANNEL_PLAYING_NOTES | channel_key(ChKind.TRACK, selected)
         if selected != self._last_cursor:
             self._last_cursor = selected
-            self.forget(f"/track/{selected}/playingnotes")
-        self._notes_address = self.prefix("track", selected) + "playingnotes" if selected >= 0 else None
-        if self._notes_address is not None:
-            self.put(self._notes_address, self.playing_notes_text())
+            self.forget(notes_key)
+        self._notes_key = notes_key if selected >= 0 else None
+        if self._notes_key is not None:
+            put(self._notes_key, self.playing_notes_text())
 
     def launcher(self):
         launcher = self.daw.launcher
         return launcher if launcher is not None and launcher.available else None
 
-    def collect_slots(self, prefix, track):
+    def collect_slots(self, base, track):
         """The slots of a track: the sequences of its MIDI channel in the phrases (launcher.py);
-        none for audio chains, effect tracks and the master."""
+        none for audio chains, effect tracks and the master. ``base``: the channel key."""
         launcher = self.launcher()
         if launcher is None:
             return
         chan = launcher.sequence_of(track)
         if chan is None:
-            self.put(prefix + "slot/count", 0)
+            self.put(M.SLOT_COUNT | base, 0)
             return
         count = launcher.num_phrases()
         selected = launcher.selected_phrase if track.selected else -1
         recording = launcher.recording and launcher.selected_sequence() is not None
         put = self.put
         for phrase in range(count):
-            key = (prefix, phrase)
-            addresses = self._slot_addresses.get(key)
-            if addresses is None:
-                addresses = self._slot_addresses[key] = tuple(f"{prefix}slot/{phrase}/{name}" for name in SLOT_VALUES)
-            exists, has_content, name, color, is_selected, is_playing, is_play_queued, is_stop_queued, is_recording, rec_queued = addresses
+            slot_base = base | phrase << 48
+            keys = self._slot_keys.get(slot_base)
+            if keys is None:
+                keys = self._slot_keys[slot_base] = tuple(id_ | slot_base for id_ in SLOT_VALUES)
+            exists, has_content, name, color, is_selected, is_playing, is_play_queued, is_stop_queued, is_recording, rec_queued = keys
             state = launcher.play_state(phrase, chan)
             content = launcher.has_content(phrase, chan)
             put(exists, True)
@@ -366,75 +371,79 @@ class ZynReporter(Reporter):
             put(is_stop_queued, stop_queued)
             put(is_recording, recording and phrase == selected)
             put(rec_queued, False)
-        self.put(prefix + "slot/count", count)
+        self.put(M.SLOT_COUNT | base, count)
 
     def collect_scenes(self):
         """The phrases of zynseq's current scene as scenes."""
         launcher = self.launcher()
         if launcher is None:
             return
-        self.put("/scene/offset", self.banks.scene_offset)
+        put = self.put
+        put(M.SCENE_OFFSET, self.banks.scene_offset)
         count = launcher.num_phrases()
         for phrase in range(count):
-            prefix = self.prefix("scene", phrase)
-            self.put(prefix + "exists", True)
-            self.put(prefix + "number", phrase)
-            self.put(prefix + "name", str(phrase + 1))
-            self.put(prefix + "color", (128, 128, 128))
-            self.put(prefix + "select", phrase == launcher.selected_phrase)
+            base = phrase << 16
+            put(M.SCENE_EXISTS | base, True)
+            put(M.SCENE_NUMBER | base, phrase)
+            put(M.SCENE_NAME | base, str(phrase + 1))
+            put(M.SCENE_COLOR | base, (128, 128, 128))
+            put(M.SCENE_SELECTED | base, phrase == launcher.selected_phrase)
         self.collect_removed("scene", count)
-        self.put("/scene/count", count)
+        put(M.SCENE_COUNT, count)
 
     def collect_effect_tracks(self):
         tracks = self.daw.effect_tracks()
-        self.put("/fxtrack/offset", self.banks.fx_track_offset)
+        put = self.put
+        put(M.EFFECT_TRACK_OFFSET, self.banks.fx_track_offset)
+        mixer = "mixer" in self.refreshing
         for position, track in enumerate(tracks):
-            prefix = self.prefix("fxtrack", position)
-            self.put(prefix + "exists", 1)
-            self.put(prefix + "number", position)
-            self.put(prefix + "type", track.type_name)
-            self.put(prefix + "select", track.selected)
-            mixer = "mixer" in self.refreshing
+            base = channel_key(ChKind.EFFECT, position)
+            put(M.CHANNEL_EXISTS | base, 1)
+            put(M.CHANNEL_NUMBER | base, position)
+            put(M.CHANNEL_TYPE | base, track.type_name)
+            put(M.CHANNEL_SELECTED | base, track.selected)
             if mixer:
-                self.collect_track_flags(prefix, track)
-            self.collect_channel(prefix, track, mixer)
+                self.collect_track_flags(base, track)
+            self.collect_channel(base, track, mixer)
             if mixer:
-                self.collect_sends(prefix, track, with_color=False)
+                self.collect_sends(base, track, with_color=False)
         self.collect_removed("fxtrack", len(tracks))
-        self.put("/fxtrack/count", len(tracks))
+        put(M.EFFECT_TRACK_COUNT, len(tracks))
 
     def collect_master(self):
         master = self.daw.master()
         if master is None:
             return
-        self.put("/master/select", master.selected)
-        self.collect_vu("/master/", master)
-        self.collect_channel("/master/", master, "mixer" in self.refreshing)
+        base = channel_key(ChKind.MASTER, 0)
+        self.put(M.CHANNEL_SELECTED | base, master.selected)
+        self.collect_vu(base, master)
+        self.collect_channel(base, master, "mixer" in self.refreshing)
 
     def collect_project(self):
         """zynthian has no undo history (only the pattern editor's): nothing to undo or redo."""
-        self.put("/project/canUndo", False)
-        self.put("/project/canRedo", False)
+        self.put(M.PROJECT_CAN_UNDO, False)
+        self.put(M.PROJECT_CAN_REDO, False)
 
     def collect_transport(self):
         transport = self.daw.transport
         if transport is None or not transport.available:
             return
-        self.put("/play", transport.playing)
-        self.put("/repeat", False)  # No arranger loop in zynthian
-        self.put("/tempo", transport.tempo)
-        self.put("/numerator", transport.numerator)
-        self.put("/denominator", 4)
-        self.put("/click", transport.metronome)
+        put = self.put
+        put(M.PLAY, transport.playing)
+        put(M.REPEAT, False)  # No arranger loop in zynthian
+        put(M.TEMPO, transport.tempo)
+        put(M.NUMERATOR, transport.numerator)
+        put(M.DENOMINATOR, 4)
+        put(M.METRONOME, transport.metronome)
         launcher = self.launcher()
         recording = launcher is not None and launcher.recording
         # Recording is MIDI record into a zynseq pattern (launcher.py); there is no arranger
-        self.put("/record", recording)
-        self.put("/overdub/launcher", recording)
-        self.put("/overdub/arranger", False)
+        put(M.RECORD, recording)
+        put(M.OVERDUB_LAUNCHER, recording)
+        put(M.OVERDUB_ARRANGER, False)
         volume = transport.metronome_volume
-        self.put("/click/volume", volume)
-        self.put("/click/volumeStr", f"{20.0 * math.log10(volume):.1f} dB" if volume > 0 else "-Inf dB")
+        put(M.METRONOME_VOLUME, volume)
+        put(M.METRONOME_VOLUME_STR, f"{20.0 * math.log10(volume):.1f} dB" if volume > 0 else "-Inf dB")
 
     def num_param_pages(self):
         return max(0, int(self.banks.setup.get("numParamPages", 8)))
@@ -447,60 +456,63 @@ class ZynReporter(Reporter):
         device = chain.cursor()
         exists = device is not None
         position = devices.index(device) if exists else -1
-        self.put("/device/count", len(devices))
-        self.put("/device/exists", exists)
-        self.put("/device/position", position)
-        self.put("/device/name", device.name if exists else "")
-        self.put("/device/bypass", exists and not device.enabled)
-        self.put("/device/window", False)
-        self.put("/device/pinned", False)
-        self.put("/device/expand", False)
-        self.put("/device/hasDrumPads", False)
-        self.put("/device/hasLayers", False)
+        put = self.put
+        put(M.DEVICE_COUNT, len(devices))
+        put(M.DEVICE_EXISTS, exists)
+        put(M.DEVICE_POSITION, position)
+        put(M.DEVICE_NAME, device.name if exists else "")
+        put(M.DEVICE_BYPASS, exists and not device.enabled)
+        put(M.DEVICE_WINDOW, False)
+        put(M.DEVICE_PINNED, False)
+        put(M.DEVICE_EXPAND, False)
+        put(M.DEVICE_HAS_DRUM_PADS, False)
+        put(M.DEVICE_HAS_LAYERS, False)
         for index in range(NUM_SIBLINGS):
             sibling_position = chain.sibling_offset + index
             sibling = devices[sibling_position] if sibling_position < len(devices) else None
-            prefix = f"/device/sibling/{index + 1}/"
-            self.put(prefix + "name", sibling.name if sibling is not None else "")
-            self.put(prefix + "bypass", sibling is not None and not sibling.enabled)
-            self.put(prefix + "position", sibling_position if sibling is not None else -1)
-            self.put(prefix + "selected", sibling is not None and sibling_position == position)
-        self.collect_pages("/device", device)
+            # /device/sibling/<index + 1>/: the slot holds the index
+            base = index << 32
+            put(M.DEVICE_SIBLING_NAME | base, sibling.name if sibling is not None else "")
+            put(M.DEVICE_SIBLING_BYPASS | base, sibling is not None and not sibling.enabled)
+            put(M.DEVICE_SIBLING_POSITION | base, sibling_position if sibling is not None else -1)
+            put(M.DEVICE_SIBLING_SELECTED | base, sibling is not None and sibling_position == position)
+        self.collect_pages(Dev.DEVICE, device)
 
-    def collect_pages(self, prefix, device):
+    def collect_pages(self, owner, device):
         """The parameters of the first numParamPages pages as one flat list, the page names and
-        the selected page (as the reference host's collect_pages)."""
+        the selected page (as the reference host's collect_pages); ``owner``: the ParamOwner."""
         exists = device is not None
         num_pages = self.num_param_pages()
         pages = device.page_names() if exists else []
         used = min(len(pages), num_pages)
+        put = self.put
         for index in range(num_pages * PARAMS_PER_PAGE):
-            name, value, text, steps, modulated = self.param_addresses(prefix, index)
+            name, value, text, steps, modulated = self.param_keys(owner, index)
             parameter = device.parameter(index) if exists and index < used * PARAMS_PER_PAGE else None
             if parameter is not None and parameter.exists:
-                self.put(name, parameter.name)
-                self.put(value, parameter.value)
+                put(name, parameter.name)
+                put(value, parameter.value)
                 self.put_parameter_text(text, parameter)
             else:
-                self.put(name, "")
-                self.put(value, 0.0)
+                put(name, "")
+                put(value, 0.0)
                 self.put_displayed(text, "", ["", ""])
-            self.put(steps, -1)
-            self.put(modulated, parameter.value if parameter is not None and parameter.exists else 0.0)
-        self.put(f"{prefix}/param/count", used * PARAMS_PER_PAGE)
+            put(steps, -1)
+            put(modulated, parameter.value if parameter is not None and parameter.exists else 0.0)
+        owner_base = owner << 16
+        put(M.PARAM_COUNT | owner_base, used * PARAMS_PER_PAGE)
         for index in range(used):
-            self.put(f"{prefix}/page/{index}/name", pages[index])
-        self.put(f"{prefix}/page/count", used)
-        self.put(f"{prefix}/page/selected", device.selected_page if exists else -1)
+            put(M.PAGE_NAME | owner_base | index << 32, pages[index])
+        put(M.PAGE_COUNT | owner_base, used)
+        put(M.PAGE_SELECTED | owner_base, device.selected_page if exists else -1)
 
-    def param_addresses(self, prefix, index):
-        """The addresses of a parameter: name, value, value/str, steps, modulated."""
-        key = (prefix, index)
-        addresses = self._param_addresses.get(key)
-        if addresses is None:
-            param = f"{prefix}/param/{index}/"
-            addresses = self._param_addresses[key] = tuple(param + name for name in ("name", "value", "value/str", "steps", "modulated"))
-        return addresses
+    def param_keys(self, owner, index):
+        """The keys of a parameter: name, value, value/str, steps, modulated."""
+        base = owner << 16 | index << 32
+        keys = self._param_keys.get(base)
+        if keys is None:
+            keys = self._param_keys[base] = tuple(id_ | base for id_ in PARAM_VALUES)
+        return keys
 
     def collect_primary(self):
         """The first instrument (SpecificDevice.collect for the instrument matcher), if the
@@ -516,22 +528,25 @@ class ZynReporter(Reporter):
             return
         device = self.daw.devices.primary()
         exists = device is not None
-        self.put("/primary/exists", exists)
-        self.put("/primary/name", device.name if exists else "")
-        self.put("/primary/bypass", exists and not device.enabled)
-        self.put("/primary/window", False)
-        self.put("/primary/expand", False)
-        self.put("/primary/parameters", False)
-        self.put("/primary/hasDrumPads", False)
-        self.put("/primary/hasLayers", False)
-        self.collect_pages("/primary", device)
-        self.put("/primary/hasMutedPads", False)
-        self.put("/primary/hasSoloedPads", False)
-        self.put("/primary/layer/count", 0)
-        if self._pad_addresses is None:
-            self._pad_addresses = tuple(f"/primary/pad/{index}/exists" for index in range(NUM_DRUM_PADS))
-        for address in self._pad_addresses:
-            self.put(address, False)
+        put = self.put
+        primary = Dev.PRIMARY << 16
+        put(M.DEVICE_EXISTS | primary, exists)
+        put(M.DEVICE_NAME | primary, device.name if exists else "")
+        put(M.DEVICE_BYPASS | primary, exists and not device.enabled)
+        put(M.DEVICE_WINDOW | primary, False)
+        put(M.DEVICE_EXPAND | primary, False)
+        put(M.DEVICE_PARAMETERS | primary, False)
+        put(M.DEVICE_HAS_DRUM_PADS | primary, False)
+        put(M.DEVICE_HAS_LAYERS | primary, False)
+        self.collect_pages(Dev.PRIMARY, device)
+        put(M.DEVICE_HAS_MUTED_PADS | primary, False)
+        put(M.DEVICE_HAS_SOLOED_PADS | primary, False)
+        put(M.DEVICE_LAYER_COUNT | primary, 0)
+        if self._pad_keys is None:
+            pads = M.PAD_EXISTS | PadKind.PAD << 16 | Dev.PRIMARY << 32
+            self._pad_keys = tuple(pads | index << 48 for index in range(NUM_DRUM_PADS))
+        for k in self._pad_keys:
+            put(k, False)
 
     def collect_clip(self):
         """The cursor clip (clip.py): a pattern starts at 0 and loops over its beats; no
@@ -543,21 +558,22 @@ class ZynReporter(Reporter):
         launcher.flush()
         clip = self.daw.cursor_clip()
         exists = clip is not None
-        self.put("/clip/exists", exists)
+        put = self.put
+        put(M.CLIP_EXISTS, exists)
         if exists:
-            self.put("/clip/start", 0.0)
-        self.put("/clip/end", float(clip.beats) if exists else 0.0)
-        self.put("/clip/loop", exists)
+            put(M.CLIP_START, 0.0)
+        put(M.CLIP_END, float(clip.beats) if exists else 0.0)
+        put(M.CLIP_LOOP, exists)
         if exists:
-            self.put("/clip/loopStart", 0.0)
-        self.put("/clip/loopLength", float(clip.beats) if exists else 0.0)
-        self.put("/clip/shuffle", False)
-        self.put("/clip/pinned", False)
+            put(M.CLIP_LOOP_START, 0.0)
+        put(M.CLIP_LOOP_LENGTH, float(clip.beats) if exists else 0.0)
+        put(M.CLIP_SHUFFLE, False)
+        put(M.CLIP_PINNED, False)
         color = (0, 0, 0)
         if exists:
             track = next((t for t in self.daw.tracks() if t.selected), None)
             color = track.color if track is not None else (128, 128, 128)
-        self.put("/clip/color", color)
+        put(M.CLIP_COLOR, color)
 
     def browser_pages(self):
         """The page sizes of the filter columns and the results (model setup)."""
