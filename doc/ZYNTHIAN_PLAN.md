@@ -534,7 +534,7 @@ no change.
 
 | Package | Recipe | Contents |
 | --- | --- | --- |
-| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`; `/usr/lib/drivenbymoss/libdbm_nihost.so` (the Maschines in-process, ZYNTHIAN_INTEGRATION.md §10) and its udev rule `/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules` (hidraw for the group audio and uaccess) |
+| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`; `/usr/lib/drivenbymoss/libdbm_nihost.so` (the Maschines in-process, ZYNTHIAN_INTEGRATION.md §10) and its udev rule `/etc/udev/rules.d/70-drivenbymoss-maschine.rules` (hidraw for the group audio and uaccess; not in `/usr/lib/udev`, which triggers mkinitfs; the post-install script reloads udev) |
 | ~~`dbm-nihost`~~ | dropped 2026-11-08 | the drivers drive the Maschines in-process with `libdbm_nihost.so`, which the drivenbymoss package ships (see above); the daemon (`support/linux/ni_host`) is only for Bitwig and the like, built by hand. A device with the old package: `apk del dbm-nihost` |
 
 - **Native library.** `cargo build --release --frozen --lib` natively in pmbootstrap's chroot,

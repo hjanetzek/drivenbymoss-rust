@@ -23,6 +23,7 @@ depends="python3"
 # python3: compileall in package(); cmake, samurai: libdbm_nihost (C++, no ALSA)
 makedepends="cargo python3 cmake samurai"
 builddir="$srcdir/$pkgname"
+install="$pkgname.post-install $pkgname.post-upgrade"
 
 # pmbootstrap sets RUSTC_WRAPPER=sccache, which CI's chroot doesn't have: cargo then fails
 # ("could not execute process `/usr/bin/sccache rustc -vV`")
@@ -53,10 +54,13 @@ build() {
 package() {
 	install -Dm755 target/release/libdrivenbymoss.so -t "$pkgdir"/usr/lib/drivenbymoss/
 	install -Dm755 build-nihost/libdbm_nihost.so -t "$pkgdir"/usr/lib/drivenbymoss/
-	# hidraw access to the Maschines for the group audio (and uaccess). Not 70-dbm-nihost.rules:
-	# that file belongs to the former package dbm-nihost, which may still be installed
+	# hidraw access to the Maschines for the group audio (and uaccess). In /etc, not
+	# /usr/lib/udev/rules.d: postmarketOS' mkinitfs has an apk trigger on /usr/lib/udev and would
+	# rebuild the initramfs at every install (the rule isn't needed there); the post-install
+	# script reloads udev instead. Not 70-dbm-nihost.rules: that name belongs to the former
+	# package dbm-nihost
 	install -Dm644 support/linux/ni_host/packaging/70-dbm-nihost.rules \
-		"$pkgdir"/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules
+		"$pkgdir"/etc/udev/rules.d/70-drivenbymoss-maschine.rules
 
 	# The binding and the reference host: the drivers' default DBM_PYTHON_DIR
 	local py="$pkgdir"/usr/share/drivenbymoss/python

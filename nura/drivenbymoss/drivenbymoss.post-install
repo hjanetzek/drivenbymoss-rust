@@ -1,0 +1,8 @@
+#!/bin/sh
+# Apply the udev rule of the Maschines (/etc/udev/rules.d/70-drivenbymoss-maschine.rules) to the
+# devices already plugged in: the hidraw nodes for the group audio
+if command -v udevadm >/dev/null; then
+	udevadm control --reload 2>/dev/null || true
+	udevadm trigger --subsystem-match=hidraw 2>/dev/null || true
+fi
+exit 0

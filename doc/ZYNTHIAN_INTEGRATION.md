@@ -549,7 +549,9 @@ daemon, no ALSA sequencer ports, no PipeWire MIDI bridge, no JACK ports for them
   `ui_send_note_on` as before. Without the library the driver logs an error and stays dormant.
 - **Packaging**: the drivenbymoss package builds the library (CMake, without ALSA) and ships it
   next to the core, `/usr/lib/drivenbymoss/libdbm_nihost.so` (or `$DBM_NIHOST_LIBRARY`), with
-  the udev rule as `/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules`. The package
+  the udev rule as `/etc/udev/rules.d/70-drivenbymoss-maschine.rules` (not in
+  `/usr/lib/udev`: postmarketOS' mkinitfs rebuilds the initramfs on every change there; the
+  package's post-install script reloads udev and triggers the hidraw nodes instead). The package
   dbm-nihost is dropped (2026-11-08): zynthian doesn't need the daemon; it stays in
   support/linux/ni_host for Bitwig and the like, built by hand. On a device which still has the
   old package: `apk del dbm-nihost`. The udev rule gives the nodes to the group `audio` besides `uaccess`:
