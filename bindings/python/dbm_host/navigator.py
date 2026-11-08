@@ -114,29 +114,27 @@ class ClipLauncherNavigator:
 
     # The commands
 
-    def handle(self, command: str, value: float) -> bool:
-        """``selectTrack``, ``tracks/-|+``, ``clips/-|+``, ``scenes/-|+``; False if unknown."""
+    def select_track(self, position: int) -> None:
+        """``navigator selectTrack <position>``: the core selects the track afterwards."""
         self._follow()
-        if command == "selectTrack":
-            # The core selects the track afterwards
-            self.track_position = int(value)
-        elif command in ("tracks/-", "tracks/+"):
-            self._scroll_tracks(-1 if command.endswith("-") else 1)
+        self.track_position = int(position)
+
+    def step(self, target: str, direction: int) -> None:
+        """``navigator tracks|clips|scenes/-|+`` (target: tracks, clips, scenes; direction -1,
+        1)."""
+        self._follow()
+        if target == "tracks":
+            self._scroll_tracks(direction)
             self._select_clip()
             track = self.track
             if track is not None:
                 track.select()
             self._followed = self.daw.selected_channel
-        elif command in ("clips/-", "clips/+"):
-            self._scroll_scenes(-1 if command.endswith("-") else 1)
-            self._select_clip()
-        elif command in ("scenes/-", "scenes/+"):
-            self._scroll_scenes(-1 if command.endswith("-") else 1)
-            self._select_clip()
-            self._later(SELECT_SCENE_DELAY_MS, self._select_scene)
         else:
-            return False
-        return True
+            self._scroll_scenes(direction)
+            self._select_clip()
+            if target == "scenes":
+                self._later(SELECT_SCENE_DELAY_MS, self._select_scene)
 
     def _select_scene(self) -> None:
         """``sceneBank.getItemAt (0).selectInEditor``: the navigator's scene."""

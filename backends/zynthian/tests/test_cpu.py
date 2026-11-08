@@ -73,9 +73,8 @@ class IdleTickTest(unittest.TestCase):
 
         reporter = bridge.reporter
         # The time of the collection (without counting: the counting wrapper costs as much as a
-        # put): collect() of the text protocol, collect_pass() of the binary one (its buffer is
-        # taken by the bridge)
-        name = "collect_pass" if reporter.binary else "collect"
+        # put): collect_pass() (its buffer is taken by the bridge)
+        name = "collect_pass"
         collect = getattr(reporter, name)
         times = []
 
@@ -111,6 +110,6 @@ class IdleTickTest(unittest.TestCase):
         ordered = sorted(times)
         median_us = ordered[len(ordered) // 2] * 1e6
         max_us = ordered[-1] * 1e6
-        print(f"\nidle Mk2 ({reporter.protocol}), {TICKS} ticks: {per_tick:.0f} put per tick, {name}() mean {mean_us:.0f} µs, "
+        print(f"\nidle Mk2, {TICKS} ticks: {per_tick:.0f} put per tick, {name}() mean {mean_us:.0f} µs, "
               f"median {median_us:.0f} µs, max {max_us:.0f} µs", file=sys.stderr)
         self.assertGreater(per_tick, 0)

@@ -131,10 +131,12 @@ class Backend:
     def enable_updates(self, processor: str, enable: bool) -> None:
         pass
 
-    def process_commands(self, buffer: bytes) -> None:
+    def process_commands(self, buffer: memoryview) -> None:
         """The commands of one call in the binary form (after App.use_binary_commands): a buffer
-        of records, read with protocol.iter_commands or protocol.iter_flat. The buffer is a copy.
-        The default converts them to their legacy text and calls the process_* methods above."""
+        of records, read with protocol.iter_commands or protocol.iter_flat. The buffer is a
+        memoryview of the library's buffer (no copy): it, and every view read from it, is only
+        valid during the call (it is released afterwards); copy what is kept. The default
+        converts the commands to their legacy text and calls the process_* methods above."""
         for line in _lines(messages_to_text(buffer)):
             dispatch_legacy_line(self, line)
 
@@ -248,6 +250,22 @@ def legacy_command(line: str) -> tuple[str, str, str, Any]:
     elif kind == "enable":
         value = command == "1"
     return kind, processor, command, value
+
+
+def _process_commands(backend: Backend, data, n: int) -> None:
+    """Backend.process_commands with a memoryview of the library's buffer, released after the
+    call: a view which escaped the call raises instead of reading freed memory."""
+    if not data or n <= 0:
+        backend.process_commands(memoryview(protocol.HEADER))
+        return
+    view = memoryview(ctypes.cast(data, ctypes.POINTER(ctypes.c_uint8 * n)).contents).cast("B")
+    try:
+        backend.process_commands(view)
+    finally:
+        try:
+            view.release()
+        except BufferError:
+            logger.warning("A view of the command buffer escaped process_commands")
 
 
 def legacy_commands(text: str) -> list[tuple[str, str, str, Any]]:
@@ -370,7 +388,7 @@ class _Trampolines:
             "set_note_input_velocity_translation_table": _ffi.SetNoteInputTable(guard("set_note_input_velocity_translation_table", None, lambda d, i, t, n: b.set_note_input_velocity_translation_table(d, i, _ints(t, n)))),
             "log": _ffi.Log(guard("log", None, lambda m: b.log(_str(m)))),
         }
-        self.commands = _ffi.DbmCommands(guard("process_commands", None, lambda data, n: b.process_commands(ctypes.string_at(data, n) if data and n > 0 else protocol.HEADER)))
+        self.commands = _ffi.DbmCommands(guard("process_commands", None, lambda data, n: _process_commands(b, data, n)))
         self.table = _ffi.DbmCallbacks(user=None, **self.functions)
 
     def in_callback(self) -> bool:

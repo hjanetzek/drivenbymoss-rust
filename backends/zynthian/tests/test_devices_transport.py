@@ -33,6 +33,9 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+from drivenbymoss.protocol import Cmd  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
@@ -72,10 +75,10 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        return {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
 
     def command(self, processor, command, value=None):
-        self.commands.handle(processor, command, value)
+        run_command(self.commands, processor, command, value)
 
 
 class DeviceTest(unittest.TestCase):
@@ -95,9 +98,10 @@ class DeviceTest(unittest.TestCase):
         self.assertIsNone(device.zctrl(24))
 
     def test_report(self):
-        report = Host().report()
-        self.assertIn("deviceCommands", report["/host/features"])
-        self.assertIn("transportCommands", report["/host/features"])
+        host = Host()
+        report = host.report()
+        self.assertEqual(report["/host/features"], "valueInc valueReset immediately", "The command features come from the handled commands")
+        self.assertLessEqual({Cmd.DEVICE_ACTION, Cmd.TRANSPORT_PLAY}, host.commands.handled_commands(), "deviceCommands, transportCommands")
         self.assertEqual(report["/device/exists"], "1")
         self.assertEqual(report["/device/name"], "Synth A")
         self.assertEqual(report["/device/count"], "2")
@@ -205,7 +209,7 @@ class TransportTest(unittest.TestCase):
         host = Host()
         libseq = host.state.zynseq.libseq
         report = host.report()
-        self.assertEqual((report["/play"], report["/tempo"], report["/numerator"], report["/click"]), ("0", "120.000000", "4", "0"))
+        self.assertEqual((report["/play"], report["/tempo"], report["/numerator"], report["/click"]), ("0", "120", "4", "0"))
         host.command("transport", "play")
         self.assertEqual(libseq.calls[-1], ("start", TRANSPORT_CLIENT_DBM))
         self.assertEqual(host.report()["/play"], "1")

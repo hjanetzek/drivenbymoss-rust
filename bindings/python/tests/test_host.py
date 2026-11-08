@@ -9,6 +9,7 @@ Run from the repository root (after 'cargo build')::
     python3 -m unittest discover -s bindings/python/tests
 """
 
+import functools
 import logging
 import re
 import sys
@@ -21,9 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dbm_host import TAKEOVER_CATCH, Banks, Bridge, CommandHandler, Device, Parameter, Preferences, Reporter, SimDaw  # noqa: E402
 from dbm_host.device import EQ_PLUS, Equalizer, eq_plus, format_eq_frequency, format_eq_gain, format_eq_q  # noqa: E402
 from dbm_host.parameter import VOLUME_0DB, format_pan, format_three_digits, format_volume, limit_text  # noqa: E402
+from dbm_host.coverage import run_command, unhandled_commands  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
 from dbm_host import reporter as reporter_module  # noqa: E402
-from dbm_host.coverage import unhandled_commands  # noqa: E402
 import drivenbymoss  # noqa: E402
 from drivenbymoss import protocol  # noqa: E402
 
@@ -57,7 +58,7 @@ class Host:
 
     def report(self) -> dict[str, str]:
         lines = self.reporter.collect()
-        return dict(line.split(" ", 1) for line in lines.splitlines())
+        return {address: value for address, _, value in (line.partition(" ") for line in lines.splitlines())}
 
     def lines(self) -> list[str]:
         return self.reporter.collect().splitlines()
@@ -316,75 +317,88 @@ def coverage_host() -> "Host":
 class CommandCoverageTest(unittest.TestCase):
 
     def test_handled_commands(self):
-        """Every command ID is handled, typed or through its text, or in UNHANDLED_COMMANDS (the
-        set passed to the core, App.use_binary_commands)."""
+        """The handled commands (passed to the core, which derives the command features from
+        them) are the IDs with a handler: a record of each of them is handled, a record of every
+        other ID is not; in the model setup of the test they are all but the snapshot
+        UNHANDLED_COMMANDS. Without a navigator its commands are not handled."""
         logging.disable(logging.CRITICAL)
         self.addCleanup(logging.disable, logging.NOTSET)
+        handled = coverage_host().commands.handled_commands()
+        self.assertEqual(sorted(protocol.Cmd(i).name for i in set(protocol.CMD_IDS) - handled),
+                         sorted(protocol.Cmd(i).name for i in CommandHandler.UNHANDLED_COMMANDS), "The snapshot")
         unhandled = unhandled_commands(lambda: coverage_host().commands)
-        declared = CommandHandler.UNHANDLED_COMMANDS
-        self.assertEqual(sorted(protocol.Cmd(i).name for i in unhandled - declared), [], "Not handled, not declared")
-        self.assertEqual(sorted(protocol.Cmd(i).name for i in declared - unhandled), [], "Declared unhandled, but handled")
-        self.assertEqual(Host().commands.handled_commands(), set(protocol.CMD_IDS) - declared)
+        self.assertEqual(sorted(protocol.Cmd(i).name for i in unhandled & handled), [], "Handled, but not in the coverage test")
+        self.assertEqual(sorted(protocol.Cmd(i).name for i in set(protocol.CMD_IDS) - handled - unhandled), [], "Not handled, but declared")
+        self.assertEqual(set(protocol.CMD_IDS) - Host().commands.handled_commands(),
+                         CommandHandler.UNHANDLED_COMMANDS | {protocol.Cmd.NAVIGATOR_STEP, protocol.Cmd.NAVIGATOR_SELECT_TRACK})
 
-    def test_typed_and_text_dispatch(self):
-        """The typed handlers (channel values, mute, send volume, parameters) and the text
-        fallback give the same model and the same log as the text form."""
-        hosts = [Host(), Host()]
-        lines = ["track\t0/volume\t0.25", "track\t1/mute\t1", "track\t0/send/1/volume/inc\t0.125", "master\tvolume/reset",
-                 "fxtrack\t1/solo\t1", "device\tparam/2/value\t0.75", "track\t2/volume/touch\t1", "transport\tplay"]
-        for line in lines:
-            processor, command, *value = line.split("\t")
-            parsed = (float(value[0]) if "." in value[0] else int(value[0])) if value else None
-            hosts[0].commands.handle(processor, command, parsed)
-        kinds = {int: "int", float: "double", type(None): "noArg"}
-        text = "\n".join(kinds[type(c.value)] + "\t" + c.processor + "\t" + c.full_command + ("" if c.value is None else "\t" + str(c.value))
-                         for c in hosts[0].commands.log)
-        buffer = drivenbymoss.messages_from_text(text)
-        hosts[1].commands.process_commands(buffer)
-        typed = [type(c).__name__ for c in hosts[1].commands.log]
-        self.assertEqual(typed, ["ViewCommand"] * 7 + ["Command"], "The transport through its text")
-        for a, b in zip(hosts[0].commands.log, hosts[1].commands.log):
-            self.assertEqual((a.processor, a.full_command, a.command, a.number, a.reset, a.increment), (b.processor, b.full_command, b.command, b.number, b.reset, b.increment))
-        self.assertEqual(hosts[1].daw.tracks[0].volume.value, 0.25)
-        self.assertEqual(hosts[0].reporter.collect(), hosts[1].reporter.collect())
-        self.assertEqual(hosts[0].reporter.pending, hosts[1].reporter.pending, "Reported again")
+    def test_log_and_borrowed_buffer(self):
+        """The log shows the core's text of the commands (the records are copied); the views of
+        a command buffer are only valid during the call (the binding releases its memoryview)."""
+        host = Host()
+        lines = ["double\ttrack\t0/volume\t0.25", "int\ttrack\t1/mute\t1", "double\ttrack\t0/send/1/volume/inc\t0.125",
+                 "noArg\tmaster\tvolume/reset", "noArg\ttransport\tplay", "string\tscene\t2/name\tVerse"]
+        buffer = bytearray(drivenbymoss.messages_from_text("\n".join(lines)))
+        view = memoryview(buffer)
+        host.commands.process_commands(view)
+        view.release()
+        buffer[:] = bytes(len(buffer))
+        log = host.commands.log
+        self.assertEqual([(c.processor, c.full_command, c.command, c.value, c.reset, c.increment) for c in log],
+                         [("track", "0/volume", "0/volume", 0.25, False, False), ("track", "1/mute", "1/mute", 1, False, False),
+                          ("track", "0/send/1/volume/inc", "0/send/1/volume", 0.125, False, True),
+                          ("master", "volume/reset", "volume", None, True, False), ("transport", "play", "play", None, False, False),
+                          ("scene", "2/name", "2/name", "Verse", False, False)])
+        self.assertTrue(host.daw.transport.playing and host.daw.scenes[2].name == "Verse")
+        self.assertEqual(host.reporter.pending, {("ch", protocol.ChKind.TRACK, 0): 300.0, ("ch", protocol.ChKind.TRACK, 1): 300.0,
+                                                 ("ch", protocol.ChKind.MASTER, 0): 300.0}, "Reported again by entity")
+
+        kept = []
+
+        class Keeper(drivenbymoss.Backend):
+            def process_commands(self, buffer):
+                kept.extend(protocol.iter_commands(buffer))
+
+        keeper = Keeper()
+        app = drivenbymoss.App.create_controller(keeper, "5afa5045-ff92-4737-a091-5b371cd5e529", tempfile.mkdtemp(), "test")
+        self.addCleanup(app.close)
+        self.assertTrue(app.use_binary_commands())
+        app.start_infrastructure()
+        self.assertTrue(kept, "The refresh of the start")
+        with self.assertRaises(ValueError, msg="A view which escaped the call raises"):
+            _ = kept[0].b[0]
 
 
 class ReporterTest(unittest.TestCase):
 
-    def test_binary_reports_equal_the_text(self):
-        """The dual run (TYPED_PROTOCOL_PLAN §3): the records of the binary protocol equal the
-        core's conversion of the text lines (the check protocol raises otherwise), and both give
-        the same text."""
-        hosts = {}
-        for name in (reporter_module.TEXT, reporter_module.CHECK):
-            host = Host()
-            host.reporter = Reporter(host.daw, host.banks, clock=lambda: 0.0, features=host.commands.host_features, protocol_=name)
-            host.commands.reporter = host.reporter
-            hosts[name] = host
-        for step in range(3):
-            texts = {}
-            for name, host in hosts.items():
-                if step == 1:
-                    host.daw.tracks[2].volume.set(0.123456789)
-                    host.daw.tracks[1].name = "Line\nbreak"
-                if step == 2:
-                    host.reporter.request_dump()
-                texts[name] = host.lines()
-            self.assertEqual(texts[reporter_module.CHECK], texts[reporter_module.TEXT])
-        check = hosts[reporter_module.CHECK].reporter
-        self.assertEqual([a for a in check.last_values if reporter_module.address_key(a) is None], [], "Every address is in the table")
-        self.assertIsNone(check.take_buffer()[0], "Taken by lines()")
-        self.assertEqual(check.last_values["/track/2/volume"], "0.123457")
+    def test_records_and_their_text(self):
+        """The records carry the exact doubles (no rounding, TYPED_PROTOCOL_PLAN §6.6); the texts
+        of the reports (tests, logs) are the core's text of the records."""
+        host = Host()
+        host.lines()
+        host.daw.tracks[2].volume.set(0.123456789)
+        host.daw.tracks[1].name = "Line\nbreak"
+        lines = host.lines()
+        self.assertIn("/track/2/volume 0.123456789", lines)
+        self.assertIn("/track/1/name Line break", lines)
+        reporter = host.reporter
+        self.assertEqual([a for a in reporter.last_values if reporter_module.address_key(a) is None], [], "Every address is in the table")
+        self.assertIsNone(reporter.take_buffer(), "Taken by lines()")
+        self.assertEqual(reporter.last_values["/track/2/volume"], "0.123456789")
         k = protocol.key(protocol.Msg.CHANNEL_VOLUME, protocol.ChKind.TRACK, 2)
         self.assertEqual(reporter_module.address_key("/track/2/volume"), k)
         self.assertEqual(reporter_module.key_address(k), "/track/2/volume")
+        # A changed double is reported, also a change below the old 6 decimals
+        host.daw.tracks[2].volume.set(0.1234567891)
+        self.assertEqual(host.lines()[0], "/track/2/volume 0.1234567891")
+        with self.assertRaises(TypeError, msg="A value which does not fit the report"):
+            reporter.put(k, "loud")
 
     def test_dump_then_only_changes(self):
         host = Host()
         first = host.lines()
-        self.assertEqual(first[0], "/host/features valueInc valueReset immediately indication soloToggle transportCommands deviceCommands")
-        values = dict(line.split(" ", 1) for line in first)
+        self.assertEqual(first[0], "/host/features valueInc valueReset immediately indication", "The value operations (the command features come from the handled commands)")
+        values = {address: value for address, _, value in (line.partition(" ") for line in first)}
         addresses = [line.split(" ", 1)[0] for line in first]
         twice = sorted({address for address in addresses if addresses.count(address) > 1})
         self.assertEqual(twice, ["/device/bypass", "/device/exists", "/device/expand", "/device/name", "/device/window"],
@@ -392,7 +406,7 @@ class ReporterTest(unittest.TestCase):
         self.assertEqual(values["/track/count"], "8")
         self.assertEqual(values["/track/7/type"], "MASTER")
         self.assertEqual(values["/track/5/type"], "EFFECT")
-        self.assertEqual(values["/track/0/volume"], "0.793701")
+        self.assertEqual(values["/track/0/volume"], repr(VOLUME_0DB), "Exact")
         self.assertEqual(values["/track/0/send/1/name"], "FX 2")
         self.assertEqual(values["/fxtrack/count"], "2")
         self.assertEqual(values["/scene/count"], "8")
@@ -437,13 +451,13 @@ class ReporterTest(unittest.TestCase):
     def test_report_again_after_a_value_command(self):
         host = Host()
         host.lines()
-        host.commands.handle("track", "1/volume", 0.5)
-        self.assertEqual(host.report()["/track/1/volume"], "0.500000")
+        run_command(host.commands, "track", "1/volume", 0.5)
+        self.assertEqual(host.report()["/track/1/volume"], "0.5")
         host.clock = 299
         self.assertEqual(host.lines(), [])
         host.clock = 300
         report = host.report()
-        self.assertEqual(report["/track/1/volume"], "0.500000")
+        self.assertEqual(report["/track/1/volume"], "0.5")
         self.assertIn("/track/1/name", report)
         self.assertNotIn("/track/2/name", report)
         self.assertEqual(host.lines(), [])
@@ -460,7 +474,7 @@ class CommandTest(unittest.TestCase):
 
     def test_value_commands(self):
         host = Host()
-        daw, handle = host.daw, host.commands.handle
+        daw, handle = host.daw, functools.partial(run_command, host.commands)
         handle("track", "0/volume", 0.25)
         self.assertEqual(daw.tracks[0].volume.value, 0.25)
         handle("track", "0/volume/inc", 0.1)
@@ -492,7 +506,7 @@ class CommandTest(unittest.TestCase):
 
     def test_channel_commands(self):
         host = Host()
-        daw, handle = host.daw, host.commands.handle
+        daw, handle = host.daw, functools.partial(run_command, host.commands)
         handle("track", "1/mute", 1)
         handle("track", "2/solo", 1)
         handle("track", "3/recarm", 1)
@@ -534,7 +548,7 @@ class CommandTest(unittest.TestCase):
 
     def test_slot_and_scene_commands(self):
         host = Host()
-        daw, handle = host.daw, host.commands.handle
+        daw, handle = host.daw, functools.partial(run_command, host.commands)
         handle("track", "0/createClip/2", 4)
         self.assertTrue(daw.tracks[0].slots[2].has_content)
         handle("track", "0/clip/2/select", None)
@@ -564,7 +578,7 @@ class CommandTest(unittest.TestCase):
 
     def test_transport_commands(self):
         host = Host()
-        t, handle = host.daw.transport, host.commands.handle
+        t, handle = host.daw.transport, functools.partial(run_command, host.commands)
         handle("transport", "play", None)
         self.assertTrue(t.playing)
         handle("transport", "stop", None)
@@ -614,21 +628,23 @@ class CommandTest(unittest.TestCase):
     def test_refresh_bank_and_unhandled(self):
         host = Host()
         host.lines()
-        host.commands.handle("refresh", "", None)
+        run_command(host.commands, "refresh", "", None)
         self.assertGreater(len(host.lines()), 100)
-        host.commands.handle("bank", "track", 8)
-        host.commands.handle("bank", "scene", 4)
+        run_command(host.commands, "bank", "track", 8)
+        run_command(host.commands, "bank", "scene", 4)
         self.assertEqual((host.banks.track_offset, host.banks.scene_offset), (8, 4))
-        self.assertEqual(host.report()["/track/offset"], "8")
+        self.assertIn("/track/offset", host.report(), "No value: reported when the offset changes")
 
         with self.assertLogs("dbm_host", "INFO") as logs:
-            host.commands.handle("device", "sibling/3/frobnicate", 1)
-            host.commands.handle("device", "sibling/4/frobnicate", 1)
-            host.commands.handle("track", "99/mute", 1)
-            host.commands.handle("frobnicate", "", None)
-        self.assertEqual(host.commands.unhandled, ["device sibling/<n>/frobnicate", "track <n>/mute", "frobnicate"])
+            run_command(host.commands, "device", "sibling/9/bypass", None)
+            run_command(host.commands, "device", "sibling/10/bypass", None)
+            run_command(host.commands, "track", "99/mute", 1)
+            run_command(host.commands, "application", "toggleBrowser", None)
+        self.assertEqual(host.commands.unhandled, ["device sibling/<n>/bypass", "track <n>/mute", "application toggleBrowser"])
         self.assertEqual(len(logs.output), 3, "Each once")
-        self.assertIn("Not handled yet: device sibling/<n>/frobnicate", logs.output[0])
+        self.assertIn("Not handled yet: device sibling/<n>/bypass", logs.output[0])
+        with self.assertRaises(ValueError, msg="Not in the table: the core cannot send it"):
+            run_command(host.commands, "frobnicate", "", None)
 
 
 class DeviceAndPreferencesTest(unittest.TestCase):
@@ -651,27 +667,27 @@ class DeviceAndPreferencesTest(unittest.TestCase):
     def test_edits_make_undo_possible(self):
         host = Host()
         app = host.daw.application
-        host.commands.handle("track", "0/select", 1.0)
+        run_command(host.commands, "track", "0/select", 1.0)
         self.assertFalse(app.can_undo, "A selection is no edit")
-        host.commands.handle("track", "0/mute", 0.0)
+        run_command(host.commands, "track", "0/mute", 0.0)
         self.assertFalse(app.can_undo, "No change")
-        host.commands.handle("track", "0/mute", 1.0)
+        run_command(host.commands, "track", "0/mute", 1.0)
         self.assertTrue(app.can_undo)
         self.assertIn("/project/canUndo 1", host.lines())
-        host.commands.handle("track", "1/volume", 0.25)
-        host.commands.handle("track", "1/volume", 0.3)
+        run_command(host.commands, "track", "1/volume", 0.25)
+        run_command(host.commands, "track", "1/volume", 0.3)
         self.assertEqual(len(app.undo_stack), 2, "The changes of one value are one edit")
         track0, track1 = host.daw.tracks[0], host.daw.tracks[1]
-        host.commands.handle("undo", "", None)
+        run_command(host.commands, "undo", "", None)
         self.assertEqual(track1.volume.value, track1.volume.default)
         self.assertTrue(track0.mute)
-        host.commands.handle("undo", "", None)
+        run_command(host.commands, "undo", "", None)
         self.assertFalse(track0.mute)
         self.assertEqual((app.can_undo, app.can_redo), (False, True))
         self.assertIn("/project/canUndo 0", host.lines())
-        host.commands.handle("redo", "", None)
+        run_command(host.commands, "redo", "", None)
         self.assertTrue(track0.mute)
-        host.commands.handle("track", "0/solo", 1.0)
+        run_command(host.commands, "track", "0/solo", 1.0)
         self.assertFalse(app.can_redo, "An edit clears the redo steps")
 
     def test_device_reports_and_parameter_page(self):
@@ -685,10 +701,10 @@ class DeviceAndPreferencesTest(unittest.TestCase):
         self.assertEqual((report["/device/page/count"], report["/device/page/1/name"], report["/device/param/count"]), ("2", "OSC2", "16"))
         self.assertEqual(report["/primary/name"], "Polysynth")
         self.assertNotIn("/device/page/2/name", report, "Only numParamPages pages")
-        host.commands.handle("device", "parameterPage", 7.0)
+        run_command(host.commands, "device", "parameterPage", 7.0)
         self.assertEqual(daw.cursor_device.selected_page, 2, "Clamped")
         self.assertEqual(host.report()["/primary/page/selected"], "2", "The same device")
-        host.commands.handle("primary", "parameterPage", 0.0)
+        run_command(host.commands, "primary", "parameterPage", 0.0)
         self.assertEqual(host.report()["/device/page/selected"], "0")
         daw.tracks[3].select()
         report = host.report()
@@ -701,29 +717,28 @@ class NoteRepeatTest(unittest.TestCase):
     def test_the_arpeggiator_of_the_note_input(self):
         host = Host()
         self.assertNotIn("/noterepeat/active", host.report(), "No note input, nothing reported")
-        host.commands.handle("noterepeat", "active", 1)
+        run_command(host.commands, "noterepeat", "active", 1)
         self.assertEqual(host.commands.unhandled, [], "Ignored without a note input, as the Bitwig extension")
 
         host.daw.create_note_input()
         report = host.report()
         self.assertEqual({k: v for k, v in report.items() if k.startswith("/noterepeat/")},
-                         {"/noterepeat/active": "0", "/noterepeat/period": "4.000000", "/noterepeat/notelength": "0.500000",
+                         {"/noterepeat/active": "0", "/noterepeat/period": "4", "/noterepeat/notelength": "0.5",
                           "/noterepeat/mode": "1", "/noterepeat/velocity": "1"}, "Bitwig's defaults of the recordings")
-        host.commands.handle("noterepeat", "rate", 8.0)
-        host.commands.handle("noterepeat", "notelength", 0.25)
-        host.commands.handle("noterepeat", "mode", 3)
-        host.commands.handle("noterepeat", "mode", 9)
-        host.commands.handle("noterepeat", "velocity", 0)
-        host.commands.handle("noterepeat", "active", 1)
+        run_command(host.commands, "noterepeat", "rate", 8.0)
+        run_command(host.commands, "noterepeat", "notelength", 0.25)
+        run_command(host.commands, "noterepeat", "mode", 3)
+        run_command(host.commands, "noterepeat", "mode", 9)
+        run_command(host.commands, "noterepeat", "velocity", 0)
+        run_command(host.commands, "noterepeat", "active", 1)
         arpeggiator = host.daw.note_input.arpeggiator
         self.assertEqual((arpeggiator.rate, arpeggiator.mode, arpeggiator.use_pressure_to_velocity), (0.125, "up-down", False), "Mode 9 is ignored")
         report = host.report()
-        self.assertEqual((report["/noterepeat/period"], report["/noterepeat/notelength"], report["/noterepeat/mode"]), ("8.000000", "0.250000", "3"))
+        self.assertEqual((report["/noterepeat/period"], report["/noterepeat/notelength"], report["/noterepeat/mode"]), ("8", "0.25", "3"))
         self.assertEqual((report["/noterepeat/active"], report["/noterepeat/velocity"]), ("1", "0"))
-        host.commands.handle("noterepeat", "rate", 0.0)
+        run_command(host.commands, "noterepeat", "rate", 0.0)
         self.assertEqual(arpeggiator.rate, 0.125, "A rate of 0 is ignored")
-        host.commands.handle("noterepeat", "shuffle", 1)
-        self.assertEqual(host.commands.unhandled, ["noterepeat shuffle"])
+        self.assertEqual(host.commands.unhandled, [])
 
     def test_a_new_note_input_has_the_defaults(self):
         daw = project()
@@ -738,18 +753,18 @@ class DeviceParameterTest(unittest.TestCase):
         daw.tracks[0].devices.add(Device("Polysynth", pages=["OSC1", "OSC2"]))
         host = Host(daw, {"numTracks": 8, "numParamPages": 4})
         host.report()
-        host.commands.handle("device", "param/9/indicate", 1)
-        host.commands.handle("device", "param/9/touch", 1)
-        host.commands.handle("device", "param/9/value", 0.25)
+        run_command(host.commands, "device", "param/9/indicate", 1)
+        run_command(host.commands, "device", "param/9/touch", 1)
+        run_command(host.commands, "device", "param/9/value", 0.25)
         parameter = daw.cursor_device.parameters[9]
         self.assertEqual((parameter.indicated, parameter.touched, parameter.value), (True, True, 0.25))
-        self.assertEqual(host.report()["/device/param/9/value"], "0.250000")
-        host.commands.handle("device", "param/20/indicate", 1)
-        host.commands.handle("device", "param/40/indicate", 1)
+        self.assertEqual(host.report()["/device/param/9/value"], "0.25")
+        run_command(host.commands, "device", "param/20/indicate", 1)
+        run_command(host.commands, "device", "param/40/indicate", 1)
         self.assertNotIn(20, daw.cursor_device.parameters, "No page 3: ignored")
         self.assertEqual(host.commands.unhandled, [], "Beyond the page cursors: ignored, as the Bitwig extension")
-        host.commands.handle("device", "param/1/frobnicate", 1)
-        self.assertEqual(host.commands.unhandled, ["device param/<n>/frobnicate"])
+        run_command(host.commands, "device", "param/1/value/touch", 1)
+        self.assertEqual(host.commands.unhandled, ["device param/<n>/value/touch"])
 
 
 class NavigatorTest(unittest.TestCase):
@@ -758,18 +773,18 @@ class NavigatorTest(unittest.TestCase):
 
     def test_only_if_the_controller_wants_it(self):
         host = Host()
-        self.assertNotIn("clipLauncherNavigator", host.commands.host_features())
-        host.commands.handle("navigator", "tracks/+", None)
+        self.assertNotIn(protocol.Cmd.NAVIGATOR_STEP, host.commands.handled_commands(), "The core derives clipLauncherNavigator from them")
+        run_command(host.commands, "navigator", "tracks/+", None)
         self.assertEqual(host.commands.unhandled, ["navigator tracks/+"])
         host = Host(setup=self.SETUP)
-        self.assertIn("clipLauncherNavigator", host.commands.host_features())
+        self.assertLessEqual({protocol.Cmd.NAVIGATOR_STEP, protocol.Cmd.NAVIGATOR_SELECT_TRACK}, host.commands.handled_commands())
 
     def test_select_track_keeps_the_selected_slot(self):
         daw = project()
         daw.tracks[1].slots[0].select()
         host = Host(daw, self.SETUP)
-        host.commands.handle("navigator", "selectTrack", 2)
-        host.commands.handle("track", "2/select", 1)
+        run_command(host.commands, "navigator", "selectTrack", 2)
+        run_command(host.commands, "track", "2/select", 1)
         self.assertTrue(daw.tracks[2].selected)
         self.assertTrue(daw.tracks[1].slots[0].selected, "The slot of the other track stays selected")
         self.assertEqual(host.commands.navigator.track_position, 2)
@@ -779,27 +794,27 @@ class NavigatorTest(unittest.TestCase):
         daw.tracks[1].select()
         daw.tracks[1].slots[0].select()
         host = Host(daw, self.SETUP)
-        host.commands.handle("navigator", "tracks/+", None)
+        run_command(host.commands, "navigator", "tracks/+", None)
         self.assertTrue(daw.tracks[2].selected)
         self.assertTrue(daw.tracks[2].slots[0].selected)
-        host.commands.handle("navigator", "tracks/-", None)
-        host.commands.handle("navigator", "tracks/-", None)
-        host.commands.handle("navigator", "tracks/-", None)
+        run_command(host.commands, "navigator", "tracks/-", None)
+        run_command(host.commands, "navigator", "tracks/-", None)
+        run_command(host.commands, "navigator", "tracks/-", None)
         self.assertTrue(daw.tracks[0].selected and daw.tracks[0].slots[0].selected, "Stops at the first track")
         daw.tracks[3].select()
-        host.commands.handle("navigator", "tracks/+", None)
+        run_command(host.commands, "navigator", "tracks/+", None)
         self.assertTrue(daw.tracks[4].selected, "The bank follows the selection")
 
     def test_clips_and_scenes(self):
         daw = project()
         host = Host(daw, self.SETUP)
         for _ in range(5):
-            host.commands.handle("navigator", "clips/+", None)
+            run_command(host.commands, "navigator", "clips/+", None)
         self.assertTrue(daw.tracks[0].slots[5].selected)
         self.assertTrue(daw.scenes[5].selected, "The sceneIndex observer selects the scene")
         self.assertEqual(host.banks.scene_offset, 4, "and scrolls the scene window to its page")
         daw.scenes[0].select()
-        host.commands.handle("navigator", "scenes/-", None)
+        run_command(host.commands, "navigator", "scenes/-", None)
         self.assertTrue(daw.tracks[0].slots[4].selected)
         self.assertEqual(host.banks.scene_offset, 4)
         daw.scenes[0].select()
@@ -833,7 +848,7 @@ class EqualizerTest(unittest.TestCase):
         report = host.report()
         self.assertEqual((report["/eq/exists"], report["/eq/name"], report["/eq/param/count"]), ("1", EQ_PLUS, "24"))
         self.assertEqual((report["/eq/param/0/name"], report["/eq/param/0/value/str"], report["/eq/param/0/value/str/6"]), ("Band 1 Frequency", "80.0 Hz", "80.0"))
-        self.assertEqual((report["/eq/param/1/value"], report["/eq/param/1/value/str"], report["/eq/param/2/value/str"]), ("0.500000", "0.0 dB", "1.00"))
+        self.assertEqual((report["/eq/param/1/value"], report["/eq/param/1/value/str"], report["/eq/param/2/value/str"]), ("0.5", "0.0 dB", "1.00"))
         self.assertEqual(report["/eq/band/0/value"], "-1", "Off")
         host.daw.tracks[0].select()
         host.report()
@@ -844,35 +859,35 @@ class EqualizerTest(unittest.TestCase):
     def test_commands(self):
         host = self.host()
         eq = host.daw.eq_device.equalizer
-        host.commands.handle("eq", "band/0", "8")
-        host.commands.handle("eq", "band/7", "4")
+        run_command(host.commands, "eq", "band/0", "8")
+        run_command(host.commands, "eq", "band/7", "4")
         self.assertEqual((eq.types[0], eq.types[7], eq.type_text(0)), ("bell", "lowcut", "Bell"))
-        host.commands.handle("eq", "param/1/value", 0.0)
-        host.commands.handle("eq", "param/3/indicate", 1)
+        run_command(host.commands, "eq", "param/1/value", 0.0)
+        run_command(host.commands, "eq", "param/3/indicate", 1)
         self.assertEqual((eq.gains[0].value, eq.frequencies[1].indicated), (0.0, True))
         report = host.report()
         self.assertEqual((report["/eq/band/0/value"], report["/eq/band/7/value"], report["/eq/param/1/value/str"]), ("8", "4", "-30.0 dB"))
-        host.commands.handle("eq", "window", 1)
-        host.commands.handle("eq", "bypass", None)
+        run_command(host.commands, "eq", "window/toggle", None)
+        run_command(host.commands, "eq", "bypass", None)
         self.assertTrue(host.daw.eq_device.window_open and not host.daw.eq_device.enabled)
         self.assertEqual(host.commands.unhandled, [])
-        host.commands.handle("eq", "band/0", "5")
-        host.commands.handle("eq", "param/24/value", 0.5)
+        run_command(host.commands, "eq", "band/0", "5")
+        run_command(host.commands, "eq", "param/24/value", 0.5)
         self.assertEqual(host.commands.unhandled, ["eq band/<n>", "eq param/<n>/value"], "Unknown type and index")
 
     def test_add(self):
         host = self.host()
         host.daw.tracks[0].select()
         self.assertIsNone(host.daw.eq_device)
-        host.commands.handle("eq", "param/1/value", 0.0)
+        run_command(host.commands, "eq", "param/1/value", 0.0)
         self.assertEqual(host.commands.unhandled, [], "Ignored without an EQ+")
-        host.commands.handle("eq", "add", None)
+        run_command(host.commands, "eq", "add", None)
         self.assertEqual(host.daw.eq_device.name, EQ_PLUS)
         self.assertEqual(host.report()["/eq/exists"], "1")
-        host.commands.handle("eq", "remove", None)
+        run_command(host.commands, "eq", "remove", None)
         self.assertIsNone(host.daw.eq_device)
         unwanted = Host(setup={"numTracks": 8})
-        unwanted.commands.handle("eq", "add", None)
+        run_command(unwanted.commands, "eq", "add", None)
         self.assertEqual(unwanted.commands.unhandled, ["eq add"])
 
 
@@ -918,7 +933,7 @@ class LaunchControlXLTest(unittest.TestCase):
         setup = bridge.app.get_model_setup()
         self.assertEqual((bridge.banks.num_tracks, bridge.banks.num_sends), (setup["numTracks"], setup["numSends"]))
         self.assertIsNotNone(daw.note_input, "The core created the note input at the start")
-        self.assertEqual(bridge.reporter.last_values["/noterepeat/period"], "4.000000")
+        self.assertEqual(bridge.reporter.last_values["/noterepeat/period"], "4")
 
         # Fader 1 (CC 0x4D) sets the volume of the first track
         bridge.send([0xB8, 0x4D, 100])

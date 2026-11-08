@@ -166,7 +166,7 @@ class LaunchControlXLTest(unittest.TestCase):
         self.bridge.send([0xB8, TRACK_RIGHT, 127])
         self.bridge.send([0xB8, TRACK_RIGHT, 0])
         self.bridge.advance(300)
-        offset = int(self.bridge.reporter.last_values["/track/offset"])
+        offset = self.bridge.banks.track_offset
         self.assertGreater(offset, 0, "The core paged the tracks (bank track)")
         self.cc(FADERS[0], 0, 400)
         moved = self.model.track_list(True)[offset]

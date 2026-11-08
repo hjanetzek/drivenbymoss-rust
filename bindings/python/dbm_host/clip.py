@@ -102,13 +102,21 @@ class Note:
     def end(self) -> float:
         return self.start + self.duration
 
+    def _wire(self, state: int) -> list:
+        return [state, int(self.selected), int(self.muted), self.duration, self.velocity, self.velocity_spread, self.release_velocity,
+                self.pressure, self.timbre, self.pan, self.transpose, self.gain, int(self.chance_enabled), self.chance,
+                int(self.occurrence_enabled), self.occurrence, int(self.recurrence_enabled), self.recurrence_length, self.recurrence_mask,
+                int(self.repeat_enabled), self.repeat_count, self.repeat_curve, self.repeat_velocity_curve, self.repeat_velocity_end]
+
+    def wire_values(self, state: int) -> tuple:
+        """The 24 values of the step (``StepInfo::to_wire``, the record of a grid step: the
+        values of ``wire``)."""
+        return tuple(value if isinstance(value, float) else float(int(value)) for value in self._wire(state))
+
     def wire(self, state: int) -> str:
         """The step in the format of ``StepInfo::to_wire`` (BitwigNoteClip.format: 24 values,
         flags 0/1, doubles as Java's ``Double.toString``)."""
-        values = [state, int(self.selected), int(self.muted), self.duration, self.velocity, self.velocity_spread, self.release_velocity,
-                  self.pressure, self.timbre, self.pan, self.transpose, self.gain, int(self.chance_enabled), self.chance,
-                  int(self.occurrence_enabled), self.occurrence, int(self.recurrence_enabled), self.recurrence_length, self.recurrence_mask,
-                  int(self.repeat_enabled), self.repeat_count, self.repeat_curve, self.repeat_velocity_curve, self.repeat_velocity_end]
+        values = self._wire(state)
         return " ".join(java_double(value) if isinstance(value, float) else str(int(value)) for value in values)
 
 
@@ -301,6 +309,24 @@ class NoteGrid:
                 state, owner = clip.state(note.channel, note.key, *self.range(x))
                 if owner is not None:
                     result[(note.channel, x, y)] = owner.wire(state)
+        return result
+
+    def step_values(self, channels: int = 16) -> dict[tuple[int, int, int], tuple]:
+        """All steps which are not empty: (channel, x, y) -> the 24 values of the step."""
+        clip = self.clip()
+        result = {}
+        if clip is None:
+            return result
+        for note in clip.notes:
+            y = note.key - self.key_offset
+            if not 0 <= y < self.num_rows or not 0 <= note.channel < channels:
+                continue
+            first = int((note.start + EPSILON) // self.step_size) - self.scroll
+            last = int((note.end - EPSILON) // self.step_size) - self.scroll
+            for x in range(max(0, first), min(self.num_steps - 1, last) + 1):
+                state, owner = clip.state(note.channel, note.key, *self.range(x))
+                if owner is not None:
+                    result[(note.channel, x, y)] = owner.wire_values(state)
         return result
 
     # Commands (BitwigNoteClip.handle)

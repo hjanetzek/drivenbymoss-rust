@@ -35,6 +35,8 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge, change_signals  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
@@ -57,7 +59,7 @@ class Host:
 
     def tick(self, ms=30):
         self.clock += ms
-        return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        return {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
 
 
 class RatesTest(unittest.TestCase):
@@ -80,10 +82,10 @@ class RatesTest(unittest.TestCase):
         full = host.reporter.full_passes
         report = host.tick()
         self.assertEqual(host.reporter.full_passes, full, "A fast pass")
-        self.assertEqual(report["/track/0/vuleft"], "0.500000")
+        self.assertEqual(report["/track/0/vuleft"], "0.5")
         self.assertEqual(report["/track/0/playingnotes"], "0:0:0:0:0:60:100")
         host.state.zynmixer_bus.lib_zynmixer.dpm[(0, 1)] = -30.0
-        self.assertEqual(host.tick()["/master/vuright"], "0.500000", "The master's too")
+        self.assertEqual(host.tick()["/master/vuright"], "0.5", "The master's too")
 
     def test_unsignalled_values_at_the_slow_rate(self):
         """A send level (zynmixer has no signal for it): with the next full pass."""
@@ -101,20 +103,20 @@ class RatesTest(unittest.TestCase):
     def test_command_makes_the_next_pass_full(self):
         host = Host()
         host.tick()
-        host.commands.handle("track", "1/mute", 1)
+        run_command(host.commands, "track", "1/mute", 1)
         self.assertEqual(host.tick(), {"/track/1/mute": "1"})
 
     def test_report_again_after_a_value_command(self):
         host = Host()
         host.tick()
-        host.commands.handle("track", "0/volume", 0.5)  # at 30 ms: again at 330 ms
-        self.assertEqual(host.tick()["/track/0/volume"], "0.500000")
+        run_command(host.commands, "track", "0/volume", 0.5)  # at 30 ms: again at 330 ms
+        self.assertEqual(host.tick()["/track/0/volume"], "0.5")
         host.tick(240)  # 300 ms: fast
         host.tick(20)   # 320 ms: the slow full pass
         full = host.reporter.full_passes
         report = host.tick(15)  # 335 ms: due, a full pass between the slow ones
         self.assertEqual(host.reporter.full_passes, full + 1)
-        self.assertEqual(report["/track/0/volume"], "0.500000", "Reported again")
+        self.assertEqual(report["/track/0/volume"], "0.5", "Reported again")
 
     def test_subtrees(self):
         """Each subtree of the slow part is collected on its own; a full pass is all of them."""
@@ -131,7 +133,7 @@ class RatesTest(unittest.TestCase):
         # The meters stay for the fast passes
         host.state.zynmixer_chan.lib_zynmixer.dpm[(1, 0)] = -30.0
         host.reporter.run_collectors(host.reporter.fast_collectors)
-        self.assertIn("/track/1/vuleft 0.500000", host.reporter.take())
+        self.assertIn("/track/1/vuleft 0.5", host.reporter.take())
 
     def test_request_records_the_subtrees(self):
         host = Host()

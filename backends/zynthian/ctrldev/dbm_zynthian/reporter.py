@@ -226,16 +226,17 @@ class ZynReporter(Reporter):
         for base, channel in self._meters:
             self.put_vu(base, channel)
         if self._notes_key is not None:
-            self.put(self._notes_key, self.playing_notes_text())
+            self.put(self._notes_key, self.playing_notes())
 
     def collect_playing_steps(self):
         """The playing step of each step grid (the steps themselves: collect_grids)."""
         for grid in self.note_grids:
             self.put(M.GRID_PLAYING_STEP | grid_key(grid), self.playing_step(grid))
 
-    def playing_notes_text(self):
+    def playing_notes(self):
+        """The notes played on the cursor track (the value of CHANNEL_PLAYING_NOTES)."""
         notes = dict(self.daw.playing_notes)
-        return ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in sorted(notes.items()))
+        return tuple((0.0, 0.0, 0, key, velocity, False, False) for key, velocity in sorted(notes.items()))
 
     # The parts of a channel
 
@@ -331,7 +332,7 @@ class ZynReporter(Reporter):
             self.forget(notes_key)
         self._notes_key = notes_key if selected >= 0 else None
         if self._notes_key is not None:
-            put(self._notes_key, self.playing_notes_text())
+            put(self._notes_key, self.playing_notes())
 
     def launcher(self):
         launcher = self.daw.launcher

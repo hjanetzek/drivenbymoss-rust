@@ -35,6 +35,9 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+from drivenbymoss.protocol import Cmd  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel, dbfs_to_vu, format_level  # noqa: E402
@@ -58,10 +61,10 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        return {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
 
     def command(self, processor, command, value=None):
-        self.commands.handle(processor, command, value)
+        run_command(self.commands, processor, command, value)
 
 
 class ModelTest(unittest.TestCase):
@@ -101,19 +104,23 @@ class ModelTest(unittest.TestCase):
 class ReporterTest(unittest.TestCase):
 
     def test_first_report_is_complete(self):
-        report = Host().report()
-        self.assertEqual(report["/host/features"], "valueInc valueReset immediately soloToggle deviceCommands",
-                         "No transportCommands without zynseq")
+        host = Host()
+        report = host.report()
+        self.assertEqual(report["/host/features"], "valueInc valueReset immediately", "The value operations")
+        handled = host.commands.handled_commands()
+        self.assertLessEqual({Cmd.CHANNEL_SOLO_TOGGLE, Cmd.DEVICE_ACTION}, handled, "soloToggle, deviceCommands")
+        self.assertFalse(handled & {Cmd.TRANSPORT_PLAY, Cmd.TRANSPORT_METRONOME_VOLUME, Cmd.SLOT_ACTION, Cmd.SCENE_ACTION},
+                         "No transportCommands (and no clip launcher) without zynseq")
         self.assertEqual((report["/project/canUndo"], report["/project/canRedo"]), ("0", "0"))
-        self.assertEqual(report["/track/offset"], "0")
+        self.assertIn("/track/offset", report)
         self.assertEqual(report["/track/count"], "5", "The chains and the add chain placeholder")
         self.assertEqual(report["/track/0/name"], "Synth")
         self.assertEqual(report["/track/0/select"], "1")
         self.assertEqual(report["/track/1/select"], "0")
-        self.assertEqual(report["/track/0/volume"], "0.800000")
+        self.assertEqual(report["/track/0/volume"], "0.8")
         self.assertEqual(report["/track/0/volume/str"], "-1.9 dB")
         self.assertEqual(report["/track/0/volume/str/6"], "-1.9")
-        self.assertEqual(report["/track/0/pan"], "0.500000")
+        self.assertEqual(report["/track/0/pan"], "0.5")
         self.assertEqual(report["/track/0/send/count"], "2")
         self.assertEqual(report["/track/0/send/1/name"], "Delay")
         self.assertEqual(report["/track/3/canHoldAudio"], "0", "The MIDI chain has no mixer strip")
@@ -220,21 +227,22 @@ class CommandTest(unittest.TestCase):
         host = Host()
         host.report()
         host.command("track", "0/volume", 0.5)
-        self.assertEqual(host.report()["/track/0/volume"], "0.500000")
+        self.assertEqual(host.report()["/track/0/volume"], "0.5")
         host.clock = 400
-        self.assertEqual(host.report()["/track/0/volume"], "0.500000", "Reported again after 300 ms")
+        self.assertEqual(host.report()["/track/0/volume"], "0.5", "Reported again after 300 ms")
 
     def test_unknown_processors_are_logged_once(self):
         host = Host()
         host.command("transport", "play")
         host.command("transport", "play")
-        host.command("scene", "0/launch", 1)
+        host.command("scene", "0/launch")
         self.assertEqual(host.commands.unhandled, ["transport play", "scene <n>/launch"])
 
     def test_bank(self):
         host = Host()
         host.command("bank", "track", 8)
-        self.assertEqual(host.report()["/track/offset"], "8")
+        self.assertIn("/track/offset", host.report(), "No value: reported when it changes")
+        self.assertEqual(host.banks.track_offset, 8)
 
 
 if __name__ == "__main__":

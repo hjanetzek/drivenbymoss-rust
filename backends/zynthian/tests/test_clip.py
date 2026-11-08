@@ -33,6 +33,8 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
@@ -41,8 +43,9 @@ from zyngine.ctrldev.dbm_zynthian.reporter import ZynReporter  # noqa: E402
 from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_mk2 import zynthian_ctrldev_dbm_maschine_mk2 as mk2  # noqa: E402
 
 GRID = "16x128"
-NEW_STEP = "0.0 1.0 0.0 0.0 0.0 0.0 0.0 1 1.0 1 0 1 1 1 1 0 0.0 0.0 0.0"
-"""The fields after state, selected, muted, duration, velocity of a new note (release velocity 1.0,
+NEW_STEP = "0 1 0 0 0 0 0 1 1 1 0 1 1 1 1 0 0 0 0"
+"""The fields after state, selected, muted, duration, velocity of a new note in the core's text of
+the step record (release velocity 1.0,
 chance on 1.0, occurrence, recurrence 1 1, repeat on 0, …: those of a new Bitwig note)."""
 
 
@@ -73,10 +76,10 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        return {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
 
     def command(self, command, value=None):
-        self.commands.handle("clip", command, value)
+        run_command(self.commands, "clip", command, value)
 
     def events(self):
         return [(e["position"], round(e["offset"], 4), e["val1_start"], e["val2_start"], round(e["duration"], 4))
@@ -88,8 +91,8 @@ class ClipTest(unittest.TestCase):
     def test_clip_properties(self):
         report = Host().report()
         self.assertEqual(report["/clip/exists"], "1")
-        self.assertEqual((report["/clip/start"], report["/clip/end"]), ("0.000000", "4.000000"))
-        self.assertEqual((report["/clip/loop"], report["/clip/loopStart"], report["/clip/loopLength"]), ("1", "0.000000", "4.000000"))
+        self.assertEqual((report["/clip/start"], report["/clip/end"]), ("0", "4"))
+        self.assertEqual((report["/clip/loop"], report["/clip/loopStart"], report["/clip/loopLength"]), ("1", "0", "4"))
         self.assertEqual(report["/clip/color"], "0 0 255", "The Synth's color")
         self.assertEqual(report[f"/clip/grid/{GRID}/playingStep"], "-1")
 
@@ -193,7 +196,7 @@ class ClipTest(unittest.TestCase):
         self.assertEqual(host.libseq.patterns[host.state.pattern]["beats"], 8)
         host.command("loopLength/inc", -6.0)
         self.assertEqual(host.libseq.patterns[host.state.pattern]["beats"], 2)
-        self.assertEqual(host.report()["/clip/loopLength"], "2.000000")
+        self.assertEqual(host.report()["/clip/loopLength"], "2")
         host.command("duplicateContent")
         self.assertEqual(host.libseq.patterns[host.state.pattern]["beats"], 4)
         self.assertEqual([e[0] for e in host.events()], [1, 9], "The notes again after the old length")

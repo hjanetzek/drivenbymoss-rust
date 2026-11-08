@@ -360,9 +360,8 @@ class ZynBrowser:
     # The core's commands
 
     def command(self, cmd, page_columns, page_results):
-        """``browser …`` (§4.9); False if not handled."""
-        c = cmd.command
-        parts = cmd.parts
+        """``browser …`` (§4.9; ``cmd``: commands.BrowserCommand); False if not handled."""
+        c = cmd.name
         if c == "replace/device":
             self.add_chain.close()
         elif self.add_chain.busy:
@@ -381,18 +380,16 @@ class ZynBrowser:
         if c == "preview":
             self.set_preview(cmd.flag)
             return True
-        if c in ("contentType/+", "contentType/-"):
+        if c == "contentType":
             return True  # One content type
         if not self.is_open:
-            return parts[:1] in (["column"], ["result"])
-        if len(parts) >= 2 and parts[0] == "column":
-            if parts[1] != str(BANK_COLUMN):
+            return c in ("column", "result")
+        if c == "column":
+            if cmd.column != BANK_COLUMN:
                 return False
-            # "column/<c>/reset": the reset suffix of the value commands (Command.parse)
-            what = "reset" if cmd.reset and len(parts) == 2 else "/".join(parts[2:])
-            return self._move(self.select_bank, self.bank, what, page_columns, reset=True)
-        if len(parts) >= 2 and parts[0] == "result":
-            return self._move(self.select_result, self.result, "/".join(parts[1:]), page_results, reset=False)
+            return self._move(self.select_bank, self.bank, cmd.what, page_columns, reset=True)
+        if c == "result":
+            return self._move(self.select_result, self.result, cmd.what, page_results, reset=False)
         return False
 
     @staticmethod

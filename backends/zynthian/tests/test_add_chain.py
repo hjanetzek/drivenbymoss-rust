@@ -36,6 +36,8 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
@@ -75,12 +77,12 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        lines = dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        lines = {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
         self.values.update(lines)
         return lines
 
     def command(self, processor, command, value=None):
-        self.commands.handle(processor, command, value)
+        run_command(self.commands, processor, command, value)
 
 
 class TrackListTest(unittest.TestCase):
@@ -104,7 +106,8 @@ class TrackListTest(unittest.TestCase):
         self.assertEqual(report["/track/8/exists"], "1")
         host.command("bank", "track", 8)
         report = host.report()
-        self.assertEqual(report["/track/offset"], "8", "Paged to the placeholder")
+        self.assertEqual(host.banks.track_offset, 8, "Paged to the placeholder")
+        self.assertIn("/track/offset", report)
         host.command("track", "8/select", 1)
         self.assertEqual(host.state.cuias, ADD_CHAIN)
 
@@ -118,7 +121,7 @@ class TrackListTest(unittest.TestCase):
         self.assertEqual(report[prefix + "select"], "0")
         self.assertEqual(report[prefix + "send/count"], "0")
         self.assertEqual((report[prefix + "mute"], report[prefix + "solo"], report[prefix + "recarm"]), ("0", "0", "0"))
-        self.assertEqual((report[prefix + "volume"], report[prefix + "volume/str"]), ("0.000000", ""))
+        self.assertEqual((report[prefix + "volume"], report[prefix + "volume/str"]), ("0", ""))
         self.assertEqual((report[prefix + "canHoldNotes"], report[prefix + "canHoldAudio"]), ("0", "0"))
 
     def test_no_slots(self):
@@ -165,9 +168,9 @@ class CommandTest(unittest.TestCase):
         before = host.state.zctrl(1, "level").value
         for command, value in (("1/mute", 1), ("1/solo", 1), ("1/solo/toggle", None), ("1/volume", 0.5),
                                ("1/volume/inc", 0.1), ("1/volume/reset", None), ("1/pan", 0.0),
-                               ("1/send/0/volume", 1.0), ("1/send/0/active", 1.0), ("1/recarm", 1),
-                               ("1/name", "x"), ("1/clip/0/launch", 1), ("1/clip/0/record", 1),
-                               ("1/clip/0/select", 1), ("1/createClip/0", 4), ("1/stop", None), ("1/select", 0)):
+                               ("1/send/0/volume", 1.0), ("1/recarm", 1),
+                               ("1/name", "x"), ("1/clip/0/launch", None), ("1/clip/0/record", None),
+                               ("1/clip/0/select", None), ("1/createClip/0", 4), ("1/stop", None), ("1/select", 0)):
             host.command("track", command, value)
         self.assertEqual(host.state.cuias, [], "Only a select opens the Add Chain view")
         self.assertEqual(host.commands.unhandled, [], "Ignored, not logged as unhandled")
@@ -464,7 +467,7 @@ class BrowsingHost(Host):
         self.model.browser.add_chain.ui = AddChainUI(self.ui, lambda: self.ui)
 
     def browser(self, command, value=None):
-        self.commands.handle("browser", command, value)
+        run_command(self.commands, "browser", command, value)
 
     def items(self, prefix):
         lv = self.reporter.last_values

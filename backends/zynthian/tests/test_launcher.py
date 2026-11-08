@@ -33,6 +33,8 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.commands import ZynCommandHandler  # noqa: E402
@@ -77,11 +79,11 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        self.values.update(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        self.values.update((a, v) for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines()))
         return self.values
 
     def command(self, processor, command, value=None):
-        self.commands.handle(processor, command, value)
+        run_command(self.commands, processor, command, value)
 
     def state_of(self, phrase, chan):
         return self.libseq.getPlayState(0, phrase, chan)

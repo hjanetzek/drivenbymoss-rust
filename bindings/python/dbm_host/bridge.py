@@ -84,9 +84,9 @@ class Bridge(drivenbymoss.Backend):
         """Create the controller, start it, size the banks and send the first (complete) report."""
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
         self.app.set_time(int(self.clock_ms))
+        if not self.app.use_binary_commands(self.commands.handled_commands()):
+            raise RuntimeError("The library refused the binary commands (another major protocol version)")
         # The note inputs can only be created while the controller starts (DbmExtension.init)
-        if self.reporter.binary and not self.app.use_binary_commands(self.commands.handled_commands()):
-            logger.warning("The library refused the binary commands: they stay text")
         self._initializing = True
         self.daw.note_input = None
         self.note_inputs = {}
@@ -96,6 +96,9 @@ class Bridge(drivenbymoss.Backend):
             self._initializing = False
         self.banks.configure(self.app.get_model_setup())
         self.commands.configure()
+        # The handled commands of the model setup (e.g. the navigator): the core derives the
+        # command features from them
+        self.app.use_binary_commands(self.commands.handled_commands())
         self.app.take_setting_changes()
         self.report()
         return self
@@ -127,28 +130,17 @@ class Bridge(drivenbymoss.Backend):
         return self.send_report(keep=True)
 
     def send_report(self, keep: bool) -> bool:
-        """Collect the changes and send them: as lines (the text protocol) or as one buffer of
-        records (binary; lines which are not in the table as text). ``keep``: append the text to
-        ``reports``."""
+        """Collect the changes and send them as one buffer of records. ``keep``: append the text
+        of the records (the core's text form) to ``reports``."""
         reporter = self.reporter
-        if not reporter.binary:
-            lines = reporter.collect()
-            if lines:
-                if keep:
-                    self.reports.append(lines)
-                self.app.update_model(lines)
-            return bool(lines)
         reporter.collect_pass()
-        writer, text = reporter.take_buffer()
-        if writer is not None:
-            if keep:
-                self.reports.append(drivenbymoss.messages_to_text(writer) + "\n")
-            self.app.update_model_bin(writer)
-        if text:
-            if keep:
-                self.reports.append(text)
-            self.app.update_model(text)
-        return writer is not None or bool(text)
+        writer = reporter.take_buffer()
+        if writer is None:
+            return False
+        if keep:
+            self.reports.append(drivenbymoss.messages_to_text(writer) + "\n")
+        self.app.update_model_bin(writer)
+        return True
 
     def step(self) -> None:
         """One loop pass: MIDI in -> tick -> report changes -> update_model."""
@@ -190,11 +182,9 @@ class Bridge(drivenbymoss.Backend):
 
     # The callbacks of the core (drivenbymoss.Backend)
 
-    def process(self, processor: str, command: str, value) -> None:
-        self.commands.handle(processor, command, value)
-
-    def process_commands(self, buffer: bytes) -> None:
-        """The binary form: dispatched by CmdId (CommandHandler.process_commands)."""
+    def process_commands(self, buffer) -> None:
+        """The commands of a call, dispatched by CmdId (CommandHandler.process_commands); the
+        buffer is only valid during the call."""
         self.commands.process_commands(buffer)
 
     def open_midi_input(self, device_id: int) -> bool:

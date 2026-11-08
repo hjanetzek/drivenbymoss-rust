@@ -34,6 +34,8 @@ import zynstubs
 
 zynstubs.install()
 
+from dbm_host.coverage import run_command  # noqa: E402
+
 from dbm_host import Banks  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge  # noqa: E402
 from zyngine.ctrldev.dbm_zynthian.browser import BrowserUI  # noqa: E402
@@ -125,10 +127,10 @@ class Host:
         # A full pass: the state is changed directly, without zynthian's change signals (the
         # two rates: test_rates.py)
         self.reporter.request_full()
-        return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
+        return {a: v for a, _, v in (line.partition(" ") for line in self.reporter.collect().splitlines())}
 
     def browser(self, command, value=None):
-        self.commands.handle("browser", command, value)
+        run_command(self.commands, "browser", command, value)
 
     def values(self):
         return self.reporter.last_values

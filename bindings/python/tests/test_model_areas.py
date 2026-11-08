@@ -24,6 +24,7 @@ from dbm_host.layer import Layer  # noqa: E402
 from dbm_host.model import NoteInput  # noqa: E402
 from dbm_host.parameter import Parameter, format_semitones, recorded_formatter  # noqa: E402
 
+from dbm_host.coverage import run_command  # noqa: E402
 from test_host import Host, project  # noqa: E402
 
 
@@ -69,27 +70,27 @@ class LayerTest(unittest.TestCase):
         daw.tracks[1].select()
         report = host.report()
         self.assertEqual((report["/primary/hasDrumPads"], report["/primary/pad/36/name"], report["/primary/pad/36/color"]), ("1", "Kick", "1 2 3"))
-        self.assertEqual((report["/primary/pad/35/exists"], report["/primary/pad/35/volume"], report["/primary/pad/35/active"]), ("0", "0.000000", "1"))
+        self.assertEqual((report["/primary/pad/35/exists"], report["/primary/pad/35/volume"], report["/primary/pad/35/active"]), ("0", "0", "1"))
         self.assertEqual((report["/primary/layer/count"], report["/primary/layer/2/name"]), ("3", "HH"))
         self.assertEqual((report["/device/layer/count"], report["/device/layer/0/name"]), ("3", "Kick"))
         self.assertEqual((report["/drum/exists"], report["/drum/pad/37/name"]), ("1", "Snare"))
         self.assertEqual((report["/device/page/count"], report["/primary/page/count"]), ("1", "2"), "The cursor device shows only Perform")
-        host.commands.handle("primary", "pad/37/mute", 1)
-        host.commands.handle("primary", "pad/38/select", 1)
-        host.commands.handle("primary", "pad/38/volume", 0.25)
+        run_command(host.commands, "primary", "pad/37/mute", 1)
+        run_command(host.commands, "primary", "pad/38/select", 1)
+        run_command(host.commands, "primary", "pad/38/volume", 0.25)
         report = host.report()
         self.assertEqual((report["/primary/pad/37/mute"], report["/primary/hasMutedPads"], report["/primary/pad/38/select"]), ("1", "1", "1"))
-        self.assertEqual(report["/device/layer/2/volume"], "0.250000", "The pad is the layer")
-        host.commands.handle("drum", "clearMute", None)
+        self.assertEqual(report["/device/layer/2/volume"], "0.25", "The pad is the layer")
+        run_command(host.commands, "drum", "clearMute", None)
         self.assertFalse(daw.tracks[1].devices.devices[0].drum_pads[37].mute)
         daw.tracks[2].select()
-        host.commands.handle("device", "layer/1/select", 1)
-        host.commands.handle("primary", "layer/0/solo/toggle", None)
+        run_command(host.commands, "device", "layer/1/select", 1)
+        run_command(host.commands, "primary", "layer/0/solo/toggle", None)
         layers = daw.tracks[2].devices.devices[0].layers
         self.assertEqual(([layer.selected for layer in layers], layers[0].solo), ([False, True], True))
         self.assertEqual(host.report()["/primary/hasDrumPads"], "0")
         self.assertEqual(host.commands.unhandled, [])
-        host.commands.handle("device", "layer/9/select", 1)
+        run_command(host.commands, "device", "layer/9/select", 1)
         self.assertEqual(host.commands.unhandled, ["device layer/<n>/select"], "Beyond numDeviceLayers")
 
 
@@ -104,40 +105,40 @@ class DeviceCommandTest(unittest.TestCase):
 
     def test_select_next_previous_and_siblings(self):
         h, chain = self.host, self.chain
-        h.commands.handle("device", "-", None)
+        run_command(h.commands, "device", "-", None)
         self.assertEqual(chain.selected_index, 0, "Stops at the start of the chain")
-        h.commands.handle("device", "+", None)
-        h.commands.handle("device", "+", None)
-        h.commands.handle("device", "+", None)
+        run_command(h.commands, "device", "+", None)
+        run_command(h.commands, "device", "+", None)
+        run_command(h.commands, "device", "+", None)
         self.assertEqual(chain.selected_index, 2, "Stops at the end")
-        h.commands.handle("device", "selected", 2)
+        run_command(h.commands, "device", "selected", 2)
         self.assertEqual(self.daw.cursor_device.name, "Delay")
-        h.commands.handle("device", "3/bypass", 1)
+        run_command(h.commands, "device", "3/bypass", 1)
         self.assertFalse(chain.devices[2].enabled, "The value is the new bypass state")
-        h.commands.handle("device", "sibling/3/bypass", None)
+        run_command(h.commands, "device", "sibling/3/bypass", None)
         self.assertTrue(chain.devices[2].enabled, "A toggle")
-        h.commands.handle("device", "page/+", None)
+        run_command(h.commands, "device", "page/+", None)
         self.assertEqual(chain.sibling_offset, 0, "No second page of siblings")
         report = h.report()
         self.assertEqual((report["/device/sibling/3/name"], report["/device/sibling/2/selected"]), ("Reverb", "1"))
-        h.commands.handle("device", "2/moveNext", None)
+        run_command(h.commands, "device", "2/moveNext", None)
         self.assertEqual([d.name for d in chain.devices], ["Polysynth", "Reverb", "Delay"])
         self.assertEqual(self.daw.cursor_device.name, "Reverb", "The neighbour is selected")
         self.assertEqual(h.commands.unhandled, [])
 
     def test_flags_and_pin(self):
         h = self.host
-        h.commands.handle("device", "expand", 0)
-        h.commands.handle("device", "window", 1)
-        h.commands.handle("device", "parameters/toggle", None)
+        run_command(h.commands, "device", "expand", 0)
+        run_command(h.commands, "device", "window", 1)
+        run_command(h.commands, "device", "parameters/toggle", None)
         device = self.daw.cursor_device
         self.assertEqual((device.expanded, device.window_open, device.parameters_visible), (False, True, True))
-        h.commands.handle("device", "pinned", 1)
+        run_command(h.commands, "device", "pinned", 1)
         self.daw.tracks[3].select()
         self.assertIs(self.daw.cursor_device, device, "The pinned cursor device stays")
         report = h.report()
         self.assertEqual((report["/device/pinned"], report["/device/parameters"], report["/device/name"]), ("1", "1", "Polysynth"))
-        h.commands.handle("device", "pinned", 0)
+        run_command(h.commands, "device", "pinned", 0)
         self.assertIsNone(self.daw.cursor_device, "Follows the selection again (track EQ has no device here)")
 
 
@@ -158,9 +159,9 @@ class RemoteControlTest(unittest.TestCase):
         report = host.report()
         self.assertEqual((report["/device/param/0/name"], report["/device/param/0/value/str"], report["/device/param/0/value/str/6"]), ("Cutoff", "2.59 kHz", "2.59"))
         self.assertEqual((report["/device/param/1/name"], report["/device/param/1/value"]), ("", "0"), "An empty slot")
-        host.commands.handle("device", "param/8/value", 0.25)
-        self.assertEqual(host.report()["/device/param/0/value"], "0.250000", "The same parameter on page 2")
-        host.commands.handle("device", "param/1/value", 0.25)
+        run_command(host.commands, "device", "param/8/value", 0.25)
+        self.assertEqual(host.report()["/device/param/0/value"], "0.25", "The same parameter on page 2")
+        run_command(host.commands, "device", "param/1/value", 0.25)
         self.assertIsNone(device.parameter(1, daw.preferences), "Commands to an empty slot are ignored")
 
     def test_eq_plus_controls_are_its_bands(self):
@@ -201,16 +202,16 @@ class ClipGridTest(unittest.TestCase):
         daw.tracks[0].slots[0].create_clip(4.0)
         host = Host(daw, {"numTracks": 8, "noteClips": [[8, 127], [0, 0]]})
         report = host.report()
-        self.assertEqual((report["/clip/exists"], report["/clip/end"], report["/clip/shuffle"], report["/clip/grid/8x127/playingStep"]), ("1", "4.000000", "1", "-1"))
+        self.assertEqual((report["/clip/exists"], report["/clip/end"], report["/clip/shuffle"], report["/clip/grid/8x127/playingStep"]), ("1", "4", "1", "-1"))
         self.assertEqual(report["/clip/grid/0x0/playingStep"], "-1")
-        host.commands.handle("clip", "grid/8x127/step/0/2/36/toggle", 127)
-        host.commands.handle("clip", "grid/8x127/step/0/2/36/chance", 0.5)
+        run_command(host.commands, "clip", "grid/8x127/step/0/2/36/toggle", 127)
+        run_command(host.commands, "clip", "grid/8x127/step/0/2/36/chance", 0.5)
         self.assertEqual(host.report()["/clip/grid/8x127/step/0/2/36"].split()[13], "0.5")
-        host.commands.handle("clip", "grid/8x127/clearAll", None)
+        run_command(host.commands, "clip", "grid/8x127/clearAll", None)
         self.assertEqual(host.report(), {"/clip/grid/8x127/step/0/2/36": "0"}, "Reported once as empty")
-        host.commands.handle("clip", "loopLength/inc", 4.0)
+        run_command(host.commands, "clip", "loopLength/inc", 4.0)
         self.assertEqual(daw.cursor_clip.loop_length, 8.0)
-        host.commands.handle("clip", "note/36/toggle", 127)
+        run_command(host.commands, "clip", "note/36/toggle", "0 0.25 127 0 0")
         self.assertEqual(host.commands.unhandled, ["clip note/<n>/toggle"], "Reaper's note list, not with a host grid")
 
     def test_the_cursor_clip_follows_the_track(self):
@@ -233,20 +234,20 @@ class MarkerTest(unittest.TestCase):
         daw.markers.add("M1", 8.0)
         host = Host(daw, {"numTracks": 8, "numMarkers": 8})
         report = host.report()
-        self.assertEqual((report["/marker/0/name"], report["/marker/1/position"], report["/marker/count"]), ("M1", "16.000000", "2"))
-        host.commands.handle("marker", "1/launch", None)
+        self.assertEqual((report["/marker/0/name"], report["/marker/1/position"], report["/marker/count"]), ("M1", "", "2"))
+        run_command(host.commands, "marker", "1/launch", None)
         t = daw.transport
         self.assertEqual((t.playing, t.play_start), (True, 16.0))
         t.stop()
         self.assertEqual(t.position, 16.0, "Back to the marker")
-        host.commands.handle("marker", "previous", None)
+        run_command(host.commands, "marker", "previous", None)
         self.assertEqual(t.play_start, 8.0)
-        host.commands.handle("marker", "0/remove", None)
+        run_command(host.commands, "marker", "0/remove", None)
         self.assertEqual([m.name for m in daw.markers.items], ["M2"])
 
     def test_without_a_marker_bank(self):
         host = Host()
-        host.commands.handle("marker", "0/launch", None)
+        run_command(host.commands, "marker", "0/launch", None)
         self.assertEqual(host.commands.unhandled, ["marker <n>/launch"])
         self.assertNotIn("/marker/count", host.report())
 
@@ -277,12 +278,12 @@ class ApplicationTest(unittest.TestCase):
 
     def test_layout_and_panels(self):
         host = Host()
-        host.commands.handle("application", "layout", 1)
-        host.commands.handle("arranger", "toggleCueMarkers", None)
-        host.commands.handle("mixer", "toggleMeterSection", None)
+        run_command(host.commands, "application", "layout", 1)
+        run_command(host.commands, "arranger", "toggleCueMarkers", None)
+        run_command(host.commands, "mixer", "toggleMeterSection", None)
         report = host.report()
         self.assertEqual((report["/layout"], report["/arranger/cueMarkers"], report["/mixer/meterSection"]), ("MIX", "0", "1"))
-        host.commands.handle("project", "createScene", 4)
+        run_command(host.commands, "project", "createScene", 4)
         self.assertEqual((len(host.daw.scenes), host.daw.selected_scene.index), (9, 8))
 
     def test_stop_ends_the_automation_writing(self):

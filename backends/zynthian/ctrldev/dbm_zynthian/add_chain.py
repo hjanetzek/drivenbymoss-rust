@@ -199,14 +199,15 @@ class ScreenSession:
             return None
         return max(0, min(cursor, count - 1))
 
-    def command(self, parts, reset, page_columns, page_results):
-        """``column/0/…`` and ``result/…``; False if not handled."""
-        if len(parts) >= 2 and parts[0] == "column":
-            if parts[1] != "0":
+    def command(self, cmd, page_columns, page_results):
+        """``column/0/…`` and ``result/…`` (``cmd``: commands.BrowserCommand); False if not
+        handled."""
+        if cmd.name == "column":
+            if cmd.column != 0:
                 return False
-            return self.move_column("reset" if reset and len(parts) == 2 else "/".join(parts[2:]), page_columns)
-        if len(parts) >= 2 and parts[0] == "result":
-            return self.move_result("/".join(parts[1:]), page_results)
+            return self.move_column(cmd.what, page_columns)
+        if cmd.name == "result":
+            return self.move_result(cmd.what, page_results)
         return False
 
 
@@ -420,16 +421,16 @@ class ChainFlow:
         return True
 
     def command(self, cmd, page_columns, page_results):
-        """``browser …`` while busy; False if not handled."""
-        c = cmd.command
+        """``browser …`` while busy (``cmd``: commands.BrowserCommand); False if not handled."""
+        c = cmd.name
         if c == "stop":
             self.stop(cmd.flag)
             return True
-        if c in ("preview", "contentType/+", "contentType/-"):
+        if c in ("preview", "contentType"):
             return True
         if self.session is None:
-            return cmd.parts[:1] in (["column"], ["result"])
-        return self.session.command(cmd.parts, cmd.reset, page_columns, page_results)
+            return c in ("column", "result")
+        return self.session.command(cmd, page_columns, page_results)
 
     def collect(self, reporter, page_columns, page_results):
         if self.session is None:

@@ -7,6 +7,7 @@ handler; the IDs which end in its ``unhandled`` list are the ones it does not ex
 of the reference host and of the Zynthian adapter compare them with the handler's
 ``UNHANDLED_COMMANDS`` (the set passed to the core)."""
 
+import drivenbymoss
 from drivenbymoss import protocol
 
 COMMAND_SLOT_VALUES = {"ch_kind": protocol.ChanKind.TRACK, "ch_processor": protocol.Processor.TRACK, "dev": protocol.Processor.DEVICE,
@@ -43,3 +44,36 @@ def unhandled_commands(make_handler) -> set[int]:
         if handler.unhandled:
             unhandled.add(command_id)
     return unhandled
+
+
+def _escape(text: str) -> str:
+    return str(text).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+
+
+def legacy_record(processor: str, command: str, value=None) -> bytes:
+    """The buffer of one command given in the core's legacy text form (``processor``,
+    ``command``, the value as the text callbacks had it: None, an int, a float, a str, a list
+    of str), converted by the core (tests). Raises ValueError for a command which is not in the
+    table (the core cannot send it)."""
+    if value is None:
+        kinds = [("noArg", "")]
+    elif isinstance(value, list):
+        kinds = [("strings", "\t".join(_escape(v) for v in value))]
+    elif isinstance(value, str):
+        kinds = [("string", _escape(value))]
+    elif isinstance(value, float):
+        kinds = [("double", repr(value))] + ([("int", str(int(value)))] if value.is_integer() else [])
+    else:
+        kinds = [("int", str(int(value))), ("double", repr(float(value)))]
+    for kind, text in kinds:
+        line = f"{kind}\t{processor}\t{command}" + (f"\t{text}" if kind != "noArg" else "")
+        buffer = drivenbymoss.messages_from_text(line)
+        if len(buffer) > protocol.HEADER_SIZE:
+            return buffer
+    raise ValueError(f"Not a command of the protocol table: {processor} {command} {value!r}")
+
+
+def run_command(handler, processor: str, command: str, value=None) -> None:
+    """Execute a command given in the legacy text form (legacy_record) with the handler's
+    process_commands (tests)."""
+    handler.process_commands(legacy_record(processor, command, value))
