@@ -9,8 +9,9 @@ from the lower left, Shift is the system exclusive message `F0 00 21 09 15 00 4D
 F7`; the setup sends the "return from the host" message (`… 46 01 F7`), on which both versions
 redraw everything.
 
-Last full run: 2026-11-08 with the extension on the binary protocol (typed protocol step 3), all
-41 scenarios the same; before: 2026-11-01, all five files, on fresh fixture projects with restarted controllers
+Last full run: 2026-11-08 with the text path retired (typed protocol step 5: exact doubles, the
+command features from the handled commands), all 41 scenarios the same, all replays recorded again;
+before: 2026-11-08 (step 3) all 41 the same; before: 2026-11-01, all five files, on fresh fixture projects with restarted controllers
 (`pair ... --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 41 scenarios the same, except
 the known differences below.
 

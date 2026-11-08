@@ -176,6 +176,14 @@ report, a `Reader` and a view per command), by `cargo run --bin dbm-protocol-gen
 `dbm_messages_to_text` / `dbm_messages_from_text` convert between both forms (logs, recordings,
 tests); `dbm_protocol_info` gives the version and the hash of the tables.
 
+**Which hosts use which form** (TYPED_PROTOCOL_PLAN.md §6.6, step 5): the Bitwig bridge, the
+Python reference host and the Zynthian adapter use only the binary form (reports, commands,
+exact doubles); this guide writes the addresses and commands in their text form, which is the
+core's text of the records. Reaper uses the text form (`dbm_update_model`, the `process_*`
+callbacks); the core keeps both. A binary host passes the commands it handles to
+`dbm_set_command_callback` (`handled`), and the core derives the host's command features from
+them (§2 "Host features"); it can call the function again, e.g. once the model setup is known.
+
 Existence: for parameters, sends and device siblings the **name** sets existence (empty name =
 does not exist). Tracks, scenes, slots, pads and layers have an explicit `exists`.
 
@@ -209,7 +217,7 @@ feature stays on.
 | Report | Feature in the core | What the bridge must then handle |
 | --- | --- | --- |
 | `/track/offset <any>` | **Host paging** (`ctx.is_host_paging`): bank offsets kept for the host, scrolling without selecting, the first item of the previous page is selected, scrolling back from any offset > 0, delayed selections after page changes (also of the device siblings). Without `/host/features` also all host features, see below | `bank track <offset>`; scroll the track window there. The value of `/track/offset` is ignored, the core keeps its own offset |
-| `/host/features <names>` | The command forms the host understands (`ctx.host_supports`), see below | the listed command forms |
+| `/host/features <names>` | The command forms the host understands (`ctx.host_supports`; a binary host: the value operations, its command features come from its handled commands), see below | the listed command forms |
 | `/scene/offset <any>` | Host paging of scenes (and the slots) | `bank scene <offset>` |
 | `/automode/arranger`, `/automode/launcher` | Bitwig's two automation write switches + modes Read/Touch/Write/Latch instead of Reaper's modes | `automation toggleArranger\|toggleLauncher\|resetOverrides`, `automation <mode index>` |
 | `/overdub/arranger`, `/overdub/launcher` | Arranger and launcher overdub switches (instead of the track's `overdub`) | `transport overdub/arranger\|overdub/launcher <0\|1>` |
@@ -233,23 +241,38 @@ feature stays on.
 | `/track/<p>/active`, `/master/active` | Activation state from the host (also makes `set_skip_disabled_items` work); `/master/active` lets the core (de)activate the master | `track <p>/active`, `master active` |
 | `/track/<p>/vuholdleft\|vuholdright` | The VU clip state is the hold value above 0 dB (Reaper); without them it is `vuleft\|vuright >= 16241/16384` (Bitwig) | – |
 
-### Host features (`/host/features`)
+### Host features (`/host/features`, the handled commands)
 
-*Reference host:* `CommandHandler.host_features` (`bindings/python/dbm_host/commands.py`): the union of the features of the registered processor handlers; reported by `Reporter.collect_host_features`.
+*Reference host:* `CommandHandler.handled_commands` (the IDs with a handler, passed to `App.use_binary_commands` after `configure`) and `CommandHandler.host_features` (the value operations, `OP_FEATURES`; reported by `Reporter.collect_host_features`), `bindings/python/dbm_host/commands.py`.
 
-Command forms which cannot be detected from a report are switched on by one line which lists the
-features the host understands (space separated, unknown names are ignored, a new line replaces
-the earlier list; `HostFeature` in `src/daw/context.rs`):
+Command forms which cannot be detected from a report are switched on by the host (`HostFeature`
+in `src/daw/context.rs`). There are two kinds:
+
+- **Command features** (`soloToggle`, `transportCommands`, `deviceCommands`, `layoutStep`,
+  `clipLauncherNavigator`: the `feature =` of the commands in `src/protocol/cmd.rs`). A **binary
+  host** has a feature if it handles at least one of its commands, by the bitset of
+  `dbm_set_command_callback` (null: all commands); the names of command features in its
+  `/host/features` are ignored. So a host declares only the commands it executes (zynthian
+  without zynseq: no transport commands, hence no `transportCommands`; Bitwig and the reference
+  host without the navigator's commands unless the controller wants the navigator).
+- **Value operation features** (`valueInc`, `valueReset`, `immediately`, `indication`): the
+  operation of a value command (the `op` of its record), not a command of its own, so the bitset
+  of the command IDs cannot express them. Every host reports them with `/host/features`.
+
+`/host/features` is one line which lists the features (space separated, unknown names are
+ignored, a new line replaces the earlier list):
 
 ```
-/host/features valueInc valueReset immediately indication soloToggle transportCommands deviceCommands layoutStep
+/host/features valueInc valueReset immediately indication
 ```
 
-Report it with the first report and with every dump (the Bitwig bridge does). Without a feature
-the core sends the basic (Reaper) form of the command or nothing. **Compatibility:** a host which
-reports `/track/offset` but never `/host/features` supports all features (the Bitwig extension
-before it reported its features); a host which reports neither (Reaper) none. So a new host which
-pages should report `/host/features`, even an empty list.
+A **text host** (Reaper) lists all its features in it, also the command features
+(`... soloToggle transportCommands deviceCommands layoutStep`). Report it with the first report and
+with every dump (the Bitwig bridge does). Without a feature the core sends the basic (Reaper) form
+of the command or nothing. **Compatibility:** a host which reports `/track/offset` but never
+`/host/features` supports all value operation features (and, as a text host, all command
+features: the Bitwig extension before it reported its features); a host which reports neither
+(Reaper) none. So a new host which pages should report `/host/features`, even an empty list.
 
 | Name | What it enables in the core | Commands (instead of) |
 | --- | --- | --- |
@@ -318,7 +341,7 @@ Bitwig bridge (Reaper only, or nobody).
 | Address | Value | Bitwig | Need |
 | --- | --- | --- | --- |
 | `/project/canUndo`, `/project/canRedo` | flag | `application.canUndo/canRedo` | Rec |
-| `/host/features` | space separated feature names (§2 "Host features") | all features, constant | Rec with host paging |
+| `/host/features` | space separated feature names (§2 "Host features"; a binary host: the value operations) | all features, constant | Rec with host paging |
 | `/project/engine` | flag | `hasActiveEngine` | O |
 | `/project/name` | text (also schedules a note mapping update) | `application.projectName` | O |
 | `/project/isDirty` | flag | `project.isModified` | O |
@@ -843,8 +866,9 @@ Without `/track/offset` the core pages the tracks itself and sends Reaper-style 
 **Step 2: host paging.** Report `/track/offset` and `/scene/offset` and implement `bank`. Report
 `/host/features` at the same time (an empty list at first), otherwise the core assumes all
 features. Then add the features one by one (§2 "Host features"): `valueInc` (with the re-report
-after value commands, §6.1), `valueReset`, `immediately`, `indication`, `soloToggle`,
-`transportCommands`, `deviceCommands`, `layoutStep`. `track pinned|selectPrevious|selectNext` come
+after value commands, §6.1), `valueReset`, `immediately`, `indication`; on the binary form the
+command features come with the commands the host declares as handled (`soloToggle`,
+`transportCommands`, `deviceCommands`, `layoutStep`), on the text form they are listed too. `track pinned|selectPrevious|selectNext` come
 with the reports `/track/pinned|hasPrevious|hasNext`.
 
 **Step 3: features, each independent** (report the address, handle its commands, §2 table):

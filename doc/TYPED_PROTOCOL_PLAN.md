@@ -1,8 +1,8 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: **steps 0a, 0b, 1 and 3 done, step 2 done for the hot paths** (2026-11-08, branch `typed-protocol`; the
-Python hosts report by key and dispatch the commands by `CmdId` in the binary form, the dual run
-passes; open: more typed handlers, §6.4; then step 5): the command table and
+Status: **steps 0a, 0b, 1, 2, 3 and 5 done** (2026-11-08, branch `typed-protocol`; step 5, §6.6:
+the hosts without the text path, exact doubles, the command features of a binary host from its
+handled commands; Reaper stays on the text protocol, step 4 out of scope): the command table and
 the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
 binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
 `dbm_protocol.hpp`, `protocol.py`; the replay passes in both forms. The Bitwig extension uses the binary protocol (step 3, §6.5).
@@ -465,7 +465,8 @@ error-prone:
     seen only in the host's log.
   - **Later:** `host_supports(feature)` could be derived from it: a feature is supported if all
     its commands are handled. That would retire `/host/features` for binary hosts. This is an
-    open question (§5.3).
+    open question (§5.3). **Done in step 5 (§6.6)** for the command features, with "at least one
+    of its commands"; the value operation features stay on `/host/features`.
 - **Compile-time checks in the hosts** (the generated enums make "unsupported" a build error
   where the language allows it):
 
@@ -1372,3 +1373,159 @@ changed double about 10 times cheaper.
    it would retire `/host/features` for the binary hosts.
 5. The recordings: the extension writes the core's text of the records (shortest doubles); the
    replays read both forms.
+
+### 6.6 Step 5: the text path retired in the hosts (done 2026-11-08)
+
+**User decisions (2026-11-08)**
+1. Start step 5 now. **Drop the 6-decimal rounding** (Java `round6`, Python `round(v, 6)`): the
+   doubles are exact (the shortest form in the text conversions and the recordings). The check
+   modes go together with the text mode.
+2. **Replace `/host/features` by the handled-commands bitset where it fits** (§2.5 "Later"):
+   `host_supports(feature)` of a binary host comes from the bitset it passes to
+   `dbm_set_command_callback`. What does not map cleanly stays (and is documented); text hosts
+   keep the compatibility behaviour (Reaper stays on the text protocol; the core keeps
+   `dbm_update_model` and the text callbacks, §3). The coverage tests and the handled sets are
+   made accurate, since they now drive behaviour (Zynthian without zynseq: no transport).
+   Controllers must behave the same in the conformance runs.
+3. The earlier decisions stay: a changed double is always reported; the coverage tests are
+   snapshot lists; Reaper stays on text; no new dependencies.
+
+**What replaced `/host/features`, and what remains of it**
+- **Command features** (`soloToggle`, `transportCommands`, `deviceCommands`, `layoutStep`,
+  `clipLauncherNavigator`: the `feature =` of the commands in `src/protocol/cmd.rs`;
+  `HostFeature::is_command_feature`, a test keeps it in step with the table): a binary host has
+  a feature if it **handles at least one of its commands** (`daw::context::command_features`;
+  `Backend::command_features`, set by `dbm_set_command_callback`; null = all commands). Their
+  names in a binary host's `/host/features` are ignored.
+  - **Why "at least one", not "all":** the commands of a feature are alternative forms of the
+    basic commands, and a host handles those its DAW has: zynthian handles `transport play`,
+    `stop`, `restart`, the metronome and its volume, but has no punch, fill or metronome ticks.
+    With "all" zynthian would lose `transportCommands` and get `play`/`stop` toggles it does not
+    handle, a behaviour change. "At least one" gives exactly the features the hosts reported
+    before (checked for the reference host, zynthian with and without zynseq, and Bitwig).
+  - The gates stay per feature, not per command: a feature also switches model semantics (the
+    Reaper punch mode, the default metronome volume, the core's own clip navigation), which a
+    per-command test would mix.
+- **Value operation features** (`valueInc`, `valueReset`, `immediately`, `indication`): stay on
+  `/host/features` for every host. They are the operation of a value command (the `op` byte of
+  the record), not commands of their own, so a bitset of command IDs cannot express them
+  (`indication` also covers `track indicate` and the indication of volume, pan and sends, the
+  latter only ops).
+- **Progressive features** (detected from reports: host paging, VU hold, the step grid, …):
+  unchanged, they are not tied to commands.
+- **Text hosts** (Reaper): unchanged; `/host/features` lists all their features, and a paging
+  host without it supports all (the compatibility rule of `context.rs`).
+- `dbm_set_command_callback` can be **called again** (it keeps the buffered commands and the
+  warnings): Bitwig and the Python hosts pass their handled set again once the model setup is
+  known, since the navigator's commands are handled only if the controller wants the navigator
+  (Bitwig: `CommandHandler.handledBitset (withNavigator)`; before the model setup without them).
+- The recordings get a **`handled` event** (the hex words of the bitset; Bitwig records it before
+  the start and again with the model setup); the replay sets them on the `RecordingBackend`
+  (`handled`), so a replay derives the same features. Recordings without it name all features
+  in `/host/features`, as before.
+
+**Done**
+- **Core** (`807b1c2`): `HostFeature::is_command_feature`, `command_features(handled)`,
+  `Backend::command_features` (`FfiBackend`: a `Cell` set by `dbm_set_command_callback`;
+  `RecordingBackend.handled`), `host_supports` as above; the replay's `handled` event; tests
+  (`parser::host_features_of_a_binary_host`, the second call in `tests/ffi.rs`).
+- **Python hosts** (`266c4c4`): see the deviations below for the details.
+  - The reporter writes the exact doubles; `DBM_HOST_PROTOCOL`, the text protocol, the check
+    mode, `format_value`, the text lines, `UNKNOWN_ADDRESSES` and the core's conversion of
+    values (`_convert`) are gone. The playing notes are written as notes (tuples), the grid steps
+    as their 24 values (`Note.wire_values`, `NoteGrid.step_values`); a value of a wrong type
+    raises `TypeError`. The texts for the tests and logs (`take`, `collect`, `last_values`,
+    `snapshot`) are the core's text of the records (shortest doubles; a message without a value
+    such as `/track/offset` has no text value).
+  - Every command by `CmdId`: the typed handlers of all IDs the hosts execute (transport,
+    banks, channels with pads and layers, slots, scenes, devices, EQ, clip, grid, browser,
+    navigator, markers, note repeat, application, arranger, mixer, project). `handle`,
+    `handle_text`, `Command.parse`, `FALLBACK` and the processor handlers on text are gone.
+    The channel commands keep their hooks with constant sub lists (`CHANNEL_SUBS`; the send or
+    slot index as an int), so the Zynthian overrides stay; the browser commands of zynthian get
+    a typed `BrowserCommand` (browser.py, add_chain.py). The update hints (`delay`, `enable`)
+    are ignored without a log entry, as before.
+  - `handled_commands()` = the IDs with a handler (plus the ignored hints), passed again after
+    `configure`. Zynthian registers the transport and the clip launcher only with zynseq; the
+    reference host the navigator only if the controller wants it. `/host/features` reports
+    `OP_FEATURES`. The coverage tests: the snapshot `UNHANDLED_COMMANDS` (the setup of the test),
+    and the empirical run (a record of every ID on a fresh handler) equals the handled set, per
+    setup (Zynthian with and without zynseq; the browser's `replace/device` and the Reaper form
+    of the bypass are handled but need a device in the stand-ins).
+  - **Report again by entity** (§2.4): `report_again_entity(view)` gives `("ch", ChKind,
+    position)`, `("param", ParamOwner, index)` or `("pad", PadKind, Dev | None, index)`;
+    `Reporter.forget(entity)` matches the families of the table (the IDs whose first slots are
+    `ch_kind, ch_pos` / `owner, param` / `pad_kind, pad_dev, pad_index`). The rules are the old
+    ones of the text prefixes (every command with a number value or none of a channel, a slot,
+    a parameter of a device or the project, every command to the master), so the reports again
+    are the same; the rules themselves were not revisited (they decide what the controllers see
+    after a command, and the conformance results depend on them).
+  - **Zero copy:** the binding passes a `memoryview` of the core's buffer
+    (`ctypes.cast(data, POINTER(c_uint8 * n))`, no `string_at`) and releases it after the call,
+    so a view which escaped raises instead of reading freed memory. `ViewCommand` copies its
+    record (24 bytes plus payload) and reads its value during the call; its `processor`,
+    `full_command`, `command` (the log, `commands.log` readers, the not handled list) are the
+    core's text of the copied record.
+  - `dbm_host.coverage.legacy_record` / `run_command`: a command in the legacy text form,
+    converted by the core, for the tests (a line not in the table raises).
+- **Bitwig** (`270a9ae`): `ModelReporter` without `Mode`, `round6`, `convert`, the text lines and
+  the check; a value of a wrong type is logged once per ID. `DbmExtension` without the text
+  callbacks and `dispatchText`; `NativeCore` without them (null in `DbmCallbacks`) and without
+  `updateModel`. The handled bitset with the navigator (see above) and the `handled` events.
+  `BitwigModel` reports `/host/features valueInc valueReset immediately indication`.
+  **The probe** (`ProbeExtension`) has no core: it keeps a small formatter of its own
+  (`probeLines`: the records of the clip and the grid as the text protocol had them, doubles
+  with 6 decimals, the steps as `StepInfo::to_wire`, only changed texts). The core's conversion
+  was not an option: the probe runs without a core, and its lines must stay those of the
+  committed Java reference runs. `ProtocolTests`: the core reads every record of every report
+  ID (1,634 records of 222 IDs), exact doubles, the probe's lines, the handled bitset with and
+  without the navigator.
+- `src/parser_old.rs` removed (`5be3c53`): the plan removes it once the table is stable.
+
+**Deviations from the old text handlers** (Python; all found by the differential run, none in
+the conformance scenarios)
+- A combination which the core never sends but the text path happened to map onto another
+  command (a device command with a track or the master as its device, e.g. `track pinned` from
+  `DEVICE_PINNED {dev: TRACK}`) is no longer executed; the differential run uses only the core's
+  samples, where these did not change the result.
+- Zynthian without zynseq: a slot command on the "add chain" placeholder is now logged as not
+  handled (before: ignored); `send/<s>/active` on the placeholder likewise (it is not handled on
+  any track).
+- The log of a command keeps the core's text; its `number` of a pair or a step attribute is
+  0 (the typed value is a tuple), and `browser column/<c>/reset` no longer has the reset flag.
+
+**Verification**
+- A **differential run** (scratch, not committed): the old Python handlers (117cdfb) and the new
+  ones on the core's samples of every `CmdId` (1,306 commands: 16 per ID, plus the 16 × 8 grid,
+  track 1 and slot 0 variants), each on a fresh host, comparing the unhandled list, the log,
+  the reports after the command and the reports again 400 ms later; for the reference host,
+  zynthian with zynseq and without. Only the cosmetic log fields above differ.
+- `cargo test` (443) and `--no-default-features` (414), clippy 0 warnings both ways, `cargo
+  build --release`; the Python tests (87), conformance `--all` (195 the same), the Zynthian tests
+  (206), the C++ wrapper tests, the Maven build with `ProtocolTests`.
+- **Bitwig conformance** (Bitwig 5.3.13, the installed extension of this step, `conformance_all.sh`
+  from the worktree with `DBM_FLEXI_MAPPING`, VirMIDI card 5): maschine_mk2 27/27,
+  launchcontrol_xl 27/27, maschine_jam 41/41 the same; generic_flexi 99/100, the rerun 100/100
+  (the difference: Bitwig's order of the browser's location filters, `osc:/browser/filter/1/item/10..16/name`
+  in `flexi.modes.browser-discard`, not an output of the extension). 20 of the 21 replays
+  recorded again (exact doubles, the `handled` events); the Flexi `modes` replay keeps its
+  recording of step 3 and still passes, both replay modes.
+
+**Measured**
+- Zynthian idle pass (`test_cpu.py`, Mk2, 300 ticks, 227 puts per tick, 3 runs): 170–173 µs
+  (step 2, part 4: 178–180 µs binary; the rounding is not on the idle path, the gain is the
+  simpler `_changed`).
+- Python `Reporter.put`, 1,000 changed send volumes per pass: 864 ns per changed double (step 2,
+  part 4: 1,291 ns with `round(v, 6)`), 137 ns unchanged (126 ns).
+- Java: not measured again; step 3 measured a changed double at 23 ns without the rounding
+  (260–310 ns with it, §6.5).
+
+**What remains**
+- Report again: the rules of the text prefixes (Python: also the effect tracks and every
+  command with a number value; Java: only the value commands, not the effect tracks) differ
+  between the hosts; unifying them is a behaviour change for the controllers and needs Java
+  references.
+- The binding's `Backend.process_commands` default (the legacy text and the `process_*`
+  methods) stays for simple Python backends; the text callbacks of the C ABI stay for Reaper.
+- The value operation features stay on `/host/features`; an op bitset (per value command) would
+  retire it, but would need a new argument of the C ABI.

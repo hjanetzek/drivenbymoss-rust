@@ -81,8 +81,11 @@ app.update_model_bin(w)
 
 Without an override, `process_commands` converts the commands to their text and calls the
 `process_*` methods, so a text backend works unchanged. `use_binary_commands(handled=[...])`
-passes the handled command IDs (the library logs the others once) and returns False if the
-library has another major protocol version. `messages_to_text`/`messages_from_text` convert
+passes the handled command IDs (the library logs the others once and derives the command
+features of the host from them; call it again to update them) and returns False if the library
+has another major protocol version. The buffer of `process_commands` is a `memoryview` of the
+library's buffer (no copy), released after the call: neither it nor a view read from it may be
+kept (copy what is kept). `messages_to_text`/`messages_from_text` convert
 buffers for logs and tests; `protocol_info()` is the library's (major, minor, hash).
 
 ## Threading and callbacks
@@ -94,7 +97,8 @@ buffers for logs and tests; `protocol_info()` is the library's (major, minor, ha
   the library would deadlock, the binding raises a `RuntimeError` instead.
 - Exceptions raised by backend methods are caught and logged with the logger `drivenbymoss`;
   they never cross into the library. A failing `open_midi_*` reports failure.
-- The arguments of the backend methods are copies and can be kept.
+- The arguments of the backend methods are copies and can be kept, except the buffer of
+  `process_commands` (only valid during the call).
 - The log of the library goes to `Backend.log`; the default passes it to the logger
   `drivenbymoss` (INFO). The library writes nothing to stderr itself, except the message of a
   caught panic.
@@ -106,10 +110,13 @@ cargo build
 python3 -m unittest discover -s bindings/python/tests
 ```
 
-The reference host (`dbm_host`) reports and receives the commands in the binary protocol by
-default; `DBM_HOST_PROTOCOL=text` selects the text protocol, `DBM_HOST_PROTOCOL=check` the binary
-one with every report record compared with the core's conversion of the text line (the dual
-run). The suites pass in all three.
+The reference host (`dbm_host`) reports and receives the commands only in the binary protocol
+(TYPED_PROTOCOL_PLAN.md §6.6): exact doubles, every command dispatched by its `CmdId`, the
+handled commands passed to the core (which derives the command features from them). The
+command buffer is a `memoryview` of the core's buffer, valid only during
+`Backend.process_commands`. The texts of the reports and commands in the tests and logs are the
+core's text of the records (`dbm_messages_to_text`); `dbm_host.coverage.run_command` runs a
+command given in the legacy text form (tests).
 
 ## Conformance in process
 

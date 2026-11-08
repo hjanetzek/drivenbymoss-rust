@@ -4,8 +4,9 @@ The state of the comparison of the Rust port with the Java DrivenByMoss on Bitwi
 runs of the scenario files in this folder (see doc/CONFORMANCE_TESTING_PLAN.md and
 tests/conformance/FIXTURE.md). Updated with every run which changes something.
 
-Last full run: 2026-11-08 with the extension on the binary protocol (typed protocol step 3), all
-27 scenarios the same; before: 2026-11-01, all five templates, unattended (`conformance_all.sh`), each recording
+Last full run: 2026-11-08 with the text path retired (typed protocol step 5: exact doubles, the
+command features from the handled commands), all 27 scenarios the same, all replays recorded again;
+before: 2026-11-08 (step 3) all 27 the same; before: 2026-11-01, all five templates, unattended (`conformance_all.sh`), each recording
 on a fresh fixture project and with restarted controllers (`pair ... --fresh-project 8 --restart
 15`), Bitwig 5.3.13: all 27 scenarios the same, except the known differences below.
 

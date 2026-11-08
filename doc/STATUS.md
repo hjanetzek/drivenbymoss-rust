@@ -200,9 +200,10 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
-**Planned: a typed protocol between core and hosts** (decided 2026-11-08). Today every address
-(`/track/3/volume`, host → core) and every command (`track 3/mute 1`, core → host) is a string
-that is formatted on one side and parsed on the other.
+**A typed protocol between core and hosts** (decided 2026-11-08; done for all hosts but Reaper, see
+"Status" below). Before it every address
+(`/track/3/volume`, host → core) and every command (`track 3/mute 1`, core → host) was a string
+that was formatted on one side and parsed on the other.
 - **The problems:**
   - An address or command one side doesn't support only shows at run time, as "not handled".
   - The places that use an address are hard to find.
@@ -235,8 +236,14 @@ that is formatted on one side and parsed on the other.
   and the handled set). Step 3 done: the Bitwig extension on the binary protocol (the generated
   `Protocol.java`, the reporter on `long` keys, the commands by an exhaustive switch over
   `Protocol.Cmd`, `DBM_HOST_PROTOCOL=check|text`; the Bitwig conformance runs the same as before,
-  plan §6.5). Next: more typed handlers in the Python hosts, then step 5 (retire the text path in
-  the hosts, drop the 6-decimal rounding).
+  plan §6.5). Step 5 done: the text path retired in the hosts (plan §6.6): exact doubles (no
+  6-decimal rounding), no text or check mode (`DBM_HOST_PROTOCOL` is gone), every command of
+  the Python hosts by a typed handler, report again by entity, the command buffer of Python as a
+  `memoryview` (zero copy); the command features of a binary host (`soloToggle`,
+  `transportCommands`, `deviceCommands`, `layoutStep`, `clipLauncherNavigator`) come from its
+  handled-commands bitset, `/host/features` stays for the value operations (`valueInc`,
+  `valueReset`, `immediately`, `indication`) and for text hosts (Reaper, unchanged);
+  `src/parser_old.rs` removed.
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.

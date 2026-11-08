@@ -9,9 +9,12 @@ As of 2026-10-29. Compiled from the code: Rust `src/ffi.rs`, `src/backend.rs`, `
 `OscParser.cpp`, `*Processor.*`, `DataCollector.cpp`, `Collectors.h`, `Model.cpp`, `Track.cpp`,
 `Send.cpp`, `Parameter.cpp`, `Marker.cpp`). Points not confirmed from the code are marked (?).
 
-**Planned:** this text protocol is to be replaced by a typed one: enums for all paths and
-commands, generated for every binding, and a binary message type. The text form stays for logs
-and recordings. See STATUS.md, "Next steps".
+**The typed protocol** (TYPED_PROTOCOL_PLAN.md): the paths and commands are tables in
+`src/protocol/`, generated for every binding, with a binary form of the records. The Bitwig
+extension, the Python reference host and the Zynthian adapter use only the binary form (step 5,
+§6.6): exact doubles, the commands as buffers of records, the command features from the handled
+commands. Reaper keeps this text protocol, which the core keeps (`dbm_update_model`, the
+`process_*` callbacks); the text form also stays for logs and recordings.
 
 ## 1. Overview
 

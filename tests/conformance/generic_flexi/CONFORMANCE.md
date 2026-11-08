@@ -1,7 +1,12 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-08, last full run with the extension on the binary protocol (typed protocol step 3):
-100 of 100 the same, replays of all 9 files; before: 2026-11-02, five runs, the fifth 100 of 100.
+Status: 2026-11-08, last full run with the text path retired (typed protocol step 5: exact doubles,
+the command features from the handled commands): 99 of 100 the same, the rerun 100 of 100; the
+one difference was Bitwig's own order of the browser's location filters (`osc:/browser/filter/1/item/10..16/name`,
+"Favorites" moved up when the browser opened a second time in the session, `flexi.modes.browser-discard`),
+not an output of the extension. Replays of 8 files recorded again; `modes` keeps its recording of step 3
+(the first run had the difference, the rerun recorded none), which shows that the replay reads the
+recordings without the `handled` event. Before: 2026-11-08 (step 3) 100 of 100, replays of all 9 files; before: 2026-11-02, five runs, the fifth 100 of 100.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so
