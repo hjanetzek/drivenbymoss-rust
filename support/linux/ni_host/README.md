@@ -13,9 +13,14 @@ The MIDI follows the DrivenByMoss NI Controller Editor templates (`resources/Mas
 `resources/Maschine Jam`). DrivenByMoss (the Rust port, or the Java version) therefore works with
 these ports as with NI's driver. Background and design: `doc/NI_HOST_LINUX_PLAN.md`.
 
+There is also a library, `libdbm_nihost.so`, with the same host for a process which drives the
+devices itself instead of going through the ports: zynthian's Maschine drivers load it (see
+below and `doc/ZYNTHIAN_INTEGRATION.md` §10).
+
 ## Build and run
 
-Needs CMake, a C++17 compiler and the ALSA headers (`alsa-lib`).
+Needs CMake, a C++17 compiler and the ALSA headers (`alsa-lib`); without them only the library and
+the tools are built.
 
 ```
 cmake -S support/linux/ni_host -B build-nihost
@@ -37,6 +42,7 @@ cmake --install build-nihost
 This installs:
 
 - `bin/dbm-nihost`.
+- `lib/dbm-nihost/libdbm_nihost.so` and `include/dbm_nihost.h`, the library.
 - `share/systemd/user/dbm-nihost.service`, a systemd user service that runs `dbm-nihost --virmidi`.
 - `share/dbm-nihost/`: the udev rule and the `snd-virmidi` setup. These belong in `/etc` and need
   root:
@@ -54,6 +60,30 @@ Then start the service, and on every login from then on:
 systemctl --user daemon-reload
 systemctl --user enable --now dbm-nihost
 journalctl --user -u dbm-nihost -f              # the log
+```
+
+Only one process can drive a device: dbm-nihost and the library take an exclusive lock on the
+hidraw node, the second one counts the device as absent. Where zynthian drives the Maschines
+in-process, the service must not run (`systemctl --user disable --now dbm-nihost`; with the
+nura package of an older version, whose symlink in `/usr/lib/systemd/user/default.target.wants`
+`disable` can't remove, `systemctl --user mask --now dbm-nihost`).
+
+## The library (in-process)
+
+`include/dbm_nihost.h`: `dbm_nihost_open(DBM_NIHOST_MK2 | DBM_NIHOST_JAM)` starts a thread which
+looks for the device once a second and translates its HID reports, `dbm_nihost_read` returns the
+MIDI to the DAW (each message with 2 bytes length; it waits up to a timeout, for a thread of the
+caller), `dbm_nihost_send` takes one MIDI message from the DAW, `dbm_nihost_flush` writes the
+changed LEDs and displays (e.g. on every tick), `dbm_nihost_close`. The MIDI is that of the
+ports, including the DrivenByMoss messages below. No callbacks, no ALSA. The zynthian drivers use
+it through ctypes (`backends/zynthian/ctrldev/dbm_zynthian/nihost.py`); test devices
+(`dbm_nihost_open_test`) stand in for the hardware in the tests. Without CMake (e.g. on the Duet):
+
+```
+cd support/linux/ni_host
+g++ -std=c++17 -O2 -fPIC -shared -fvisibility=hidden -Isrc -Iinclude -pthread -o libdbm_nihost.so \
+    src/log.cpp src/hidraw_device.cpp src/maschine_jam.cpp src/maschine_mk2.cpp src/palette.cpp \
+    src/text_display.cpp src/jam_host.cpp src/mk2_host.cpp src/c_api.cpp
 ```
 
 ## Use in a DAW
@@ -83,11 +113,12 @@ virtual MIDI driver bridges the two:
 ## Tools and tests
 
 - `nihost-probe` prints the decoded HID events of both devices and lights a test pattern.
-- `nihost-test` (also `ctest`) tests the translation with synthetic HID reports and MIDI.
+- `nihost-test` (also `ctest`) tests the translation with synthetic HID reports and MIDI;
+  `nihost-c-api-test` the library's C interface.
 - `tools/gen_template_map.py <repository root> src/template_map.h` regenerates the template
   tables from the NI templates. `tests/ni_templates.rs` in the Rust crate checks them against the
   Maschine surfaces.
-- Debugging the path to zynthian (installed to `share/dbm-nihost/tools`; Python with the module
+- Debugging the path to zynthian through dbm-nihost's ports, not used by the in-process drivers (installed to `share/dbm-nihost/tools`; Python with the module
   `jack`, on zynthian `PYTHONPATH=/usr/share/zynthian/python`). zynthian reaches the ports through
   PipeWire's MIDI bridge as JACK ports, not over ALSA directly:
   - `dbm-nihost-jack-probe [--client "Maschine Jam - 1"] [--listen]` connects to the bridge ports

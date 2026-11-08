@@ -40,6 +40,12 @@ Knobs (relative changes) move stepped parameters (on/off switches, labels, integ
 steps: a short turn switches a toggle (right on, left off) or moves one label
 ([plan §7](../../doc/ZYNTHIAN_PLAN.md)).
 
+The Maschine drivers drive the devices in zynthian's process with libdbm_nihost (the dbm-nihost
+package, `/usr/lib/dbm-nihost/libdbm_nihost.so` or `$DBM_NIHOST_LIBRARY`): zynthian-ui's `dbm`
+branch loads them without a MIDI port when the device is in `/sys/class/hidraw`
+([doc/ZYNTHIAN_INTEGRATION.md §10](../../doc/ZYNTHIAN_INTEGRATION.md)). dbm-nihost (the daemon)
+must not run then. The same drivers still work on dbm-nihost's ports, as follows.
+
 The Maschine drivers run their controller only while dbm-nihost reports the device (its hello,
 and "gone" when it is unplugged): dbm-nihost creates the ports of both Maschines at its start, so
 zynthian loads both drivers also without the devices. After a restart of dbm-nihost or a replug,

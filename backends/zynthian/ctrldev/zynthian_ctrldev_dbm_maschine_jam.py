@@ -24,9 +24,10 @@
 # ******************************************************************************
 
 from zyngine.ctrldev.zynthian_ctrldev_base_dbm import zynthian_ctrldev_base_dbm
+from zyngine.ctrldev.dbm_zynthian import nihost
 
 # ------------------------------------------------------------------------------------------------------------------
-# Native Instruments Maschine JAM (DrivenByMoss), through dbm-nihost
+# Native Instruments Maschine JAM (DrivenByMoss), in-process or through dbm-nihost
 # ------------------------------------------------------------------------------------------------------------------
 
 
@@ -41,9 +42,14 @@ class zynthian_ctrldev_dbm_maschine_jam(zynthian_ctrldev_base_dbm):
     dev_ids = ["Maschine Jam - 1 IN 1"]
     dbm_controller_id = "72F32A83-A697-446B-9016-64AA3F9476E4"
     driver_name = "DrivenByMoss Maschine JAM"
-    driver_description = ("Native Instruments Maschine JAM (through dbm-nihost), run by DrivenByMoss: the clip launcher "
+    driver_description = ("Native Instruments Maschine JAM (in-process or through dbm-nihost), run by DrivenByMoss: the clip launcher "
                           "on zynseq, the touch strips on the mixer and the parameters, the pads play the active chain")
     autoload_flag = True  # zynthian has no other driver for this device
+    # In-process (zynthian's ctrldev manager with HID drivers): the driver drives the JAM itself
+    # over hidraw with libdbm_nihost, the same host as dbm-nihost's, without its ports; dbm-nihost
+    # must not run then (only one process can drive the device)
+    hid_ids = [(0x17CC, 0x1500)]
+    nihost_kind = nihost.KIND_JAM
     # dbm-nihost creates the ports also without the device: the controller runs only while the JAM
     # is there (its hello: NI's "return from host")
     nihost_hello = bytes.fromhex("F000210915004D5000014601F7")

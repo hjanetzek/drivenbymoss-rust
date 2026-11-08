@@ -32,6 +32,13 @@
 # signal callbacks (refresh) only set flags or cached values which the tick thread uses. The
 # core's commands therefore change zynthian's mixer from the tick thread, as the stock drivers
 # do from the fast thread.
+#
+# In-process devices (hid_ids, the Maschines): zynthian's ctrldev manager loads the driver
+# without a MIDI port (idev_in None) when the HID device is there; the driver drives it itself
+# with libdbm_nihost (dbm_zynthian/nihost.py), with the same MIDI as dbm-nihost's ports. A
+# thread of the driver reads the library's MIDI and passes it to midi_event (in place of the
+# fast thread), send_midi goes to the library, and the tick thread writes the LEDs and displays
+# (flush_device).
 
 import os
 import logging
@@ -48,6 +55,7 @@ from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge
 from zyngine.ctrldev.dbm_zynthian.add_chain import AddChainUI
 from zyngine.ctrldev.dbm_zynthian.browser import BrowserUI
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel
+from zyngine.ctrldev.dbm_zynthian import nihost
 
 # ------------------------------------------------------------------------------------------------------------------
 # DrivenByMoss control device base class
@@ -67,6 +75,10 @@ NIHOST_GONE = bytes.fromhex("F07D44424D13F7")
 # The largest message dev_send_midi_event takes: the ring buffer of a zmop has 16384 bytes
 # (JACK_MIDI_BUFFER_SIZE in zynmidirouter.h), of which 16383 can be used
 MAX_MIDI_OUT_BYTES = 16383
+
+# How long the reading thread of an in-process device waits in the library per call (also how
+# long end() may wait for it)
+NIHOST_READ_TIMEOUT_MS = 100
 
 
 def launcher_palette():
@@ -91,6 +103,12 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     # driver is dormant (no controller) until dbm-nihost says hello (an answer to NIHOST_QUERY or
     # a device attached), and again after NIHOST_GONE. None: the device is there with its ports.
     nihost_hello = None
+    # In-process (doc/ZYNTHIAN_INTEGRATION.md §10): the (vendor, product) USB ids of the HID
+    # device which the driver drives itself with libdbm_nihost, and its kind in the library
+    # (nihost.KIND_MK2, nihost.KIND_JAM). zynthian's ctrldev manager loads such a driver with
+    # idev_in None when the device is there.
+    hid_ids = []
+    nihost_kind = None
 
     def __init__(self, state_manager, idev_in, idev_out=None):
         super().__init__(state_manager, idev_in, idev_out)
@@ -112,6 +130,10 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.device_present = self.nihost_hello is None
         self.query_pending = False
         self.restart_requested = False
+        # In-process: the library's device and the thread which reads it
+        self.in_process = idev_in is None and self.nihost_kind is not None
+        self.nihost = None
+        self.nihost_thread = None
         # The notes the driver sends to the chains: (source, key) -> (MIDI channel, key), source
         # "in" for the device's keys (fast thread), "out" for the core's played notes
         self.sounding = {}
@@ -142,6 +164,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         # Registers the chain and snapshot signals, which call refresh
         super().init()
         self.exit_flag = False
+        if self.in_process:
+            self.open_nihost()
         self.thread = Thread(target=self.run, args=())
         self.thread.name = f"dbm {self.get_driver_name()}"
         self.thread.daemon = True
@@ -153,7 +177,55 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         if self.thread and self.thread.is_alive():
             self.thread.join(5)
         self.thread = None
+        self.close_nihost()
         super().end()
+
+    # ---------------------------------------------------------------------------
+    # In-process devices: libdbm_nihost in place of dbm-nihost's MIDI ports
+    # ---------------------------------------------------------------------------
+
+    def open_nihost(self):
+        """Open the library's device and start the thread which reads its MIDI. Without the
+        library the driver stays dormant (logged)."""
+        try:
+            self.nihost = nihost.NihostDevice(self.nihost_kind)
+        except Exception as e:
+            logging.error(f"[{self.__class__.__name__}] Can't drive the device in-process (libdbm_nihost: {e})")
+            self.nihost = None
+            return
+        self.nihost_thread = Thread(target=self.read_nihost, args=(self.nihost,))
+        self.nihost_thread.name = f"dbm {self.get_driver_name()} HID"
+        self.nihost_thread.daemon = True
+        self.nihost_thread.start()
+
+    def read_nihost(self, device):
+        """The library's MIDI (the device's input, hello, gone, answers) to midi_event, as the
+        fast thread passes a MIDI port's."""
+        while not self.exit_flag:
+            try:
+                messages = device.read(NIHOST_READ_TIMEOUT_MS)
+            except Exception as e:
+                logging.error(f"[{self.__class__.__name__}] libdbm_nihost: {e}")
+                return
+            for data in messages:
+                self.midi_event(data)
+
+    def flush_device(self):
+        """Write the LEDs and displays the core (or the library) changed to the device."""
+        if self.nihost is not None:
+            try:
+                self.nihost.flush()
+            except Exception as e:
+                logging.error(f"[{self.__class__.__name__}] libdbm_nihost: {e}")
+
+    def close_nihost(self):
+        if self.nihost_thread is not None:
+            self.nihost_thread.join(2 * NIHOST_READ_TIMEOUT_MS / 1000.0 + 1.0)
+            self.nihost_thread = None
+        if self.nihost is not None:
+            self.flush_device()
+            self.nihost.close()
+            self.nihost = None
 
     def unload_replaced_drivers(self):
         """A device with ports for more than one driver (the Launchpads: zynthian's own driver
@@ -309,6 +381,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             logging.exception(f"[{self.__class__.__name__}] {e}")
         finally:
             self.stop_bridge()
+            self.flush_device()
 
     def loop(self):
         start = 0.0
@@ -317,6 +390,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         while not self.exit_flag:
             if self.sleeping or self.start_failed or not self.device_present:
                 self.stop_bridge()
+                self.flush_device()
                 # Only dbm-nihost's hello (or gone) counts while dormant
                 self.take_midi()
                 if self.device_present and not self.sleeping and not self.start_failed:
@@ -338,6 +412,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             if self.is_zynthian_busy():
                 continue
             self.step((monotonic() - start) * 1000.0)
+            self.flush_device()
             if self.restart_requested or not self.device_present:
                 # dbm-nihost's device is gone, or back (a replug or a restart of dbm-nihost, whose
                 # device has lost its LEDs and displays): a fresh controller sends everything
@@ -386,10 +461,17 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             self.bridge = None
 
     def query_device(self):
-        """Ask dbm-nihost whether its device is there (it answers with the hello if it is)."""
+        """Ask dbm-nihost whether its device is there (it answers with the hello if it is). An
+        in-process driver without its library stays dormant."""
         if self.nihost_hello is None:
             return
-        if self.idev_out is None:
+        if self.in_process:
+            # No query: the library opens the device after the driver's start and says hello
+            # then (and after every reattach), into the driver's own queue where it can't get
+            # lost (unlike through PipeWire's MIDI bridge, §9 Z16). A query besides would bring
+            # a second hello, which restarts the controller when it comes after the first.
+            return
+        if self.idev_out is None and not self.in_process:
             # No way to ask: as if it was there
             self.device_present = True
             return
@@ -456,6 +538,13 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
 
     def send_midi(self, data):
         """MIDI from the core to the device."""
+        if self.nihost is not None:
+            data = bytes(data)
+            if data == NIHOST_QUERY and self.nihost_hello is not None:
+                # The library answers at once, the answer arrives through read_nihost
+                self.query_pending = True
+            self.nihost.send(data)
+            return
         if self.idev_out is None:
             return
         if len(data) > MAX_MIDI_OUT_BYTES:

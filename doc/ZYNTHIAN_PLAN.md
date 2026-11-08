@@ -129,6 +129,8 @@ this one:
   caches the document settings.
 - `midi_event(ev)` (fast thread): queues `ev` if its first byte is a status byte (analysis §9 Z4),
   returns True always.
+- The Maschines in-process (ZYNTHIAN_INTEGRATION.md §10): loaded without port when the device is
+  there, they don't ask; the library's hello and gone drive the same states as below.
 - The Maschines (dbm-nihost creates their ports also without the device): the driver asks once at
   its start (`F0 7D 44 42 4D 11 F7`) and stays dormant (no controller) until dbm-nihost's hello
   (the Mk2's `F0 7D 44 42 4D 11 01 F7`, the JAM's NI "return from host"), and again after "gone"
@@ -533,7 +535,7 @@ no change.
 | Package | Recipe | Contents |
 | --- | --- | --- |
 | `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/` |
-| `dbm-nihost` | `nura/dbm-nihost/APKBUILD` | `/usr/bin/dbm-nihost` (`support/linux/ni_host`), the udev rule (hidraw access, `/usr/lib/udev/rules.d/70-dbm-nihost.rules`), the systemd user service, enabled for every user session (`/usr/lib/systemd/user/default.target.wants/`), so the Mk2 and JAM ports exist in the kiosk session; the snd-virmidi files (Bitwig only) stay in `/usr/share/dbm-nihost/` |
+| `dbm-nihost` | `nura/dbm-nihost/APKBUILD` | `/usr/lib/dbm-nihost/libdbm_nihost.so`, which zynthian's Maschine drivers load to drive the devices in-process (ZYNTHIAN_INTEGRATION.md §10); `/usr/bin/dbm-nihost` (`support/linux/ni_host`), the udev rule (hidraw access for the group audio and uaccess, `/usr/lib/udev/rules.d/70-dbm-nihost.rules`), the systemd user service, no longer enabled (since 0.2.0: it would take the devices from the in-process drivers; before, it was enabled for every user session so that the ports existed in the kiosk session); the snd-virmidi files (Bitwig only) stay in `/usr/share/dbm-nihost/` |
 
 - **Native library.** `cargo build --release --frozen --lib` natively in pmbootstrap's chroot,
   with the default `lua` feature (mlua builds Lua 5.4 from its vendored C source; a native build

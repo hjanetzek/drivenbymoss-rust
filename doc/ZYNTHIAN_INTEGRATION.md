@@ -507,5 +507,55 @@ fixes it.
 | Z13 | `zynlibs/zynseq/pattern.cpp:665-692` (`Pattern::setStepsPerBeat`) | `float fScale = …` inside the `else` declares a new variable; the outer `fScale` stays 1.0 | Changing the steps per beat does not rescale the events' positions and durations: the notes move in time (the GUI warns "may alter timing") | present | not used by the dbm drivers |
 | Z14 | `zynlibs/zynseq/zynseq.cpp` `stop()` (called by `removePhrase`) | `g_mSchedule.map.clear()` drops all scheduled events, also the note-offs of notes already sent | Removing a phrase while sequences play may leave hanging notes [from the code, not run] | present | – |
 | Z15 | `zynlibs/zynseq/` `SequenceManager` (`getSequence` and the scene and phrase lists) | No lock: loading a snapshot replaces the scene and phrase lists while other threads read them | A crash (segfault in `SequenceManager::getSequence`, through `getPlayState`/`getSequenceName`) when another thread reads zynseq during a snapshot load: three crashes of the Qt UI on the Duet (2026-11-07), from the DrivenByMoss drivers' tick thread. The drivers now pause while `state_manager.is_busy()`; a tick which started just before the load can still collide. Full fix: a lock around scene and phrase changes in zynseq (upstream candidate) | present | dbm drivers pause while busy |
-| Z16 | PipeWire's ALSA sequencer MIDI bridge (PipeWire 1.6.11 on the Duet, not zynthian code) | After dbm-nihost was restarted (or the Mk2 dropped out and came back) while PipeWire and zynthian ran, the bridge kept the port "Midi-Bridge:Maschine MK2: In (capture)" and the ALSA subscription 128:0 → PipeWire, but forwarded no events from it to JACK | The Mk2 driver stayed dormant: dbm-nihost answered the query (seen with `aseqdump`), the hello never reached zynthian; the JAM of the same dbm-nihost worked [2026-11-08, Duet]. The same happened to the JAM after it dropped out and came back at 18:07:21 (around a zynthian start): dbm-nihost still answered over ALSA, nothing arrived through the bridge; the Mk2 had dropped out at 17:52 before its port got stuck. Likely trigger: a device dropping out and returning while dbm-nihost keeps its ALSA ports connected through the bridge (not reproduced on purpose yet). Related: the driver asks dbm-nihost only once at start (`loop()`, `query_device`); a lost answer leaves it dormant until a spontaneous hello, which is why unplugging/replugging was needed to bring the devices up. Diagnosed with `dbm-nihost-jack-probe` and `dbm-nihost-bridge-test` (support/linux/ni_host/tools). Workaround: restart dbm-nihost (`systemctl --user restart dbm-nihost`), then zynthian. Further observation [2026-11-08, Duet, dbm-nihost log]: both devices dropped out about 20 s after a zynthian start (zynthian 18:10:04, Mk2 gone 18:10:24, JAM gone 18:10:28); the JAM's hidraw node came back before udev had set its permissions ("Permission denied" at 18:10:30, opened at 18:10:31), so the devices really re-enumerate on USB, they are not only read errors. PipeWire had been restarted just after dbm-nihost (18:09:33 vs. 18:09:24). Neither the dropouts' cause nor the bridge getting stuck after one was reproduced on purpose. Not pursued further: zynthian is to use the Maschines through the HID library in-process, without dbm-nihost and PipeWire's bridge, which removes this path for zynthian | present | workaround |
+| Z16 | PipeWire's ALSA sequencer MIDI bridge (PipeWire 1.6.11 on the Duet, not zynthian code) | After dbm-nihost was restarted (or the Mk2 dropped out and came back) while PipeWire and zynthian ran, the bridge kept the port "Midi-Bridge:Maschine MK2: In (capture)" and the ALSA subscription 128:0 → PipeWire, but forwarded no events from it to JACK | The Mk2 driver stayed dormant: dbm-nihost answered the query (seen with `aseqdump`), the hello never reached zynthian; the JAM of the same dbm-nihost worked [2026-11-08, Duet]. The same happened to the JAM after it dropped out and came back at 18:07:21 (around a zynthian start): dbm-nihost still answered over ALSA, nothing arrived through the bridge; the Mk2 had dropped out at 17:52 before its port got stuck. Likely trigger: a device dropping out and returning while dbm-nihost keeps its ALSA ports connected through the bridge (not reproduced on purpose yet). Related: the driver asks dbm-nihost only once at start (`loop()`, `query_device`); a lost answer leaves it dormant until a spontaneous hello, which is why unplugging/replugging was needed to bring the devices up. Diagnosed with `dbm-nihost-jack-probe` and `dbm-nihost-bridge-test` (support/linux/ni_host/tools). Workaround: restart dbm-nihost (`systemctl --user restart dbm-nihost`), then zynthian. Further observation [2026-11-08, Duet, dbm-nihost log]: both devices dropped out about 20 s after a zynthian start (zynthian 18:10:04, Mk2 gone 18:10:24, JAM gone 18:10:28); the JAM's hidraw node came back before udev had set its permissions ("Permission denied" at 18:10:30, opened at 18:10:31), so the devices really re-enumerate on USB, they are not only read errors. PipeWire had been restarted just after dbm-nihost (18:09:33 vs. 18:09:24). Neither the dropouts' cause nor the bridge getting stuck after one was reproduced on purpose. Not pursued further: zynthian now drives the Maschines in-process with libdbm_nihost (§10), without dbm-nihost, ALSA and PipeWire's bridge: the bridge is no longer in zynthian's path, and the hello can't get lost (the driver's own queue, so the driver doesn't query at start any more). The dropouts themselves stay a question of the USB side | present (bridge) | no longer in the path (§10) |
 | N1 | nura: `zynautoconnect/zynthian_autoconnect.py:1463-1553` (`build_midi_port_name`) under PipeWire | No JACK aliases on PipeWire's MIDI bridge ports → uid without `/` | No dev_id: no device-specific driver matches or autoloads, `dev_in_2_dev_out` finds no output (§1) | present | fixed (`zynthian_pipewire_ports.py`) |
+
+## 10. The Maschines in-process (libdbm_nihost)
+
+Decided 2026-11-08 ("first we can keep the sysex and just bundle the bridge"): zynthian's Maschine
+Mk2 and JAM drivers drive the devices themselves, with the host of dbm-nihost as a library in
+zynthian's process. The MIDI between the core and the host is unchanged (template MIDI, hello,
+"gone", the query, support/linux/ni_host/README.md); only the transport changes: no dbm-nihost
+daemon, no ALSA sequencer ports, no PipeWire MIDI bridge, no JACK ports for them (Z16).
+
+- **Library** `libdbm_nihost.so` (support/linux/ni_host, C interface `include/dbm_nihost.h`,
+  `src/c_api.cpp`; the same `Mk2Host`/`JamHost`/`HidrawDevice` as the daemon, no ALSA):
+  `dbm_nihost_open(kind)` starts a thread which looks for the hidraw node once a second, opens it
+  (retried while it is "Permission denied" after a re-enumeration) and translates its reports;
+  `dbm_nihost_read(buffer, timeout)` returns the waiting MIDI (each message with a 2 byte length);
+  `dbm_nihost_send(message)` takes the core's MIDI (an answer to the query is in the next read);
+  `dbm_nihost_flush()` writes the changed LEDs and displays. No callbacks into Python. Test devices
+  (`dbm_nihost_open_test`, `_test_attach`, `_test_report`, `_test_take_report`) stand in for the
+  hardware in `tests/c_api_test.cpp` and the Python tests.
+- **One process per device**: `HidrawDevice` takes an exclusive `flock` on the node, in the daemon
+  as in the library; the second one counts the device as absent ("in use by another process").
+  The dbm-nihost package therefore no longer enables its user service.
+- **zynthian (zynthian-ui `dbm` branch)**: a driver class with `hid_ids = [(vendor, product)]`
+  is a HID driver. `zynthian_ctrldev_manager.update_hid_drivers()` (called by the autoconnect
+  thread with its hardware check, every 2 s) loads it with `idev_in = idev_out = None` when such a
+  device is in `/sys/class/hidraw` (HID_ID of the uevent), keeps it in `hid_drivers` under the uid
+  `HID:vvvv:pppp` and leaves it loaded when the device goes (the driver handles absence and
+  dropouts, keeping its document settings). Its state is in the snapshots' `midi_capture` under
+  that uid (`ctrldev_state` only), restored as for MIDI devices (also when the device is plugged
+  in later). Sleep, `unload_all_drivers` and the state include them. Not in the MIDI device menus
+  (`unload_hid_driver(uid, True)` disables one).
+- **Drivers**: the Mk2 and JAM classes have `hid_ids` and `nihost_kind`; the same classes still
+  work on dbm-nihost's ports. In-process (`in_process`: loaded without port) the driver opens the
+  library's device (`dbm_zynthian/nihost.py`, ctypes), a thread reads its MIDI into `midi_event`
+  (where the fast thread would put a port's), `send_midi` goes to the library, and the tick thread
+  flushes after every step (and every second while dormant). The hello/gone logic is the same;
+  there is no query at start (the library says hello when it opens the device; a query besides
+  brought a second hello which restarted the controller). The pads play through
+  `ui_send_note_on` as before. Without the library the driver logs an error and stays dormant.
+- **Packaging**: the library ships in the dbm-nihost package (`/usr/lib/dbm-nihost/`), which
+  already has the C++ build (CMake), the sources and the udev rule the library needs; the
+  drivenbymoss package is unchanged (the drivers find the library at that path, or
+  `$DBM_NIHOST_LIBRARY`). The udev rule gives the nodes to the group `audio` besides `uaccess`:
+  on the Duet no session is on the seat, and the uaccess ACL disappeared at the next udev event
+  of the nodes (2026-11-08 18:29, after which neither dbm-nihost nor the library could open them).
+- **Tested**: `ctest` (c_api_test), `backends/zynthian/tests` (`test_nihost_inprocess.py` with a
+  fake library and with the real library's test devices, `test_hid_manager.py` against the `dbm`
+  branch's manager); on the Duet the library with a standalone probe (both devices: hello at the
+  open, answers to the query, LED and display reports written). The drivers inside zynthian: after
+  installing the packages.
+

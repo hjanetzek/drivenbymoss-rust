@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <poll.h>
+#include <sys/file.h>
 #include <unistd.h>
 
 namespace dbm::nihost
@@ -89,7 +90,7 @@ namespace dbm::nihost
 
     void HidrawDevice::run()
     {
-        bool warned = false;
+        bool warned = false, busyWarned = false;
 
         while( this->running )
         {
@@ -103,13 +104,28 @@ namespace dbm::nihost
                     std::snprintf( vendor, sizeof vendor, "%04x", this->vendorId );
                     log( "Cannot open the " + this->name + " at " + path + " (" + std::strerror( errno )
                          + "); a udev rule gives access: KERNEL==\"hidraw*\", ATTRS{idVendor}==\"" + vendor
-                         + "\", MODE=\"0660\", TAG+=\"uaccess\"" );
+                         + "\", MODE=\"0660\", GROUP=\"audio\", TAG+=\"uaccess\"" );
                     warned = true;
                 }
                 if( !this->sleepFor( 1000 ) )
                     break;
                 continue;
             }
+            // Only one process drives the device (dbm-nihost or a process with libdbm_nihost):
+            // an exclusive lock, the other one counts the device as absent while it is held
+            if( ::flock( handle, LOCK_EX | LOCK_NB ) != 0 )
+            {
+                if( !busyWarned )
+                {
+                    log( "The " + this->name + " at " + path + " is in use by another process (dbm-nihost, or a zynthian driver)" );
+                    busyWarned = true;
+                }
+                ::close( handle );
+                if( !this->sleepFor( 1000 ) )
+                    break;
+                continue;
+            }
+            busyWarned = false;
 
             {
                 std::lock_guard<std::mutex> lock( this->fdLock );

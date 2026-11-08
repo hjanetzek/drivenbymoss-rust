@@ -24,9 +24,10 @@
 # ******************************************************************************
 
 from zyngine.ctrldev.zynthian_ctrldev_base_dbm import zynthian_ctrldev_base_dbm
+from zyngine.ctrldev.dbm_zynthian import nihost
 
 # ------------------------------------------------------------------------------------------------------------------
-# Native Instruments Maschine Mk2 (DrivenByMoss), through dbm-nihost
+# Native Instruments Maschine Mk2 (DrivenByMoss), in-process or through dbm-nihost
 # ------------------------------------------------------------------------------------------------------------------
 
 
@@ -41,9 +42,14 @@ class zynthian_ctrldev_dbm_maschine_mk2(zynthian_ctrldev_base_dbm):
     dev_ids = ["Maschine MK2 IN 1"]
     dbm_controller_id = "015E4908-C049-4808-A645-A7A44BEFE36B"
     driver_name = "DrivenByMoss Maschine Mk2"
-    driver_description = ("Native Instruments Maschine Mk2 (through dbm-nihost), run by DrivenByMoss: the displays show "
+    driver_description = ("Native Instruments Maschine Mk2 (in-process or through dbm-nihost), run by DrivenByMoss: the displays show "
                           "the chains, devices and parameters; the pads play the active chain")
     autoload_flag = True  # zynthian has no other driver for this device
+    # In-process (zynthian's ctrldev manager with HID drivers): the driver drives the Mk2 itself
+    # over hidraw with libdbm_nihost, the same host as dbm-nihost's, without its ports; dbm-nihost
+    # must not run then (only one process can drive the device)
+    hid_ids = [(0x17CC, 0x1140)]
+    nihost_kind = nihost.KIND_MK2
     # dbm-nihost creates the ports also without the device: the controller runs only while the Mk2
     # is there (its hello, which also says that dbm-nihost sends the Shift button)
     nihost_hello = bytes.fromhex("F07D44424D1101F7")

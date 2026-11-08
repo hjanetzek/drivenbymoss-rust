@@ -19,7 +19,9 @@ namespace dbm::nihost
     // A thread of its own looks for it once a second, opens it and reads its input reports, so
     // it can be plugged in and out at any time. Opening needs read and write access, e.g. the
     // udev rule
-    //   KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", MODE="0660", TAG+="uaccess"
+    //   KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", MODE="0660", GROUP="audio", TAG+="uaccess"
+    // It takes an exclusive flock on the node: while another process (with this class) holds it,
+    // the device counts as absent.
     class HidrawDevice
     {
     public:
