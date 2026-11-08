@@ -57,6 +57,17 @@ macro_rules! domain {
             }
         }
 
+        /// The number of the value.
+        impl $crate::protocol::bin::BinIdx for $name {
+            fn put(&self, idx: &mut $crate::protocol::bin::IdxOut) {
+                idx.push(*self as u16);
+            }
+
+            fn get(idx: &mut $crate::protocol::bin::IdxIn) -> Option<Self> {
+                $name::ALL.get(usize::from(idx.take()?)).copied()
+            }
+        }
+
         #[cfg(test)]
         impl $crate::protocol::legacy::Sample for $name {
             fn samples() -> Vec<Self> {
@@ -419,6 +430,37 @@ impl<'a> Value<'a> for GridNote {
         };
         let (velocity, duration) = text.split_once(' ')?;
         Some(GridNote { velocity: velocity.parse().ok()?, duration: duration.parse().ok()? })
+    }
+}
+
+/// An attribute of a step and its value: `…/<attribute> <value>` in the legacy text (the
+/// attribute is the last segment); in the binary form a struct `u32 attribute, u32 0, f64 value`
+/// (the step address already takes the four indices).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StepValue {
+    pub attr: StepAttr,
+    pub value: f64,
+}
+
+impl<'a> Value<'a> for StepValue {
+    fn encode(&self, w: &mut PathWriter) -> Arg<'_> {
+        w.seg(self.attr.name());
+        Arg::Double(self.value)
+    }
+
+    fn decode(r: &mut PathReader<'a>, arg: &'a Arg<'a>) -> Option<Self> {
+        let attr = StepAttr::from_name(r.next_segment()?)?;
+        match arg {
+            Arg::Double(value) => Some(StepValue { attr, value: *value }),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Sample for StepValue {
+    fn samples() -> Vec<Self> {
+        StepAttr::ALL.iter().enumerate().map(|(i, attr)| StepValue { attr: *attr, value: i as f64 * 0.25 }).collect()
     }
 }
 

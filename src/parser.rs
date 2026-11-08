@@ -176,14 +176,24 @@ impl Parser {
         if !path.is_empty() {
             let host = model.host().clone();
             match Msg::from_text(address, value, &mut |error| host.error(error)) {
-                // Not a model value
-                Ok(Msg::ActionSelect { value }) => return vec![ParserEvent::ActionSelected(value.to_string())],
-                Ok(msg) => self.apply(model, msg),
+                Ok(msg) => return self.apply_msg(model, msg),
                 // An invalid value: ignored
                 Err(Miss::Value) => {}
                 Err(Miss::Path) => host.error(&format!("Unhandled OSC address: {address} {value}")),
             }
         }
+        model.after_parse();
+        std::mem::take(&mut self.events)
+    }
+
+    /// Apply a message (of the text or the binary form) and update the model. Returns the events
+    /// for the app layer.
+    pub fn apply_msg(&mut self, model: &mut Model, msg: Msg<'_>) -> Vec<ParserEvent> {
+        if let Msg::ActionSelect { value } = msg {
+            // Not a model value
+            return vec![ParserEvent::ActionSelected(value.to_string())];
+        }
+        self.apply(model, msg);
         model.after_parse();
         std::mem::take(&mut self.events)
     }

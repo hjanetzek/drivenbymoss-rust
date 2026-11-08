@@ -229,6 +229,9 @@ pub struct RecordingBackend {
     pub outputs: Vec<(i32, String)>,
     /// The log messages of the library (see [`Backend::log`]).
     pub logs: RefCell<Vec<String>>,
+    /// Send the commands through their binary form: each command is encoded as a record and
+    /// decoded again before its legacy form is recorded (the binary mode of the replay).
+    pub binary: std::cell::Cell<bool>,
 }
 
 impl RecordingBackend {
@@ -239,16 +242,9 @@ impl RecordingBackend {
     fn push(&self, call: BackendCall) {
         self.calls.borrow_mut().push(call);
     }
-}
 
-impl Backend for RecordingBackend {
-    fn log(&self, message: &str) {
-        self.logs.borrow_mut().push(message.to_string());
-    }
-
-    /// Records the legacy form of the command, as the text hosts receive it.
-    fn send_command(&self, cmd: &Cmd) {
-        let Legacy { processor, command, arg } = cmd.legacy();
+    fn record_legacy(&self, legacy: Legacy<'_>) {
+        let Legacy { processor, command, arg } = legacy;
         let p = processor.id().to_string();
         self.push(match arg {
             Arg::None => BackendCall::NoArg(p, command),
@@ -259,6 +255,27 @@ impl Backend for RecordingBackend {
             Arg::Delay => BackendCall::DelayUpdates(p),
             Arg::Enable(v) => BackendCall::EnableUpdates(p, v),
         });
+    }
+}
+
+impl Backend for RecordingBackend {
+    fn log(&self, message: &str) {
+        self.logs.borrow_mut().push(message.to_string());
+    }
+
+    /// Records the legacy form of the command, as the text hosts receive it.
+    fn send_command(&self, cmd: &Cmd) {
+        if self.binary.get() {
+            let mut w = crate::protocol::bin::Writer::new();
+            cmd.encode(&mut w);
+            let record = crate::protocol::bin::records(w.as_bytes()).ok().and_then(|mut r| r.next()).and_then(Result::ok);
+            let decoded = record.map(|record| Cmd::decode_record(&record));
+            match decoded {
+                Some(Ok(decoded)) => return self.record_legacy(decoded.legacy()),
+                other => panic!("the command {cmd:?} does not survive its binary form: {other:?}"),
+            }
+        }
+        self.record_legacy(cmd.legacy());
     }
 
     fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32) {

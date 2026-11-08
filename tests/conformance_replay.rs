@@ -162,14 +162,18 @@ fn read_pairs(path: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Replay one recording; returns the problems.
-fn replay(path: &Path) -> Vec<String> {
+/// Replay one recording; returns the problems. `binary`: the binary form of the protocol (the
+/// model lines converted to records and fed through `update_model_bin`, every command encoded
+/// as a record and decoded again before it is compared).
+fn replay(path: &Path, binary: bool) -> Vec<String> {
     let events = parse_recording(path);
     let init = events.iter().find(|e| e.kind == "init").expect("init event");
     let (core_id, app_version) = (init.fields[0].clone(), init.fields.get(1).cloned().unwrap_or_default());
 
     // The configuration files of the recorded controller
-    let dir = std::env::temp_dir().join(format!("dbm-replay-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
+    // (per mode: the text and the binary replay run in parallel)
+    let mode = if binary { "bin" } else { "text" };
+    let dir = std::env::temp_dir().join(format!("dbm-replay-{}-{mode}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     // The files which settings name (the mapping of Generic Flexi), as they were when the controller
@@ -189,6 +193,7 @@ fn replay(path: &Path) -> Vec<String> {
     }
 
     let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
+    backend.binary.set(binary);
     let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), &core_id, &app_version).expect("controller of the recording");
     // How the runner keyed the system exclusive messages (first line of the Java LED file)
     let stem = path.file_stem().unwrap().to_string_lossy().to_string();
@@ -242,6 +247,7 @@ fn replay(path: &Path) -> Vec<String> {
             "documentSettings" => app.set_formatted_document_settings(&event.fields[0]),
             "setting" => app.set_setting(event.fields[0].parse().unwrap_or(-1), &replace_paths(event.fields.get(1).map_or("", String::as_str))),
             "start" => app.start_infrastructure(),
+            "model" if binary => app.update_model_bin(drivenbymoss::protocol::bin::from_text(&event.fields[0], &mut |_| {}).as_bytes()),
             "model" => app.update_model(&event.fields[0]),
             "tick" => app.tick(),
             "in" => {
@@ -292,9 +298,19 @@ fn recordings() -> Vec<PathBuf> {
 
 #[test]
 fn replay_recorded_sessions() {
+    replay_all(false);
+}
+
+/// The binary mode (TYPED_PROTOCOL_PLAN §3, step 1): the binary form changes nothing.
+#[test]
+fn replay_recorded_sessions_binary() {
+    replay_all(true);
+}
+
+fn replay_all(binary: bool) {
     let mut failures = Vec::new();
     for path in recordings() {
-        let problems = replay(&path);
+        let problems = replay(&path, binary);
         if !problems.is_empty() {
             failures.push(format!("{}:\n  {}", path.display(), problems.join("\n  ")));
         }

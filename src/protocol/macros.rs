@@ -27,12 +27,12 @@ macro_rules! commands {
     ($(
         $(#[$meta:meta])*
         $name:ident = $code:literal { $($field:ident : $fty:ty),* $(,)? }
-            @ $proc:tt [ $($seg:tt)* ] $(=> $val:tt)? $(, feature = $feat:ident)? ;
+            @ $proc:tt [ $($seg:tt)* ] $(=> $val:ident : $vty:ty)? $(= $cty:ty)? $(, feature = $feat:ident)? ;
     )*) => {
         /// A command of the core to the host. The legacy text form is [`Cmd::legacy`].
         #[derive(Debug, Clone, PartialEq)]
         pub enum Cmd<'a> {
-            $( $(#[$meta])* $name { $($field: $fty),* }, )*
+            $( $(#[$meta])* $name { $($field: $fty,)* $($val: $vty)? }, )*
         }
 
         /// The ID of a command (stable; the high bit marks the direction core → host).
@@ -45,6 +45,40 @@ macro_rules! commands {
         impl CmdId {
             /// All command IDs in the order of the table.
             pub const ALL: &'static [CmdId] = &[$(CmdId::$name),*];
+
+            /// The ID of a number, None if it is not in the table.
+            pub fn from_u16(id: u16) -> Option<CmdId> {
+                match id {
+                    $( $code => Some(CmdId::$name), )*
+                    _ => None,
+                }
+            }
+
+            /// The index slots of the binary form: (field, slot name) in the order of `idx`.
+            #[allow(clippy::extra_unused_lifetimes)]
+            pub fn index_slots<'a>(self) -> Vec<(&'static str, &'static str)> {
+                match self {
+                    $( CmdId::$name => {
+                        #[allow(unused_mut)]
+                        let mut slots = Vec::new();
+                        $( slots.extend(<$fty as BinIdx>::SLOTS.iter().map(|s| (stringify!($field), *s))); )*
+                        slots
+                    } )*
+                }
+            }
+
+            /// The value type of the binary form ([`super::bin::ty`]).
+            #[allow(clippy::extra_unused_lifetimes)]
+            pub fn value_type<'a>(self) -> u8 {
+                match self {
+                    $( CmdId::$name => {
+                        #[allow(unused_mut, unused_assignments)]
+                        let mut t = super::bin::ty::NONE;
+                        $( t = <$vty as BinValue<'a>>::TYPE; )?
+                        t
+                    } )*
+                }
+            }
 
             /// The metadata of the command.
             pub fn info(self) -> &'static CmdInfo {
@@ -61,7 +95,7 @@ macro_rules! commands {
                 }
                 let _ = k;
                 match self {
-                    $( CmdId::$name => Cmd::$name { $($field: pick(k)),* }, )*
+                    $( CmdId::$name => Cmd::$name { $($field: pick(k),)* $($val: pick(k))? }, )*
                 }
             }
         }
@@ -73,8 +107,8 @@ macro_rules! commands {
                 name: stringify!($name),
                 processor: cmd_proc!(info $proc),
                 template: cmd_template!($($seg)*),
-                fields: &[$((stringify!($field), stringify!($fty))),*],
-                value: cmd_val!(info $($val)?),
+                fields: &[$((stringify!($field), stringify!($fty)),)* $((stringify!($val), stringify!($vty)))?],
+                value: cmd_val!(info $($val)? $(= $cty)?),
                 feature: cmd_feature!($($feat)?),
             },
         )*];
@@ -86,15 +120,43 @@ macro_rules! commands {
                 }
             }
 
+            /// Append the record of the command (the binary form).
+            pub fn encode(&self, w: &mut Writer) {
+                match self {
+                    $( Cmd::$name { $($field,)* $($val)? } => w.record($code, |_idx, _val| {
+                        $( BinIdx::put($field, _idx); )*
+                        $( BinValue::encode($val, _val); )?
+                        $( <$cty as BinConst>::encode(_val); )?
+                    }), )*
+                }
+            }
+
+            /// The command of a record.
+            pub fn decode_record(record: &Record<'a>) -> Result<Cmd<'a>, BinError> {
+                let id = CmdId::from_u16(record.id).ok_or(BinError::UnknownId(record.id))?;
+                let bad = BinError::Value(record.id);
+                #[allow(unused_mut)]
+                let mut _idx = IdxIn::new(record.idx);
+                match id {
+                    $( CmdId::$name => {
+                        $( let $field = BinIdx::get(&mut _idx).ok_or(bad)?; )*
+                        $( let $val = BinValue::decode(record).ok_or(bad)?; )?
+                        $( if !<$cty as BinConst>::matches(record) { return Err(bad); } )?
+                        cmd_none!(record bad $($val)? $(= $cty)?);
+                        Ok(Cmd::$name { $($field,)* $($val)? })
+                    } )*
+                }
+            }
+
             /// The legacy form: the C callback, processor, command and value which the text
             /// protocol delivers (byte-identical to the strings built before the table).
             pub fn legacy(&self) -> Legacy<'_> {
                 match self {
-                    $( Cmd::$name { $($field),* } => {
+                    $( Cmd::$name { $($field,)* $($val)? } => {
                         #[allow(unused_mut)]
                         let mut w = PathWriter::new();
                         $( cmd_seg!(write w $seg); )*
-                        let arg = cmd_val!(encode w $($val)?);
+                        let arg = cmd_val!(encode w $($val)? $(= $cty)?);
                         Legacy { processor: cmd_proc!(encode $proc), command: w.finish(), arg }
                     } )*
                 }
@@ -117,11 +179,11 @@ macro_rules! commands {
                         let mut r = PathReader::new(command);
                         $( cmd_seg!(read processor r $seg); )*
                         cmd_proc!(check processor $proc);
-                        cmd_val!(decode r arg $($val)?);
+                        cmd_val!(decode r arg $($val)? $(= $cty)?);
                         if !r.is_empty() {
                             return None;
                         }
-                        Some(Cmd::$name { $($field),* })
+                        Some(Cmd::$name { $($field,)* $($val)? })
                     })() {
                         return Some(cmd);
                     }
@@ -174,17 +236,17 @@ macro_rules! cmd_seg {
 /// The value of an entry: none, a field or a constant.
 macro_rules! cmd_val {
     (info) => { None };
-    (info (= $t:ty)) => { Some(concat!("= ", stringify!($t))) };
+    (info = $t:ty) => { Some(concat!("= ", stringify!($t))) };
     (info $v:ident) => { Some(stringify!($v)) };
     (encode $w:ident) => { Arg::None };
-    (encode $w:ident (= $t:ty)) => { <$t as ConstValue>::encode() };
+    (encode $w:ident = $t:ty) => { <$t as ConstValue>::encode() };
     (encode $w:ident $v:ident) => { Value::encode($v, &mut $w) };
     (decode $r:ident $a:ident) => {
         if *$a != Arg::None {
             return None;
         }
     };
-    (decode $r:ident $a:ident (= $t:ty)) => {
+    (decode $r:ident $a:ident = $t:ty) => {
         if !<$t as ConstValue>::matches($a) {
             return None;
         }
@@ -199,6 +261,16 @@ macro_rules! cmd_template {
     () => { "" };
     ($s:tt) => { cmd_template!(@one $s) };
     ($s:tt $($rest:tt)+) => { concat!(cmd_template!(@one $s), "/", cmd_template!($($rest)+)) };
+}
+
+/// A command without a value: the record has none.
+macro_rules! cmd_none {
+    ($r:ident $bad:ident) => {
+        if !super::bin::no_value($r) {
+            return Err($bad);
+        }
+    };
+    ($r:ident $bad:ident $($rest:tt)+) => {};
 }
 
 macro_rules! cmd_feature {
@@ -227,12 +299,12 @@ macro_rules! messages {
     ($(
         $(#[$meta:meta])*
         $name:ident = $code:literal { $($field:ident : $fty:ty),* $(,)? }
-            [ $($seg:tt)* ] $(=> $val:ident = $rule:ident $(( $($arg:expr),* ))?)? ;
+            [ $($seg:tt)* ] $(=> $val:ident : $vty:ty = $rule:ident $(( $($arg:expr),* ))?)? ;
     )*) => {
         /// A report of the host to the core. The text form is [`Msg::to_text`].
         #[derive(Debug, Clone, PartialEq)]
         pub enum Msg<'a> {
-            $( $(#[$meta])* $name { $($field: $fty),* }, )*
+            $( $(#[$meta])* $name { $($field: $fty,)* $($val: $vty)? }, )*
         }
 
         /// The ID of a report (stable; the high bit is clear: host → core).
@@ -249,6 +321,40 @@ macro_rules! messages {
             /// The metadata of the message.
             pub fn info(self) -> &'static MsgInfo {
                 MESSAGES.iter().find(|info| info.id == self).expect("every ID is in the table")
+            }
+
+            /// The ID of a number, None if it is not in the table.
+            pub fn from_u16(id: u16) -> Option<MsgId> {
+                match id {
+                    $( $code => Some(MsgId::$name), )*
+                    _ => None,
+                }
+            }
+
+            /// The index slots of the binary form: (field, slot name) in the order of `idx`.
+            #[allow(clippy::extra_unused_lifetimes)]
+            pub fn index_slots<'a>(self) -> Vec<(&'static str, &'static str)> {
+                match self {
+                    $( MsgId::$name => {
+                        #[allow(unused_mut)]
+                        let mut slots = Vec::new();
+                        $( slots.extend(<$fty as BinIdx>::SLOTS.iter().map(|s| (stringify!($field), *s))); )*
+                        slots
+                    } )*
+                }
+            }
+
+            /// The value type of the binary form ([`super::bin::ty`]).
+            #[allow(clippy::extra_unused_lifetimes)]
+            pub fn value_type<'a>(self) -> u8 {
+                match self {
+                    $( MsgId::$name => {
+                        #[allow(unused_mut, unused_assignments)]
+                        let mut t = super::bin::ty::NONE;
+                        $( t = <$vty as BinValue<'a>>::TYPE; )?
+                        t
+                    } )*
+                }
             }
 
             /// The segment patterns of the address (the alternatives, for the trie).
@@ -275,7 +381,7 @@ macro_rules! messages {
                             return Err(Miss::Path);
                         }
                         $( let $val = rules::$rule(value, log $($(, $arg)*)?).ok_or(Miss::Value)?; )?
-                        Ok(Msg::$name { $($field),* })
+                        Ok(Msg::$name { $($field,)* $($val)? })
                     } )*
                 }
             }
@@ -290,7 +396,7 @@ macro_rules! messages {
                 }
                 let _ = k;
                 match self {
-                    $( MsgId::$name => Msg::$name { $($field: pick(k)),* }, )*
+                    $( MsgId::$name => Msg::$name { $($field: pick(k),)* $($val: pick(k))? }, )*
                 }
             }
         }
@@ -301,7 +407,7 @@ macro_rules! messages {
                 id: MsgId::$name,
                 name: stringify!($name),
                 template: concat!("/", msg_template!($($seg)*)),
-                fields: &[$((stringify!($field), stringify!($fty))),*],
+                fields: &[$((stringify!($field), stringify!($fty)),)* $((stringify!($val), stringify!($vty)))?],
                 value: msg_val!(info $($val)?),
                 rule: msg_val!(info $($rule)?),
             },
@@ -314,11 +420,37 @@ macro_rules! messages {
                 }
             }
 
+            /// Append the record of the message (the binary form).
+            pub fn encode(&self, w: &mut Writer) {
+                match self {
+                    $( Msg::$name { $($field,)* $($val)? } => w.record($code, |_idx, _val| {
+                        $( BinIdx::put($field, _idx); )*
+                        $( BinValue::encode($val, _val); )?
+                    }), )*
+                }
+            }
+
+            /// The message of a record.
+            pub fn decode_record(record: &Record<'a>) -> Result<Msg<'a>, BinError> {
+                let id = MsgId::from_u16(record.id).ok_or(BinError::UnknownId(record.id))?;
+                let bad = BinError::Value(record.id);
+                #[allow(unused_mut)]
+                let mut _idx = IdxIn::new(record.idx);
+                match id {
+                    $( MsgId::$name => {
+                        $( let $field = BinIdx::get(&mut _idx).ok_or(bad)?; )*
+                        $( let $val = BinValue::decode(record).ok_or(bad)?; )?
+                        msg_none!(record bad $($val)?);
+                        Ok(Msg::$name { $($field,)* $($val)? })
+                    } )*
+                }
+            }
+
             /// The report line `<address> <value>` (the value in the form which the rule of the
             /// entry parses back; doubles in their shortest exact form).
             pub fn to_text(&self) -> String {
                 match self {
-                    $( Msg::$name { $($field),* } => {
+                    $( Msg::$name { $($field,)* $($val)? } => {
                         #[allow(unused_mut)]
                         let mut w = PathWriter::new();
                         $( msg_seg!(write w $seg); )*
@@ -351,6 +483,16 @@ macro_rules! msg_seg {
     (write $w:ident $l:literal) => { $w.seg($l) };
     (write $w:ident ($l:literal)) => { $w.seg($l) };
     (write $w:ident $f:ident) => { Seg::write($f, &mut $w) };
+}
+
+/// A message without a value: the record has none.
+macro_rules! msg_none {
+    ($r:ident $bad:ident) => {
+        if !super::bin::no_value($r) {
+            return Err($bad);
+        }
+    };
+    ($r:ident $bad:ident $v:ident) => {};
 }
 
 macro_rules! msg_val {

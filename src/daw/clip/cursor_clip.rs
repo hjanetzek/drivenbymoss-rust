@@ -12,7 +12,7 @@ use crate::daw::color::ColorEx;
 use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
 use crate::daw::constants::Resolution;
 use crate::daw::context::DawContext;
-use crate::protocol::{Cmd, Dir, GridId, GridNote, Rgb, StepAttr, ValueOp};
+use crate::protocol::{Cmd, Dir, GridId, GridNote, Rgb, StepAttr, StepValue, ValueOp};
 
 use super::note::Note;
 use super::note_occurrence::NoteOccurrenceType;
@@ -857,7 +857,7 @@ impl CursorClip {
         let value = apply(info);
         if send_now {
             let p = position;
-            self.ctx.send(Cmd::GridStepAttribute { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, attr, value });
+            self.ctx.send(Cmd::GridStepAttribute { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, value: StepValue { attr, value } });
         }
     }
 

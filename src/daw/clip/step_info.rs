@@ -411,11 +411,53 @@ impl StepInfo {
 
     /// Parse the values formatted by [`Self::to_wire`]. A single "0" is an empty step (None).
     pub fn from_wire(text: &str) -> Option<StepInfo> {
-        let values: Vec<&str> = text.split_whitespace().collect();
+        let values: Vec<f64> = text.split_whitespace().map(|v| v.parse::<f64>().unwrap_or(0.0)).collect();
+        Self::from_values(&values)
+    }
+
+    /// The values of [`Self::to_wire`] as numbers (the binary form of the protocol).
+    pub fn to_values(&self) -> [f64; 24] {
+        let flag = |b: bool| if b { 1.0 } else { 0.0 };
+        let state = match self.state {
+            StepState::Off => 0.0,
+            StepState::Start => 1.0,
+            StepState::Continue => 2.0,
+        };
+        let occurrence = NoteOccurrenceType::ALL.iter().position(|o| *o == self.occurrence).unwrap_or(0) as f64;
+        [
+            state,
+            flag(self.is_selected),
+            flag(self.is_muted),
+            self.duration,
+            self.velocity,
+            self.velocity_spread,
+            self.release_velocity,
+            self.pressure,
+            self.timbre,
+            self.pan,
+            self.transpose,
+            self.gain,
+            flag(self.is_chance_enabled),
+            self.chance,
+            flag(self.is_occurrence_enabled),
+            occurrence,
+            flag(self.is_recurrence_enabled),
+            self.recurrence_length as f64,
+            self.recurrence_mask as f64,
+            flag(self.is_repeat_enabled),
+            self.repeat_count as f64,
+            self.repeat_curve,
+            self.repeat_velocity_curve,
+            self.repeat_velocity_end,
+        ]
+    }
+
+    /// The step of the values of [`Self::to_values`] (at least 24); None for an empty step.
+    pub fn from_values(values: &[f64]) -> Option<StepInfo> {
         if values.len() < 24 {
             return None;
         }
-        let f = |i: usize| values[i].parse::<f64>().unwrap_or(0.0);
+        let f = |i: usize| values[i];
         let n = |i: usize| f(i) as i32;
         let b = |i: usize| f(i) > 0.0;
         let state = match n(0) {

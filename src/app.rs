@@ -17,6 +17,8 @@ use crate::controller::{all_factories, find_factory, ControllerFactory, Controll
 use crate::framework::ctx::Ctx;
 use crate::host::{Host, MemoryLog, StderrLog, LogSink};
 use crate::parser::{Parser, ParserEvent, UPDATE_NOTE_MAPPING_DELAY_MS};
+use crate::protocol::bin::{self, BinError};
+use crate::protocol::Msg;
 
 /// The name of the main configuration file in the Reaper INI folder.
 const MAIN_CONFIG_FILENAME: &str = "DrivenByMoss4Reaper.config";
@@ -77,6 +79,8 @@ pub struct App {
     instances: Vec<Instance>,
     devices: Vec<(String, String)>,
     is_started: bool,
+    /// The IDs of the binary protocol which were logged as errors (logged once per ID).
+    bin_errors: std::collections::HashSet<u32>,
     /// True for a host which runs exactly one controller on its own MIDI ports (Bitwig): there is
     /// no main configuration, the ports are not discovered and the controller is always enabled.
     single: bool,
@@ -122,6 +126,7 @@ impl App {
             instances: Vec::new(),
             devices: Vec::new(),
             is_started: false,
+            bin_errors: std::collections::HashSet::new(),
             single,
             fixed_time: false,
             epoch: Instant::now(),
@@ -405,6 +410,44 @@ impl App {
             for instance in &mut self.instances {
                 if let Some(running) = &mut instance.running {
                     let events = running.parser.parse_line(&mut running.ctx.model, line);
+                    handle_parser_events(&mut running.ctx, events);
+                }
+            }
+        }
+    }
+
+    /// Update the model from a buffer of binary records (TYPED_PROTOCOL_PLAN §2.2): the binary
+    /// form of [`Self::update_model`]. Records with an unknown ID or an invalid value are skipped
+    /// and logged once per ID.
+    pub fn update_model_bin(&mut self, data: &[u8]) {
+        self.enter();
+        let records = match bin::records(data) {
+            Ok(records) => records,
+            Err(_) => {
+                self.host.error("Not a buffer of the binary protocol (header)");
+                return;
+            }
+        };
+        for record in records {
+            let msg = match record.and_then(|record| Msg::decode_record(&record)) {
+                Ok(msg) => msg,
+                Err(error) => {
+                    let key = match error {
+                        BinError::UnknownId(id) | BinError::Value(id) => id as u32,
+                        BinError::Header | BinError::Truncated => u32::MAX,
+                    };
+                    if self.bin_errors.insert(key) {
+                        self.host.error(&format!("Binary protocol: {error:?}"));
+                    }
+                    if matches!(error, BinError::Truncated) {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            for instance in &mut self.instances {
+                if let Some(running) = &mut instance.running {
+                    let events = running.parser.apply_msg(&mut running.ctx.model, msg.clone());
                     handle_parser_events(&mut running.ctx, events);
                 }
             }

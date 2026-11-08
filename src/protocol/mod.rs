@@ -14,6 +14,7 @@
 mod macros;
 #[macro_use]
 pub mod types;
+pub mod bin;
 pub mod cmd;
 pub mod legacy;
 pub mod msg;
