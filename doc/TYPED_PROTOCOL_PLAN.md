@@ -1,0 +1,649 @@
+# A typed, binary protocol between the core and its hosts: plan
+
+Status: plan only, nothing implemented (2026-11-08). The decision and the motivation are in
+STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
+current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
+the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
+numbers are from [ZYNTHIAN_CPU.md](ZYNTHIAN_CPU.md).
+
+**Summary**
+- **Size:** about 250 host → core address templates (about 420 once they are expanded per
+  device, channel bank and named parameter) and about 300 core → host command forms (plus 6
+  value operations). The 21 recordings use 363 and 104 of them.
+- **The table:** a declarative file `src/protocol/messages.def`, read by the existing `build.rs`
+  with no new dependency. It generates the Rust enums, which the core uses, and the bindings for
+  C, C++, Python and Java, which are committed like `include/drivenbymoss.h`.
+- **The wire format:** fixed 24-byte little-endian records (id, op, 4 × u16 indices, an 8-byte
+  inline value), with strings and lists as a padded payload after the record.
+  - Host → core: one buffer per report.
+  - Core → host: one buffer per call, delivered before any other callback and at the end of the
+    call.
+- **The first step:** the table and the generated Rust enums, with the text protocol on the wire
+  unchanged (§5.4). The core then sends `Cmd` values and dispatches `Msg` values, and the text is
+  produced and parsed only at the boundary. Every use becomes findable, and the compiler checks
+  each one. All existing tests, replays and conformance runs stay as they are and prove the
+  step.
+- **CPU:** a modest gain for the Python hosts after ZYNTHIAN_CPU options 1–3. The `put` side of a
+  full Zynthian pass gets about 3× cheaper, which is 8–10 % of the pass. Most of a pass is reading
+  the zynthian model, which a protocol change does not touch (§4). The main payoff is
+  correctness and findability; the CPU gain is a side effect.
+
+---
+
+## 1. Inventory
+
+### 1.1 The current code paths
+
+| Side | Where | What |
+| --- | --- | --- |
+| Host → core, C ABI | `src/ffi.rs:483` `dbm_update_model(app, const char*)` → `src/app.rs:399` `App::update_model` | Splits on `\n` and feeds each line to every running instance's `Parser::parse_line` |
+| Parser | `src/parser.rs:129` `parse_line`, `:156` `parse_osc`, dispatch at `:170–305` | Hand-written `match` on path segments, about 1,490 lines of code (tests from `:1488`). Unknown paths go to `host.error("Unhandled …")`, about 60 places, and are seen only at run time |
+| Parser helpers | `src/parser.rs:85–110` | `parse_double`, `parse_flag` (> 0), `parse_int` (i32 or truncated f64), `parse_limit` (`/str/<n>`), `parse_index` (digits only), `parse_color_static` `:1473` (`r g b`, `r < 0` = none) |
+| Parser events | `src/parser.rs:24` `ParserEvent` | Rebind knobs, note mapping, note repeat, quantize, action selected |
+| Core → host, model side | `src/daw/context.rs:340–377` `send`, `send_int`, `send_double`, `send_bool`, `send_str`, `send_strs` (suppressed while `muted`, `:213`) → `src/backend.rs:134` `Sender` → the `Backend` trait `:102` | 236 call sites in `src/daw/` and `src/framework/` (the most: `application.rs` 42, `transport.rs` 39, `clip/cursor_clip.rs` 31, `device.rs` 26, `browser.rs` 17, `parameter.rs` 14, `channel.rs` 12) |
+| Command strings | built with `format!` at the call sites, e.g. `src/daw/channel.rs:560` `create_command` (`<p>/…`, `pad/<i>/…`, `layer/<i>/…`), `src/daw/parameter.rs:376` `value_address` and `:409–431` (`/inc`, `/immediately`), `:320` (`/reset`), `:335–370` (`/touch`, `/indicate`), `src/daw/slot.rs:160`, `src/daw/scene.rs:81`, `src/daw/clip/cursor_clip.rs:200–212` (`grid/<id>/…`), `src/daw/device.rs:67–90`, `:845` | No central list of commands. The processor is an enum (`src/backend.rs:12` `Processor`, 38 values; `Session`, `PlayingNotes`, `Cursor` are unused or used once); the command is free text |
+| Feature gating | `src/daw/context.rs:68` `HostFeature` (9), `:176` `host_supports`, `:185` `set_host_features` | Bitset in `Shared::host_features`; the compatibility rule "paging without `/host/features` = all" |
+| C ABI callbacks | `src/ffi.rs:32` `DbmCallbacks`, `:96` `impl Backend for FfiBackend` | `process_no_arg`, `_string_arg`, `_string_args`, `_int_arg`, `_double_arg`, `delay_updates`, `enable_updates`; each call allocates two `CString`s |
+| Header | `build.rs` + `cbindgen.toml` → `include/drivenbymoss.h` (committed, rewritten only when changed) | cbindgen 0.29 is the only build dependency |
+| Test double | `src/backend.rs:188` `BackendCall`, `:209` `RecordingBackend` | 238 assertions on `BackendCall::{NoArg,IntArg,DoubleArg,StringArg,StringArgs}` text in 34 files; 147 calls of `update_model`, `parse_line` or `feed` with text lines in the tests |
+| Recorder | `backends/bitwig/.../ProtocolRecorder.java:208` `event`; `DbmExtension.java:302` records `model` before `core.updateModel` | `.rec`: `<ms>\t<kind>\t<fields>`, HOST_BRIDGE_GUIDE §8 |
+| Replay | `tests/conformance_replay.rs:166` `replay`, `:245` feeds `model` text, `:108` `format_call` turns `BackendCall` back into `noArg/int/double/string/strings` text, `:70` `is_output` | Compares the outputs after each input as sets. 21 recordings (9.9 MB in `tests/conformance/*/replay/`) |
+
+**Hosts**
+
+| Host | Reporting (host → core) | Commands (core → host) |
+| --- | --- | --- |
+| Reaper (C++) | `backends/reaper/reaper_drivenbymoss/Collectors.h:20/32/40` `CollectStringValue/IntValue/DoubleValue` (compare with the last value, append `address value\n` to an `ostringstream`); `DataCollector.cpp:49` `CollectData` (86 `Collectors::Collect*` calls) plus `Track.cpp:43–95`, `Send.cpp`, `Parameter.cpp`, `Marker.cpp` | `dllmain.cpp:116–142` → `OscParser.cpp:96–233` `Process(processor, command, value)` splits the command into a deque of strings → `*Processor::Process(elements, value)` (`TrackProcessor.cpp` 751 lines, `ClipProcessor.cpp` 552, `TransportProcessor.h` 341, …) |
+| Bitwig (Java over FFM) | `ModelReporter.java:103–156` `put(address, String/int/boolean/double)`, `putColor`: a `HashMap<String,String>`, doubles via `String.format(Locale.ROOT, "%.6f")`; 166 `reporter.put` calls in `BitwigModel.java`, 16 in `SpecificDevice`, 13 in `BitwigNoteClip`, 18 in `BitwigBrowser`, 11 in `EqualizerDevice`; `HOST_FEATURES` at `BitwigModel.java:83/549` | `NativeCore.java:140–159` upcalls → `CommandHandler.java:76` `handle(processor, command)`, `:123` `handle(processor, command, double)` (1,646 lines, 293 `case` labels); `:620` `reportAgain` → `ModelReporter.forgetLater(prefix)` |
+| Python reference host | `bindings/python/dbm_host/reporter.py:78` `format_value`, `:171` `put` (raw-value compare first, then text compare), `:188` `put_displayed`, `:200` `take` | `bindings/python/drivenbymoss/_ffi.py:83–97` ctypes callbacks → `dbm_host/commands.py:74` `Command.parse` (splits off `/inc`, `/reset`, `/immediately`), `:139–161` `register` per processor, `:186` `handle`; `:213–217` `forget_later` by text prefix |
+| Zynthian | `backends/zynthian/ctrldev/dbm_zynthian/reporter.py:82` `ZynReporter(Reporter)`, `:173` `collect`, `:336` `collect_slots`, `:471` `collect_pages`; 127 `put` calls | `dbm_zynthian/commands.py` (on `dbm_host.CommandHandler`), `forget` by text address `:156–160` |
+| C++ wrapper | `bindings/cpp/include/drivenbymoss.hpp:52–78` `Backend` virtuals with `std::string` processor and command; `:247` `updateModel(std::string)` | as on the left |
+
+### 1.2 Host → core addresses
+
+Counted as templates: indices are placeholders, and a template shared by several owners (for
+example `/<dev>/param/<i>/value` for device, primary, eq, project, track FX and master FX) counts
+once. "Expanded" counts each owner separately. Line numbers are in `src/parser.rs`.
+
+| Area | Templates | Expanded | Parser | Value types | Reaper-only |
+| --- | --- | --- | --- | --- | --- |
+| Transport, time, click, automation, overdub, note repeat | 48 | 48 | `parse_transport` `:417`, `parse_time` `:536`, `parse_beats` `:511`, `parse_click` `:386`, `parse_note_repeat` `:1431`, `/crossfade` `:289` | bool, int, f64 (BPM, seconds, quarters, 0..1), verbatim text, enum as int (`/automode` 0–5, `/noterepeat/mode` 0–3) | `/stop`, `/time/str`, `/time/loop/*` (6), `/beat`, `/quantize/strength`, `/click/preroll` (text) |
+| Application, project, host, layout, arranger and mixer flags, record quantization, groove, cue | 50 | 50 | `:171–305`, `parse_groove` `:1449`, `parse_host_parameter` `:313` | bool, text, enum as text (`/layout` ARRANGE…, `/recordQuantization` OFF, 1/32…), name list (`/host/features`) | `/groove/active`, `/groove/amount`, `/action/select` |
+| Channels: `/track/<p>`, `/fxtrack/<p>`, `/master` (fields, sends, slots, track FX head) | 54 | ≈105 | `parse_track` `:582`, `parse_effect_track` `:614`, `parse_master_track_value` `:633`, `parse_track_value_in` `:683`, `parse_send` `:854`, `parse_slot` `:821` | bool, int, f64, text, color, enum as text (`type`), list (`playingnotes`) | `depth`, `vuholdleft/right`, `overdub`, `inQuantLengthEnabled`, `inQuantResolution`, `/master/fx/param/*` |
+| Scenes | 9 | 9 | `parse_scene` `:1302` | bool, int, text, color, f64 | `position`, `endPosition` |
+| Devices (`device`, `primary`, `eq`, `drum`): head, siblings, drum flags, EQ bands | 19 | ≈47 | `parse_device_of` `:901`, `parse_sibling` `:1049`, `parse_drum` `:330` | bool, int, text | `/device/touchedParam` |
+| Parameter banks and pages (6 owners) | 9 | 54 | `parse_device_param_value` `:1148`, `parse_track_fx_parameter` `:1086`, project `:200–237` | text, f64, int, limited text | – |
+| Drum pads and layers (`drum`, `device`, `primary`) | 12 | ≈57 | `:991–1012`, `parse_device_channel` `:360` | bool, text, color, f64 | – |
+| Clip and step grid | 15 | 15 | `parse_clip_value` `:1360` | bool, f64, color, int, **step** (24 numbers), **notes** list, Reaper `/clip/all` | `/clip/playposition`, `/clip/notes`, `/clip/all` |
+| Browser | 24 | 24 | `parse_browser_value` `:1184`, `parse_browser_item` `:1253` | bool, int, text | `/browser/presetsfile`, `/browser/selected/index` |
+| Markers | 7 | 7 | `parse_marker` `:1263` | bool, int, text, color | (`position`, `endPosition` are accepted and ignored) |
+| **Total** | **≈247** | **≈416** | | | ≈30 Reaper-only |
+
+The 21 recordings contain 2,610 `model` events with 233,610 lines (27.7 bytes per line on
+average) and 363 distinct templates. By first segment: track 59, primary 43, device 37, fxtrack
+28, groove 24, project 22, drum 21, browser 21, master 15, eq 13, clip 12, and 1–7 each for the
+rest.
+
+### 1.3 Core → host commands
+
+Counted as forms: processor plus command template. A value command counts once, not once per
+suffix.
+
+| Area | Forms | Built in | Value / legacy callback |
+| --- | --- | --- | --- |
+| Value commands (the targets of §1.5): track/fxtrack volume and pan, send volume, master volume and pan, `param/<i>/value` (device, primary, eq, project, track), pad/layer volume and pan, cue volume/mix, groove (6 Bitwig names and 2 Reaper), crossfade, metronome volume, `master user/param/0/value`, clip accent | 14 targets × up to 6 ops | `src/daw/parameter.rs:320–431`, `src/daw/transport.rs:155/184`, `src/daw/clip/cursor_clip.rs:550/561` | double, int (`/touch`, `/indicate`), no arg (`/reset`) |
+| Transport and time (`play`, `stop`, `record`, `repeat`, `tempo`, `time`, `beats`, `transport …`, `automation`, `metro_vol`, `quantize`, `noterepeat`, `undo`, `redo`, `inifile`, `action`) | ≈55 | `src/daw/transport.rs` (39 sites), `application.rs:156/164/258` | none, int, double, string (`action <id>`); `time signature` packs `num + den*100` into an int |
+| Application, arranger, mixer, project, `bank`, `refresh` | ≈54 | `src/daw/application.rs`, `project.rs`, `track_bank.rs:380/391`, `bank.rs:151`, `backend.rs` `refresh` | none, int, string (`recordQuantization`) |
+| Tracks and master | ≈33 | `src/daw/channel.rs`, `track.rs`, `track_bank.rs`, `model.rs:486–573/832` | none, int, double (`send/<s>/active` sends the send volume as a meaningless value), string (`name`, `color` as `RGB(r,g,b)`), strings (`addTrack`, `track_bank.rs:873`) |
+| Slots and scenes | ≈22 | `src/daw/slot.rs:160–205`, `scene.rs:81–111/232`, `track_bank.rs:598` | none, string (`insertFile` path, `paste` as `"<track>/<slot>"`, `color`) |
+| Devices, siblings, pads, layers, EQ | ≈38 | `src/daw/device.rs` (26 sites), `channel.rs:521/525` | none, int (`selected` 1-based, `window`, `bypass`), string (`eq band/<b>` as a stringified int, `add/0`) |
+| Clip, grid, steps | ≈55 | `src/daw/clip/cursor_clip.rs` (31 sites) | none, int, double, string (`set` `"<vel> <dur>"`, `setFrom`/`update` 24 numbers, Reaper `note/<pitch>/…` 5 numbers) |
+| Markers | 6 | `src/daw/marker.rs:59–155` | none |
+| Browser | ≈20 | `src/daw/browser.rs:120–455` | none, int |
+| Navigator | 7 | `src/framework/clip_launcher_navigator.rs:44/136` | none, int |
+| Update hints (`delay_updates`, `enable_updates`) | 2 | `src/daw/context.rs:328–337` (8 sites) | processor (+ bool) |
+| **Total** | **≈306** | | |
+
+The recordings use 104 command templates. The most frequent are the indication commands, for
+example `track <n>/send/<n>/volume/indicate` 1,016 times and `device param/<n>/indicate` 456
+times.
+
+### 1.4 Indices
+
+| Index | Domain | Base and notes | Used in |
+| --- | --- | --- | --- |
+| `p` track position | 0..track count | absolute, 0-based; the master has none (`MASTER_POSITION`, `context.rs`) | `/track/<p>/…`, `track <p>/…`, `fxtrack` |
+| channel bank | track, fxtrack (master separate) | an enum in the first segment | `/track` vs `/fxtrack`, the `track` vs `fxtrack` processor |
+| `s` send | 0..numSends | | `…/send/<s>/…` |
+| `s` slot / scene | 0..scene count | absolute | `…/slot/<s>/…`, `…/clip/<s>/…`, `/scene/<s>/…`, `createClip/<slot>` |
+| `i` parameter | 0..param count | flat over the pages, page = i/8; EQ: `3*band + {0,1,2}` | `/<dev>/param/<i>/…`, `param/<i>/…` |
+| page | 0..page count | | `/<dev>/page/<i>/name` |
+| owner (device role) | device, primary, eq, drum, project, track FX, master FX | an enum in the first segment or the processor | everything under §3.5–3.6 of the guide |
+| sibling | **1-based** in reports (`/device/sibling/<n>`) and in Reaper commands (`device <i+1>/…`, `device selected <i+1>`) | the only 1-based indices | `parse_sibling` `:1049`, `device.rs:67–140` |
+| pad, layer | 0..127, 0..layer count | | `/<dev>/pad/<i>/…`, `pad/<i>/…` |
+| grid id | `<steps>x<rows>` from the model setup's `noteClips` | **two numbers in one segment** | `/clip/grid/<id>/…`, `clip grid/<id>/…` |
+| channel, step x, row y | MIDI channel, step, row or pitch | | `…/step/<ch>/<x>/<y>`, `clearRow/<ch>/<row>`, `clearColumn/<ch>/<step>` |
+| browser column, item, result, content type | 0..7, 0..n | | `/browser/column/<c>/item/<i>/…` |
+| marker | absolute | | `/marker/<i>/…`, `marker <i>/…` |
+| EQ band | 0..7 | | `/eq/band/<b>`, `eq band/<b>` |
+| limit | 6, 8 (no index = full text) | a trailing segment | `…/str/<limit>` |
+| named parameter | groove (6), cue (2), arranger flags (6), mixer flags (6) | **names, not numbers** | `/groove/<name>`, `/project/cueVolume`, `/arranger/<flag>` |
+| Reaper note | pitch, channel | | `clip note/<pitch>/…` |
+
+At most 4 indices appear together: `/clip/grid/<id>/step/<ch>/<x>/<y>`, with the grid id
+counted as one.
+
+### 1.5 Irregular forms
+
+- **Value command suffixes** (HOST_BRIDGE_GUIDE §4.1), built in `parameter.rs`:
+  - `/inc` (double, feature `valueInc`);
+  - `/reset` (no arg, `valueReset`);
+  - `/immediately` (double, `immediately`);
+  - `/touch` (int);
+  - `/indicate` (int; for volume, pan and sends gated by `indication`).
+
+  Hosts strip them again: `Command.parse` in `dbm_host/commands.py:74`, the Bitwig extension's
+  `/reset` → value path. Clip positions use `/inc` with beats, not normalized values.
+- **Displayed texts:**
+  - `<value>/str` and `<value>/str/6|8` on tracks, sends and parameters;
+  - `/name`, `/str`, `/str/<n>` on the host parameters (`parse_host_parameter` `:313`: crossfade,
+    cue, groove);
+  - exceptions: `/click/volumeStr` (not `/str`); `/time/str` (formatted by the core) vs
+    `/time/text` (verbatim);
+  - `/time/loop/start/<anything>` is a beat text (`:564` `Some(_)`);
+  - Bitwig appends `/value` to `/eq/band/<b>`, which is ignored.
+- **Inconsistent field names:**
+  - slot `selected` vs scene `select`;
+  - `/browser/column/<c>/item/<i>/select` vs `/device/sibling/<n>/selected`.
+- **Values with meaning beyond the value:**
+  - `/track/offset` and `/scene/offset` (the value is ignored; the report switches on host
+    paging);
+  - `/track/<p>/select` (only changes count);
+  - `/track/pinned` (a position or −1);
+  - `/device/position` −1 = none;
+  - colors with `r < 0` = none, and parse errors become gray.
+- **Host-feature-dependent pairs**: the same action as two different commands (the core picks
+  one, the host must know both):
+
+  | Basic (Reaper) form | Feature form | Feature |
+  | --- | --- | --- |
+  | `play`, `stop`, `record` processors | `transport play\|stop\|restart\|stopAndRewind` | `transportCommands` |
+  | `time 0` (int) | `transport stopAndRewind` | `transportCommands` |
+  | `time loop/start\|length` (seconds) | `beats loop/start\|length` (quarters) | host step grid / Bitwig |
+  | `metro_vol <0..127>`, `metro_vol +\|-` | `transport metronomeVolume[/inc]` | `transportCommands` |
+  | `master user/param/0/value` | `transport crossfade` | reported `/crossfade` |
+  | `groove active\|amount` | `groove <name>` | reported `/groove/<name>` |
+  | `device <i+1>/bypass\|remove\|duplicate`, `device window <0\|1>` | `device sibling/<i+1>/…`, `<dev> window/toggle\|bypass\|…` | `deviceCommands` |
+  | `track <p>/solo <0\|1>` | `track <p>/solo/toggle` | `soloToggle` |
+  | `application layout <i>` | `application layout/-\|+` | `layoutStep` |
+  | `track <p>/scrollto` | `bank track <offset>` | host paging |
+  | `clip note/<pitch>/…` | `clip grid/<id>/step/…` | host step grid |
+  | `track <p>/inQuantResolution`, `overdub` | `application recordQuantization`, `transport overdub/…` | reported `/recordQuantization`, `/overdub/*` |
+- **Multi-value lines:**
+  - colors (`r g b` in reports, `RGB(r,g,b)` in commands);
+  - `playingnotes` and `/clip/notes` (`sel:mute:start:end:channel:pitch:velocity;…`,
+    `src/daw/clip/note.rs:87`);
+  - a step (24 space-separated numbers, `src/daw/clip/step_info.rs:377/413`);
+  - `/clip/all` (Reaper: `track;count;name;selected;…`, `src/daw/model.rs:919`);
+  - `/host/features` (names);
+  - `track addTrack` (string list);
+  - `…/set` (`"<velocity> <duration>"`), `…/paste` (`"<track>/<slot>"`);
+  - `time signature` (`num + den*100`);
+  - `eq band/<b>` (an int sent as a string).
+- **Legacy callback kinds which differ from the value type:**
+  - booleans are sent with `process_int_arg` (`Sender::bool_arg`);
+  - `send/<s>/active` uses `process_double_arg`;
+  - `repeat` and `toggleMultiSelect` send a constant `1`;
+  - `select` always sends `1`.
+
+  The table must keep the legacy kind per command so that the text form stays identical.
+- **Found during the inventory, not in HOST_BRIDGE_GUIDE:** `/device/parameters` and
+  `/drum/parameters` (the parameter page section visible, `parser.rs:342/951`) and the command
+  `device parameters/toggle` (`device.rs:868`, used in the recordings). This is an example of the
+  "uses are hard to find" problem.
+- **Outside the command protocol (already typed C callbacks, unchanged by this plan):**
+  - MIDI (`send_midi_data`, `process_midi_arg`);
+  - note input filters (string list) and key and velocity tables (int arrays);
+  - settings, notifications, model setup, document settings.
+
+---
+
+## 2. Design
+
+### 2.1 The single source of truth
+
+**Options**
+
+| Option | Pro | Con |
+| --- | --- | --- |
+| A. A Rust table (`macro_rules!` or `const` arrays) in `src/protocol/` | the type checker sees it; no parser | the other languages need a generator that can read Rust: a `src/bin/` tool that links the crate (like `src/bin/dbm-catalog.rs`) and runs as a separate step, so the outputs can go stale |
+| **B. A declarative text file + `build.rs`** (recommended) | one file for people and generators; `build.rs` already exists and already writes a committed artifact only when it changed (`build.rs`, the header); a line-based format needs about 200 lines of parser in `build.rs`, no dependency | build.rs grows; errors in the file show as build errors (which is the point) |
+| C. An IDL (protobuf, FlatBuffers, capnp) | tooling | new dependencies in every host, against the no-deps rule |
+
+**The file:** `src/protocol/messages.def`. One line per message. A message family that differs
+only by owner is one line with an enum index. Sketch:
+
+```
+# Index domains (enum values have stable numbers; text form = the name)
+domain bank     track=0 fxtrack=1
+domain dev      device=0 primary=1 eq=2 drum=3 project=4 trackfx=5 masterfx=6
+domain groove   enabled=0 shuffleAmount=1 shuffleRate=2 accentAmount=3 accentRate=4 accentPhase=5
+domain limit    full=0 6=6 8=8
+feature valueInc=0 valueReset=1 immediately=2 indication=3 soloToggle=4 transportCommands=5 deviceCommands=6 layoutStep=7 clipLauncherNavigator=8
+struct  Note    selected:bool muted:bool start:f64 end:f64 channel:u8 pitch:u8 velocity:u8
+struct  Step    f64[24]                     # StepInfo::to_wire order
+
+# dir id      name               text template                          value    options
+in   0x0101  PLAY               /play                                  bool
+in   0x0105  TEMPO              /tempo                                 f64
+in   0x0201  TRACK_COUNT        /track/count                           int
+in   0x0202  TRACK_OFFSET       /track/offset                          int      detects=hostPaging ignored_value
+in   0x0210  CHANNEL_EXISTS     /{bank}/{p}/exists                     bool     entity=channel(bank,p)
+in   0x0214  CHANNEL_COLOR      /{bank}/{p}/color                      color    entity=channel(bank,p)
+in   0x0218  CHANNEL_VOLUME_STR /{bank}/{p}/volume/str[/{limit}]       text     entity=channel(bank,p)
+in   0x0230  CHANNEL_PLAYING    /{bank}/{p}/playingnotes               Note[]   detects=playingNotes
+in   0x0601  PARAM_VALUE        /{dev}/param/{i}/value                 f64      entity=param(dev,i)
+in   0x0701  STEP               /clip/grid/{grid}/step/{ch}/{x}/{y}    Step|0   entity=grid(grid)
+cmd  0x8201  CHANNEL_MUTE       {bank} {p}/mute                        bool     legacy=int
+cmd  0x8210  CHANNEL_VOLUME     {bank} {p}/volume                      f64      ops=set,inc:valueInc,reset:valueReset,immediately:immediately,touch,indicate:indication
+cmd  0x8301  TRANSPORT_PLAY     transport play                         -        feature=transportCommands
+cmd  0x8302  PLAY_TOGGLE        play                                   -        basic_of=TRANSPORT_PLAY
+cmd  0x8350  TIME_SIGNATURE     time signature                         Sig      legacy=int:num+den*100
+cmd  0x8901  REFRESH            refresh                                -
+cmd  0x8902  DELAY_UPDATES      {area}                                 -        legacy=delay
+```
+
+**Rules**
+- **Ids:**
+  - u16; the high bit is the direction (0 = host → core, 1 = core → host);
+  - one block of 0x100 per area, so a range test finds an area;
+  - ids are never renumbered or reused: a removed message stays in the file as `reserved`.
+- **The text template is the text form.** Both directions of the conversion are generated from
+  it (§2.6), so the table cannot disagree with the parser.
+- **`entity=`** names the item a message belongs to: channel, send, slot, param, pad, layer,
+  scene, marker or grid. This replaces the prefix strings of "report again" (`forgetLater("/track/3/")`,
+  HOST_BRIDGE_GUIDE §6.1): `forget(Entity::Channel(Track, 3))`.
+- **`detects=`** documents the progressive host features (HOST_BRIDGE_GUIDE §2 table). The
+  generator also writes that table into the guide, or checks it.
+- **`legacy=`** keeps the callback kind and value encoding of today's text form (§1.5, last
+  points), so the text conversion is exact.
+- **`ops=`** declares the value operations of a value command and the host feature of each.
+
+**Generated outputs** (written by `build.rs`, only when their content changed, as the header
+today):
+
+| Output | Content | Committed |
+| --- | --- | --- |
+| `$OUT_DIR/protocol.rs`, `include!`d by `src/protocol/mod.rs` | `enum Msg<'a>` (host → core, with typed fields, strings borrowed from the buffer), `enum Cmd` (core → host), the domain enums, `MsgId`/`CmdId` (`#[repr(u16)]`), encode/decode of records, text ↔ typed conversion, legacy `(kind, processor, command, value)` conversion, a per-id metadata table (name, template, value type, feature, entity) | no (build output) |
+| `include/dbm_protocol.h` | `enum DbmMsgId`, `enum DbmCmdId`, domain enums, `DbmRecord`, value type and op constants, `DBM_PROTOCOL_VERSION`, `DBM_PROTOCOL_HASH`, `static inline` writers (`dbm_put_f64(buf, id, i0, i1, v)`, …) and a reader (`dbm_next_record`) | yes; `drivenbymoss.h` includes it (cbindgen `after_includes`) |
+| `bindings/cpp/include/dbm_protocol.hpp` | `enum class` per direction, a `Writer` (std::vector<uint8_t>), a `Reader` (range-for over records), `toText`/`fromText` through the C ABI | yes |
+| `bindings/python/drivenbymoss/protocol.py` | `IntEnum`s, precompiled `struct.Struct`s, `Writer` (one reusable `bytearray`), `iter_commands(memoryview)`, per-id metadata | yes |
+| `backends/bitwig/src/main/java/de/mossgrabers/dbm/bitwig/protocol/Protocol.java` | `enum Msg`, `enum Cmd` with their ids, a `Writer` on a reusable `MemorySegment`, a `Reader` | yes |
+
+CI (`ci/linux.sh`) runs `cargo build` and then `git diff --exit-code` on the generated files, so
+a stale binding cannot be committed. cbindgen is not needed for these outputs. They are written
+directly by `build.rs`, because cbindgen cannot see code in `OUT_DIR`. cbindgen stays for
+`ffi.rs`.
+
+**In the core:**
+- `Cmd` replaces the strings at the 236 send sites: `ctx.send(Cmd::ChannelMute { bank, p, value })`
+  instead of `self.send_bool("mute", value)` with a prefix built elsewhere.
+- `Msg` replaces the string matching of `parser.rs`. A hand-written `fn apply(model, &Msg)` has
+  **no `_ =>` arm**, so a message in the table without a handler is a compile error. The
+  remaining `host.error("Unhandled …")` cases are lines that are not in the table at all, from
+  the text path only.
+
+### 2.2 The binary layout
+
+**One record** (all fields little-endian, 8-byte aligned, 24 bytes plus payload):
+
+| Offset | Size | Field | Notes |
+| --- | --- | --- | --- |
+| 0 | 2 | `id` | `MsgId` or `CmdId` |
+| 2 | 1 | `type` | value type: 0 none, 1 bool, 2 i32, 3 f64, 4 text, 5 color, 6 struct, 7 struct array, 8 text list, 9 feature set; redundant with the table, checked by the core (a host bug shows at once) |
+| 3 | 1 | `op` | value operation of value commands: 0 set, 1 inc, 2 reset, 3 immediately, 4 touch, 5 indicate; 0 in reports |
+| 4 | 8 | `idx[4]` | u16 each, unused = 0; enum domains as their numbers; the grid id as `steps << 8 \| rows` (both ≤ 255; checked when the model setup is created) |
+| 12 | 4 | `len` | payload bytes after the record (0 for inline values) |
+| 16 | 8 | `value` | bool/i32 (as i64), f64, color (`r, g, b, valid, 0, 0, 0, 0`), feature set (u64); 0 for payload types |
+| 24 | `len`, padded to 8 | payload | text: UTF-8 without NUL; struct arrays: packed little-endian structs; text list: `u32 count, (u32 len, bytes)…` |
+
+**Why this layout**
+- **Fixed-size head:** a host compares the 24-byte head (one `memcmp`, one `bytes ==`, or a
+  tuple compare) for every inline value. That is about 90 % of all reports: flags, numbers,
+  colors.
+- **u16 indices:** they cover every domain in §1.4. Four is the most that appear together.
+- **Size:** 24 bytes vs 27.7 bytes per text line on average, so a dump stays the same size.
+- **Endianness:** fixed little-endian. All targets are little-endian (x86-64, aarch64 including
+  the Pi and Apple Silicon); the readers use `from_le_bytes` on slices, so neither side needs
+  aligned input.
+
+**The buffer** is an 8-byte header (`u32 magic 'DBM1'`, `u16 version major`, `u16 flags`)
+followed by the records. Each side skips a record with an unknown id by its `len`, and logs it
+once per id.
+
+**Batching**
+- **Host → core:** one buffer per report, the binary equivalent of one `dbm_update_model`
+  string. The core applies the records in order, as it does with lines today (the order rules of
+  HOST_BRIDGE_GUIDE §2 stay).
+- **Core → host:** the core appends commands to an instance-owned buffer and delivers it with
+  one callback.
+  - **when:** **before any other callback** (`send_midi_data`, note input tables, …) **and at the
+    end of every `dbm_*` call**. Flushing before other callbacks keeps today's exact order of
+    commands and MIDI output, while a burst of commands, for example 64 `…/indicate` on a mode
+    change, costs one upcall instead of 64.
+  - **why not per tick:** commands arrive during any call (HOST_BRIDGE_GUIDE §1, e.g.
+    `bank track` during `update_model`), and a per-tick buffer would move them.
+  - **compared with per-command typed callbacks:** these are simpler, but cost one FFI
+    transition per command, which matters for ctypes (about 1–2 µs per callback) and FFM
+    upcalls.
+
+**Versioning**
+- `DBM_PROTOCOL_VERSION` has a major part (layout changes, never expected) and a minor part (ids
+  added).
+- `DBM_PROTOCOL_HASH` is an FNV-1a hash of the normalized table text.
+- New ids are added only; old ids keep their meaning.
+
+### 2.3 The C ABI
+
+New functions next to the existing ones. Nothing existing changes, and `DbmCallbacks` keeps its
+layout: appending a field would make the core read past the end of the struct of a host built
+against the old header, for example with the Bitwig extension's `DBM_DEV_LIBRARY` reload.
+
+```c
+/* Protocol identity of the library: major/minor and the table hash. */
+void dbm_protocol_info(uint32_t *major, uint32_t *minor, uint64_t *hash);
+
+/* Switch the instance's commands to the binary form. Call before dbm_start_infrastructure (its
+ * first commands are refresh and bank fxtrack 0). `handled`: optional bitset over the command
+ * ids the host handles (word i bit j = id 0x8000 + 64*i + j), or null for "all".
+ * Returns 0 (and keeps the text callbacks) if `major` differs from the library's. */
+typedef void (*DbmCommands)(void *user, const uint8_t *buffer, size_t length);
+int dbm_set_command_callback(DbmApp *app, uint32_t major, DbmCommands callback, void *user,
+                             const uint64_t *handled, size_t handled_words);
+
+/* Report model values in the binary form (one buffer = one report). */
+void dbm_update_model_bin(DbmApp *app, const uint8_t *buffer, size_t length);
+
+/* Conversions for logs, recordings, tests and tools (stateless; free with dbm_free_string). */
+char *dbm_messages_to_text(const uint8_t *buffer, size_t length);   /* model lines / legacy command lines */
+size_t dbm_messages_from_text(const char *text, uint8_t *out, size_t capacity); /* returns the needed size */
+```
+
+- **Ownership:** the host's buffer is valid during the call; the core's command buffer is valid
+  during the callback (the same rule as strings today, header comment of `cbindgen.toml`).
+- **Threading:** unchanged. The calls are serialized per instance, callbacks run on the calling
+  thread (or the internal timer thread without `DBM_FLAG_HOST_TICK`), and calling into the same
+  instance from a callback deadlocks.
+- **Mixed use:** `dbm_update_model` (text) and `dbm_update_model_bin` can be used on the same
+  instance. Both end in the same `apply(&Msg)`. The command form is per instance: text callbacks
+  unless `dbm_set_command_callback` succeeded.
+- **The Reaper variant** `dbm_create` (several controllers per instance, `app.rs:399` feeds every
+  line to every instance) works the same: one `Msg` decode, applied to every running controller.
+
+### 2.4 Change-only reporting and dumps
+
+The rules of HOST_BRIDGE_GUIDE §2 and §6 stay. The binary form makes them cheaper and less
+error-prone:
+
+- **Key:** `(id, idx[0..4])`, 10 bytes. In Python one int (`id | i0<<16 | i1<<32 | i2<<48 |
+  i3<<64`); in Java a `long` (id and three indices) plus a fallback map for 4-index steps; in C++
+  a `uint64_t` or the 12-byte head prefix. These are cheaper to hash than the address strings of
+  today (`"/track/3/slot/5/playing"`).
+- **Compare:** the raw value (the 8-byte inline value, or the payload bytes for texts). The host
+  never formats a value. Option 3 of ZYNTHIAN_CPU (raw compare before formatting) becomes the
+  only path.
+- **Dense slots (optional, generated):** for the large fixed families (channel fields × tracks,
+  slots, params, pads) the generator emits a slot number per `(id, indices)` within the bank
+  sizes of the model setup. A host then keeps its last values in a flat array (`array('d')`,
+  `double[]`, `std::vector<double>`) instead of a hash map.
+- **Dumps:** `refresh` → the host sets "dump" and writes every value, as today.
+- **Report again** (§6.1): `forget(entity)` with the `entity=` of the table instead of a text
+  prefix. The generated metadata maps id → entity kind and which indices form the entity.
+- **Diffing in the core (later, optional):** a flag on `dbm_update_model_bin` (`DBM_REPORT_FULL`:
+  "this buffer is the complete state; drop the unchanged values") would let a simple host skip
+  its own change tracking. It is not the default:
+  - the core's setters are not all idempotent: `/project/name` schedules a note mapping update,
+    and a repeated `select` used to recall views (HOST_BRIDGE_GUIDE §6.2);
+  - for Python, encoding a value costs more than comparing it (§4), so the host-side compare
+    stays the cheaper path.
+
+### 2.5 Feature negotiation
+
+- **`/host/features`** becomes the message `HOST_FEATURES` with a feature set (u64 bitset over
+  the `feature` lines of the table); the text form stays the list of names. The compatibility
+  rule (paging without `/host/features` = all features, `context.rs:176`) stays. `HostFeature`
+  (`context.rs:68`) becomes a generated enum from the same lines, so `name()` and `lookup()` can
+  no longer drift from the hosts' constants (`BitwigModel.java:83`,
+  `dbm_host/commands.py:139–161`).
+- **The progressive features** (detected from reports) are unchanged in behaviour. The table's
+  `detects=` makes them visible in one place.
+- **The handled commands:** `dbm_set_command_callback(…, handled, n)` passes a bitset of the
+  command ids the host executes.
+  - **Phase 1:** the core only uses it for diagnostics. It logs once, at the first send, a
+    command the host declared unhandled, with its text form. Today that is "Not handled yet",
+    seen only in the host's log.
+  - **Later:** `host_supports(feature)` could be derived from it: a feature is supported if all
+    its commands are handled. That would retire `/host/features` for binary hosts. This is an
+    open question (§5.3).
+- **Compile-time checks in the hosts** (the generated enums make "unsupported" a build error
+  where the language allows it):
+
+  | Host | Check |
+  | --- | --- |
+  | Rust core | `apply(&Msg)` and the generated `Cmd` → legacy text: exhaustive `match`, no wildcard |
+  | Java (Bitwig) | `switch (cmd) { case … -> … }` as a switch expression over the generated enum: Java 21 rejects a non-exhaustive switch expression. Commands deliberately not handled are listed in one `case A, B, C -> unhandled (cmd)` arm, which documents them |
+  | C++ (Reaper, wrapper) | `switch` over `enum class DbmCmdId` without `default`, built with `-Werror=switch` |
+  | Python (`dbm_host`, Zynthian) | no compile time: a unit test asserts that `CommandHandler`'s table covers `protocol.CMD_IDS` minus an explicit `UNHANDLED` set; the reporter is checked against the table in the same way |
+
+### 2.6 The text form
+
+- **Text → typed:** generated from the templates. A trie over the path segments is built from
+  the table, with each leaf holding a value parser. This replaces the hand-written path matching
+  of `parser.rs` (about 1,490 lines → the generated trie plus a hand-written `apply` of roughly
+  600 lines, which only calls the model setters).
+- **Lenient values:** each value type parses exactly as today's helpers (`parse_flag` > 0,
+  `parse_int` with the f64 fallback, `parse_color_static` with gray for errors and none for
+  `r < 0`).
+  - Where a field has a special failure rule today (for example
+    `parse_int(value).unwrap_or(-1)` for `playingStep`, `parser.rs:1416`), the table gets an
+    `on_error=` option.
+  - The equivalence is checked by the existing 41 parser tests plus a generated round-trip test
+    per table line.
+- **Typed → text:**
+  - reports: `%.6f` for doubles (as Bitwig and Python print today) **when writing the legacy
+    form**;
+  - recordings: the shortest round-trip form (`{}` in Rust, `Double.toString`, `repr`), so a
+    replay feeds the core exactly the value the host sent. The text parser accepts both.
+  - commands: the legacy `(kind, processor, command, value)` from `legacy=`. It is
+    byte-identical to `tests/conformance_replay.rs:108` `format_call`, so recorded outputs
+    compare unchanged.
+- **The `.rec` recordings:**
+  - **Existing ones** (21 files) stay as they are: a `model` event is text and is replayed
+    through `dbm_update_model` → text → `Msg` → `apply`. The recorded outputs (`noArg`, `int`,
+    `double`, `string`, `strings`, `delay`, `enable`) are compared with the legacy text of the
+    `Cmd`s. No conversion and no re-recording is needed.
+  - **New recordings by a binary host:** the recorder writes the same kinds. It converts with
+    `dbm_messages_to_text` (one implementation, in the core). The format, `rec_textconv.sh` and
+    the git diffs stay readable and unchanged. A later option is to move the recorder into the
+    core (`DBM_RECORD_DIR` handled by `ffi.rs`), so that every host gets recordings: Python,
+    Zynthian, Reaper. Today only the Bitwig extension records.
+- **Logs:** "Unhandled …" and the hosts' "not handled" lists print the text form.
+
+---
+
+## 3. Migration
+
+The text protocol stays until the last host has moved. Each step is proven by the test suites
+that already exist, run unchanged.
+
+| Suite | What it proves | Command |
+| --- | --- | --- |
+| Rust unit tests | parser behaviour (41 parser tests, 147 text feeds), every command's text (238 `BackendCall` assertions) | `cargo test` |
+| Replay of the 21 recordings | the outputs after every input as sets, LED state vs Java at the end markers | `cargo test --test conformance_replay` |
+| Python reference host conformance | 195 scenarios of 4 setups against the Java results (`*-java.ref.json`) | `cd bindings/python && python3 -m conformance --all`; `bindings/python/tests` (81 tests) |
+| Zynthian | the drivers against the stand-ins, `test_conformance_lcxl.py`, `test_cpu.py` | `python3 backends/zynthian/tests/run_tests.py` |
+| C++ wrapper | `bindings/cpp/tests/run_tests.sh` | |
+| Bitwig conformance (needs Bitwig, the `conformance-runner` agent) | Java vs Rust on the real DAW | `backends/bitwig/tools/conformance_all.sh` |
+| Reaper | no automated tests; by hand | |
+
+**The order**
+
+| Step | Content | Proof | Effort |
+| --- | --- | --- | --- |
+| **0a. Table + generator + `Cmd`** (the recommended first step) | `messages.def` for the commands, the `build.rs` generator (Rust only at first), `Cmd` and the legacy conversion; `ctx.send(Cmd)` at the 236 sites; `Sender`/`Backend` take `&Cmd` and `FfiBackend` formats the legacy text. No change on the wire, in the C ABI or in the hosts | `cargo test` (all 238 `BackendCall` assertions unchanged, because `RecordingBackend` records the legacy text), replay unchanged | 4–6 days (table ≈2, generator ≈2, call sites ≈2) |
+| **0b. `Msg` + `apply`** | the address part of the table; text → `Msg` (generated trie), hand-written exhaustive `apply` replacing `parser.rs`'s matching; `ParserEvent` stays | the 41 parser tests and 147 text feeds unchanged, replay, Python conformance `--all`, Zynthian tests (all hosts still send text) | 6–8 days |
+| **1. Binary ABI in the core + the C header and C++ wrapper** | record encode/decode, `dbm_update_model_bin`, `dbm_set_command_callback` with per-call buffering, the conversions, `dbm_protocol.h`, `dbm_protocol.hpp` | **the replay in a binary mode**: each `model` text is converted to binary and fed through `dbm_update_model_bin`; the commands come through the binary callback, converted to legacy text, compared with the recording. All 21 recordings must pass in both modes, which shows that the binary path changes nothing. Plus round-trip tests text → bin → text for every table line, and the C++ wrapper tests on the typed API | 4–5 days |
+| **2. Python: binding, `dbm_host`, Zynthian** | `protocol.py`; `Reporter.put(id, idx, value)` writing records; `last_values` keyed by int; `CommandHandler` dispatch on `CmdId` (replacing `Command.parse`'s suffix splitting with `op`); `forget(entity)`; Zynthian's `ZynReporter` prefixes become prebuilt keys | **dual run**: a check mode in which the reporter builds both forms and asserts `dbm_messages_to_text(bin) == text` every pass, run over all 195 scenarios and the Zynthian tests; then conformance `--all` and the Zynthian suite on the binary path alone. Tests that read `reporter.last_values["/track/4/name"]` (Zynthian tests) use a text view (`reporter.text_snapshot()`) | 5–7 days |
+| **3. Bitwig (Java over FFM)** | `Protocol.java`; `ModelReporter` on a reusable `MemorySegment` (no `String.format`); `CommandHandler` as switch expressions over `Cmd` (the 293 `case` labels become enum cases); `reportAgain` by entity; `ProtocolRecorder` via `dbm_messages_to_text` | the dual-run check of step 2 in the extension (dev mode); recordings made before and after the change replay the same; the Bitwig conformance runs (all setups) must give the same results as before. Note the rounding risk (§5.1) | 6–8 days |
+| **4. Reaper (C++)** | `Collectors::Collect*Value` write records (the address strings disappear from `DataCollector.cpp`, `Track.cpp`, …); `OscParser` + `*Processor` dispatch on `DbmCmdId` (the `std::deque<std::string>` splitting disappears) | no automated tests: the dual-run check (text and binary built side by side, compared, in a debug build) while using Reaper with the controllers of STATUS.md item 1; a recording through the new core recorder, if that is done, replayed | 8–12 days (the most hand-written code, `TrackProcessor.cpp` 751 lines, `ClipProcessor.cpp` 552, …) |
+| **5. Retire the text path in the hosts** | remove `format_value`, the text `put`s and the text command handlers from the hosts. In the core, keep `dbm_update_model` and the text callbacks: they are cheap to keep and serve logs, recordings and simple hosts | everything above | 1–2 days |
+
+**Total:** about 35–50 days. Steps 0a and 0b are useful on their own and carry no risk to the
+hosts. Steps 2–4 are independent of each other once step 1 is done.
+
+---
+
+## 4. Performance
+
+**Measured on this host** (x86-64, Python 3.14.9), 1,000 values per pass,
+`/track/<n>/slot/<n>/playing`-like keys:
+
+| Operation | Today (text) | Binary records | Factor |
+| --- | --- | --- | --- |
+| idle pass: compare with the last value, nothing changed (`Reporter.put` with option 3's raw compare vs list index compare) | 108 ns/value | 38 ns/value (dense slot) | 2.8× |
+| full pass: format every value (`f"{a} {v:.6f}"` + join vs `struct.pack_into` of a 24-byte record) | 355 ns/value | 168 ns/value | 2.1× |
+| bulk write of 1,000 doubles into a ctypes/array buffer | – | 64–73 ns/value element-wise, 17 ns/value as a slice assignment | |
+
+**One full Zynthian pass** (the Mk2 against the stand-ins of `test_cpu.py`: 8 chains, 8 phrases,
+idle, forced full): 1,330 µs for 1,585 `put`s.
+- Under cProfile, `put` is about 22 % inclusive, but the profiler inflates function calls.
+- Without the profiler: 1,585 × 108 ns ≈ 170 µs ≈ 13 % of the pass.
+- The rest is reading the zynthian model: `collect_slots`, `collect_pages`, zctrl lookups,
+  `displayed`, `_normalize`, `limit_text`.
+
+**Estimate for the Duet** (ZYNTHIAN_CPU.md "Measured on the Duet": Mk2 driver 10.3 % of a core
+idle, 4 full and about 29 fast passes per second):
+- Binary reporting removes about 60–70 % of the `put` cost: ≈ 8–10 % of a full pass and less of
+  a fast pass. That is **about 0.5–1 percentage point of a core per controller.**
+- Building and diffing the strings was the big item in the original profile (17,000 `put`s per
+  second). Options 1–3 already removed most of it.
+- Command delivery is negligible either way: a few to a few hundred commands per second. Batching
+  saves the ctypes upcalls of the indication bursts.
+- The core's text parsing was 1.2 % of the native profile. Binary decode removes most of it.
+
+**After the change, the cost is still in:**
+1. reading the DAW model value by value in Python (zynseq and zctrl lookups): the
+   event-driven collection per subtree (ZYNTHIAN_CPU "Next", postponed) and options 4–6 address
+   this, not the protocol;
+2. the Python loop overhead per value, about 40 ns even for an unchanged one. Only dense slot
+   arrays filled in bulk (slice assignment, 17 ns/value), or values read natively (option 6),
+   go below that;
+3. ctypes per call, about 1–2 µs per `dbm_*` call: unchanged, a few per tick.
+
+**Python techniques for the binary form:**
+- one preallocated `bytearray`, written with precompiled `struct.Struct.pack_into`;
+- handed to the core zero-copy as `(ctypes.c_char * n).from_buffer(buf)`;
+- commands read with `memoryview` slices and `unpack_from` (records of variable length rule out
+  `struct.iter_unpack` across the buffer, but the inline head can be read with one
+  `unpack_from` per record);
+- last values in a `dict[int, …]`, or `array('d')` per family for the dense slots.
+
+**Other hosts:** not measured.
+- **Bitwig:** `String.format("%.6f")` per double and `HashMap<String,String>` per report are the
+  known expensive parts of `ModelReporter`, so it probably gains more than Python. Profile it with
+  `backends/bitwig/tools/bitwig_profile.sh` before and after step 3.
+- **Reaper:** formats with `ostringstream`, which is cheaper but still a string per value.
+
+The CPU gain is real but modest for the Python hosts. It is largest for dumps (2× cheaper after a
+replug or a `refresh`) and for Bitwig. The decisive gains are the compile-time checks and the
+findability.
+
+---
+
+## 5. Risks, open questions, effort, first step
+
+### 5.1 Risks
+
+- **Rounding:** the text hosts send `%.6f`, a binary host sends the exact double. Values close to
+  a threshold can then behave differently: the VU clip border `16241/16384`, `value * 16383`
+  rounding for displays and LEDs, takeover comparisons. This is more faithful to the Java
+  version (which sees Bitwig's exact values), but it can change a conformance result.
+  - **Mitigation:** in steps 2 and 3, first round to 6 decimals in the writer (transition mode)
+    to prove equivalence with the dual run and the conformance suites; drop the rounding as a
+    separate, reviewable change.
+- **Lenient parsing:** the per-field failure rules (`unwrap_or(0)`, `unwrap_or(-1)`,
+  `unwrap_or(true)`, ignore) must be reproduced exactly in the generated text → `Msg` path. A
+  missed rule changes only malformed input, but the replays would show it only if a recording
+  contains such a line.
+  - **Mitigation:** the `on_error=` column, plus a test that feeds every table line with an
+    invalid value through the old and the new parser while the old one still exists (0b).
+- **Order:** batching commands per call is designed to keep today's order (flush before other
+  callbacks). A host that today relies on executing a command *during* `update_model`, before
+  the remaining lines are parsed, would not notice: the core does not read host state back
+  during a call.
+- **The size of the table:** about 550 messages written by hand. Errors are caught by the
+  round-trip tests and the existing suites, but writing it is the largest single task of step 0.
+  The Reaper-only forms and the edge cases of §1.5 each need a decision when they are written:
+  keep, rename or drop.
+- **`build.rs` writes into `bindings/` and `backends/`**, as it already does for `include/`. A
+  build in a read-only checkout must not fail: write only when the content changed, and warn
+  instead of failing (as for the header today).
+- **The ABI between the Bitwig extension and a reloaded library** (`DBM_DEV_LIBRARY`):
+  `dbm_set_command_callback` refuses a different major version and the extension falls back to
+  text. That fallback needs a test.
+- **The no-deps rule** holds: the generator is plain Rust in `build.rs`, and the bindings use
+  only `struct`/`ctypes` (Python), FFM (Java) and the standard library (C++).
+
+### 5.2 Effort
+
+Step 0 takes 10–14 days, step 1 4–5, steps 2–5 20–30. **In total about 35–50 days**, with the
+Reaper step the least certain: no tests, the most hand-written code.
+
+### 5.3 Open questions for the decision
+
+1. **Where the table lives:** the declarative `src/protocol/messages.def` with `build.rs`
+   (recommended), or a Rust table plus a generator binary?
+2. **Commands:** one buffer per call (recommended), or one typed callback per command?
+3. **The handled-commands bitset:** should it eventually replace `/host/features` for binary
+   hosts, or only diagnose (phase 1)?
+4. **The Reaper-only forms** (≈30 addresses, ≈25 commands, §1.2/§1.5) and the basic/feature
+   pairs: carry them all into the table unchanged (recommended, as Reaper stays a host), or drop
+   the ones no host uses any more (e.g. `cursor`, `Processor::Session/PlayingNotes/Cursor`)?
+5. **Recordings by binary hosts:** keep the text `.rec` format through `dbm_messages_to_text`
+   (recommended), or a binary `.rec` with a converter? And should the recorder move into the
+   core, so that all hosts can record?
+6. **Doubles in new recordings:** the shortest round-trip form (exact, recommended), or `%.6f`
+   (matches old recordings, loses precision)?
+7. **The grid id:** pack `steps<<8|rows` into one u16 index (needs both ≤ 255), or a fifth index
+   or the position in the model setup's `noteClips`?
+8. **In-core diffing** (`DBM_REPORT_FULL`, §2.4): wanted as an option for simple hosts, or not
+   at all?
+9. **The inconsistent names** (slot `selected` vs scene `select`, `/click/volumeStr`,
+   `/time/str` vs `/time/text`): normalize them in the typed names only (the text stays as it
+   is, recommended), or also in the text form, which would need a conversion of the 21
+   recordings?
+
+### 5.4 The recommended first step
+
+**Step 0a: the table and the generated `Cmd` enum, with the text protocol unchanged on the wire.**
+
+1. Write the command half of `src/protocol/messages.def` from §1.3: about 306 forms, each with
+   its `legacy=` kind, `ops=`, `feature=` and `entity=`.
+2. Add the generator to `build.rs` (Rust output only): `CmdId`, `Cmd` with typed fields, the
+   metadata table, `Cmd::legacy() -> (kind, processor, command, value)`.
+3. Change `Sender`/`Backend` to take `&Cmd`. `FfiBackend` and `RecordingBackend` format the
+   legacy text, so all hosts, `BackendCall` assertions and recordings stay byte-identical.
+4. Migrate the 236 send sites (`grep` for `.send(`, `send_int(`, … in `src/daw`, `src/framework`)
+   to `ctx.send(Cmd::…)`. `channel.rs:560` `create_command` and `parameter.rs:376`
+   `value_address` become `Cmd` constructors.
+5. Add a test that every `CmdId` has a legacy form and that the legacy text parses back to the
+   same `Cmd` (needed for step 1).
+
+What it brings at once:
+- every command use is findable (`grep Cmd::ChannelMute`);
+- a misspelt command no longer compiles;
+- the table documents the protocol;
+- the hosts are not touched.
+
+Step 0b (`Msg` + `apply`) follows with the same "nothing changes on the wire" property. Step 1
+then follows, with the binary replay mode as its proof.
