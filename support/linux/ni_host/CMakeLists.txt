@@ -49,6 +49,10 @@ configure_file(packaging/dbm-nihost.service.in dbm-nihost.service @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dbm-nihost.service DESTINATION ${CMAKE_INSTALL_DATADIR}/systemd/user)
 install(FILES packaging/70-dbm-nihost.rules packaging/modprobe-dbm-nihost.conf packaging/modules-load-dbm-nihost.conf
         DESTINATION ${CMAKE_INSTALL_DATADIR}/dbm-nihost)
+# Debugging helpers (Python, need the module "jack"): the ports as zynthian sees them through
+# PipeWire's MIDI bridge
+install(PROGRAMS tools/dbm-nihost-jack-probe tools/dbm-nihost-bridge-test
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/dbm-nihost/tools)
 
 enable_testing()
 add_executable(nihost-test tests/host_test.cpp)

@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Hannes Janetzek
+# Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+"""Check which SysEx messages get through PipeWire's MIDI bridge (ALSA sequencer -> JACK).
+
+Creates its own ALSA sequencer client "SysexProbe" (libasound through ctypes, as dbm-nihost sends:
+snd_midi_event_encode, to the subscribers, direct), waits until PipeWire's bridge shows its port as
+a JACK port, connects a JACK input to it and sends SysEx messages of 1 to 14 data bytes and the
+hellos of dbm-nihost. If these get through but dbm-nihost's do not (dbm-nihost-jack-probe), the
+problem is the bridge's state for dbm-nihost's client, not the messages.
+
+Needs the Python module "jack" (JACK-Client; on zynthian: PYTHONPATH=/usr/share/zynthian/python).
+
+Usage: dbm-nihost-bridge-test
+"""
+
+import ctypes
+import sys
+import time
+
+try:
+    import jack
+except ImportError:
+    sys.exit("The Python module 'jack' is missing (on zynthian: PYTHONPATH=/usr/share/zynthian/python)")
+
+SND_SEQ_OPEN_OUTPUT = 1
+SND_SEQ_PORT_CAP_READ = 1 << 0
+SND_SEQ_PORT_CAP_SUBS_READ = 1 << 5
+SND_SEQ_PORT_TYPE_MIDI_GENERIC = 1 << 1
+SND_SEQ_PORT_TYPE_APPLICATION = 1 << 20
+SND_SEQ_QUEUE_DIRECT = 253
+SND_SEQ_ADDRESS_SUBSCRIBERS = 254
+SND_SEQ_ADDRESS_UNKNOWN = 253
+EVENT_SIZE = 64  # sizeof(snd_seq_event_t) is 28 on 64 bit Linux; some room
+
+HELLOS = (("Mk2 hello", "F07D44424D1101F7"), ("gone", "F07D44424D13F7"), ("JAM hello", "F000210915004D5000014601F7"))
+
+
+class SeqSender:
+    """An ALSA sequencer client with one output port, sending raw MIDI bytes to its subscribers."""
+
+    def __init__(self, name: bytes):
+        self.asound = ctypes.CDLL("libasound.so.2")
+        self.seq = ctypes.c_void_p()
+        if self.asound.snd_seq_open(ctypes.byref(self.seq), b"default", SND_SEQ_OPEN_OUTPUT, 0) != 0:
+            sys.exit("Can't open the ALSA sequencer")
+        self.asound.snd_seq_set_client_name(self.seq, name)
+        self.port = self.asound.snd_seq_create_simple_port(
+            self.seq, name + b" Out", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+            SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION)
+        self.encoder = ctypes.c_void_p()
+        if self.port < 0 or self.asound.snd_midi_event_new(4096, ctypes.byref(self.encoder)) != 0:
+            sys.exit("Can't create the sequencer port")
+
+    def send(self, data: bytes):
+        event = ctypes.create_string_buffer(EVENT_SIZE)
+        self.asound.snd_midi_event_reset_encode(self.encoder)
+        used = self.asound.snd_midi_event_encode(self.encoder, ctypes.create_string_buffer(data), len(data), event)
+        if used != len(data):
+            raise RuntimeError(f"encode used {used} of {len(data)} bytes")
+        # snd_seq_event_t: type, flags, tag, queue, time (8), source (client, port), dest (client, port)
+        event[3:4] = bytes([SND_SEQ_QUEUE_DIRECT])
+        event[12:14] = bytes([0, self.port])
+        event[14:16] = bytes([SND_SEQ_ADDRESS_SUBSCRIBERS, SND_SEQ_ADDRESS_UNKNOWN])
+        if self.asound.snd_seq_event_output_direct(self.seq, event) < 0:
+            raise RuntimeError("snd_seq_event_output_direct failed")
+
+
+def main():
+    sender = SeqSender(b"SysexProbe")
+    client = jack.Client("dbm_nihost_bridge_test")
+    inport = client.midi_inports.register("in")
+    received = []
+
+    @client.set_process_callback
+    def process(_frames):
+        for _, data in inport.incoming_midi_events():
+            received.append(bytes(data))
+
+    def roundtrip(message: bytes) -> bool:
+        received.clear()
+        sender.send(message)
+        time.sleep(0.25)
+        return message in received
+
+    failed = 0
+    with client:
+        name = None
+        for _ in range(50):
+            ports = [p.name for p in client.get_ports("Midi-Bridge:SysexProbe", is_midi=True, is_output=True)]
+            if ports:
+                name = ports[0]
+                break
+            time.sleep(0.1)
+        print("bridge port:", name)
+        if name is None:
+            sys.exit("PipeWire's bridge did not pick up the probe client (is PipeWire's ALSA sequencer bridge running?)")
+        client.connect(name, inport)
+        time.sleep(0.5)
+        for length in range(1, 15):
+            message = bytes([0xF0, 0x7D]) + bytes(range(1, length)) + b"\xF7"
+            ok = roundtrip(message)
+            failed += not ok
+            got = "" if ok or not received else "  got: " + " | ".join(r.hex(" ").upper() for r in received)
+            print(f"{length:2d} data bytes  {message.hex(' ').upper():48s} {'ok' if ok else 'LOST'}{got}")
+        for label, text in HELLOS:
+            ok = roundtrip(bytes.fromhex(text))
+            failed += not ok
+            print(f"{label:9s}  {text:48s} {'ok' if ok else 'LOST'}")
+    print("all messages got through" if failed == 0 else f"{failed} messages lost")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

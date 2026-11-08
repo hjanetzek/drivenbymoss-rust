@@ -595,6 +595,7 @@ that already exist, run unchanged.
 | **3. Bitwig (Java over FFM)** | `Protocol.java`; `ModelReporter` on a reusable `MemorySegment` (no `String.format`); `CommandHandler` as switch expressions over `Cmd` (the 293 `case` labels become enum cases); `reportAgain` by entity; `ProtocolRecorder` via `dbm_messages_to_text` | the dual-run check of step 2 in the extension (dev mode); recordings made before and after the change replay the same; the Bitwig conformance runs (all setups) must give the same results as before. Note the rounding risk (§5.1) | 6–8 days |
 | ~~4. Reaper (C++)~~ | **Out of scope** (decided 2026-11-08): Reaper is not a target of the project (unless a Reaper license comes with a reason to port to it). The Reaper backend stays on the text protocol as it is, unchanged; the core keeps the text path for it (the legacy conversion of `Cmd` and the text parser feeding `Msg`) | – | – |
 | **5. Retire the text path in the hosts** | remove `format_value`, the text `put`s and the text command handlers from the hosts. In the core, keep `dbm_update_model` and the text callbacks: they are cheap to keep and serve logs, recordings and simple hosts | everything above | 1–2 days |
+| **6. Subscriptions (planned)** | the core tells the host which values it currently needs (`SUBSCRIBE`, §6.7); declared per mode/view, traced model reads as a check in tests; the hosts collect/observe only the subscribed sections | everything above; Zynthian first (`test_cpu.py`), then Bitwig (`subscribe()`/`unsubscribe()`); conformance must not change | to estimate after a Zynthian prototype |
 
 **Total:** about 27–38 days without the Reaper step (out of scope). Steps 0a and 0b are useful on
 their own and carry no risk to the hosts. Steps 2 and 3 are independent of each other once step 1
@@ -1529,3 +1530,52 @@ the conformance scenarios)
   methods) stays for simple Python backends; the text callbacks of the C ABI stay for Reaper.
 - The value operation features stay on `/host/features`; an op bitset (per value command) would
   retire it, but would need a new argument of the C ABI.
+
+### 6.7 Step 6 (planned 2026-11-08): subscriptions — the core says what it needs
+
+**Goal:** the host collects and observes only the values the controller currently uses (the
+displayed mode/view plus what the controller logic always needs), instead of everything that
+`ModelSetup` allows. `ModelSetup` (`src/daw/model_setup.rs`) is already a static subscription (bank
+sizes, pages, parameters, `wants_*`); step 6 adds the dynamic part that follows modes and views.
+
+**Collecting what is needed**
+- **Declared per mode/view (the source):** e.g. a parameter mode declares the cursor device's
+  parameter page, a session view the slots of its bank window, the browser mode the browser. Explicit,
+  cheap and testable; fits the generic modes/views of doc/CONTROLLER_DSL_PLAN.md, which can carry the
+  declaration.
+- **Traced model reads (the check):** count the model sections the controller reads (the ~20 section
+  accessors: `current_track_bank`, `cursor_device`, `browser`, `note_clip`, `scene_bank`,
+  `transport`, …) while it updates LEDs/displays and handles input; in tests and debug builds, compare
+  with the declaration to catch drift. Not the source: per field it would mean wrapping hundreds of
+  getters, and a trace of the display updates misses what input handling reads (a pad press reads
+  "track exists"/"selected") and has nothing for the first frame of a new mode.
+- **Always subscribed:** what the controller logic needs regardless of the display: transport state,
+  track selection/existence for bank navigation, the project name (note mapping), the values from
+  which the core detects features (§2.5).
+- **Several surfaces:** the union of their sets.
+
+**Protocol**
+- A command `SUBSCRIBE` (core → host) with the change of the set: sections (groups of `MsgId`s) on/off,
+  plus index ranges where the bank windows don't already limit them (visible note clip steps, browser
+  columns). The ranges are mostly given already: the host reports only the bank windows.
+- Sent on mode/view changes; the host answers a newly subscribed section with its values at once
+  (like a refresh of that section). Hosts that don't handle `SUBSCRIBE` (handled bitset, §2.5) keep
+  collecting everything — unchanged behaviour.
+
+**Risk: latency on mode switches (conformance).** Java keeps all observers active, so a newly shown
+mode has its data at once; with subscriptions the first frame can be empty or stale until the host
+answers. Mitigations: the immediate answer above; unsubscribe only after a delay (seconds), so
+switching back and forth stays instant; keep the sections of neighbouring modes (the next mode on the
+same button) subscribed. The conformance runs must not change.
+
+**Gains**
+- **Zynthian (most):** the polling collectors skip unsubscribed sections; the polling was the CPU
+  problem (doc/ZYNTHIAN_CPU.md). An alternative to the postponed event-driven collection, and mostly
+  core work, so less affected by zynthian changing.
+- **Bitwig:** `subscribe()`/`unsubscribe()` on banks, the cursor device, the browser, … save Bitwig's
+  own observer work.
+- **The Python reference host:** little.
+
+**First step (prototype):** the declarations for the modes/views of one controller (Maschine Mk2 or
+JAM), `SUBSCRIBE` in the core, the Zynthian collectors skipping unsubscribed sections, measured with
+`backends/zynthian/tests/test_cpu.py`; the traced-reads check in the tests.

@@ -87,6 +87,17 @@ virtual MIDI driver bridges the two:
 - `tools/gen_template_map.py <repository root> src/template_map.h` regenerates the template
   tables from the NI templates. `tests/ni_templates.rs` in the Rust crate checks them against the
   Maschine surfaces.
+- Debugging the path to zynthian (installed to `share/dbm-nihost/tools`; Python with the module
+  `jack`, on zynthian `PYTHONPATH=/usr/share/zynthian/python`). zynthian reaches the ports through
+  PipeWire's MIDI bridge as JACK ports, not over ALSA directly:
+  - `dbm-nihost-jack-probe [--client "Maschine Jam - 1"] [--listen]` connects to the bridge ports
+    of a device as zynthian does, sends DrivenByMoss' query and prints what arrives (the hello).
+    `--listen` only prints, e.g. while pressing pads.
+  - `dbm-nihost-bridge-test` sends SysEx messages of every length from its own ALSA client through
+    the bridge: when these arrive but dbm-nihost's do not, the bridge's state for dbm-nihost's
+    client is the problem, not the messages.
+  - The ALSA side, bypassing the bridge: `aseqdump -p 'Maschine MK2:0'` and
+    `aseqsend -p 'Maschine MK2:1' F0 7D 44 42 4D 11 F7`.
 
 ## What is emulated
 

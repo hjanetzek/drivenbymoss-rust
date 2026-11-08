@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Hannes Janetzek
+# Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+"""Connect to a device of dbm-nihost the way zynthian does and show what comes back.
+
+zynthian does not open the ALSA sequencer ports of dbm-nihost itself: PipeWire's MIDI bridge
+shows them as JACK ports ("Midi-Bridge:Maschine MK2: In (capture)"), which zynthian's MIDI router
+connects to. This tool connects a JACK client to the same bridge ports (in addition to zynthian's
+connections, which stay), sends DrivenByMoss' query (F0 7D 44 42 4D 11 F7) and prints the messages
+which arrive, e.g. the hello of dbm-nihost (Mk2: F0 7D 44 42 4D 11 01 F7; JAM: NI's "return from
+host" F0 00 21 09 15 00 4D 50 00 01 46 01 F7). Compare with the ALSA side, which bypasses the
+bridge:
+
+    aseqdump -p 'Maschine MK2:0' &  aseqsend -p 'Maschine MK2:1' F0 7D 44 42 4D 11 F7
+
+Needs the Python module "jack" (JACK-Client; on zynthian: PYTHONPATH=/usr/share/zynthian/python).
+
+Usage: dbm-nihost-jack-probe [--client "Maschine MK2"] [--seconds 3] [--listen]
+  --client   the bridge client: "Maschine MK2" or "Maschine Jam - 1"
+  --listen   send nothing, only print what arrives (press pads, or trigger from the ALSA side)
+"""
+
+import argparse
+import sys
+import time
+
+try:
+    import jack
+except ImportError:
+    sys.exit("The Python module 'jack' is missing (on zynthian: PYTHONPATH=/usr/share/zynthian/python)")
+
+QUERY = bytes.fromhex("F07D44424D11F7")
+HELLOS = {bytes.fromhex("F07D44424D1101F7"): "the Mk2 hello",
+          bytes.fromhex("F07D44424D13F7"): "the device is gone",
+          bytes.fromhex("F000210915004D5000014601F7"): "the JAM hello"}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--client", default="Maschine MK2")
+    parser.add_argument("--seconds", type=float, default=3.0)
+    parser.add_argument("--listen", action="store_true")
+    args = parser.parse_args()
+
+    client = jack.Client("dbm_nihost_probe")
+    inport = client.midi_inports.register("in")
+    outport = client.midi_outports.register("out")
+    received = []
+    pending = []
+
+    @client.set_process_callback
+    def process(_frames):
+        outport.clear_buffer()
+        while pending:
+            outport.write_midi_event(0, pending.pop())
+        for _, data in inport.incoming_midi_events():
+            received.append((time.monotonic(), bytes(data)))
+
+    prefix = f"Midi-Bridge:{args.client}:"
+    capture = [p.name for p in client.get_ports(is_midi=True, is_output=True) if p.name.startswith(prefix)]
+    playback = [p.name for p in client.get_ports(is_midi=True, is_input=True) if p.name.startswith(prefix)]
+    print("capture ports: ", capture)
+    print("playback ports:", playback)
+    if not capture or not playback:
+        bridge = sorted({p.name.split(":")[1] for p in client.get_ports("Midi-Bridge:", is_midi=True)})
+        sys.exit(f"No bridge ports of '{args.client}'. The bridge has: {bridge}")
+    for name in capture + playback:
+        port = client.get_port_by_name(name)
+        print(f"  {name} <-> {[p.name for p in client.get_all_connections(port)]}")
+
+    with client:
+        client.connect(capture[0], inport)
+        client.connect(outport, playback[0])
+        time.sleep(0.3)
+        start = time.monotonic()
+        if not args.listen:
+            pending.append(QUERY)
+        time.sleep(args.seconds)
+
+    short = [d for _, d in received if d[:1] != b"\xf0"]
+    sysex = [(t - start, d) for t, d in received if d[:1] == b"\xf0"]
+    print(f"received {len(received)} messages ({len(short)} short)")
+    for data in short[:20]:
+        print("  " + data.hex(" ").upper())
+    for t, data in sysex:
+        tag = HELLOS.get(data)
+        print(f"  {t:+.3f}s {data.hex(' ').upper()}{'  <- ' + tag if tag else ''}")
+    if not args.listen and not any(d in HELLOS for _, d in sysex):
+        print("NO HELLO through the PipeWire bridge")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
