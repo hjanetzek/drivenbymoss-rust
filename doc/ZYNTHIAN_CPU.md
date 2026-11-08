@@ -181,8 +181,22 @@ option 1 the JAM driver costs nothing without a JAM. On the Duet the profile had
 second at ~923 puts (each pass overran the 30 ms tick); expected now: up to ~33 cheap fast passes
 and 4 full ones per second (not measured there yet).
 
-To check on the Duet: the method above (`sys.remote_exec` sampler, `perf`); expected: the JAM
-thread idle without a JAM, the Mk2 thread well below its 42 %.
+**Measured on the Duet (2026-11-08)**, idle, transport stopped, same method as the findings (CPU
+of a core):
+
+| | Before (the findings: the JAM driver ran without a JAM) | Now, Mk2 only | Now, Mk2 and JAM |
+|---|---|---|---|
+| Mk2 driver | 42 % | 10.3 % | 10.4 % |
+| JAM driver | 30 % | under 1 % (dormant) | 13.9 % |
+| zynthian total | 86 % | 36.9 % | 55.9 % |
+| dbm-nihost | 5 % | 5.6 % | 5.5 % |
+
+- With both controllers working, the two driver threads use 24 % of a core instead of 72 %. With
+  only the Mk2 the JAM driver stays dormant, as intended.
+- zynthian's total with both (56 %) is about 32 % more than the two driver threads: not broken
+  down yet (the stack samples covered only the DrivenByMoss threads). To look at before the
+  event-driven step: what else in zynthian runs more with two controllers (e.g. the UI redrawing
+  for the reported changes, the signal callbacks).
 
 ## Next: event-driven collection per subtree (plan)
 
@@ -222,6 +236,14 @@ safety-net pass (every few seconds instead of 250 ms).
     zynthian's own UI.
 
 ## Also seen
+
+- **Lights off after a replug** (2026-11-08, after options 1–3): once the LEDs stayed off after
+  replugging. dbm-nihost logged several plug and unplug events within seconds for both
+  controllers, and once a JAM it couldn't open (permission denied): it looks like a transient race
+  during a rapid replug, not a failure on a single replug. The drivers' state at that moment was
+  not captured. If it happens after a single replug, dump the driver state right away (dormant or
+  not, the last hello, the bridge).
+
 
 - A freeze (LEDs frozen, no button reports, black displays after restarting dbm-nihost): the Mk2
   sent only its pad pressure stream (report type 0x20, ~750/s) and no button reports (0x01), and
