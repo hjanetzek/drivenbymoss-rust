@@ -85,6 +85,8 @@ class Bridge(drivenbymoss.Backend):
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
         self.app.set_time(int(self.clock_ms))
         # The note inputs can only be created while the controller starts (DbmExtension.init)
+        if self.reporter.binary and not self.app.use_binary_commands():
+            logger.warning("The library refused the binary commands: they stay text")
         self._initializing = True
         self.daw.note_input = None
         self.note_inputs = {}

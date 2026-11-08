@@ -84,3 +84,8 @@ Python 3.11+ (no JACK, no zynthian dependencies: `tests/zynstubs.py` stands in f
 conformance tests also need the profiles of the Bitwig setups
 (`~/.local/share/dbm-conformance/profiles/<setup>`, or `DBM_PROFILE_DIR`). Because of the
 zynthian checkout they are not part of `ci/linux.sh`.
+
+The drivers talk to the core in the binary protocol (doc/TYPED_PROTOCOL_PLAN.md: one buffer of
+records per report and per call), the default of `dbm_host`. `DBM_HOST_PROTOCOL=text` selects the
+text protocol, `DBM_HOST_PROTOCOL=check` the binary one with every record checked against the
+text line (the dual run, for the tests).

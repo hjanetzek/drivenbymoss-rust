@@ -1,9 +1,11 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: **steps 0a, 0b and 1 done** (2026-11-08, branch `typed-protocol`): the command table and
+Status: **steps 0a, 0b and 1 done, step 2 in progress** (2026-11-08, branch `typed-protocol`; the
+Python hosts report and receive the commands in the binary form, the dual run passes; open: the
+collectors on keys, the `CmdId` dispatch, the CPU gain, §6.4): the command table and
 the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
 binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
-`dbm_protocol.hpp`; the replay passes in both forms. The hosts still use the text protocol.
+`dbm_protocol.hpp`, `protocol.py`; the replay passes in both forms. Bitwig still uses the text protocol.
 The grid ID: two slots, channel and row packed into one (§5.3 Q7, decided after step 1). What was done, the choices and the deviations: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
@@ -1019,7 +1021,7 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 `Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`
 (the ops instead of the suffix splitting), the Zynthian adapter, and the dual-run check.
 
-### 6.4 Step 2 (in progress)
+### 6.4 Step 2 (in progress: parts 1–3 done, see the hand-over at the end)
 
 **Done**
 - `bindings/python/drivenbymoss/protocol.py`, the third output of `dbm-protocol-gen` (in the
@@ -1067,8 +1069,13 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
     `update_model_bin` per pass (`Bridge.send_report`). `last_values` is a live read-only view
     by address (text), so the tests which read `reporter.last_values["/track/4/name"]` run
     unchanged. `ZynReporter.collect` became `collect_pass`.
-- The collectors still put by address (prebuilt strings): the binary path costs the same as the
-  text path so far (below). Moving the collectors to keys is the next part.
+- **The commands on the binary path:** the bridges (`Bridge.start`, so also `ZynBridge`) call
+  `use_binary_commands()` unless the protocol is text. The commands arrive as one buffer per
+  call; `Backend.process_commands`' default converts the buffer to legacy lines with one
+  `dbm_messages_to_text` and calls `process` → `CommandHandler.handle` as before. **Not done:
+  the `CmdId` dispatch** (below).
+- The collectors still put by address (prebuilt strings): the binary path costs a bit more than
+  the text path so far (below). Moving the collectors to keys is the next part.
 - All suites pass in all three protocols: the Python tests (85), conformance `--all` (195 the
   same), the Zynthian tests (204); `test_host.ReporterTest.test_binary_reports_equal_the_text`
   runs the dual run in the default suite.
@@ -1091,4 +1098,46 @@ line: the gain of the reporter has to come from the compare before the write (§
 both forms share.
 
 **The Zynthian idle pass** (`test_cpu.py`, Mk2, 300 ticks, 227 puts per tick, mean of the
-collection; noisy, ±10 %): text 189 µs, binary 204 µs, check 199 µs (the collectors by address).
+collection; noisy, ±10 %): text 176–189 µs (= before the change: the text path is the old code),
+binary 204–224 µs, check 199 µs (the collectors by address).
+
+**`Reporter.put` per value** (1,000 `/track/<t>/send/<s>/volume` doubles, `bench_put.py`):
+
+| | idle (unchanged) | full (dump) |
+| --- | --- | --- |
+| text, by address (before) | 142 ns | 704 ns |
+| binary, by address | 246 ns | 1,456 ns |
+| binary, by key | 169 ns | 1,376 ns |
+
+So far the binary reporter is **slower** than the text one: by address it pays the address →
+key lookup on top, and a written value costs the normalization (`round(v, 6)` alone is about
+240 ns, the transition rounding of §5.1), two dicts (`last_raw` and the normalized last value),
+the writer call and the list of changed keys. The idle pass by key is at the text's level, not
+at the 38 ns of §4's dense slots. The gains of §4 need the next part.
+
+**Hand-over: what the next run starts with** (step 2 is not finished)
+1. **Streamline `Reporter._put_record`/`put` for keys**: one dict for the last value in binary
+   (the raw compare and the normalized compare merged: normalize first, compare once), the kind
+   and the writer resolved per ID once (a tuple per ID instead of three dict lookups), no
+   `changed` list unless `take()` needs the text (tests), and measure `round` against exact
+   doubles (dropping the rounding is §5.1's separate change; the check protocol would then
+   compare parsed values with a tolerance of 5e-7 instead of bytes).
+2. **The collectors to keys:** `dbm_host/reporter.py` and `dbm_zynthian/reporter.py` build
+   prefixes (`f"/track/{p}/"`) and the ZynReporter caches address strings (`_prefixes`,
+   `_slot_addresses`, `_param_addresses`): replace them by key bases (`protocol.key(0,
+   ChKind.TRACK, p)` OR'ed with the ID, `Msg.CHANNEL_NAME | base`). `put` already accepts keys;
+   the text protocol turns a key back into its address (`key_address`). The dual run
+   (`DBM_HOST_PROTOCOL=check` over the three suites) proves each change. Then rerun
+   `test_cpu.py` and `bench_put.py` (scratch script: a loop of 1,000 `put`s, idle and with
+   `dump_all`).
+3. **`CommandHandler` on `CmdId`:** `Bridge.process_commands` overriding the default: a table
+   `CmdId → handler(view)` (ops from `view.op` instead of `Command.parse`'s suffix splitting),
+   with the conversion to a legacy line as the fallback for the IDs without a typed handler, so
+   the move can go processor by processor. Note `ZynCommandHandler` overrides `channel_command`,
+   `set_value`, `track_command`, `slot_command`, … with the text `Command`; the typed handlers
+   must keep those hooks (e.g. a `Command`-like object built from the view). `commands.log`
+   (read by `test_host.py:927` and `test_devices_transport.py:539`) needs the processor and
+   the legacy command. Then the coverage test of §2.5 (`CMD_IDS` minus an explicit
+   `UNHANDLED` set) and the `handled` bitset for `use_binary_commands`.
+4. `forget(prefix)` still takes text prefixes (resolved through `key_address`); `forget(entity)`
+   by key ranges comes with 2./3.

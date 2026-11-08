@@ -106,6 +106,11 @@ cargo build
 python3 -m unittest discover -s bindings/python/tests
 ```
 
+The reference host (`dbm_host`) reports and receives the commands in the binary protocol by
+default; `DBM_HOST_PROTOCOL=text` selects the text protocol, `DBM_HOST_PROTOCOL=check` the binary
+one with every report record compared with the core's conversion of the text line (the dual
+run). The suites pass in all three.
+
 ## Conformance in process
 
 `conformance` runs the scenario files of `tests/conformance/<setup>/` against the reference host
