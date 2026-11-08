@@ -1023,6 +1023,13 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 
 ### 6.4 Step 2 (in progress: parts 1–3 done, see the hand-over at the end)
 
+**Decided (2026-11-08): the goal is binary messages everywhere.** No performance work on the
+transition paths: neither the text protocol, nor the text ↔ binary conversions, nor
+backward-compatible fallbacks need to be fast; they only need to be correct while they exist.
+Optimize only the binary paths (keys, records, views, typed dispatch). Transitional costs such as
+the rounding to 6 decimals for the byte-equal dual run are accepted until the text path is
+removed.
+
 **Done**
 - `bindings/python/drivenbymoss/protocol.py`, the third output of `dbm-protocol-gen` (in the
   staleness test): the value types and ops, the domains, `Msg`/`Cmd` as `IntEnum`s, the metadata
