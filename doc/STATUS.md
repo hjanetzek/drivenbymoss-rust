@@ -200,6 +200,30 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
+**Planned: a typed protocol between core and hosts** (decided 2026-11-08). Today every address
+(`/track/3/volume`, host → core) and every command (`track 3/mute 1`, core → host) is a string
+that is formatted on one side and parsed on the other.
+- **The problems:**
+  - An address or command one side doesn't support only shows at run time, as "not handled".
+  - The places that use an address are hard to find.
+  - Formatting and parsing strings costs CPU in every host. The Zynthian drivers spend most of
+    their tick in Python formatting and comparing ~950 values; see ZYNTHIAN_CPU.md.
+- **The plan:**
+  - Enums for all paths and commands, defined in one table in the core. The C header and the
+    bindings (C++, Python, the Bitwig extension's Java) are generated from that table.
+  - A binary message type: an enum ID, indices (track, send, slot, …) and a typed value.
+  - The text form stays for logs, the protocol recordings (`.rec`) and the replays, with a
+    conversion between both forms.
+- **Scope:** `src/parser.rs`, the commands in `src/backend.rs` and the `daw` types, the C ABI
+  (`src/ffi.rs`, `include/drivenbymoss.h`), the hosts (Reaper `backends/reaper`, Bitwig
+  `backends/bitwig`, the Python binding and reference host, the Zynthian adapter), the recorder
+  and the replay test.
+- **Migration:**
+  - The hosts move one by one, keeping the text protocol until the last one has moved.
+  - The conformance replays must stay valid, recorded or converted.
+- To plan in detail before it is started (BACKEND_PROTOCOL.md describes the current text
+  protocol).
+
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.
 2. Verify the Windows and macOS CMake builds, and update or remove the Visual Studio, Xcode and

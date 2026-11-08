@@ -9,6 +9,10 @@ As of 2026-10-29. Compiled from the code: Rust `src/ffi.rs`, `src/backend.rs`, `
 `OscParser.cpp`, `*Processor.*`, `DataCollector.cpp`, `Collectors.h`, `Model.cpp`, `Track.cpp`,
 `Send.cpp`, `Parameter.cpp`, `Marker.cpp`). Points not confirmed from the code are marked (?).
 
+**Planned:** this text protocol is to be replaced by a typed one: enums for all paths and
+commands, generated for every binding, and a binary message type. The text form stays for logs
+and recordings. See STATUS.md, "Next steps".
+
 ## 1. Overview
 
 The protocol has three parts, all over the C ABI (`include/drivenbymoss.h`, see
