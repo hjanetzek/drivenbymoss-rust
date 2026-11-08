@@ -200,6 +200,10 @@ of a core):
 
 ## Next: event-driven collection per subtree (plan)
 
+**Postponed** (2026-11-08): zynthian is a moving target right now; the next step is the typed
+binary protocol between core and hosts (STATUS.md, "Next steps"), which also removes much of the
+formatting cost.
+
 Signals mark subtrees dirty and only the dirty subtrees are collected; polling stays only for the
 continuous values (transport position and play state, playing step, VU, playing notes) plus a slow
 safety-net pass (every few seconds instead of 250 ms).
