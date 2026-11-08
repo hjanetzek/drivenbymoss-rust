@@ -1018,3 +1018,43 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 (`_ffi.py`: `dbm_set_command_callback`, `dbm_update_model_bin`, the conversions), `dbm_host`'s
 `Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`
 (the ops instead of the suffix splitting), the Zynthian adapter, and the dual-run check.
+
+### 6.4 Step 2 (in progress)
+
+**Done**
+- `bindings/python/drivenbymoss/protocol.py`, the third output of `dbm-protocol-gen` (in the
+  staleness test): the value types and ops, the domains, `Msg`/`Cmd` as `IntEnum`s, the metadata
+  (`MSG_INFO`/`CMD_INFO`: name, template, slots with their parts, record type, value kind;
+  `KINDS`), the runtime (`src/protocol/python_runtime.py`, included verbatim: `Record`,
+  `iter_records`/`iter_commands`, `iter_flat`, `_WriterBase` with `put_*`, `key()`), a `Writer`
+  with one method per report (`w.channel_volume(kind, pos, value)`) and a view class per ID
+  (`CmdChannelMute`: `ch_kind`, `ch_processor`, `ch_index`, `value`; `MSG_VIEWS`, `CMD_VIEWS`).
+  The value kind per ID comes from the Rust type of the value field (`py_kind` in `gen.rs`):
+  none, bool, i32, f64, text, text_list, color (`(r, g, b)` 0–255 or None), notes, step (24
+  doubles or None), value_op (double/bool/None by the record type, the op in `op`), pair,
+  int_double.
+- The binding (`drivenbymoss/__init__.py`, `_ffi.py`): `protocol_info()`,
+  `App.use_binary_commands(handled=None)` (refuses another major version, logs another hash),
+  `Backend.process_commands(buffer)` (the default converts to the legacy text and calls the
+  `process_*` methods, `dispatch_legacy_line`), `App.update_model_bin(writer | bytes)` (a Writer
+  or bytearray without a copy), `messages_to_text`, `messages_from_text`. The command buffer is
+  copied (`ctypes.string_at`) before the backend sees it, so views stay valid.
+- Tests (`bindings/python/tests/test_binding.py`): the same session in text and binary gives the
+  same commands and MIDI; the typed views; the writer against the text conversions.
+
+**Measured** (x86-64, Python 3.14, 1,000 records, `bench_protocol.py`-like loops):
+
+| | ns per record/value |
+| --- | --- |
+| read commands, views (`iter_commands`, 2 attributes) | 874 |
+| read commands, flat (`iter_flat`, tuple unpack) | 425 |
+| read commands, text (split the legacy line, reference) | 453 |
+| write f64, `put_f64` | 321 |
+| write f64, the generated method | 334 |
+| write f64, `f"{a} {v:.6f}"` (reference) | 412 |
+
+The views cost about twice the flat form (a Python object and a property call per field); a
+tuple subclass with `itemgetter` properties measured 700. Commands are few (§4), so the views
+stay the API, `iter_flat` the hot path. Writing a record costs about as much as formatting a
+line: the gain of the reporter has to come from the compare before the write (§2.4), which
+both forms share.

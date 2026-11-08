@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import drivenbymoss  # noqa: E402
+from drivenbymoss import protocol  # noqa: E402
 
 LAUNCHPAD_X = "de.mossgrabers.reaper.controller.novation.launchpad.LaunchpadXControllerInstance"
 LAUNCH_CONTROL_XL = "5AFA5045-FF92-4737-A091-5B371CD5E529"
@@ -151,6 +152,89 @@ class BindingTest(unittest.TestCase):
             app.update_model("track/count 1\ntrack/0/exists 1\ntrack/0/select 1\n")
             app.tick()
             self.assertGreaterEqual(len(backend.pad_updates()), 64)
+
+    def run_session(self, binary):
+        """A short session of the Launchpad X: the commands as the backend receives them."""
+        backend = RecordingBackend()
+        app = drivenbymoss.App(backend, self.dir, "7.22/linux-x86_64")
+        backend.app = app
+        if binary:
+            self.assertTrue(app.use_binary_commands())
+        app.start_infrastructure()
+        report = "/track/count 2\n/track/0/exists 1\n/track/1/exists 1\n/track/0/select 1\n/track/0/name Bass\n"
+        if binary:
+            app.update_model_bin(drivenbymoss.messages_from_text(report))
+        else:
+            app.update_model(report)
+        app.tick()
+        app.on_midi_event(INPUT_ID, bytes([0xB0, 0x5B, 0x7F]))  # up
+        app.tick()
+        app.close()
+        return backend
+
+    def test_binary_commands_are_the_text_commands(self):
+        text = self.run_session(binary=False)
+        binary = self.run_session(binary=True)
+        self.assertTrue(text.commands)
+        self.assertEqual(binary.commands, text.commands)
+        self.assertEqual(binary.midi_out, text.midi_out)
+
+    def test_binary_commands_typed(self):
+        received = []
+
+        class Typed(RecordingBackend):
+            def process_commands(self, buffer):
+                received.extend(protocol.iter_commands(buffer))
+
+        backend = Typed()
+        app = drivenbymoss.App(backend, self.dir, "7.22/linux-x86_64")
+        with app:
+            self.assertTrue(app.use_binary_commands(handled=[protocol.Cmd.REFRESH]))
+            app.start_infrastructure()
+            app.update_model("/track/count 2\n/track/0/exists 1\n/track/1/exists 1\n/track/0/select 1\n")
+            app.tick()
+            app.on_midi_event(INPUT_ID, bytes([0xB0, 0x5B, 0x7F]))
+            app.tick()
+        self.assertEqual(received[0].id, protocol.Cmd.REFRESH)
+        self.assertIsInstance(received[0], protocol.CmdRefresh)
+        self.assertTrue(all(isinstance(c, protocol.CMD_VIEWS[c.id]) for c in received))
+        commands = protocol.iter_commands(drivenbymoss.messages_from_text("int\tbank\tfxtrack\t2\nint\ttrack\t3/mute\t1"))
+        bank, mute = commands
+        self.assertEqual((bank.bank, bank.value), (protocol.Processor.FX_TRACK, 2))
+        self.assertEqual((mute.ch_kind, mute.ch_processor, mute.ch_index, mute.value), (protocol.ChanKind.TRACK, protocol.Processor.TRACK, 3, True))
+        # The commands the backend does not handle are logged once
+        self.assertTrue(any("Command not handled by the host" in line for line in backend.logs))
+
+    def test_protocol_writer_and_conversions(self):
+        major, minor, hash_ = drivenbymoss.protocol_info()
+        self.assertEqual((major, minor, hash_), (protocol.VERSION_MAJOR, protocol.VERSION_MINOR, protocol.HASH))
+        w = protocol.Writer()
+        w.track_count(4)
+        w.channel_exists(protocol.ChKind.TRACK, 0, True)
+        w.channel_name(protocol.ChKind.TRACK, 0, "Synth")
+        w.channel_color(protocol.ChKind.TRACK, 0, (255, 0, 51))
+        w.channel_volume_str(protocol.ChKind.TRACK, 0, 8, "-6 dB")
+        w.param_value(protocol.ParamOwner.DEVICE, 3, 0.25)
+        w.grid_step(1536, 128, 15, 127, 1535, None)
+        text = "/track/count 4\n/track/0/exists 1\n/track/0/name Synth\n/track/0/color 255 0 51\n/track/0/volume/str/8 -6 dB\n/device/param/3/value 0.25\n/clip/grid/1536x128/step/15/1535/127 0"
+        self.assertEqual(drivenbymoss.messages_to_text(w), text)
+        self.assertEqual(drivenbymoss.messages_from_text(text), w.buffer())
+        flat = list(protocol.iter_flat(w.buffer()))
+        self.assertEqual(flat[2], (protocol.Msg.CHANNEL_NAME, 0, 0, 0, 0, 0, "Synth"))
+        self.assertEqual(flat[3][-1], (255, 0, 51))
+        views = list(protocol.iter_records(w.buffer()))
+        self.assertEqual((views[6].grid_steps, views[6].grid_rows, views[6].channel, views[6].row, views[6].step), (1536, 128, 15, 127, 1535))
+        # A buffer which grows, and the reuse
+        w.clear()
+        for i in range(1000):
+            w.channel_name(protocol.ChKind.TRACK, i, "x" * (i % 13))
+        self.assertEqual(len(list(protocol.iter_flat(w.buffer()))), 1000)
+        with self.assertRaises(protocol.ProtocolError):
+            list(protocol.iter_flat(b"DBM2\x01\x00\x00\x00"))
+        # Every ID has a view and a kind
+        for id_ in (*protocol.MSG_IDS, *protocol.CMD_IDS):
+            self.assertIn(id_, protocol.VIEWS)
+            self.assertIn(protocol.KINDS[id_], protocol.GETTERS)
 
     def test_midi_in_and_out(self):
         app, backend = self.start()

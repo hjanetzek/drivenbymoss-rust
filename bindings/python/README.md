@@ -56,6 +56,35 @@ returns the model setup of the running controller as a dict, `get_settings()`,
 their own settings UI. See [doc/BACKEND_PROTOCOL.md](../../doc/BACKEND_PROTOCOL.md) for the
 call sequence and the model data.
 
+## The binary protocol
+
+`drivenbymoss/protocol.py` is generated from the tables of the core (`cargo run --bin
+dbm-protocol-gen`; a Rust test fails if it is stale, doc/TYPED_PROTOCOL_PLAN.md §2.7): the IDs
+and index domains as `IntEnum`s (`Msg`, `Cmd`, `ChKind`, `Processor`, …), the metadata
+(`MSG_INFO`, `CMD_INFO`: name, template, index slots, value kind), a `Writer` with one method
+per report and a view class per command.
+
+```python
+from drivenbymoss import protocol
+
+class MyBackend(drivenbymoss.Backend):
+    def process_commands(self, buffer):            # one buffer per call into the library
+        for c in protocol.iter_commands(buffer):   # or iter_flat: (id, op, i0, i1, i2, i3, value)
+            if c.id == protocol.Cmd.CHANNEL_MUTE:
+                ...                                # c.ch_kind, c.ch_index, c.value
+
+app.use_binary_commands()                          # before start_infrastructure
+w = protocol.Writer()                              # reused: w.clear()
+w.channel_volume(protocol.ChKind.TRACK, 3, 0.5)
+app.update_model_bin(w)
+```
+
+Without an override, `process_commands` converts the commands to their text and calls the
+`process_*` methods, so a text backend works unchanged. `use_binary_commands(handled=[...])`
+passes the handled command IDs (the library logs the others once) and returns False if the
+library has another major protocol version. `messages_to_text`/`messages_from_text` convert
+buffers for logs and tests; `protocol_info()` is the library's (major, minor, hash).
+
 ## Threading and callbacks
 
 - The App is created with `DBM_FLAG_HOST_TICK`: the library starts no timer thread, the host

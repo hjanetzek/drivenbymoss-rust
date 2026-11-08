@@ -15,6 +15,11 @@ Usage::
             app.tick()                           # every 30ms
             app.update_model(changes)            # lines of '<address> <value>'
 
+The binary protocol (doc/TYPED_PROTOCOL_PLAN.md, the generated module drivenbymoss.protocol):
+``app.use_binary_commands()`` before start_infrastructure delivers the commands as buffers of
+records to ``Backend.process_commands`` (by default converted to the text callbacks), and
+``app.update_model_bin(writer)`` reports a ``protocol.Writer``. Both forms can be mixed.
+
 The rules of drivenbymoss.h apply:
 
 - All strings are UTF-8. Strings returned by the library are copied into Python strings and
@@ -35,7 +40,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Iterable, NamedTuple
 
-from . import _ffi
+from . import _ffi, protocol
 from ._ffi import DBM_FLAG_HOST_TICK
 
 __all__ = [
@@ -46,6 +51,10 @@ __all__ = [
     "Setting",
     "SettingState",
     "list_controllers",
+    "messages_from_text",
+    "messages_to_text",
+    "protocol",
+    "protocol_info",
     "version",
 ]
 
@@ -118,6 +127,13 @@ class Backend:
 
     def enable_updates(self, processor: str, enable: bool) -> None:
         pass
+
+    def process_commands(self, buffer: bytes) -> None:
+        """The commands of one call in the binary form (after App.use_binary_commands): a buffer
+        of records, read with protocol.iter_commands or protocol.iter_flat. The buffer is a copy.
+        The default converts them to their legacy text and calls the process_* methods above."""
+        for line in _lines(messages_to_text(buffer)):
+            dispatch_legacy_line(self, line)
 
     def process_midi_arg(self, device_id: int, status: int, data1: int, data2: int) -> None:
         """Send a MIDI message to the DAW as if it was received on the MIDI input."""
@@ -195,6 +211,80 @@ def _lines(text: str) -> list[str]:
     return text.split("\n") if text else []
 
 
+def _unescape(text: str) -> str:
+    """A field of a legacy command line (backslash escapes of the recordings)."""
+    if "\\" not in text:
+        return text
+    out, chars = [], iter(text)
+    for c in chars:
+        if c == "\\":
+            n = next(chars, "")
+            out.append({"t": "\t", "n": "\n", "r": "\r"}.get(n, n))
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def dispatch_legacy_line(backend: Backend, line: str) -> None:
+    """Call the text callback of a legacy command line (messages_to_text of a command:
+    ``<kind>\t<processor>\t<command>[\t<value>...]``)."""
+    fields = [_unescape(f) for f in line.split("\t")]
+    kind = fields[0]
+    processor = fields[1] if len(fields) > 1 else ""
+    command = fields[2] if len(fields) > 2 else ""
+    if kind == "noArg":
+        backend.process_no_arg(processor, command)
+    elif kind == "int":
+        backend.process_int_arg(processor, command, int(fields[3]))
+    elif kind == "double":
+        backend.process_double_arg(processor, command, float(fields[3]))
+    elif kind == "string":
+        backend.process_string_arg(processor, command, fields[3] if len(fields) > 3 else "")
+    elif kind == "strings":
+        backend.process_string_args(processor, command, fields[3:])
+    elif kind == "delay":
+        backend.delay_updates(processor)
+    elif kind == "enable":
+        backend.enable_updates(processor, command == "1")
+    else:
+        logger.error("Not a command line: %s", line)
+
+
+def protocol_info() -> tuple[int, int, int]:
+    """The protocol of the library: (major, minor, hash), see drivenbymoss.protocol."""
+    major, minor, hash_ = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_uint64()
+    _ffi.library().dbm_protocol_info(ctypes.byref(major), ctypes.byref(minor), ctypes.byref(hash_))
+    return major.value, minor.value, hash_.value
+
+
+def _buffer_arg(data) -> tuple[Any, int]:
+    """A (ctypes array, length) of a protocol.Writer or a bytes-like buffer (a Writer and a
+    bytearray are passed without a copy)."""
+    if isinstance(data, protocol._WriterBase):
+        return (ctypes.c_uint8 * data.size).from_buffer(data.buf), data.size
+    if isinstance(data, bytearray):
+        return (ctypes.c_uint8 * len(data)).from_buffer(data), len(data)
+    data = bytes(data)
+    return (ctypes.c_uint8 * len(data)).from_buffer_copy(data), len(data)
+
+
+def messages_to_text(buffer) -> str:
+    """The text of a binary buffer: one report line or legacy command line per record."""
+    array, length = _buffer_arg(buffer)
+    return _take(_ffi.library().dbm_messages_to_text(array, length))
+
+
+def messages_from_text(text: str) -> bytes:
+    """The binary buffer of report lines and legacy command lines (lines which are not in the
+    tables are skipped)."""
+    library = _ffi.library()
+    data = _bytes(text)
+    size = library.dbm_messages_from_text(data, None, 0)
+    out = (ctypes.c_uint8 * size)()
+    library.dbm_messages_from_text(data, out, size)
+    return bytes(out)
+
+
 def version() -> str:
     """The version of the library, e.g. '26.1.0'."""
     return _str(_ffi.library().dbm_version())
@@ -254,6 +344,7 @@ class _Trampolines:
             "set_note_input_velocity_translation_table": _ffi.SetNoteInputTable(guard("set_note_input_velocity_translation_table", None, lambda d, i, t, n: b.set_note_input_velocity_translation_table(d, i, _ints(t, n)))),
             "log": _ffi.Log(guard("log", None, lambda m: b.log(_str(m)))),
         }
+        self.commands = _ffi.DbmCommands(guard("process_commands", None, lambda data, n: b.process_commands(ctypes.string_at(data, n) if data and n > 0 else protocol.HEADER)))
         self.table = _ffi.DbmCallbacks(user=None, **self.functions)
 
     def in_callback(self) -> bool:
@@ -355,6 +446,38 @@ class App:
     def update_model(self, data: str) -> None:
         """Update the model with data from the DAW: lines of '<address> <value>'."""
         self._library.dbm_update_model(self._app(), _bytes(data))
+
+    def use_binary_commands(self, handled: Iterable[int] | None = None) -> bool:
+        """Deliver the commands as buffers of records to Backend.process_commands from now on
+        (dbm_set_command_callback); call it before start_infrastructure. ``handled``: the command
+        IDs the backend handles (the library logs the others once), None for all. Returns False
+        (and keeps the text callbacks) if the library has another major protocol version than
+        drivenbymoss.protocol; a different table hash (IDs added on one side) is logged."""
+        major, _minor, hash_ = protocol_info()
+        if major != protocol.VERSION_MAJOR:
+            logger.warning("The library has protocol version %d, the binding %d: the commands stay text", major, protocol.VERSION_MAJOR)
+            return False
+        if hash_ != protocol.HASH:
+            logger.info("The protocol table of the library differs from the binding's (hash %016x, binding %016x)", hash_, protocol.HASH)
+        words = None
+        count = 0
+        if handled is not None:
+            bits = [0] * ((len(protocol.CMD_INFO) + 63) // 64 + 64)
+            for command_id in handled:
+                bit = int(command_id) - 0x8000
+                if 0 <= bit < 64 * len(bits):
+                    bits[bit // 64] |= 1 << (bit % 64)
+            while bits and bits[-1] == 0:
+                bits.pop()
+            count = len(bits)
+            words = (ctypes.c_uint64 * max(1, count))(*bits)
+        return self._library.dbm_set_command_callback(self._app(), protocol.VERSION_MAJOR, self._trampolines.commands, None, words, count) != 0
+
+    def update_model_bin(self, data) -> None:
+        """Update the model with a buffer of binary records (a protocol.Writer or a bytes-like
+        buffer with the header), the binary form of update_model."""
+        array, length = _buffer_arg(data)
+        self._library.dbm_update_model_bin(self._app(), array, length)
 
     def on_midi_event(self, device_id: int, data: bytes | bytearray | Iterable[int]) -> None:
         """Handle a MIDI message received on a MIDI input opened with open_midi_input."""

@@ -96,6 +96,9 @@ SetNoteInputFilters = ctypes.CFUNCTYPE(None, _void_p, _int, _int, _strings, _int
 SetNoteInputTable = ctypes.CFUNCTYPE(None, _void_p, _int, _int, _ints, _int)
 Log = ctypes.CFUNCTYPE(None, _void_p, _char_p)
 
+# Receives the commands in the binary form (dbm_set_command_callback): user, buffer, length
+DbmCommands = ctypes.CFUNCTYPE(None, _void_p, _bytes, ctypes.c_size_t)
+
 
 class DbmCallbacks(ctypes.Structure):
     """The functions provided by the host. Function pointers may be null: the call is ignored
@@ -138,6 +141,11 @@ _PROTOTYPES = [
     ("dbm_tick", None, [DbmAppPointer]),
     ("dbm_set_time", None, [DbmAppPointer, ctypes.c_uint64]),
     ("dbm_update_model", None, [DbmAppPointer, _char_p]),
+    ("dbm_protocol_info", None, [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64)]),
+    ("dbm_set_command_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmCommands, _void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t]),
+    ("dbm_update_model_bin", None, [DbmAppPointer, _bytes, ctypes.c_size_t]),
+    ("dbm_messages_to_text", _void_p, [_bytes, ctypes.c_size_t]),
+    ("dbm_messages_from_text", ctypes.c_size_t, [_char_p, _bytes, ctypes.c_size_t]),
     ("dbm_display_window", None, [DbmAppPointer]),
     ("dbm_display_project_window", None, [DbmAppPointer]),
     ("dbm_display_parameter_window", None, [DbmAppPointer]),
