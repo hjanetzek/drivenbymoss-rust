@@ -40,6 +40,17 @@ Knobs (relative changes) move stepped parameters (on/off switches, labels, integ
 steps: a short turn switches a toggle (right on, left off) or moves one label
 ([plan §7](../../doc/ZYNTHIAN_PLAN.md)).
 
+The Maschine drivers run their controller only while dbm-nihost reports the device (its hello,
+and "gone" when it is unplugged): dbm-nihost creates the ports of both Maschines at its start, so
+zynthian loads both drivers also without the devices. After a restart of dbm-nihost or a replug,
+the controller starts again and sends all LEDs and displays. This needs the dbm-nihost of the
+same checkout; with an older one the JAM driver waits for a replug of the JAM.
+
+The drivers read zynthian at two rates: the transport, the meters, the playing notes and steps on
+every tick, the rest at once after a change signal of zynthian or a command of the controller,
+else 4 times a second (doc/ZYNTHIAN_CPU.md). Send levels and processor parameters changed in
+zynthian's UI therefore reach the controller within 250 ms.
+
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
 

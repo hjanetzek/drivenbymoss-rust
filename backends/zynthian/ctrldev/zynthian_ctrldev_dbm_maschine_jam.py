@@ -44,5 +44,8 @@ class zynthian_ctrldev_dbm_maschine_jam(zynthian_ctrldev_base_dbm):
     driver_description = ("Native Instruments Maschine JAM (through dbm-nihost), run by DrivenByMoss: the clip launcher "
                           "on zynseq, the touch strips on the mixer and the parameters, the pads play the active chain")
     autoload_flag = True  # zynthian has no other driver for this device
+    # dbm-nihost creates the ports also without the device: the controller runs only while the JAM
+    # is there (its hello: NI's "return from host")
+    nihost_hello = bytes.fromhex("F000210915004D5000014601F7")
 
 # ------------------------------------------------------------------------------------------------------------------

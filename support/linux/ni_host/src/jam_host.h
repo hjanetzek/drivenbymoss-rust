@@ -20,8 +20,10 @@ namespace dbm::nihost
         explicit JamHost( MidiOut out );
 
         // The device was attached: resend all LEDs and tell the DAW (NI's "return from host"
-        // sysex), which then refreshes its state.
+        // sysex, the JAM's hello), which then refreshes its state.
         void attached();
+        // The device is gone (unplugged, or dbm-nihost stops): tell the DAW (F0 7D 44 42 4D 13 F7).
+        void detached();
         // The ports were connected to the DAW (snd-virmidi): nothing to announce, NI's driver
         // sends the Shift button of the JAM itself.
         void dawConnected() {}
@@ -49,8 +51,10 @@ namespace dbm::nihost
         void setButtonLed( int button, int value );
         void drawStrip( int strip );
         void handleSysex( const uint8_t* data, size_t length );
+        void sendReturnFromHost();
 
         MaschineJam jam;
+        bool        present{ false }; // the device is attached
         MidiOut     out;
 
         // template controls of the HID buttons (nullptr: not in the template)

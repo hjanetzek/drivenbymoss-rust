@@ -169,15 +169,28 @@ def lib_zyncore():
 # --------------------------------------------------------------------------------------------
 
 
+def send_signal(signal, subsignal, **kwargs):
+    """A change signal of zynthian, as the real objects send it. Delivered at once (zynthian's
+    chain manager queues some of them for the signal thread): the tests on simulated time see it
+    before their next tick."""
+    from zyngine.zynthian_signal_manager import zynsigman
+    zynsigman.send(getattr(zynsigman, signal), getattr(zynsigman, subsignal), **kwargs)
+
+
 class FakeEngine:
     """The engine of the zctrls: records the values sent (zynthian_engine_audio_mixer would set
-    them in zynmixer)."""
+    them in zynmixer) and, for the mixer strips, sends zynmixer's change signal (not for the
+    sends: zynmixer has none for them; nor for the processors' parameters)."""
 
     def __init__(self):
         self.sent = []
 
     def send_controller_value(self, zctrl):
         self.sent.append((zctrl.processor.chain.chain_id, zctrl.symbol, zctrl.value))
+        processor = zctrl.processor
+        if getattr(processor, "eng_code", None) in ("MI", "MR") and not zctrl.symbol.startswith("send"):
+            send_signal("S_MIXER", "SS_ZYNMIXER_SET_VALUE", chan=getattr(processor, "mixer_chan", None), symbol=zctrl.symbol,
+                        value=zctrl.value, mixbus=getattr(processor, "eng_code", "") == "MR")
 
 
 class FakeLib:
@@ -762,6 +775,7 @@ class FakeChainManager:
 
     def set_active_chain_by_id(self, chain_id=None):
         self.active_chain = self.chains.get(chain_id, self.active_chain)
+        send_signal("S_CHAIN_MAN", "SS_SET_ACTIVE_CHAIN", active_chain_id=self.active_chain.chain_id)
         return self.active_chain.chain_id
 
     def get_chain_ids_filtered(self, filter=None):
@@ -807,6 +821,7 @@ class ZynthianState:
         if self.chain_manager.active_chain is None or chain_id and self.chain_manager.active_chain.chain_id == 0:
             self.chain_manager.active_chain = chain
         self.refresh_sends()
+        send_signal("S_CHAIN_MAN", "SS_ADD_CHAIN")
         return chain
 
     def remove_chain(self, chain_id):
@@ -814,6 +829,7 @@ class ZynthianState:
         if self.chain_manager.active_chain is chain:
             self.chain_manager.active_chain = next(iter(self.chain_manager.chains.values()))
         self.refresh_sends()
+        send_signal("S_CHAIN_MAN", "SS_REMOVE_CHAIN")
 
     def refresh_sends(self):
         """As chain_manager.refresh_mixbus_sends: send_<mixbus id>_level zctrls on every input strip."""

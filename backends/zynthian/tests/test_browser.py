@@ -122,6 +122,9 @@ class Host:
             self.model.browser.ui = BrowserUI(ui, lambda: ui)
 
     def report(self):
+        # A full pass: the state is changed directly, without zynthian's change signals (the
+        # two rates: test_rates.py)
+        self.reporter.request_full()
         return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
 
     def browser(self, command, value=None):

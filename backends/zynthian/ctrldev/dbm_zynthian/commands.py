@@ -116,6 +116,11 @@ class ZynCommandHandler(CommandHandler):
     def handle(self, processor, command, value=None):
         # A command sees the pattern as it is now (also changes made in zynthian)
         self.daw.invalidate_clip()
+        # The core relies on the reports after its commands: the next pass reads the whole model
+        # (reporter.py, the two rates)
+        request_full = getattr(self.reporter, "request_full", None)
+        if request_full is not None:
+            request_full()
         super().handle(processor, command, value)
 
     def set_value(self, parameter, cmd):

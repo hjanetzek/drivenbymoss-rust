@@ -106,7 +106,11 @@ namespace
             this->host.attached();
         }
 
-        void hidDetached() override {}
+        void hidDetached() override
+        {
+            std::lock_guard<std::mutex> lock( this->hostLock );
+            this->host.detached();
+        }
 
         void hidReport( const uint8_t* report, size_t length ) override
         {

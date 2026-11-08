@@ -72,6 +72,9 @@ class Host:
         self.values = {}
 
     def report(self):
+        # A full pass: the state is changed directly, without zynthian's change signals (the
+        # two rates: test_rates.py)
+        self.reporter.request_full()
         lines = dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
         self.values.update(lines)
         return lines

@@ -103,13 +103,16 @@ virtual MIDI driver bridges the two:
 ### DrivenByMoss messages
 
 Not part of NI's MIDI mode: system exclusive messages with the header `F0 7D 44 42 4D` (`7D` is
-the ID for non-commercial use, then "DBM"). NI's driver ignores them. Only the Mk2 uses them.
+the ID for non-commercial use, then "DBM"). NI's driver ignores them. The Mk2 uses all of them,
+the JAM the query and "gone".
 
 | Message | Direction | Meaning |
 |---|---|---|
 | `F0 7D 44 42 4D 10 <position> <56 characters> F7` | DAW → device | the labels of the 8 buttons above the displays (8 cells of 7 characters), drawn above the MCU lines |
-| `F0 7D 44 42 4D 11 F7` | DAW → device | DrivenByMoss asks at its start whether the host sends the Shift button |
-| `F0 7D 44 42 4D 11 01 F7` | device → DAW | the host sends the Shift button: the answer to the query, also sent when the Mk2 is attached and when `--virmidi` connects the ports (for a DAW which was started before dbm-nihost). DrivenByMoss then uses the Shift button, and STEP LEFT is only Stop |
+| `F0 7D 44 42 4D 11 F7` | DAW → device | the query whether the device is there: DrivenByMoss's Mk2 asks at its start whether the host sends the Shift button; the zynthian drivers of both Maschines ask at their start. No answer while the device isn't connected |
+| `F0 7D 44 42 4D 11 01 F7` | device → DAW | the Mk2's hello: it is there and the host sends the Shift button. The answer to the query, also sent when the Mk2 is attached and, while it is, when `--virmidi` connects the ports (for a DAW which was started before dbm-nihost). DrivenByMoss then uses the Shift button, and STEP LEFT is only Stop |
+| `F0 00 21 09 15 00 4D 50 00 01 46 01 F7` | device → DAW | the JAM's hello: NI's "return from host" (the core refreshes the device with it), sent when the JAM is attached and as the answer to the query |
+| `F0 7D 44 42 4D 13 F7` | device → DAW | the device is gone (unplugged, or dbm-nihost stops): the zynthian drivers stop their controller until the next hello. DrivenByMoss's core doesn't know it (on Bitwig it logs "Unhandled Sysex message" when a device is unplugged) |
 | `F0 7D 44 42 4D 12 <01 down, 00 up> F7` | device → DAW | the Shift button; the Shift LED is lit by dbm-nihost |
 
 `01` and `02` (the markers of the conformance runner) and `03` (its restart) are used by the

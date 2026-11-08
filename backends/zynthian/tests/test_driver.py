@@ -38,11 +38,51 @@ import zynstubs
 
 zynstubs.install()
 
+from zyngine.ctrldev.zynthian_ctrldev_base_dbm import NIHOST_GONE, NIHOST_QUERY  # noqa: E402
 from zyngine.ctrldev.zynthian_ctrldev_dbm_launchcontrol_xl import zynthian_ctrldev_dbm_launchcontrol_xl  # noqa: E402
+from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_jam import zynthian_ctrldev_dbm_maschine_jam  # noqa: E402
 from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_mk2 import zynthian_ctrldev_dbm_maschine_mk2  # noqa: E402
 
 TEMPLATE_SELECTION = bytes.fromhex("F000202902117708F7")
 IDEV_IN, IDEV_OUT = 3, 5
+MK2_HELLO = bytes.fromhex("F07D44424D1101F7")
+JAM_HELLO = bytes.fromhex("F000210915004D5000014601F7")
+
+
+class FakeNihost:
+    """dbm-nihost for a driver: answers the query (F0 7D 44 42 4D 11 F7) with the hello while the
+    device is there (synchronously, from the thread which sends), says hello when the device is
+    attached and "gone" when it is unplugged."""
+
+    def __init__(self, zyncore, hello, present=True):
+        self.zyncore = zyncore
+        self.hello = hello
+        self.present = present
+        self.driver = None
+        self.queries = 0
+        self.answered = 0
+        zyncore.dev_send_midi_event = self.dev_send_midi_event
+
+    def close(self):
+        del self.zyncore.dev_send_midi_event
+
+    def dev_send_midi_event(self, idev, data, size):
+        data = bytes(data[:size])
+        self.zyncore.sent.append((idev, data))
+        if data == NIHOST_QUERY:
+            self.queries += 1
+            if self.present and self.driver is not None:
+                self.answered += 1
+                self.driver.midi_event(self.hello)
+        return 1
+
+    def attach(self):
+        self.present = True
+        self.driver.midi_event(self.hello)
+
+    def detach(self):
+        self.present = False
+        self.driver.midi_event(NIHOST_GONE)
 
 
 def wait_for(condition, timeout=5.0):
@@ -165,12 +205,15 @@ class MaschineMk2DriverTest(unittest.TestCase):
         self.state = zynstubs.project()
         self.zyncore = zynstubs.lib_zyncore()
         self.zyncore.notes.clear()
+        self.nihost = FakeNihost(self.zyncore, MK2_HELLO)
         self.driver = zynthian_ctrldev_dbm_maschine_mk2(self.state, IDEV_IN, IDEV_OUT)
+        self.nihost.driver = self.driver
         self.driver.init()
         self.assertTrue(wait_for(lambda: self.driver.bridge is not None and self.driver.bridge.note_inputs))
 
     def tearDown(self):
         self.driver.end()
+        self.nihost.close()
         if self.old_config is None:
             os.environ.pop("ZYNTHIAN_CONFIG_DIR", None)
         else:
@@ -225,6 +268,129 @@ class MaschineMk2DriverTest(unittest.TestCase):
         per_note = (time.perf_counter() - start) / (2 * n) * 1e6
         print(f"\nmidi_event of a pad note: {per_note:.1f} µs", file=sys.stderr)
         self.assertLess(per_note, 1000)
+
+
+class NihostDeviceTest(unittest.TestCase):
+    """The Maschine drivers run their controller only while dbm-nihost's device is there
+    (doc/ZYNTHIAN_CPU.md option 1): dbm-nihost creates the ports of both Maschines at its start,
+    so zynthian loads both drivers also for a device which isn't connected."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="dbm-zynthian-nihost-")
+        self.old_config = os.environ.get("ZYNTHIAN_CONFIG_DIR")
+        os.environ["ZYNTHIAN_CONFIG_DIR"] = self.temp.name
+        self.state = zynstubs.project()
+        self.zyncore = zynstubs.lib_zyncore()
+        self.zyncore.sent.clear()
+        self.zyncore.notes.clear()
+        self.drivers = []
+
+    def tearDown(self):
+        for driver, nihost in self.drivers:
+            driver.end()
+            nihost.close()
+        if self.old_config is None:
+            os.environ.pop("ZYNTHIAN_CONFIG_DIR", None)
+        else:
+            os.environ["ZYNTHIAN_CONFIG_DIR"] = self.old_config
+        self.temp.cleanup()
+
+    def start(self, cls, hello, present):
+        nihost = FakeNihost(self.zyncore, hello, present)
+        driver = cls(self.state, IDEV_IN, IDEV_OUT)
+        nihost.driver = driver
+        self.drivers.append((driver, nihost))
+        driver.init()
+        return driver, nihost
+
+    def received(self, driver):
+        """Record the MIDI the controller gets (bridge.receive)."""
+        bridge = driver.bridge
+        received = []
+        receive = bridge.receive
+
+        def recording(data):
+            received.append(bytes(data))
+            receive(data)
+
+        bridge.receive = recording
+        return received
+
+    def test_dormant_without_the_device(self):
+        driver, nihost = self.start(zynthian_ctrldev_dbm_maschine_mk2, MK2_HELLO, present=False)
+        self.assertTrue(wait_for(lambda: nihost.queries == 1), "The driver asks once at its start")
+        driver.midi_event(b"\x90\x24\x64")
+        time.sleep(0.3)
+        self.assertIsNone(driver.bridge, "No controller without the device")
+        self.assertEqual(nihost.queries, 1)
+        self.assertEqual(self.zyncore.notes, [], "No notes")
+        # The device is attached: dbm-nihost says hello
+        nihost.attach()
+        self.assertTrue(wait_for(lambda: driver.bridge is not None and driver.bridge.note_inputs), "The controller starts")
+
+    def test_mk2_connected_before(self):
+        """A device already connected answers the driver's query; the core's own query (whether
+        the Shift button is sent) gets its answer too, and the controller keeps running."""
+        driver, nihost = self.start(zynthian_ctrldev_dbm_maschine_mk2, MK2_HELLO, present=True)
+        self.assertTrue(wait_for(lambda: driver.bridge is not None))
+        bridge = driver.bridge
+        received = self.received(driver)
+        # The core asks after its startup delay, the hello reaches it
+        self.assertTrue(wait_for(lambda: nihost.answered == 2, 3.0), "The core's query")
+        self.assertTrue(wait_for(lambda: MK2_HELLO in received), "The answer goes to the core")
+        time.sleep(0.2)
+        self.assertIs(driver.bridge, bridge, "An answer doesn't restart the controller")
+        self.assertEqual(bridge.core_errors(), [])
+
+    def test_gone_and_back(self):
+        driver, nihost = self.start(zynthian_ctrldev_dbm_maschine_mk2, MK2_HELLO, present=True)
+        self.assertTrue(wait_for(lambda: driver.bridge is not None))
+        self.assertTrue(wait_for(lambda: nihost.answered == 2, 3.0))
+        received = self.received(driver)
+        driver.midi_event(b"\x90\x24\x64")
+        self.assertTrue(wait_for(lambda: b"\x90\x24\x64" in received))
+        nihost.detach()
+        self.assertTrue(wait_for(lambda: driver.bridge is None), "Dormant after gone")
+        self.assertEqual(self.zyncore.notes[-1][0], "off", "No hanging note")
+        self.assertNotIn(NIHOST_GONE, received, "Gone isn't for the core")
+        nihost.attach()
+        self.assertTrue(wait_for(lambda: driver.bridge is not None), "Back with the hello")
+
+    def test_hello_restarts_a_running_controller(self):
+        """A hello which answers no query: dbm-nihost was restarted (its device lost the LEDs and
+        displays) or the device was plugged in again: a fresh controller sends the whole state."""
+        driver, nihost = self.start(zynthian_ctrldev_dbm_maschine_mk2, MK2_HELLO, present=True)
+        self.assertTrue(wait_for(lambda: driver.bridge is not None))
+        self.assertTrue(wait_for(lambda: nihost.answered == 2, 3.0))
+        first = driver.bridge
+        received = self.received(driver)
+        self.zyncore.sent.clear()
+        driver.midi_event(MK2_HELLO)
+        self.assertTrue(wait_for(lambda: driver.bridge is not None and driver.bridge is not first), "Restarted")
+        self.assertNotIn(MK2_HELLO, received, "The old controller didn't get it")
+        # The new controller asks again and gets the answer; its LEDs and displays are sent
+        self.assertTrue(wait_for(lambda: nihost.answered == 3, 3.0))
+        second = driver.bridge
+        time.sleep(0.3)
+        self.assertIs(driver.bridge, second, "No restart for the answer")
+        self.assertGreater(len([data for idev, data in self.zyncore.sent if idev == IDEV_OUT and data != NIHOST_QUERY]), 10)
+
+    def test_jam(self):
+        """The JAM's hello is NI's "return from host" (its core refreshes the device with it)."""
+        driver, nihost = self.start(zynthian_ctrldev_dbm_maschine_jam, JAM_HELLO, present=False)
+        self.assertTrue(wait_for(lambda: nihost.queries == 1))
+        time.sleep(0.2)
+        self.assertIsNone(driver.bridge)
+        nihost.attach()
+        self.assertTrue(wait_for(lambda: driver.bridge is not None))
+        nihost.detach()
+        self.assertTrue(wait_for(lambda: driver.bridge is None))
+        self.assertEqual(nihost.queries, 1, "The JAM's core doesn't ask")
+
+    def test_other_controllers_unchanged(self):
+        self.assertIsNone(zynthian_ctrldev_dbm_launchcontrol_xl.nihost_hello)
+        driver = zynthian_ctrldev_dbm_launchcontrol_xl(self.state, IDEV_IN, IDEV_OUT)
+        self.assertTrue(driver.device_present)
 
 
 if __name__ == "__main__":

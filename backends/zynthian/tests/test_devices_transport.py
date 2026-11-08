@@ -69,6 +69,9 @@ class Host:
         self.reporter.features = self.commands.host_features
 
     def report(self):
+        # A full pass: the state is changed directly, without zynthian's change signals (the
+        # two rates: test_rates.py)
+        self.reporter.request_full()
         return dict(line.split(" ", 1) for line in self.reporter.collect().splitlines())
 
     def command(self, processor, command, value=None):

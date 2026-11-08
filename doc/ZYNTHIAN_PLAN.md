@@ -129,6 +129,17 @@ this one:
   caches the document settings.
 - `midi_event(ev)` (fast thread): queues `ev` if its first byte is a status byte (analysis §9 Z4),
   returns True always.
+- The Maschines (dbm-nihost creates their ports also without the device): the driver asks once at
+  its start (`F0 7D 44 42 4D 11 F7`) and stays dormant (no controller) until dbm-nihost's hello
+  (the Mk2's `F0 7D 44 42 4D 11 01 F7`, the JAM's NI "return from host"), and again after "gone"
+  (`F0 7D 44 42 4D 13 F7`). A hello which answers a query (the driver's or the Mk2 core's) goes to
+  the core; one which answers none (the device plugged in again, dbm-nihost restarted) restarts
+  the controller, which then sends all LEDs and displays. The other controllers' ports exist
+  only with their device.
+- Two rates (`reporter.py`, doc/ZYNTHIAN_CPU.md): every pass reads the transport, the peak meters,
+  the playing notes and the playing steps; the rest (the slow part, in subtrees) after a command
+  of the core, a change signal of zynthian (`bridge.py`'s `change_signals`: zynmixer, chains,
+  processors, zynseq, ZS3), a dump, a due "report again", else every 250 ms.
 - `end()`: exit flag, wake, join (5 s); the thread closes the bridge (`dbm_destroy`).
 - Time: `dbm_set_time` with the ms since the controller started; the tests run the same bridge on
   simulated time.
@@ -145,6 +156,7 @@ this one:
 | `get_state` (ZS3 or snapshot save) | `{"dbm_document": <cached formatted document settings>}` |
 | `set_state` | applied only during a snapshot load (`state_manager.is_busy("load snapshot")`); a ZS3 recall leaves the settings (decision 3) |
 | chains added/removed/moved, snapshot loaded | `refresh` → dump |
+| dbm-nihost: hello / gone / unexpected hello (Maschines) | the controller is started / stopped / started again |
 | unload (manager) | `end` |
 
 ## 3. The model adapter
@@ -566,7 +578,9 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | --- | --- |
 | `test_model.py` | 17: mapping, texts, VU, reports, selection, removed chains, commands |
 | `test_launchcontrol_xl.py` | 6: the core with the LCXL on simulated time |
-| `test_driver.py` | 9: the LCXL driver class (thread, MIDI, snapshot-only state, sleep/wake, end); the Mk2 driver with the core (its note input, pads into the active chain at once, note-off to the note-on's chain, no hanging notes, no note without a MIDI chain, the cost of a note) |
+| `test_rates.py` | 10: the two rates (fast passes between full ones, meters and notes on every pass, unsignalled values at the slow rate, commands and a due "report again" make a full pass, the subtrees one by one, the signals through a bridge: a mute and the active chain in zynthian, unregistered on close) |
+| `test_cpu.py` | 1: the `put` calls and the time of `collect()` per idle tick of the Mk2 (printed) |
+| `test_driver.py` | 15: dbm-nihost's devices (dormant without the device, the query at the start, the core's query answered, gone and back, an unexpected hello restarts, the JAM, the others unchanged); the LCXL driver class (thread, MIDI, snapshot-only state, sleep/wake, end); the Mk2 driver with the core (its note input, pads into the active chain at once, note-off to the note-on's chain, no hanging notes, no note without a MIDI chain, the cost of a note) |
 | `test_pipewire_ports.py` | 2: the drivers' dev_ids against zynthian's PipeWire uids (the LCXL's controls port, not HUI; dbm-nihost's Mk2 port, not the JAM's or the Mk2's own MIDI port) |
 | `test_conformance_lcxl.py` | 10: §6 b (the LCXL's track mix, note and drum sequencers; the Mk2; the JAM's five files) |
 | `test_maschine_jam.py` | 12: the JAM driver's dev_id (dbm-nihost's PipeWire port, the output; per port its driver: the JAM's only on the JAM, the Mk2's not there); the JAM with the core (the volume strips show and move the faders, the meters while playing, pan, sends, parameters; the session launch at the next bar, PLAY lit, MUTE + pad stops, scenes, group buttons; the note mode into the active chain, the note sequencer on the pattern) |

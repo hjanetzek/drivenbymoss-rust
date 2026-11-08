@@ -59,6 +59,11 @@ TICK_SECONDS = 0.03
 # How often the document settings are read for get_state
 DOCUMENT_CACHE_SECONDS = 1.0
 
+# The messages of dbm-nihost (support/linux/ni_host/src/midi.h): the query whether the device is
+# there, and the message that it is gone (unplugged, dbm-nihost stops)
+NIHOST_QUERY = bytes.fromhex("F07D44424D11F7")
+NIHOST_GONE = bytes.fromhex("F07D44424D13F7")
+
 # The largest message dev_send_midi_event takes: the ring buffer of a zmop has 16384 bytes
 # (JACK_MIDI_BUFFER_SIZE in zynmidirouter.h), of which 16383 can be used
 MAX_MIDI_OUT_BYTES = 16383
@@ -82,6 +87,10 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     replaces_dev_ids = []       # The device IDs of the device's other ports whose drivers this one replaces
     with_vu = True              # Report the peak meters of the mixer strips
     browse_add_chain = False    # The "+" track also browses the Add Chain view (dbm_zynthian/add_chain.py)
+    # The devices of dbm-nihost (the Maschines), whose ports exist without the device: the
+    # driver is dormant (no controller) until dbm-nihost says hello (an answer to NIHOST_QUERY or
+    # a device attached), and again after NIHOST_GONE. None: the device is there with its ports.
+    nihost_hello = None
 
     def __init__(self, state_manager, idev_in, idev_out=None):
         super().__init__(state_manager, idev_in, idev_out)
@@ -98,6 +107,11 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.pending_document = None    # Document settings to apply (set_state)
         self.start_failed = False
         self._oversize_logged = False
+        # dbm-nihost's device (nihost_hello): there, a query waits for its answer, a hello which
+        # is no answer (attached, dbm-nihost restarted) restarts the controller
+        self.device_present = self.nihost_hello is None
+        self.query_pending = False
+        self.restart_requested = False
         # The notes the driver sends to the chains: (source, key) -> (MIDI channel, key), source
         # "in" for the device's keys (fast thread), "out" for the core's played notes
         self.sounding = {}
@@ -299,10 +313,14 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     def loop(self):
         start = 0.0
         last_document = 0.0
+        self.query_device()
         while not self.exit_flag:
-            if self.sleeping or self.start_failed:
+            if self.sleeping or self.start_failed or not self.device_present:
                 self.stop_bridge()
-                self.drain_midi()
+                # Only dbm-nihost's hello (or gone) counts while dormant
+                self.take_midi()
+                if self.device_present and not self.sleeping and not self.start_failed:
+                    continue
                 self.wake.wait(1.0)
                 self.wake.clear()
                 continue
@@ -320,6 +338,12 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             if self.is_zynthian_busy():
                 continue
             self.step((monotonic() - start) * 1000.0)
+            if self.restart_requested or not self.device_present:
+                # dbm-nihost's device is gone, or back (a replug or a restart of dbm-nihost, whose
+                # device has lost its LEDs and displays): a fresh controller sends everything
+                self.restart_requested = False
+                self.stop_bridge()
+                continue
             now = monotonic()
             if now - last_document >= DOCUMENT_CACHE_SECONDS:
                 last_document = now
@@ -361,6 +385,48 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
                 logging.error(f"[{self.__class__.__name__}] Error while stopping the controller: {e}")
             self.bridge = None
 
+    def query_device(self):
+        """Ask dbm-nihost whether its device is there (it answers with the hello if it is)."""
+        if self.nihost_hello is None:
+            return
+        if self.idev_out is None:
+            # No way to ask: as if it was there
+            self.device_present = True
+            return
+        self.send_midi(NIHOST_QUERY)
+
+    def take_midi(self):
+        """The queued MIDI for the core. dbm-nihost's messages set the device state: a hello which
+        answers a query (the driver's or the core's: the Mk2's core asks whether the Shift button
+        is sent) goes to the core; one which answers none (the device attached, dbm-nihost
+        restarted) restarts a running controller; "gone" makes the driver dormant. Neither goes
+        to the core otherwise (the core doesn't know them)."""
+        messages = self.drain_midi()
+        if self.nihost_hello is None:
+            return messages
+        result = []
+        for data in messages:
+            if data[0] != 0xF0:
+                result.append(data)
+            elif data == NIHOST_GONE:
+                if self.device_present:
+                    logging.info(f"[{self.__class__.__name__}] dbm-nihost: the device is gone")
+                self.device_present = False
+                self.query_pending = False
+                result = []
+            elif data == self.nihost_hello:
+                if not self.device_present:
+                    logging.info(f"[{self.__class__.__name__}] dbm-nihost: the device is there")
+                self.device_present = True
+                if self.query_pending:
+                    self.query_pending = False
+                    result.append(data)
+                elif self.bridge is not None:
+                    self.restart_requested = True
+            else:
+                result.append(data)
+        return result
+
     def drain_midi(self):
         messages = []
         while True:
@@ -378,7 +444,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         if self.dump_requested:
             self.dump_requested = False
             bridge.reporter.request_dump()
-        for data in self.drain_midi():
+        for data in self.take_midi():
             bridge.receive(data)
         bridge.tick(now_ms)
         for message in bridge.take_notifications():
@@ -398,6 +464,9 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
                 logging.warning(f"[{self.__class__.__name__}] MIDI message of {len(data)} bytes dropped (max. {MAX_MIDI_OUT_BYTES})")
             return
         data = bytes(data)
+        if data == NIHOST_QUERY and self.nihost_hello is not None:
+            # dbm-nihost's answer is a hello which goes to the core (take_midi)
+            self.query_pending = True
         lib_zyncore.dev_send_midi_event(self.idev_out, data, len(data))
 
 # ------------------------------------------------------------------------------------------------------------------

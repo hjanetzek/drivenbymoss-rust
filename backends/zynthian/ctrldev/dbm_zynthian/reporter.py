@@ -37,6 +37,17 @@ its siblings and parameter pages (``collect_device``) and the first instrument
 The browser (``collect_browser``, browser.py): the banks and presets of the cursor device,
 ``/browser/exists 0`` while it is closed (with it the core sends ``browser …`` commands).
 
+Two rates (doc/ZYNTHIAN_CPU.md option 2): a full pass reads the whole model, a fast pass only
+what changes by itself (``fast_collectors``: the transport, the peak meters, the playing notes of
+the cursor track, the playing steps of the step grids). A pass is full after ``request_full`` (a
+command of the core, a change signal of zynthian: bridge.py), with a dump, when a "report again"
+of a value command is due, and else every ``SLOW_INTERVAL_MS``; the others are fast.
+
+The slow part is split into subtrees (``SUBTREES``), each callable on its own
+(``collect_subtrees``); ``request_full`` records the subtrees a change affects (``dirty``). For
+now a full pass collects all of them; the next step collects only the dirty ones, with the full
+pass as the slow safety net (doc/ZYNTHIAN_CPU.md, "Next").
+
 Not reported, so the core keeps its defaults for them: markers, ``/drum``, ``/eq``, the layers and drum pads of ``/primary``, the arranger position and loop, ``/track/<p>/active``
 (zynthian has no deactivated chains), ``/track/hasPrevious|hasNext``. ``/track/pinned`` (-1) and ``/device/pinned`` (0) are reported:
 zynthian has no pinning.
@@ -50,6 +61,22 @@ from dbm_host.reporter import NUM_DRUM_PADS, NUM_SIBLINGS
 
 from zyngine.ctrldev.dbm_zynthian.device import PARAMS_PER_PAGE
 from zyngine.ctrldev.dbm_zynthian.launcher import slot_states
+
+# The interval of the full pass without a change signal (the values zynthian signals no change
+# for: the sends, the parameters of the devices, names of sequences, ...)
+SLOW_INTERVAL_MS = 250.0
+
+# The subtrees of the slow part, each collected by its collectors (``collector_subtrees``):
+# the host features and the project, the track list (tracks, effect tracks, master: positions,
+# names, types, selection; the peak meters), their mixer values and sends, the slots and scenes,
+# the transport, the cursor device with its pages and the first instrument, the cursor clip with
+# its step grids, the browser
+SUBTREES = ("host", "tracks", "mixer", "slots", "transport", "device", "clip", "browser")
+ALL_SUBTREES = frozenset(SUBTREES)
+
+# The values of a slot, in the order of collect_slots
+SLOT_VALUES = ("exists", "hasContent", "name", "color", "selected", "playing", "playQueued", "stopQueued", "recording",
+               "recQueued")
 
 
 class ZynReporter(Reporter):
@@ -70,30 +97,157 @@ class ZynReporter(Reporter):
             ZynReporter.collect_browser,
             Reporter.collect_grids,
         ]
+        # The subtrees of each collector (collect_subtrees): the track collectors run for any of
+        # theirs and check "mixer" and "slots" for those parts
+        track_subtrees = frozenset(("tracks", "mixer", "slots"))
+        self.collector_subtrees = {
+            Reporter.collect_host_features: {"host"},
+            ZynReporter.collect_tracks: track_subtrees,
+            ZynReporter.collect_effect_tracks: track_subtrees,
+            ZynReporter.collect_scenes: {"slots"},
+            ZynReporter.collect_master: track_subtrees,
+            ZynReporter.collect_project: {"host"},
+            ZynReporter.collect_transport: {"transport"},
+            ZynReporter.collect_device: {"device"},
+            ZynReporter.collect_primary: {"device"},
+            ZynReporter.collect_clip: {"clip"},
+            ZynReporter.collect_browser: {"browser"},
+            Reporter.collect_grids: {"clip"},
+        }
+        # The subtrees of the pass being collected
+        self.refreshing = ALL_SUBTREES
+        # What changes by itself, collected on every pass
+        self.fast_collectors = [
+            ZynReporter.collect_transport,
+            ZynReporter.collect_meters,
+            ZynReporter.collect_playing_steps,
+        ]
         self._counts = {"track": 0, "fxtrack": 0, "scene": 0}
         self._failed = set()
+        self.full_requested = True
+        """The next pass reads the whole model (set from other threads too: bridge.py's signals)."""
+        self.dirty = set(ALL_SUBTREES)
+        """The subtrees changed since the last full pass (request_full; for now any of them
+        makes the pass collect all, collect_subtrees is the entry point for collecting only
+        these)."""
+        self._last_full_ms = None
+        # The peak meters [(prefix, channel)] and the playing notes address of the cursor track of
+        # the last full pass, for the fast passes
+        self._meters = []
+        self._next_meters = []
+        self._notes_address = None
+        # The addresses, built once: track prefixes by (bank, position), slot addresses by
+        # (track prefix, phrase)
+        self._prefixes = {}
+        self._slot_addresses = {}
+        self._param_addresses = {}
+        self._pad_addresses = None
+        self._grid_addresses = {}
+        self.full_passes = 0
+        self.fast_passes = 0
+
+    def request_full(self, subtrees=ALL_SUBTREES):
+        """Read the slow part with the next pass (a command, a change in zynthian); ``subtrees``
+        are the ones the change affects (``SUBTREES``)."""
+        self.dirty.update(subtrees)
+        self.full_requested = True
+
+    def prefix(self, bank, position):
+        """``/<bank>/<position>/``."""
+        key = (bank, position)
+        prefix = self._prefixes.get(key)
+        if prefix is None:
+            prefix = self._prefixes[key] = f"/{bank}/{position}/"
+        return prefix
+
+    def is_full_due(self, now):
+        if self.full_requested:
+            # Cleared before the collectors run: a signal meanwhile asks for another full pass
+            self.full_requested = False
+            return True
+        if self.dump_all or self._last_full_ms is None or now - self._last_full_ms >= SLOW_INTERVAL_MS:
+            return True
+        # The values of a commanded item are reported again
+        return any(due <= now for due in self.pending.values())
 
     def collect(self):
         """As Reporter.collect (the cursor clip is read once for it), but a collector that fails (a zynthian object in an unexpected
-        state, a missing library function) is logged once and skipped: the others still report."""
-        self.apply_pending_forgets()
+        state, a missing library function) is logged once and skipped: the others still report.
+        A full or a fast pass (the module's docstring)."""
+        now = self.clock()
+        full = self.is_full_due(now)
+        if full:
+            self._last_full_ms = now
+            self.full_passes += 1
+            self.apply_pending_forgets()
+            # For now all subtrees (the slow safety net); later only the dirty ones
+            self.dirty.clear()
+            self.collect_subtrees(ALL_SUBTREES)
+        else:
+            self.fast_passes += 1
+            self.prepare_pass()
+            self.run_collectors(self.fast_collectors)
+        return self.take()
+
+    def prepare_pass(self):
         self.daw.invalidate_clip()
         # The commands of the last pass are done (commands.py, a clip range not starting at 0)
         self.daw.clip_start_request = None
-        for collector in self.collectors:
+
+    def collect_subtrees(self, subtrees):
+        """Collect the given subtrees of the slow part (``SUBTREES``), in the order of
+        ``collectors``; the lines stay for ``take``."""
+        self.prepare_pass()
+        self.refreshing = frozenset(subtrees)
+        # The track collectors run together: they collect the peak meters for the fast passes
+        tracks = not self.refreshing.isdisjoint(self.collector_subtrees[ZynReporter.collect_tracks])
+        if tracks:
+            self._next_meters = []
+        try:
+            self.run_collectors([c for c in self.collectors if not self.refreshing.isdisjoint(self.collector_subtrees.get(c, ("host",)))])
+        finally:
+            self.refreshing = ALL_SUBTREES
+        if tracks:
+            self._meters = self._next_meters
+
+    def run_collectors(self, collectors):
+        for collector in collectors:
             try:
                 collector(self)
             except Exception as e:
                 if collector.__name__ not in self._failed:
                     self._failed.add(collector.__name__)
                     logging.getLogger("dbm_zynthian").error("Reporter %s failed: %s", collector.__name__, e)
-        return self.take()
+
+    # The fast pass
+
+    def collect_meters(self):
+        """The peak meters and the playing notes of the tracks of the last full pass."""
+        for prefix, channel in self._meters:
+            self.put_vu(prefix, channel)
+        if self._notes_address is not None:
+            self.put(self._notes_address, self.playing_notes_text())
+
+    def collect_playing_steps(self):
+        """The playing step of each step grid (the steps themselves: collect_grids)."""
+        for grid in self.note_grids:
+            address = self._grid_addresses.get(grid.id)
+            if address is None:
+                address = self._grid_addresses[grid.id] = f"/clip/grid/{grid.id}/playingStep"
+            self.put(address, self.playing_step(grid))
+
+    def playing_notes_text(self):
+        notes = dict(self.daw.playing_notes)
+        return ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in sorted(notes.items()))
 
     # The parts of a channel
 
-    def collect_channel(self, prefix, channel):
+    def collect_channel(self, prefix, channel, values=True):
+        """Name and color (the track list), with ``values`` the mixer values."""
         self.put(prefix + "name", channel.name)
         self.put(prefix + "color", channel.color)
+        if not values:
+            return
         self.put(prefix + "mute", channel.mute)
         self.put(prefix + "solo", channel.solo)
         self.put(prefix + "volume", channel.volume.value)
@@ -102,6 +256,11 @@ class ZynReporter(Reporter):
         self.put_parameter_text(prefix + "pan/str", channel.pan)
 
     def collect_vu(self, prefix, channel):
+        """The peak meters (also kept for the fast passes)."""
+        self._next_meters.append((prefix, channel))
+        self.put_vu(prefix, channel)
+
+    def put_vu(self, prefix, channel):
         left, right = channel.vu()
         self.put(prefix + "vuleft", left)
         self.put(prefix + "vuright", right)
@@ -115,12 +274,15 @@ class ZynReporter(Reporter):
     def collect_removed(self, bank, count):
         """Positions which no longer exist (a chain was removed) are reported as not existing."""
         for position in range(count, self._counts[bank]):
-            self.put(f"/{bank}/{position}/exists", 0)
+            self.put(self.prefix(bank, position) + "exists", 0)
         self._counts[bank] = count
 
     # The collectors
 
     def collect_tracks(self):
+        """The track list; with the subtrees "mixer" and "slots" also the mixer values and sends,
+        the slots of each track."""
+        mixer, slots = "mixer" in self.refreshing, "slots" in self.refreshing
         tracks = self.daw.track_list(self.banks.full_flat_track_list)
         selected = next((position for position, track in enumerate(tracks) if track.selected), -1)
         self.put("/track/offset", self.banks.track_offset)
@@ -133,16 +295,20 @@ class ZynReporter(Reporter):
             self.put(f"/track/{self._last_selected}/select", False)
         self._last_selected = selected
         for position, track in enumerate(tracks):
-            prefix = f"/track/{position}/"
+            prefix = self.prefix("track", position)
             self.put(prefix + "exists", 1)
             self.put(prefix + "number", position)
             self.put(prefix + "type", track.type_name)
             if position != selected:
                 self.put(prefix + "select", False)
-            self.collect_track_flags(prefix, track)
+            if mixer:
+                self.collect_track_flags(prefix, track)
             self.collect_vu(prefix, track)
-            self.collect_channel(prefix, track)
-            self.collect_sends(prefix, track, with_color=True)
+            self.collect_channel(prefix, track, mixer)
+            if mixer:
+                self.collect_sends(prefix, track, with_color=True)
+            if not slots:
+                continue
             try:
                 self.collect_slots(prefix, track)
             except Exception as e:
@@ -159,9 +325,9 @@ class ZynReporter(Reporter):
         if selected != self._last_cursor:
             self._last_cursor = selected
             self.forget(f"/track/{selected}/playingnotes")
-        if selected >= 0:
-            notes = dict(self.daw.playing_notes)
-            self.put(f"/track/{selected}/playingnotes", ";".join(f"0:0:0:0:0:{key}:{velocity}" for key, velocity in sorted(notes.items())))
+        self._notes_address = self.prefix("track", selected) + "playingnotes" if selected >= 0 else None
+        if self._notes_address is not None:
+            self.put(self._notes_address, self.playing_notes_text())
 
     def launcher(self):
         launcher = self.daw.launcher
@@ -180,22 +346,27 @@ class ZynReporter(Reporter):
         count = launcher.num_phrases()
         selected = launcher.selected_phrase if track.selected else -1
         recording = launcher.recording and launcher.selected_sequence() is not None
+        put = self.put
         for phrase in range(count):
-            slot = f"{prefix}slot/{phrase}/"
+            key = (prefix, phrase)
+            addresses = self._slot_addresses.get(key)
+            if addresses is None:
+                addresses = self._slot_addresses[key] = tuple(f"{prefix}slot/{phrase}/{name}" for name in SLOT_VALUES)
+            exists, has_content, name, color, is_selected, is_playing, is_play_queued, is_stop_queued, is_recording, rec_queued = addresses
             state = launcher.play_state(phrase, chan)
             content = launcher.has_content(phrase, chan)
-            self.put(slot + "exists", True)
-            self.put(slot + "hasContent", content)
-            self.put(slot + "name", launcher.slot_name(phrase, chan))
+            put(exists, True)
+            put(has_content, content)
+            put(name, launcher.slot_name(phrase, chan))
             # An empty slot has no color (as Bitwig's; zynthian's launcher shows it gray)
-            self.put(slot + "color", track.color if content else (0, 0, 0))
-            self.put(slot + "selected", phrase == selected)
+            put(color, track.color if content else (0, 0, 0))
+            put(is_selected, phrase == selected)
             playing, play_queued, stop_queued = slot_states(state)
-            self.put(slot + "playing", playing)
-            self.put(slot + "playQueued", play_queued)
-            self.put(slot + "stopQueued", stop_queued)
-            self.put(slot + "recording", recording and phrase == selected)
-            self.put(slot + "recQueued", False)
+            put(is_playing, playing)
+            put(is_play_queued, play_queued)
+            put(is_stop_queued, stop_queued)
+            put(is_recording, recording and phrase == selected)
+            put(rec_queued, False)
         self.put(prefix + "slot/count", count)
 
     def collect_scenes(self):
@@ -206,7 +377,7 @@ class ZynReporter(Reporter):
         self.put("/scene/offset", self.banks.scene_offset)
         count = launcher.num_phrases()
         for phrase in range(count):
-            prefix = f"/scene/{phrase}/"
+            prefix = self.prefix("scene", phrase)
             self.put(prefix + "exists", True)
             self.put(prefix + "number", phrase)
             self.put(prefix + "name", str(phrase + 1))
@@ -219,14 +390,17 @@ class ZynReporter(Reporter):
         tracks = self.daw.effect_tracks()
         self.put("/fxtrack/offset", self.banks.fx_track_offset)
         for position, track in enumerate(tracks):
-            prefix = f"/fxtrack/{position}/"
+            prefix = self.prefix("fxtrack", position)
             self.put(prefix + "exists", 1)
             self.put(prefix + "number", position)
             self.put(prefix + "type", track.type_name)
             self.put(prefix + "select", track.selected)
-            self.collect_track_flags(prefix, track)
-            self.collect_channel(prefix, track)
-            self.collect_sends(prefix, track, with_color=False)
+            mixer = "mixer" in self.refreshing
+            if mixer:
+                self.collect_track_flags(prefix, track)
+            self.collect_channel(prefix, track, mixer)
+            if mixer:
+                self.collect_sends(prefix, track, with_color=False)
         self.collect_removed("fxtrack", len(tracks))
         self.put("/fxtrack/count", len(tracks))
 
@@ -236,7 +410,7 @@ class ZynReporter(Reporter):
             return
         self.put("/master/select", master.selected)
         self.collect_vu("/master/", master)
-        self.collect_channel("/master/", master)
+        self.collect_channel("/master/", master, "mixer" in self.refreshing)
 
     def collect_project(self):
         """zynthian has no undo history (only the pattern editor's): nothing to undo or redo."""
@@ -302,23 +476,32 @@ class ZynReporter(Reporter):
         pages = device.page_names() if exists else []
         used = min(len(pages), num_pages)
         for index in range(num_pages * PARAMS_PER_PAGE):
-            param = f"{prefix}/param/{index}/"
+            name, value, text, steps, modulated = self.param_addresses(prefix, index)
             parameter = device.parameter(index) if exists and index < used * PARAMS_PER_PAGE else None
             if parameter is not None and parameter.exists:
-                self.put(param + "name", parameter.name)
-                self.put(param + "value", parameter.value)
-                self.put_parameter_text(param + "value/str", parameter)
+                self.put(name, parameter.name)
+                self.put(value, parameter.value)
+                self.put_parameter_text(text, parameter)
             else:
-                self.put(param + "name", "")
-                self.put(param + "value", 0.0)
-                self.put_displayed(param + "value/str", "", ["", ""])
-            self.put(param + "steps", -1)
-            self.put(param + "modulated", parameter.value if parameter is not None and parameter.exists else 0.0)
+                self.put(name, "")
+                self.put(value, 0.0)
+                self.put_displayed(text, "", ["", ""])
+            self.put(steps, -1)
+            self.put(modulated, parameter.value if parameter is not None and parameter.exists else 0.0)
         self.put(f"{prefix}/param/count", used * PARAMS_PER_PAGE)
         for index in range(used):
             self.put(f"{prefix}/page/{index}/name", pages[index])
         self.put(f"{prefix}/page/count", used)
         self.put(f"{prefix}/page/selected", device.selected_page if exists else -1)
+
+    def param_addresses(self, prefix, index):
+        """The addresses of a parameter: name, value, value/str, steps, modulated."""
+        key = (prefix, index)
+        addresses = self._param_addresses.get(key)
+        if addresses is None:
+            param = f"{prefix}/param/{index}/"
+            addresses = self._param_addresses[key] = tuple(param + name for name in ("name", "value", "value/str", "steps", "modulated"))
+        return addresses
 
     def collect_primary(self):
         """The first instrument (SpecificDevice.collect for the instrument matcher), if the
@@ -346,8 +529,10 @@ class ZynReporter(Reporter):
         self.put("/primary/hasMutedPads", False)
         self.put("/primary/hasSoloedPads", False)
         self.put("/primary/layer/count", 0)
-        for index in range(NUM_DRUM_PADS):
-            self.put(f"/primary/pad/{index}/exists", False)
+        if self._pad_addresses is None:
+            self._pad_addresses = tuple(f"/primary/pad/{index}/exists" for index in range(NUM_DRUM_PADS))
+        for address in self._pad_addresses:
+            self.put(address, False)
 
     def collect_clip(self):
         """The cursor clip (clip.py): a pattern starts at 0 and loops over its beats; no

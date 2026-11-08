@@ -95,6 +95,132 @@ sudo perf report -i /tmp/dbm.perf --no-children -g none --sort dso,sym
 Recommendation: 1 and 2 first (Python, no API changes, the biggest part of the gain), then 3/4;
 native code (5 or 6) only if the remaining cost still matters, 5 being the smaller step.
 
+## Done (2026-11-08): options 1–3
+
+### 1. No controller without its device
+
+- **dbm-nihost** (`mk2_host`, `jam_host`, `daemon.cpp`; the messages in `src/midi.h` and the README):
+  - Before: the Mk2 sent its hello `F0 7D 44 42 4D 11 01 F7` when attached, on `dawConnected`
+    (`--virmidi`) and as the answer to the query `F0 7D 44 42 4D 11 F7`, the last two **also
+    without the device**. The JAM sent no dbm hello, only NI's "return from host" when attached,
+    and ignored the query.
+  - Now: the query is answered only while the device is attached (the Mk2 with its hello, the JAM
+    with "return from host", which its core already handles: a forced flush); `dawConnected` says
+    hello only with the device. New: **gone** `F0 7D 44 42 4D 13 F7` when the device disappears
+    (unplugged, or dbm-nihost stops: the hidraw thread reports the detach at its stop too). `13` is
+    free: the core uses `10` (labels), `11` (query, hello), `12` (Shift); `01`–`03` belong to the
+    conformance runner. The core doesn't know `13`: on Bitwig an unplug logs "Unhandled Sysex
+    message" once.
+  - Tests in `tests/host_test.cpp` (`testMk2Presence`, `testJamPresence`).
+- **The Maschine drivers** (`nihost_hello` in the Mk2 and JAM modules, the logic in
+  `zynthian_ctrldev_base_dbm.py`: `query_device`, `take_midi`, the loop): the query once at the
+  start, dormant (no bridge, no core, MIDI dropped) until the hello, dormant again after gone.
+  A hello which answers a query (the driver's or the Mk2 core's own, seen in `send_midi`) goes to
+  the core, so the Mk2's real Shift button is still announced; a hello which answers none (a replug,
+  a restarted dbm-nihost) restarts the controller, which sends all LEDs and displays again (the
+  black displays after a dbm-nihost restart). The LCXL and Launchpad drivers are unchanged
+  (`nihost_hello = None`). Tests: `test_driver.py` `NihostDeviceTest`.
+- With an older dbm-nihost: the Mk2 driver runs as before (the old host answers always), the JAM
+  driver waits for a replug of the JAM.
+
+### 2. Two rates
+
+`dbm_zynthian/reporter.py`, `bridge.py`, `commands.py`:
+
+- **Fast, every pass:** `collect_transport`, `collect_meters` (the VU of the tracks and the master
+  of the last full pass, the playing notes of the cursor track), `collect_playing_steps`.
+- **Slow part** in subtrees (`SUBTREES`: host, tracks, mixer, slots, transport, device, clip,
+  browser), each callable alone (`collect_subtrees(set)`); for now a full pass collects all.
+- **A full pass** after a command of the core (`ZynCommandHandler.handle` → `request_full`), a
+  change signal of zynthian (registered by `ZynBridge.start`, see below), a dump (`refresh`, the
+  driver's chain/snapshot refresh), a due "report again" of a value command (300 ms), else every
+  `SLOW_INTERVAL_MS` = 250 ms. The order of the lines in a full pass is unchanged.
+- **Signals used** (`bridge.change_signals`, each with the subtrees it affects; direct callbacks
+  that only set the reporter's flag): `S_MIXER/SS_ZYNMIXER_SET_VALUE` (level, balance, mute, solo,
+  record arm, also from zynthian's UI) → mixer; `S_PROCESSOR/SS_PROCESSOR_BYPASS`,
+  `SS_PROCESSOR_CTRL_SCREENS` → device; `S_CHAIN_MAN/SS_SET_ACTIVE_CHAIN`, `SS_ADD_CHAIN`,
+  `SS_REMOVE_CHAIN`, `SS_REMOVE_ALL_CHAINS`, `SS_MOVE_CHAIN` → tracks, mixer, slots, device, clip,
+  browser; `SS_RENAME_CHAIN` → tracks; `SS_ADD_PROCESSOR`, `SS_REMOVE_PROCESSOR` → device, browser;
+  `S_STEPSEQ/SS_SEQ_PLAY_STATE` → slots; `SS_SEQ_STATE`, `SS_SEQ_SELECT_PHRASE` → slots, clip;
+  `SS_SEQ_TEMPO`, `SS_SEQ_METRO` → transport; `SS_SEQ_TIMESIG` → transport, clip;
+  `S_STATE_MAN/SS_LOAD_ZS3` → all. Not used: `SS_SEQ_BEAT` (every beat), `SS_AUDIO_RECORDER_ARM`
+  (defined, never sent; the arm comes with zynmixer's `record`).
+- **No signal** (the 250 ms pass covers them): the send levels (zynmixer's `set_send` sends none),
+  the parameter values of the processors (also when changed in zynthian's UI or by MIDI learn),
+  the sequences' names and note edits in the pattern editor (`libseq.addNote` directly), the
+  position in zynthian's preset and Add Chain views (the browser), the play states between
+  zynseq's `update_state` calls (the status thread, every 200 ms; then `SS_SEQ_PLAY_STATE`).
+- Tests: `test_rates.py`. The model tests which change the stand-ins directly and call `collect`
+  ask for a full pass (`request_full`) in their `report()` helper: the rate is the only difference;
+  the stand-ins now send zynthian's signals (`zynstubs.send_signal`: zynmixer's for the mixer
+  strips, the chain manager's for add/remove/active chain; delivered at once). No comparison was
+  changed; the conformance runs (`test_conformance_lcxl.py`) pass unchanged.
+
+### 3. A cheaper `put`
+
+- `dbm_host.Reporter.put` compares the raw value (same type and equal) before formatting it
+  (`last_raw`, only immutable values; `forget` drops it too); `put_displayed` builds its `/6`, `/8`
+  addresses once. The reference host's output is identical (all reports of `bindings/python/tests`
+  compared before/after).
+- `ZynReporter` builds the track, effect track and scene prefixes, the slot addresses, the parameter
+  addresses of the pages, the 128 `/primary/pad` addresses and the playing step addresses once.
+
+### Numbers
+
+`backends/zynthian/tests/test_cpu.py`: the Mk2 against the stand-ins (8 chains, 8 phrases, a synth
+with 4 pages), idle, 300 ticks of 30 ms on simulated time, x86 (this host, not the Duet):
+
+| | `put` per tick | `collect()` mean | median |
+|---|---|---|---|
+| before | 1585 | 1.52 ms | 1.51 ms |
+| option 3 only | 1585 | 1.13 ms | 1.13 ms |
+| options 2 + 3 | 227 (1585 in a full pass, ~60 in a fast one) | 0.17 ms | 0.05 ms (fast pass) |
+
+33 full passes in 300 ticks (one per 250 ms). Per controller: ~9x less time in `collect()`; with
+option 1 the JAM driver costs nothing without a JAM. On the Duet the profile had 18 collects per
+second at ~923 puts (each pass overran the 30 ms tick); expected now: up to ~33 cheap fast passes
+and 4 full ones per second (not measured there yet).
+
+To check on the Duet: the method above (`sys.remote_exec` sampler, `perf`); expected: the JAM
+thread idle without a JAM, the Mk2 thread well below its 42 %.
+
+## Next: event-driven collection per subtree (plan)
+
+Signals mark subtrees dirty and only the dirty subtrees are collected; polling stays only for the
+continuous values (transport position and play state, playing step, VU, playing notes) plus a slow
+safety-net pass (every few seconds instead of 250 ms).
+
+- **The adapter:** `ZynReporter.dirty` already collects the subtrees per signal and
+  `collect_subtrees` collects a set; the step is `collect_subtrees(dirty)` instead of all, then
+  finer keys (per chain for the mixer and sends from the signal's `chan`/`mixbus`, per phrase or
+  bank for the slots from `SS_SEQ_PLAY_STATE`'s `phrase`/`chan`). Commands of the core: dirty
+  subtrees from the command's processor (`track`, `device`, `clip`, …) instead of all.
+  The "report again" (300 ms) of a command: the subtree of its prefix.
+- **zynthian additions** (zynthian-ui, branch `dbm`):
+  - **zctrl value change signal**: in `zynthian_controller.set_value` / `send_value`
+    (`zyngine/zynthian_controller.py`), e.g. `S_PROCESSOR/SS_ZCTRL_SET_VALUE` (the Launchkey Mini
+    Mk4 driver already refers to a `SS_ZCTRL_SET_VALUE` which the signal manager lacks) with the
+    zctrl. Care for MIDI rates (a CC stream calls `set_value` per message): coalesce, e.g. send only
+    on the first change after the last delivery (a dirty flag per zctrl reset by the receiver) or
+    queued and deduplicated per zctrl. Small: ~20 lines in the controller and the signal manager,
+    plus the constant. Covers the processor parameters, and with it the send levels.
+  - **Send levels**: zynmixer's `set_send` (`zynlibs/zynmixer/zynmixer.py`) without
+    `SS_ZYNMIXER_SET_VALUE`; one `zynsigman.send` there, as for `level` (a few lines), or covered by
+    the zctrl signal.
+  - **zynseq content, names, note edits**: `SS_SEQ_STATE` comes only from `refresh_state` (phrases
+    inserted/removed/duplicated, channels enabled, a state loaded), not from note edits (the pattern
+    editor calls `libseq.addNote`/`removeNote` directly) nor from renaming a sequence. Either a
+    change counter per pattern / per bank in libseq (C++: incremented in the pattern's
+    add/remove/clear/copy, the sequence name; one getter; ~50 lines, also usable by option 5) which
+    the fast pass polls cheaply, or a signal from the pattern editor's edit paths (Python, several
+    places in `zyngui/zynthian_gui_patterneditor.py`/`zynthian_pated_*.py`, easy to miss one).
+    The counter is the safer one.
+  - **The browser / Add Chain views**: a signal when the selection of zynthian's list views changes
+    (`zyngui` selector screens, `select()`); small, but per UI (Tk and Qt). Until then the browser
+    stays on the safety-net pass while it is open (it is cheap while closed).
+  - The play state latency (zynseq's `update_state` every 200 ms in the status thread) stays as in
+    zynthian's own UI.
+
 ## Also seen
 
 - A freeze (LEDs frozen, no button reports, black displays after restarting dbm-nihost): the Mk2

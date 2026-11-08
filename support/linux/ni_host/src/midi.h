@@ -38,6 +38,47 @@ namespace dbm::nihost
         out( message, 3 );
     }
 
+    // The messages between DrivenByMoss and dbm-nihost (not in NI's driver): F0 7D 44 42 4D <id> ...
+    //   10 00 <56 characters> F7  the labels of the Mk2's buttons above the displays (to dbm-nihost)
+    //   11 F7                     the query whether the device is there (to dbm-nihost); the Mk2's
+    //                             core asks with it whether the Shift button is sent
+    //   11 01 F7                  the Mk2's hello: it is there and its Shift button is sent; also
+    //                             sent when it is attached and the DAW is connected
+    //   12 01|00 F7               the Mk2's Shift button down / up
+    //   13 F7                     the device is gone (unplugged, dbm-nihost stops); the zynthian
+    //                             drivers stop their controller until the next hello
+    // The JAM answers the query with NI's "return from host" sysex, its hello.
+    namespace dbm_sysex
+    {
+        constexpr uint8_t header[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D };
+        constexpr uint8_t labels = 0x10, host = 0x11, shift = 0x12, gone = 0x13;
+
+        // F0 7D 44 42 4D <id> F7, or with one value: F0 7D 44 42 4D <id> <value> F7
+        inline void send( const MidiOut& out, uint8_t id, int value = -1 )
+        {
+            uint8_t message[sizeof header + 3];
+            size_t  length = 0;
+            for( const uint8_t byte : header )
+                message[length++] = byte;
+            message[length++] = id;
+            if( value >= 0 )
+                message[length++] = (uint8_t)( value & 0x7F );
+            message[length++] = 0xF7;
+            out( message, length );
+        }
+
+        // F0 7D 44 42 4D 11 F7: the query whether the device is there
+        inline bool isQuery( const uint8_t* data, size_t length )
+        {
+            if( length != sizeof header + 2 || data[sizeof header] != host || data[sizeof header + 1] != 0xF7 )
+                return false;
+            for( size_t i = 0; i < sizeof header; i++ )
+                if( data[i] != header[i] )
+                    return false;
+            return true;
+        }
+    }
+
     // A relative value in two's complement (1 = +1, 127 = -1), as DrivenByMoss decodes it.
     inline int twosComplement( int steps )
     {

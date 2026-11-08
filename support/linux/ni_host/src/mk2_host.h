@@ -23,10 +23,12 @@ namespace dbm::nihost
         explicit Mk2Host( MidiOut out );
 
         // The device was attached: resend all LEDs and the displays, and announce that the Shift
-        // button is sent (see announceShift).
+        // button is sent (the hello, see announceShift).
         void attached();
+        // The device is gone (unplugged, or dbm-nihost stops): tell the DAW (F0 7D 44 42 4D 13 F7).
+        void detached();
         // The ports were connected to the DAW (snd-virmidi): announce that the Shift button is
-        // sent, for a DAW which was started before dbm-nihost.
+        // sent, for a DAW which was started before dbm-nihost (only while the device is there).
         void dawConnected();
         void hidReport( const uint8_t* report, size_t length );
         // A MIDI message from the DAW (short message or complete sysex).
@@ -46,8 +48,9 @@ namespace dbm::nihost
         void mk2Pad( int pad, bool down, int velocity ) override;
 
         void setButtonLed( int button, int value );
-        // Tell DrivenByMoss that the Shift button is sent (F0 7D 44 42 4D 11 01 F7), it no longer
-        // emulates Shift with STEP LEFT then; also the answer to its query (F0 7D 44 42 4D 11 F7).
+        // Tell DrivenByMoss that the device is there and the Shift button is sent (the hello,
+        // F0 7D 44 42 4D 11 01 F7), it no longer emulates Shift with STEP LEFT then; also the
+        // answer to its query (F0 7D 44 42 4D 11 F7) while the device is there.
         void announceShift();
 
         MaschineMk2    mk2;
@@ -61,6 +64,7 @@ namespace dbm::nihost
         // CC -> button for the LED feedback, note -> pad index
         std::map<int, int> ccButtons, notePads;
 
+        bool                                      present{ false }; // the device is attached
         std::array<int, MaschineMk2::numEncoders> encoderRemainder{};
         std::chrono::steady_clock::time_point     lastDisplayUpdate{};
     };

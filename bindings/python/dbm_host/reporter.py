@@ -89,12 +89,19 @@ def format_value(value) -> str:
     return ("" if value is None else str(value)).replace("\n", " ").replace("\r", " ")
 
 
+# No last raw value (None is a value)
+_NONE = object()
+
+# The values put keeps unformatted: they cannot change after the call (a tuple holds numbers)
+_IMMUTABLE = frozenset((bool, int, float, str, tuple, type(None)))
+
+
 class Reporter:
     """Collects the lines for ``dbm_update_model``.
 
     Remembers the last value of each address and reports only changes, unless a dump was
-    requested (the core's ``refresh``). Starts with a dump. The model is collected by the
-    ``collectors``, in order; the later steps append theirs.
+    requested (the core's ``refresh``); an unchanged raw value is not even formatted. Starts with
+    a dump. The model is collected by the ``collectors``, in order; the later steps append theirs.
     """
 
     def __init__(self, daw: SimDaw, banks: Banks, clock: Callable[[], float] = lambda: 0.0,
@@ -106,6 +113,10 @@ class Reporter:
         self.clock = clock
         self.features = features
         self.last_values: dict[str, str] = {}
+        self.last_raw: dict[str, object] = {}
+        """The last value of each address before formatting (``put`` compares it first; only
+        immutable values: flags, numbers, texts, colors)."""
+        self._limited_addresses: dict[str, tuple[str, ...]] = {}
         self.lines: list[str] = []
         self.dump_all = True
         self.pending: dict[str, float] = {}
@@ -143,6 +154,7 @@ class Reporter:
         """Report the values under the prefix again with the next collection."""
         for address in [a for a in self.last_values if a.startswith(prefix)]:
             del self.last_values[address]
+            self.last_raw.pop(address, None)
 
     def forget_later(self, prefix: str, delay_ms: float = REPORT_AGAIN_DELAY_MS) -> None:
         """As forget, after the delay counted from the last call for the prefix (HOST_BRIDGE_GUIDE
@@ -157,17 +169,30 @@ class Reporter:
                 del self.pending[prefix]
 
     def put(self, address: str, value) -> None:
+        # The same raw value as last time (of the same type: True, 1 and 1.0 have other texts)
+        # gives the same text: no formatting, nothing to report
+        if not self.dump_all:
+            last_raw = self.last_raw.get(address, _NONE)
+            if last_raw is not _NONE and type(last_raw) is type(value) and last_raw == value:
+                return
         text = format_value(value)
         last = self.last_values.get(address)
         self.last_values[address] = text
+        if type(value) in _IMMUTABLE:
+            self.last_raw[address] = value
+        else:
+            self.last_raw.pop(address, None)
         if self.dump_all or text != last:
             self.lines.append(f"{address} {text}")
 
     def put_displayed(self, address: str, text: str, limited: list[str] | None = None) -> None:
         """A displayed value and its shortened texts (``<address>/6``, ``/8``)."""
         self.put(address, text)
-        for limit, short in zip(LIMITS, limited or [text[:limit] for limit in LIMITS]):
-            self.put(f"{address}/{limit}", short)
+        addresses = self._limited_addresses.get(address)
+        if addresses is None:
+            addresses = self._limited_addresses[address] = tuple(f"{address}/{limit}" for limit in LIMITS)
+        for limited_address, short in zip(addresses, limited or [text[:limit] for limit in LIMITS]):
+            self.put(limited_address, short)
 
     def put_parameter_text(self, address: str, parameter: Parameter) -> None:
         self.put_displayed(address, parameter.displayed(), [parameter.displayed_limited(limit) for limit in LIMITS])

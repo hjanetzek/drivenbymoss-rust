@@ -60,6 +60,62 @@ static void setBit( Bytes& report, size_t firstByte, int bit )
     report[firstByte + (size_t)( bit / 8 )] |= (uint8_t)( 1 << ( bit % 8 ) );
 }
 
+// The query of DrivenByMoss whether the device is there, and the message that it is gone
+static const uint8_t query[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0xF7 };
+static const Bytes   gone    = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x13, 0xF7 };
+
+static void testJamPresence()
+{
+    Recorder    midi;
+    JamHost     host( midi.out() );
+    const Bytes returnFromHost = { 0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x46, 0x01, 0xF7 };
+    // no device: no answer
+    host.midiIn( query, sizeof query );
+    host.dawConnected();
+    CHECK( midi.midi.empty() );
+    // attached: the hello is NI's "return from host", also the answer to the query
+    host.attached();
+    CHECK( midi.midi.size() == 1 && midi.has( returnFromHost ) );
+    midi.midi.clear();
+    host.midiIn( query, sizeof query );
+    CHECK( midi.midi.size() == 1 && midi.has( returnFromHost ) );
+    midi.midi.clear();
+    // unplugged
+    host.detached();
+    CHECK( midi.midi.size() == 1 && midi.has( gone ) );
+    midi.midi.clear();
+    host.midiIn( query, sizeof query );
+    CHECK( midi.midi.empty() );
+    host.attached();
+    CHECK( midi.midi.size() == 1 && midi.has( returnFromHost ) );
+}
+
+static void testMk2Presence()
+{
+    Recorder    midi;
+    Mk2Host     host( midi.out() );
+    const Bytes hello = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0x01, 0xF7 };
+    // no device: no answer, no hello for a new DAW connection
+    host.midiIn( query, sizeof query );
+    host.dawConnected();
+    CHECK( midi.midi.empty() );
+    host.attached();
+    CHECK( midi.has( hello ) );
+    midi.midi.clear();
+    // unplugged: gone, and no answer until it is back
+    host.detached();
+    CHECK( midi.midi.size() == 1 && midi.has( gone ) );
+    midi.midi.clear();
+    host.midiIn( query, sizeof query );
+    host.dawConnected();
+    CHECK( midi.midi.empty() );
+    host.attached();
+    CHECK( midi.has( hello ) );
+    midi.midi.clear();
+    host.midiIn( query, sizeof query );
+    CHECK( midi.midi.size() == 1 && midi.has( hello ) );
+}
+
 static void testJam()
 {
     Recorder midi;
@@ -150,7 +206,6 @@ static void testMk2()
     CHECK( midi.midi.size() == 1 && midi.has( sendsShift ) );
     midi.midi.clear();
     // the answer to the query of DrivenByMoss
-    const uint8_t query[] = { 0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0xF7 };
     host.midiIn( query, sizeof query );
     CHECK( midi.midi.size() == 1 && midi.has( sendsShift ) );
 
@@ -251,7 +306,9 @@ int main()
     CHECK( paletteColour( 78 ).r > 200 );
     CHECK( paletteColour( 200 ).r == 0 );
     testJam();
+    testJamPresence();
     testMk2();
+    testMk2Presence();
     if( failures == 0 )
         std::printf( "All ni_host tests passed.\n" );
     return failures == 0 ? 0 : 1;

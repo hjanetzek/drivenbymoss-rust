@@ -138,8 +138,22 @@ namespace dbm::nihost
 
     void JamHost::attached()
     {
+        this->present = true;
         this->jam.reset();
         this->stripTouched = {};
+        this->sendReturnFromHost();
+    }
+
+
+    void JamHost::detached()
+    {
+        this->present = false;
+        dbm_sysex::send( this->out, dbm_sysex::gone );
+    }
+
+
+    void JamHost::sendReturnFromHost()
+    {
         uint8_t message[sizeof sysexHeader + 3];
         std::copy( std::begin( sysexHeader ), std::end( sysexHeader ), message );
         message[sizeof sysexHeader]     = commandReturnFromHost;
@@ -216,6 +230,14 @@ namespace dbm::nihost
             return;
         if( data[0] == 0xF0 )
         {
+            // The query of DrivenByMoss whether the device is there: the hello, no answer
+            // without the device
+            if( dbm_sysex::isQuery( data, length ) )
+            {
+                if( this->present )
+                    this->sendReturnFromHost();
+                return;
+            }
             this->handleSysex( data, length );
             return;
         }
