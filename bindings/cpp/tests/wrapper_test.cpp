@@ -29,6 +29,33 @@ public:
     std::vector<int> opened;
     std::vector<std::string> logs;
     bool throwOnCommand{ false };
+    /** The commands of the binary form as text, and the typed ones seen by the views. */
+    std::vector<std::string> binary;
+    int refreshes{ 0 };
+    int fxBank{ -1 };
+
+    void processCommands (const uint8_t *buffer, size_t length) override
+    {
+        this->binary.push_back (dbm::messagesToText (buffer, length));
+        for (const dbm::protocol::Record &r : dbm::protocol::Reader (buffer, length))
+        {
+            switch (r.cmd ())
+            {
+                case dbm::protocol::Cmd::Refresh:
+                    this->refreshes++;
+                    break;
+                case dbm::protocol::Cmd::BankScroll:
+                {
+                    const auto c = r.as<dbm::protocol::cmd::BankScroll> ();
+                    if (c.bank () == DBM_PROCESSOR_FX_TRACK)
+                        this->fxBank = c.value ();
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    }
 
     void log (const std::string &message) override { this->logs.push_back (message); }
 
@@ -120,6 +147,72 @@ int main (int argc, char **argv)
         CHECK (single.opened == (std::vector<int>{ 0, 0 }));
         CHECK (app.getModelSetup ().find ("\"numSends\":2") != std::string::npos);
         CHECK (!single.logs.empty ());
+    }
+
+    // The binary form of the protocol
+    {
+        RecordingBackend single;
+        dbm::App app = dbm::App::forController (single, "5AFA5045-FF92-4737-A091-5B371CD5E529", dir, "Bitwig Studio 5.3", DBM_FLAG_HOST_TICK);
+        CHECK (app.useBinaryCommands ());
+        app.startInfrastructure ();
+        CHECK (single.commands.empty ());
+        CHECK (!single.binary.empty ());
+        CHECK (single.refreshes == 1);
+        CHECK (single.binary[0] == "noArg\trefresh\t");
+        // The typed views of the commands
+        const std::vector<uint8_t> commands = dbm::messagesFromText ("int\ttrack\t3/mute\t1\nint\tbank\tfxtrack\t2\ndouble\tdevice\tparam/5/value/inc\t-0.5");
+        single.processCommands (commands.data (), commands.size ());
+        CHECK (single.fxBank == 2);
+        int seen = 0;
+        for (const dbm::protocol::Record &r : dbm::protocol::Reader (commands.data (), commands.size ()))
+        {
+            if (r.cmd () == dbm::protocol::Cmd::ChannelMute)
+            {
+                const auto c = r.as<dbm::protocol::cmd::ChannelMute> ();
+                CHECK (c.ch_kind () == DBM_CHAN_KIND_TRACK && c.ch_processor () == DBM_PROCESSOR_TRACK && c.ch_index () == 3 && c.value ());
+                seen++;
+            }
+            else if (r.cmd () == dbm::protocol::Cmd::ParamValue)
+            {
+                const auto c = r.as<dbm::protocol::cmd::ParamValue> ();
+                CHECK (c.op () == DBM_OP_INC && c.value () == -0.5 && c.dev () == DBM_PROCESSOR_DEVICE && c.param () == 5);
+                seen++;
+            }
+        }
+        CHECK (seen == 2);
+
+        dbm::protocol::Writer report;
+        report.trackCount (4);
+        report.channelExists (DBM_CH_KIND_TRACK, 0, true);
+        report.channelName (DBM_CH_KIND_TRACK, 0, "Synth");
+        report.channelColor (DBM_CH_KIND_TRACK, 0, dbm::protocol::Color{ 255, 0, 51, true });
+        report.channelVolumeStr (DBM_CH_KIND_TRACK, 0, 8, "-6 dB");
+        report.paramValue (DBM_PARAM_OWNER_DEVICE, 3, 0.25);
+        CHECK (dbm::messagesToText (report.data (), report.size ()) == "/track/count 4\n/track/0/exists 1\n/track/0/name Synth\n/track/0/color 255 0 51\n/track/0/volume/str/8 -6 dB\n/device/param/3/value 0.25");
+        const std::vector<uint8_t> converted = dbm::messagesFromText ("/track/count 4\n/track/0/exists 1\n/track/0/name Synth\n/track/0/color 255 0 51\n/track/0/volume/str/8 -6 dB\n/device/param/3/value 0.25");
+        CHECK (converted == std::vector<uint8_t> (report.data (), report.data () + report.size ()));
+        app.updateModelBin (report);
+        app.tick ();
+        CHECK (single.commands.empty ());
+
+        // The reader of a C buffer
+        uint8_t data[64];
+        DbmWriter w;
+        dbm_writer_init (&w, data, sizeof (data));
+        CHECK (dbm_put_f64 (&w, DBM_MSG_TEMPO, 0, 0, 0, 0, 120.5) == 1);
+        CHECK (dbm_put_text (&w, DBM_MSG_PROJECT_NAME, 0, 0, 0, 0, "Song", 4) == 1);
+        CHECK (dbm_put_text (&w, DBM_MSG_PROJECT_NAME, 0, 0, 0, 0, "Too long for the buffer", 23) == 0);
+        int records = 0;
+        for (const dbm::protocol::Record &r : dbm::protocol::Reader (data, w.size))
+        {
+            records++;
+            if (r.msg () == dbm::protocol::Msg::Tempo)
+                CHECK (r.doubleValue () == 120.5);
+            else
+                CHECK (r.text () == "Song");
+        }
+        CHECK (records == 2);
+        CHECK (dbm::messagesToText (data, w.size) == "/tempo 120.5\n/project/name Song");
     }
 
     // A second, empty backend with all default (no-op) functions

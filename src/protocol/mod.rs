@@ -16,6 +16,7 @@ mod macros;
 pub mod types;
 pub mod bin;
 pub mod cmd;
+pub mod gen;
 pub mod legacy;
 pub mod msg;
 pub mod text;
@@ -25,3 +26,16 @@ pub use legacy::{Arg, Enable, Legacy};
 pub use msg::{BrowserItem, Ch, Dev, HostParam, Msg, MsgId, MsgInfo, PadRef, PageOwner, ParamOwner, MESSAGES};
 pub use text::Miss;
 pub use types::*;
+
+/// The hash of the tables (FNV-1a over a normalized text of every message and command: ID,
+/// name, template, index slots, value type), `DBM_PROTOCOL_HASH` of the generated bindings.
+pub fn protocol_hash() -> u64 {
+    let mut text = String::new();
+    for info in MESSAGES {
+        text.push_str(&format!("{:04x} {} {} {:?} {}\n", info.id as u16, info.name, info.template, info.id.index_slots(), info.id.value_type()));
+    }
+    for info in COMMANDS {
+        text.push_str(&format!("{:04x} {} {:?} {} {:?} {}\n", info.id as u16, info.name, info.processor, info.template, info.id.index_slots(), info.id.value_type()));
+    }
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3))
+}

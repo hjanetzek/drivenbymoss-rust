@@ -26,6 +26,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "dbm_protocol.h"
 
 // Flag for [`dbm_create`]: do not start the internal timer thread. The host must call
 // [`dbm_tick`] regularly (every 30ms is recommended) instead.
@@ -84,6 +85,10 @@ typedef struct DbmCallbacks {
   // the message of a caught panic).
   void (*log)(void *user, const char *message);
 } DbmCallbacks;
+
+// Receives the commands of an instance in the binary form ([`dbm_set_command_callback`]): a
+// buffer of records (`include/dbm_protocol.h`), valid during the call.
+typedef void (*DbmCommands)(void *user, const uint8_t *buffer, size_t length);
 
 #ifdef __cplusplus
 extern "C" {
@@ -183,6 +188,59 @@ void dbm_set_time(struct DbmApp *app, uint64_t time_ms);
 // `app` must be a valid handle (or null); `data` must be a valid NUL terminated string (or
 // null).
 void dbm_update_model(struct DbmApp *app, const char *data);
+
+// The protocol identity of the library: the major version (the layout of the binary form),
+// the minor version (IDs added) and the hash of the tables (`DBM_PROTOCOL_*` in
+// `dbm_protocol.h`). Null pointers are skipped.
+//
+// # Safety
+// The pointers must be null or valid for writing.
+void dbm_protocol_info(uint32_t *major, uint32_t *minor, uint64_t *hash);
+
+// Switch the commands of the instance to the binary form: from now on they are delivered to
+// `callback` as buffers of records instead of the text callbacks (`process_no_arg`, …). The
+// commands of a call are buffered and delivered before any other callback and at the end of
+// the call. Call it before [`dbm_start_infrastructure`] (its first commands are `refresh` and
+// `bank fxtrack 0`). `handled` is an optional bitset over the command IDs the host handles
+// (word i bit j = ID 0x8000 + 64*i + j), null for all: the library logs a command the host does
+// not handle once, with its text. Returns 1, or 0 (and keeps the text callbacks) if `major`
+// differs from the library's major version or `callback` is null.
+//
+// # Safety
+// `app` must be a valid handle (or null); `handled` must be null or point to `handled_words`
+// readable words; `user` must stay valid until [`dbm_destroy`].
+int dbm_set_command_callback(struct DbmApp *app,
+                             uint32_t major,
+                             void (*callback)(void *user, const uint8_t *buffer, size_t length),
+                             void *user,
+                             const uint64_t *handled,
+                             size_t handled_words);
+
+// Update the model with a buffer of binary records (one buffer = one report), the binary form
+// of [`dbm_update_model`]. Both can be used on the same instance.
+//
+// # Safety
+// `app` must be a valid handle (or null); `buffer` must point to `length` readable bytes.
+void dbm_update_model_bin(struct DbmApp *app, const uint8_t *buffer, size_t length);
+
+// The text of a binary buffer, one line per record: the report line of a message
+// (`/track/3/volume 0.5`) or the legacy line of a command (`double<TAB>track<TAB>3/volume<TAB>0.5`,
+// the kinds of the recordings). For logs, recordings, tests and tools. Release it with
+// [`dbm_free_string`].
+//
+// # Safety
+// `buffer` must point to `length` readable bytes (or be null).
+char *dbm_messages_to_text(const uint8_t *buffer, size_t length);
+
+// The binary buffer of a text (report lines and legacy command lines, see
+// [`dbm_messages_to_text`]); lines which are not in the tables are skipped. Writes the buffer to
+// `out` if it fits into `capacity` bytes and returns its size (call it with a null `out` to get
+// the size).
+//
+// # Safety
+// `text` must be a valid NUL terminated string (or null); `out` must be null or point to
+// `capacity` writable bytes.
+size_t dbm_messages_from_text(const char *text, uint8_t *out, size_t capacity);
 
 // Display the application window (there is no UI yet, the log is printed instead).
 //

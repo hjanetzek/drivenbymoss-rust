@@ -36,6 +36,10 @@ state. Commands are fire-and-forget; their effect comes back as model updates.
 | `dbm_add_device(app, name, identifier)` / `addDevice` | register an installed plugin (device browser); currently only stored in `App::devices` (?) unused |
 | `dbm_start_infrastructure(app)` / `startInfrastructure` | start all controller instances (open MIDI ports via callbacks), send `refresh`; start timer unless `DBM_FLAG_HOST_TICK`. Idempotent (`is_started`). Controller `startup` runs ~1 s later (`STARTUP_DELAY_MS`) inside `tick` |
 | `dbm_update_model(app, data)` / `updateModel` | push model text (this document) |
+| `dbm_update_model_bin(app, buffer, length)` / `updateModelBin` | the same in the binary form: a buffer of records (`include/dbm_protocol.h`, TYPED_PROTOCOL_PLAN §2.2); text and binary can be mixed. Reaper stays on the text form |
+| `dbm_set_command_callback(app, major, callback, user, handled, words)` / `useBinaryCommands` | commands as buffers of binary records (one per call, delivered before any other callback and at the end of the call) instead of the `process_*` callbacks; call before `dbm_start_infrastructure`; returns 0 for another major version. `handled`: optional bitset of the command IDs the host executes (others are logged once) |
+| `dbm_protocol_info(&major, &minor, &hash)` | the protocol identity (`DBM_PROTOCOL_*` of `dbm_protocol.h`) |
+| `dbm_messages_to_text(buffer, length)` / `messagesToText`, `dbm_messages_from_text(text, out, capacity)` / `messagesFromText` | conversions between the binary form and the text (report lines; commands as `<kind>\t<processor>\t<command>[\t<value>]`, the kinds of the recordings), for logs, recordings and tests |
 | `dbm_tick(app)` / `tick` | run due tasks, delayed startup, `handle_changes`, `flush` (controller output); every 30 ms recommended |
 | `dbm_set_time(app, ms)` / `setTime` | run on the host's time (ms since `dbm_create*`) instead of the clock from now on; call before each `tick` (simulations, tests). Earlier times count as the last one |
 | `dbm_restart_controllers(app)` / `restartControllers` | stop + start all instances, sends `refresh` |

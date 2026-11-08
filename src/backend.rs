@@ -99,7 +99,8 @@ impl Processor {
         }
     }
 
-    /// All processors.
+    /// All processors. The position is the number of the processor in the binary protocol
+    /// (`protocol::bin`): append only.
     pub const ALL: [Processor; 38] = [
         Processor::Transport,
         Processor::Project,

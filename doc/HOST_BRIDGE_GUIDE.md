@@ -163,6 +163,19 @@ Unknown addresses are logged as `ERROR: Unhandled …` and ignored.
 
 Note the asymmetry: reported colors are `r g b`, colors in **commands** are `RGB(r,g,b)`.
 
+**The binary form** (TYPED_PROTOCOL_PLAN.md §2.2–§2.7, step 1): the same reports and commands as
+typed records. A host writes one buffer of records per report and passes it to
+`dbm_update_model_bin(app, buffer, length)` (text and binary can be mixed); after
+`dbm_set_command_callback(app, DBM_PROTOCOL_VERSION_MAJOR, callback, user, handled, words)`
+(before `dbm_start_infrastructure`; 0 = another major version, the text callbacks stay) the
+commands of a call arrive as one buffer of records, before any other callback and at the end
+of the call. The IDs, index slots and value types are generated from the tables in
+`src/protocol/` into `include/dbm_protocol.h` (C: writers `dbm_put_*`, reader
+`dbm_next_record`) and `bindings/cpp/include/dbm_protocol.hpp` (C++: a `Writer` with a method per
+report, a `Reader` and a view per command), by `cargo run --bin dbm-protocol-gen`.
+`dbm_messages_to_text` / `dbm_messages_from_text` convert between both forms (logs, recordings,
+tests); `dbm_protocol_info` gives the version and the hash of the tables.
+
 Existence: for parameters, sends and device siblings the **name** sets existence (empty name =
 does not exist). Tracks, scenes, slots, pads and layers have an explicit `exists`.
 

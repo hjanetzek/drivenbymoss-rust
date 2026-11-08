@@ -20,7 +20,14 @@ use std::time::Duration;
 
 use crate::app::App;
 use crate::backend::Backend;
+use std::cell::RefCell;
+
+use crate::protocol::bin::{self, Writer};
 use crate::protocol::{Arg, Cmd, Legacy};
+
+/// Receives the commands of an instance in the binary form ([`dbm_set_command_callback`]): a
+/// buffer of records (`include/dbm_protocol.h`), valid during the call.
+pub type DbmCommands = extern "C" fn(user: *mut c_void, buffer: *const u8, length: usize);
 
 /// Adds one MIDI device (ID and name) to a list, see `get_midi_inputs`.
 pub type DbmAddDevice = extern "C" fn(list: *mut c_void, id: c_int, name: *const c_char);
@@ -78,12 +85,58 @@ extern "C" fn add_device_to_list(list: *mut c_void, id: c_int, name: *const c_ch
     list.push((id, unsafe { from_c(name) }));
 }
 
+/// The binary command form of an instance ([`dbm_set_command_callback`]).
+struct BinaryCommands {
+    callback: DbmCommands,
+    user: *mut c_void,
+    writer: Writer,
+    /// The command IDs the host handles (word i bit j = ID 0x8000 + 64*i + j); empty: all.
+    handled: Vec<u64>,
+    /// The IDs logged as not handled (logged once per ID).
+    warned: std::collections::HashSet<u16>,
+}
+
 /// The backend which forwards all calls to the C++ callbacks.
 pub struct FfiBackend {
     callbacks: DbmCallbacks,
+    binary: RefCell<Option<BinaryCommands>>,
 }
 
 impl FfiBackend {
+    fn new(callbacks: DbmCallbacks) -> Self {
+        FfiBackend { callbacks, binary: RefCell::new(None) }
+    }
+
+    /// Deliver the buffered commands of the binary form (before any other callback and at the
+    /// end of every `dbm_*` call, so that the order of commands and other callbacks is kept).
+    fn flush(&self) {
+        let mut binary = self.binary.borrow_mut();
+        let Some(b) = binary.as_mut() else {
+            return;
+        };
+        if b.writer.is_empty() {
+            return;
+        }
+        let bytes = b.writer.as_bytes();
+        (b.callback)(b.user, bytes.as_ptr(), bytes.len());
+        b.writer.clear();
+    }
+
+    /// Log a command which the host declared as not handled, once per ID (phase 1 of the
+    /// handled-commands bitset, TYPED_PROTOCOL_PLAN §2.5).
+    fn check_handled(&self, b: &mut BinaryCommands, cmd: &Cmd) -> Option<String> {
+        if b.handled.is_empty() {
+            return None;
+        }
+        let id = cmd.id() as u16;
+        let bit = usize::from(id & 0x7FFF);
+        let handled = b.handled.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0);
+        if handled || !b.warned.insert(id) {
+            return None;
+        }
+        Some(format!("Command not handled by the host: {}", crate::protocol::bin::command_line(cmd).replace('\t', " ")))
+    }
+
     fn collect_devices(&self, get: Option<extern "C" fn(*mut c_void, *mut c_void, DbmAddDevice)>) -> Vec<(i32, String)> {
         let mut list: Vec<(i32, String)> = Vec::new();
         let Some(get) = get else {
@@ -98,6 +151,23 @@ impl Backend for FfiBackend {
     /// Deliver the legacy form of the command (`process_no_arg`, `process_int_arg`, …), as before
     /// the command table: the text is byte-identical.
     fn send_command(&self, cmd: &Cmd) {
+        let warning = {
+            let mut binary = self.binary.borrow_mut();
+            match binary.as_mut() {
+                Some(b) => {
+                    let warning = self.check_handled(b, cmd);
+                    cmd.encode(&mut b.writer);
+                    warning
+                }
+                None => None,
+            }
+        };
+        if let Some(warning) = warning {
+            self.log(&warning);
+        }
+        if self.binary.borrow().is_some() {
+            return;
+        }
         let Legacy { processor, command, arg } = cmd.legacy();
         let user = self.callbacks.user;
         let p = c_string(processor.id());
@@ -148,46 +218,55 @@ impl Backend for FfiBackend {
     }
 
     fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32) {
+        self.flush();
         if let Some(f) = self.callbacks.process_midi_arg {
             f(self.callbacks.user, device_id, status, data1, data2);
         }
     }
 
     fn midi_inputs(&self) -> Vec<(i32, String)> {
+        self.flush();
         self.collect_devices(self.callbacks.get_midi_inputs)
     }
 
     fn midi_outputs(&self) -> Vec<(i32, String)> {
+        self.flush();
         self.collect_devices(self.callbacks.get_midi_outputs)
     }
 
     fn open_midi_input(&self, device_id: i32) -> bool {
+        self.flush();
         self.callbacks.open_midi_input.is_some_and(|f| f(self.callbacks.user, device_id) != 0)
     }
 
     fn open_midi_output(&self, device_id: i32) -> bool {
+        self.flush();
         self.callbacks.open_midi_output.is_some_and(|f| f(self.callbacks.user, device_id) != 0)
     }
 
     fn close_midi_input(&self, device_id: i32) {
+        self.flush();
         if let Some(f) = self.callbacks.close_midi_input {
             f(self.callbacks.user, device_id);
         }
     }
 
     fn close_midi_output(&self, device_id: i32) {
+        self.flush();
         if let Some(f) = self.callbacks.close_midi_output {
             f(self.callbacks.user, device_id);
         }
     }
 
     fn send_midi_data(&self, device_id: i32, data: &[u8]) {
+        self.flush();
         if let Some(f) = self.callbacks.send_midi_data {
             f(self.callbacks.user, device_id, data.as_ptr(), data.len() as c_int);
         }
     }
 
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
+        self.flush();
         let strings: Vec<CString> = filters.iter().map(|f| c_string(f)).collect();
         let pointers: Vec<*const c_char> = strings.iter().map(|s| s.as_ptr()).collect();
         if let Some(f) = self.callbacks.set_note_input_filters {
@@ -196,18 +275,21 @@ impl Backend for FfiBackend {
     }
 
     fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]) {
+        self.flush();
         if let Some(f) = self.callbacks.set_note_input_key_translation_table {
             f(self.callbacks.user, device_id, note_input_index, table.as_ptr(), table.len() as c_int);
         }
     }
 
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]) {
+        self.flush();
         if let Some(f) = self.callbacks.set_note_input_velocity_translation_table {
             f(self.callbacks.user, device_id, note_input_index, table.as_ptr(), table.len() as c_int);
         }
     }
 
     fn log(&self, message: &str) {
+        self.flush();
         let m = c_string(message);
         if let Some(f) = self.callbacks.log {
             f(self.callbacks.user, m.as_ptr());
@@ -222,7 +304,7 @@ impl Backend for FfiBackend {
 /// Holds the application. The application uses `Rc` internally and is therefore not `Send`; it
 /// is only ever accessed while holding the mutex of its handle and none of its `Rc`s escape from
 /// it, which makes moving it between the calling threads sound.
-struct AppHolder(Option<App>);
+struct AppHolder(Option<App>, Option<Rc<FfiBackend>>);
 
 // SAFETY: see the documentation of `AppHolder`.
 unsafe impl Send for AppHolder {}
@@ -248,7 +330,12 @@ impl Inner {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            guard.0.as_mut().map(f)
+            let result = guard.0.as_mut().map(f);
+            // The end of the call: deliver the buffered commands of the binary form
+            if let Some(ffi) = &guard.1 {
+                ffi.flush();
+            }
+            result
         }));
         match result {
             Ok(Some(value)) => value,
@@ -338,8 +425,9 @@ pub unsafe extern "C" fn dbm_create(callbacks: *const DbmCallbacks, ini_path: *c
     let app_version = unsafe { from_c(app_version) };
     new_handle(flags, || {
         let (major, minor) = parse_version(&app_version);
-        let backend: Rc<dyn Backend> = Rc::new(FfiBackend { callbacks });
-        Some(App::new(backend, &ini_path, major, minor))
+        let ffi = Rc::new(FfiBackend::new(callbacks));
+        let backend: Rc<dyn Backend> = ffi.clone();
+        Some((App::new(backend, &ini_path, major, minor), ffi))
     })
 }
 
@@ -363,23 +451,24 @@ pub unsafe extern "C" fn dbm_create_controller(callbacks: *const DbmCallbacks, c
     let config_path = unsafe { from_c(config_path) };
     let app_version = unsafe { from_c(app_version) };
     new_handle(flags, || {
-        let backend: Rc<dyn Backend> = Rc::new(FfiBackend { callbacks });
-        App::new_single(backend, &config_path, &controller_id, &app_version)
+        let ffi = Rc::new(FfiBackend::new(callbacks));
+        let backend: Rc<dyn Backend> = ffi.clone();
+        App::new_single(backend, &config_path, &controller_id, &app_version).map(|app| (app, ffi))
     })
 }
 
 /// Create the application with the given function and wrap it in a handle. Returns null if the
 /// function returns `None` or panics.
-fn new_handle(flags: u32, create: impl FnOnce() -> Option<App> + std::panic::UnwindSafe) -> *mut DbmApp {
-    let app = match std::panic::catch_unwind(create) {
-        Ok(Some(app)) => app,
+fn new_handle(flags: u32, create: impl FnOnce() -> Option<(App, Rc<FfiBackend>)> + std::panic::UnwindSafe) -> *mut DbmApp {
+    let (app, ffi) = match std::panic::catch_unwind(create) {
+        Ok(Some(created)) => created,
         Ok(None) => return std::ptr::null_mut(),
         Err(_) => {
             eprintln!("[DrivenByMoss] Panic in the Rust library caught.");
             return std::ptr::null_mut();
         }
     };
-    let inner = Arc::new(Inner { app: Mutex::new(AppHolder(Some(app))), timer_running: AtomicBool::new(false) });
+    let inner = Arc::new(Inner { app: Mutex::new(AppHolder(Some(app), Some(ffi))), timer_running: AtomicBool::new(false) });
     Box::into_raw(Box::new(DbmApp { inner, flags, timer: Mutex::new(None) }))
 }
 
@@ -485,6 +574,115 @@ pub unsafe extern "C" fn dbm_set_time(app: *mut DbmApp, time_ms: u64) {
 pub unsafe extern "C" fn dbm_update_model(app: *mut DbmApp, data: *const c_char) {
     let data = unsafe { from_c(data) };
     unsafe { with_handle(app, (), |app| app.update_model(&data)) };
+}
+
+/// The protocol identity of the library: the major version (the layout of the binary form),
+/// the minor version (IDs added) and the hash of the tables (`DBM_PROTOCOL_*` in
+/// `dbm_protocol.h`). Null pointers are skipped.
+///
+/// # Safety
+/// The pointers must be null or valid for writing.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_protocol_info(major: *mut u32, minor: *mut u32, hash: *mut u64) {
+    unsafe {
+        if let Some(major) = major.as_mut() {
+            *major = u32::from(bin::VERSION_MAJOR);
+        }
+        if let Some(minor) = minor.as_mut() {
+            *minor = u32::from(bin::VERSION_MINOR);
+        }
+        if let Some(hash) = hash.as_mut() {
+            *hash = crate::protocol::protocol_hash();
+        }
+    }
+}
+
+/// Switch the commands of the instance to the binary form: from now on they are delivered to
+/// `callback` as buffers of records instead of the text callbacks (`process_no_arg`, …). The
+/// commands of a call are buffered and delivered before any other callback and at the end of
+/// the call. Call it before [`dbm_start_infrastructure`] (its first commands are `refresh` and
+/// `bank fxtrack 0`). `handled` is an optional bitset over the command IDs the host handles
+/// (word i bit j = ID 0x8000 + 64*i + j), null for all: the library logs a command the host does
+/// not handle once, with its text. Returns 1, or 0 (and keeps the text callbacks) if `major`
+/// differs from the library's major version or `callback` is null.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `handled` must be null or point to `handled_words`
+/// readable words; `user` must stay valid until [`dbm_destroy`].
+#[no_mangle]
+pub unsafe extern "C" fn dbm_set_command_callback(app: *mut DbmApp, major: u32, callback: Option<extern "C" fn(user: *mut c_void, buffer: *const u8, length: usize)>, user: *mut c_void, handled: *const u64, handled_words: usize) -> c_int {
+    let Some(callback) = callback else {
+        return 0;
+    };
+    if major != u32::from(bin::VERSION_MAJOR) {
+        return 0;
+    }
+    let handled = if handled.is_null() { Vec::new() } else { unsafe { std::slice::from_raw_parts(handled, handled_words) }.to_vec() };
+    let Some(app) = (unsafe { handle(app) }) else {
+        return 0;
+    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let guard = match app.inner.app.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(ffi) = &guard.1 else {
+            return 0;
+        };
+        // Commands so far went to the text callbacks
+        *ffi.binary.borrow_mut() = Some(BinaryCommands { callback, user, writer: Writer::new(), handled, warned: Default::default() });
+        1
+    }));
+    result.unwrap_or(0)
+}
+
+/// Update the model with a buffer of binary records (one buffer = one report), the binary form
+/// of [`dbm_update_model`]. Both can be used on the same instance.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `buffer` must point to `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_update_model_bin(app: *mut DbmApp, buffer: *const u8, length: usize) {
+    if buffer.is_null() {
+        return;
+    }
+    let data = unsafe { std::slice::from_raw_parts(buffer, length) };
+    unsafe { with_handle(app, (), |app| app.update_model_bin(data)) };
+}
+
+/// The text of a binary buffer, one line per record: the report line of a message
+/// (`/track/3/volume 0.5`) or the legacy line of a command (`double<TAB>track<TAB>3/volume<TAB>0.5`,
+/// the kinds of the recordings). For logs, recordings, tests and tools. Release it with
+/// [`dbm_free_string`].
+///
+/// # Safety
+/// `buffer` must point to `length` readable bytes (or be null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_messages_to_text(buffer: *const u8, length: usize) -> *mut c_char {
+    let data: &[u8] = if buffer.is_null() { &[] } else { unsafe { std::slice::from_raw_parts(buffer, length) } };
+    let text = std::panic::catch_unwind(|| bin::to_text(data)).unwrap_or_default();
+    c_string(&text).into_raw()
+}
+
+/// The binary buffer of a text (report lines and legacy command lines, see
+/// [`dbm_messages_to_text`]); lines which are not in the tables are skipped. Writes the buffer to
+/// `out` if it fits into `capacity` bytes and returns its size (call it with a null `out` to get
+/// the size).
+///
+/// # Safety
+/// `text` must be a valid NUL terminated string (or null); `out` must be null or point to
+/// `capacity` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_messages_from_text(text: *const c_char, out: *mut u8, capacity: usize) -> usize {
+    let text = unsafe { from_c(text) };
+    let Ok(writer) = std::panic::catch_unwind(|| bin::from_text(&text, &mut |_| {})) else {
+        return 0;
+    };
+    let bytes = writer.as_bytes();
+    if !out.is_null() && bytes.len() <= capacity {
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
+    }
+    bytes.len()
 }
 
 /// Display the application window (there is no UI yet, the log is printed instead).

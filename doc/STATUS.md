@@ -223,9 +223,10 @@ that is formatted on one side and parsed on the other.
   - The conformance replays must stay valid, recorded or converted.
 - The plan: [TYPED_PROTOCOL_PLAN.md](TYPED_PROTOCOL_PLAN.md) (BACKEND_PROTOCOL.md describes the
   current text protocol).
-- **Status:** steps 0a and 0b done (the command and the address table in `src/protocol/`, the
-  core sends `Cmd` values and applies `Msg` values, the text on the wire unchanged, plan §6);
-  next step 1 (the binary C ABI).
+- **Status:** steps 0a, 0b and 1 done (the command and the address table in `src/protocol/`,
+  the binary records, the binary C ABI next to the text one, the generated `dbm_protocol.h` and
+  C++ `dbm_protocol.hpp`, the replay passes in both forms; plan §6). Open before step 2: the
+  grid ID of the binary form does not fit the 1536-step grid of the raindrops view (plan §6.3).
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.

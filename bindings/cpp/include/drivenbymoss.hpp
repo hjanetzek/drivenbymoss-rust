@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "drivenbymoss.h"
+#include "dbm_protocol.hpp"
 
 
 namespace dbm
@@ -72,6 +73,10 @@ public:
     /** Translation table (128 entries, -1 blocks a note) for the notes of a note input. */
     virtual void setNoteInputKeyTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
     virtual void setNoteInputVelocityTranslationTable (int deviceId, int noteInputIndex, const std::vector<int> &table) { (void) deviceId; (void) noteInputIndex; (void) table; }
+
+    /** The commands in the binary form (after App::useBinaryCommands): a buffer of records, read
+        with dbm::protocol::Reader and the views of dbm::protocol::cmd; valid during the call. */
+    virtual void processCommands (const uint8_t *buffer, size_t length) { (void) buffer; (void) length; }
 
     /** A log message of the library. The library only writes its log to stderr itself if the host
         sets no log callback; the wrapper always sets one, so the default writes it to stderr. */
@@ -130,6 +135,7 @@ namespace detail
     inline void keyTable (void *u, int d, int i, const int *t, int n) { DBM_GUARD (backend (u).setNoteInputKeyTranslationTable (d, i, ints (t, n))) }
     inline void velocityTable (void *u, int d, int i, const int *t, int n) { DBM_GUARD (backend (u).setNoteInputVelocityTranslationTable (d, i, ints (t, n))) }
     inline void log (void *u, const char *m) { DBM_GUARD (backend (u).log (str (m))) }
+    inline void commands (void *u, const uint8_t *b, size_t n) { DBM_GUARD (backend (u).processCommands (b, n)) }
 
     /** Take ownership of a string returned by the library. */
     inline std::string take (char *text)
@@ -183,6 +189,22 @@ inline std::string listControllers ()
 }
 
 
+/** The text of a binary buffer (report lines, legacy command lines), see dbm_messages_to_text. */
+inline std::string messagesToText (const uint8_t *buffer, size_t length)
+{
+    return detail::take (dbm_messages_to_text (buffer, length));
+}
+
+
+/** The binary buffer of a text, see dbm_messages_from_text. */
+inline std::vector<uint8_t> messagesFromText (const std::string &text)
+{
+    std::vector<uint8_t> buffer (dbm_messages_from_text (text.c_str (), nullptr, 0));
+    dbm_messages_from_text (text.c_str (), buffer.data (), buffer.size ());
+    return buffer;
+}
+
+
 /**
  * An instance of DrivenByMoss (RAII wrapper of DbmApp). Not copyable, movable.
  */
@@ -197,7 +219,7 @@ public:
      * @param appVersion The version of the host application, e.g. "7.22/linux-x86_64"
      * @param flags A combination of the DBM_FLAG_* values
      */
-    App (Backend &backend, const std::string &iniPath, const std::string &appVersion, uint32_t flags = 0)
+    App (Backend &backend, const std::string &iniPath, const std::string &appVersion, uint32_t flags = 0) : backend (&backend)
     {
         const DbmCallbacks callbacks = detail::callbacks (backend);
         this->app = dbm_create (&callbacks, iniPath.c_str (), appVersion.c_str (), flags);
@@ -217,7 +239,7 @@ public:
     static App forController (Backend &backend, const std::string &controllerId, const std::string &configPath, const std::string &appVersion, uint32_t flags = 0)
     {
         const DbmCallbacks callbacks = detail::callbacks (backend);
-        return App (dbm_create_controller (&callbacks, controllerId.c_str (), configPath.c_str (), appVersion.c_str (), flags));
+        return App (dbm_create_controller (&callbacks, controllerId.c_str (), configPath.c_str (), appVersion.c_str (), flags), backend);
     }
 
     ~App () { dbm_destroy (this->app); }
@@ -225,11 +247,12 @@ public:
     App (const App &) = delete;
     App &operator= (const App &) = delete;
 
-    App (App &&other) noexcept : app (other.app) { other.app = nullptr; }
+    App (App &&other) noexcept : app (other.app), backend (other.backend) { other.app = nullptr; }
 
     App &operator= (App &&other) noexcept
     {
         std::swap (this->app, other.app);
+        std::swap (this->backend, other.backend);
         return *this;
     }
 
@@ -245,6 +268,23 @@ public:
     /** Run on the host's time (ms since the creation) instead of the clock, see dbm_set_time. */
     void setTime (uint64_t timeMs) { dbm_set_time (this->app, timeMs); }
     void updateModel (const std::string &data) { dbm_update_model (this->app, data.c_str ()); }
+    /** Report model values in the binary form (one buffer = one report). */
+    void updateModelBin (const uint8_t *buffer, size_t length) { dbm_update_model_bin (this->app, buffer, length); }
+    void updateModelBin (const protocol::Writer &report) { this->updateModelBin (report.data (), report.size ()); }
+
+    /**
+     * Receive the commands in the binary form (Backend::processCommands) instead of the text
+     * methods. Call it before startInfrastructure.
+     *
+     * @param handled Optional bitset of the command IDs the backend handles (word i bit j = ID
+     *            0x8000 + 64*i + j); the library logs a command it does not handle once
+     * @return False if the library has a different major version of the protocol (the text
+     *         methods stay)
+     */
+    bool useBinaryCommands (const std::vector<uint64_t> *handled = nullptr)
+    {
+        return dbm_set_command_callback (this->app, DBM_PROTOCOL_VERSION_MAJOR, detail::commands, this->backend, handled == nullptr ? nullptr : handled->data (), handled == nullptr ? 0 : handled->size ()) != 0;
+    }
     void onMidiEvent (int deviceId, const uint8_t *data, int length) { dbm_on_midi_event (this->app, deviceId, data, length); }
     void displayWindow () { dbm_display_window (this->app); }
     void displayProjectWindow () { dbm_display_project_window (this->app); }
@@ -259,9 +299,10 @@ public:
     std::string getModelSetup () { return detail::take (dbm_get_model_setup (this->app)); }
 
 private:
-    explicit App (DbmApp *handle) noexcept : app (handle) {}
+    App (DbmApp *handle, Backend &backend) noexcept : app (handle), backend (&backend) {}
 
     DbmApp *app{ nullptr };
+    Backend *backend{ nullptr };
 };
 
 } // namespace dbm

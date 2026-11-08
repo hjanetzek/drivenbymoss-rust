@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! /// doc
-//! Name = 0x8301 { field: Type, … } @ <processor> [ <segments> ] => <value>, feature = <F>;
+//! Name = 0x8301 { field: Type, … } @ <processor> [ <segments> ] => value: Type, feature = <F>;
 //! ```
 //!
 //! - `<processor>`: a fixed processor (`Transport`), `(field)` for a field which selects the
@@ -15,8 +15,9 @@
 //!   `[field]` for a field which selects the processor and is also written as segments
 //!   ([`super::Chan`]: `track` + `3/…`, `master` + nothing).
 //! - `<segments>`: string literals and fields ([`super::legacy::Field`]), joined with `/`.
-//! - `=> field`: the field holding the value ([`super::legacy::Value`]); `=> (= Type)`: a
-//!   constant value ([`super::legacy::ConstValue`]); nothing: `process_no_arg`.
+//! - `=> value: Type`: the value ([`super::legacy::Value`], [`super::bin::BinValue`]);
+//!   `= Type`: a constant value ([`super::legacy::ConstValue`]); nothing: `process_no_arg`. The
+//!   fields in the braces are the indices of the binary form ([`super::bin::BinIdx`]).
 //! - `feature = F`: the [`HostFeature`](crate::daw::HostFeature) the host needs to understand the
 //!   command (documentation; the call sites check it).
 //!
@@ -284,14 +285,15 @@ macro_rules! cmd_feature {
 ///
 /// ```text
 /// /// doc
-/// Name = 0x0301 { field: Type, … } [ <segments> ] => <value field> = <rule>;
+/// Name = 0x0301 { field: Type, … } [ <segments> ] => value: Type = <rule>;
 /// ```
 ///
 /// - `<segments>`: string literals, `("lit")` for an optional literal (accepted with and without,
 ///   written with it) and fields ([`super::text::Seg`]), joined with `/`. The text form is the
 ///   address `/<segments>`.
-/// - `=> field = rule`: the field holding the value and its parser in [`super::text::rules`],
-///   e.g. `= f64`, `= int_or(-1)`; nothing: the value is ignored.
+/// - `=> value: Type = rule`: the value and its parser in [`super::text::rules`], e.g. `= f64`,
+///   `= int_or(-1)`; nothing: the value is ignored. The fields in the braces are the indices of
+///   the binary form ([`super::bin::BinIdx`]).
 ///
 /// It expands into `Msg`, `MsgId`, `Msg::id`, `Msg::to_text`, `MsgId::decode`, `MsgId::patterns`
 /// and the metadata table `MESSAGES`.

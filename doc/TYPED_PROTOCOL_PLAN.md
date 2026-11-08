@@ -1,9 +1,11 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: **steps 0a and 0b done** (2026-11-08, branch `typed-protocol`): the command table and
-the address table in `src/protocol/`, `Cmd`/`CmdId` and `Msg`/`MsgId`; the core sends `Cmd`
-values and applies `Msg` values, the text on the wire is unchanged. Next: step 1. What was done,
-the choices and the deviations from this plan: §6. The decision and the motivation are in
+Status: **steps 0a, 0b and 1 done** (2026-11-08, branch `typed-protocol`): the command table and
+the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
+binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
+`dbm_protocol.hpp`; the replay passes in both forms. The hosts still use the text protocol.
+**Open: the grid ID** (§5.3 Q7 does not hold: the raindrops view has a 1536 × 128 grid, §6.3);
+it needs a decision before step 2. What was done, the choices and the deviations: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
@@ -902,8 +904,103 @@ conformance_replay`, the Python binding tests and conformance `--all` (195 the s
 errors), the Zynthian tests and the C++ wrapper tests pass unchanged; clippy is clean with and
 without `lua`.
 
-**Next: step 1** (§3, §2.2–§2.7): the binary record encode/decode in the core (from the two
-tables: indices from the address fields and the command fields, values by type),
-`dbm_update_model_bin`, `dbm_set_command_callback` with per-call buffering, the text
-conversions, the generator binary `dbm-protocol-gen` with the staleness test, the generated
-`include/dbm_protocol.h` and the C++ wrapper, and the replay's binary mode as the proof.
+### 6.3 Step 1 (done 2026-11-08)
+
+**What is there**
+- `src/protocol/bin.rs`: the layout of §2.2 (header `DBM1` + major version + flags, 24-byte
+  records, payload padded to 8), `Writer` (reused buffer), `records()` (an iterator which checks
+  the header and the lengths), `BinError` (header, truncated, unknown ID, value).
+  - `BinIdx`: the index encoding of every address and command field (in the order of the
+    table): numbers as u16, `i32` indices as i16, `Option<usize>` limit (0 = full text), `Pos1`
+    0-based, `GridId` = `steps << 8 | rows`, domains by their number, `Processor` by its
+    position in `Processor::ALL` (append only), and the composite fields with several slots:
+    `Ch` (kind, pos), `Chan` (kind, processor, index), `PadRef` (kind, dev, index), `HostParam`
+    (kind, param), `BrowserItem` (kind, column, item); `ParamOwner`/`PageOwner` one number.
+  - `BinValue`: bool, i32, f64 inline; text and text lists (`u32 count, (u32 len, bytes)…`) in
+    the payload; colors inline `r, g, b, valid`; notes as a struct array (32 bytes: `f64 start,
+    f64 end, i32 channel, i32 pitch, i32 velocity, u32 flags`); a step as 24 doubles
+    (`StepInfo::to_values`, no payload = empty step); `ChannelType`/`RecordQuantization` by
+    number; `ValueOp` = the op byte plus a double, a bool or nothing; `Signature`/`SlotRef` as an
+    inline pair of i32; `GridNote`/`StepValue` as 16-byte payload structs.
+  - `to_text`/`from_text`: the conversions; commands as legacy lines
+    `<kind>\t<processor>\t<command>[\t<value>…]` (the kinds of the recordings, fields escaped as
+    there).
+- The macros generate `Msg::encode`/`decode_record`, `Cmd::encode`/`decode_record`,
+  `MsgId`/`CmdId::from_u16`, `index_slots()` and `value_type()`. To tell the indices from the
+  value, **the value field moved out of the braces** in both tables (`=> value: Type [= rule]`;
+  the constant values are `= One`/`= Delay`).
+- `protocol_hash()`: FNV-1a over ID, name, template, index slots and value type of every entry.
+- The C ABI (`src/ffi.rs`, header by cbindgen, which now includes `dbm_protocol.h`):
+  `dbm_protocol_info`, `dbm_set_command_callback` (major check, the optional handled bitset),
+  `dbm_update_model_bin`, `dbm_messages_to_text`, `dbm_messages_from_text`; `DbmCallbacks` is
+  unchanged. `FfiBackend` buffers the commands in the binary mode and flushes them before every
+  other callback and at the end of every call (`Inner::with_app`, so also after the timer's
+  tick). Phase 1 of the handled bitset: a command the host does not handle is logged once per ID
+  (`Command not handled by the host: <legacy line>`).
+- `App::update_model_bin` (unknown IDs and bad values are logged once per ID and skipped),
+  `Parser::apply_msg` (shared by both forms).
+- The generator: `src/protocol/gen.rs` (the generators, `OUTPUTS`, the staleness test
+  `the_generated_bindings_are_up_to_date`) and `src/bin/dbm-protocol-gen.rs` (writes the files
+  which changed). Outputs: `include/dbm_protocol.h` (IDs with their template, index slots and
+  value type as comments, the domains as enums, `DbmRecord`, `DbmWriter` with `dbm_put_*`,
+  `dbm_check_header`/`dbm_next_record`) and `bindings/cpp/include/dbm_protocol.hpp` (C++14:
+  `enum class Msg/Cmd`, `Record`, a range-for `Reader`, a `Writer` with one method per report,
+  e.g. `w.channelVolume (DBM_CH_KIND_TRACK, 3, 0.5)`, and a view per command,
+  `r.as<cmd::ChannelMute> ().ch_index ()`).
+- The C++ wrapper (`drivenbymoss.hpp`): `Backend::processCommands`, `App::useBinaryCommands`,
+  `App::updateModelBin`, `messagesToText`/`messagesFromText`.
+- Tests: the record round trip of every message and command (8 samples each), text → record →
+  text for every table line, ≤ 4 index slots per ID, unknown IDs, truncation and wrong types;
+  `tests/ffi.rs` `binary_protocol` (major check, buffering, the handled bitset, the
+  conversions); the C++ wrapper test on the typed API (writer, reader, views, C writer);
+  **the replay's binary mode** (`replay_recorded_sessions_binary`: every model text converted
+  with `bin::from_text` and fed through `update_model_bin`, every command encoded and decoded
+  again before its legacy text is compared): all 21 recordings pass in both modes.
+
+**Choices and deviations from the plan**
+- **`GridStepAttribute`** had five index fields (grid, channel, step, note, attribute), one more
+  than the record holds. The attribute became part of the value (`StepValue { attr, value }`,
+  in the legacy text still the last segment), so the four indices stay.
+- **Per-type stable numbers** instead of a `domain` line per index in the table: the domains
+  of 0a/0b already have stable discriminants; `Processor`, `ChannelType` and
+  `RecordQuantization` use the order of their `ALL` lists, which are append only now (noted at
+  the lists). The generator lists them all in the C header.
+- **The binary replay is in-process**: `RecordingBackend::binary` encodes and decodes every
+  command, `App::update_model_bin` takes the converted reports. The C ABI itself (buffering,
+  flush order, callbacks) is tested in `tests/ffi.rs` and by the C++ wrapper test.
+- **The replay's temp dirs** are per mode (the text and the binary replay run in parallel and
+  shared one directory per recording, which made a run flaky).
+- **Colors** are bytes in the binary form: the text form accepts fractional values (none of the
+  hosts sends them); the record rounds them.
+- **`dbm_messages_to_text`** writes doubles in their shortest form (`{}`); the text hosts send
+  `%.6f`. Equal values, different text: the dual run of step 2 compares the parsed values or
+  rounds (§5.1).
+- Not yet: Python and Java outputs of the generator (steps 2 and 3); the recorder in the core
+  (§5.3 Q5, later); `host_supports` from the handled bitset (later, §2.5).
+- **Open, needs a decision: the grid ID.** §5.3 Q7 decided one index `steps << 8 | rows`
+  "checked when the model setup is created, all grids are ≤ 64 × 128". That does not hold: the
+  raindrops view (`abstract_raindrops_view.rs`, `MAX_STEPS = 1536`, as in Java) creates a
+  **1536 × 128** note clip, which is in the model setup's `noteClips` of the Launchpads and the
+  Maschine JAM, so Bitwig and the Python host report `/clip/grid/1536x128/…`. A check in
+  `Model::note_clip` showed it at once (5 core errors in the JAM conformance, 20 Zynthian
+  failures) and was removed again. Today `BinIdx for GridId` clamps to 255, so the binary form
+  would turn that grid into `255x128` (no recording contains it, so the replays pass). The
+  options:
+  1. two slots (steps, rows) and the channel and the row/note of the grid steps packed into one
+     slot (`channel << 8 | row`): stays stateless and in the layout, but needs a binary-only
+     combined field (channel and note are not adjacent in the text);
+  2. the grid as its position in the model setup's `noteClips`: one small slot, but the
+     conversions (`dbm_messages_to_text`/`from_text`) need the model setup;
+  3. a wider record (more or wider indices): a layout change for everything;
+  4. `steps` in 11 bits and the rows as a code of a fixed set (1, 8, 16, 32, 64, 128, …).
+- `src/parser_old.rs` (the differential test of 0b) is still there.
+
+**Proof:** `cargo test` (incl. the round trips and the staleness test), `cargo test --test
+conformance_replay` (both modes), the Python binding tests and conformance `--all` (195 the same),
+the Zynthian tests and the C++ wrapper tests; clippy clean with and without `lua`.
+
+**Next: the decision on the grid ID (above), then step 2** (§3): the generated `bindings/python/drivenbymoss/protocol.py` (a third output
+of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary ABI
+(`_ffi.py`: `dbm_set_command_callback`, `dbm_update_model_bin`, the conversions), `dbm_host`'s
+`Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`
+(the ops instead of the suffix splitting), the Zynthian adapter, and the dual-run check.

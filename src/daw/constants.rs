@@ -215,6 +215,7 @@ pub enum RecordQuantization {
 }
 
 impl RecordQuantization {
+    /// The position is the number in the binary protocol (`protocol::bin`): append only.
     pub const ALL: &'static [RecordQuantization] = &[
         RecordQuantization::ResOff,
         RecordQuantization::Res1_32,

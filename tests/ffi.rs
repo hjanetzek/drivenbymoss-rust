@@ -390,3 +390,54 @@ fn host_time_drives_the_instance() {
     unsafe { dbm_set_time(host.app, 0) };
     unsafe { dbm_tick(host.app) };
 }
+
+/// The commands of the binary form: one entry per delivered buffer, as text.
+extern "C" fn binary_commands(user: *mut c_void, buffer: *const u8, length: usize) {
+    let text = take_string(unsafe { dbm_messages_to_text(buffer, length) });
+    recorder(user).commands.push(format!("BIN {text}"));
+}
+
+fn binary(text: &str) -> Vec<u8> {
+    let text = CString::new(text).unwrap();
+    let size = unsafe { dbm_messages_from_text(text.as_ptr(), std::ptr::null_mut(), 0) };
+    let mut buffer = vec![0u8; size];
+    assert_eq!(unsafe { dbm_messages_from_text(text.as_ptr(), buffer.as_mut_ptr(), buffer.len()) }, size);
+    buffer
+}
+
+#[test]
+fn binary_protocol() {
+    let (mut major, mut minor, mut hash) = (0u32, 0u32, 0u64);
+    unsafe { dbm_protocol_info(&mut major, &mut minor, &mut hash) };
+    assert_eq!(major, 1);
+    assert_ne!(hash, 0);
+
+    let host = Host::single("binary", "5afa5045-ff92-4737-a091-5b371cd5e529");
+    let user = &*host.recorder as *const Mutex<Recorder> as *mut c_void;
+    // A different major version is refused (the text callbacks stay)
+    assert_eq!(unsafe { dbm_set_command_callback(host.app, major + 1, Some(binary_commands), user, std::ptr::null(), 0) }, 0);
+    // The host handles everything but `refresh` (0x8A03)
+    let mut handled = vec![u64::MAX; 64];
+    handled[0x0A03 / 64] &= !(1 << (0x0A03 % 64));
+    assert_eq!(unsafe { dbm_set_command_callback(host.app, major, Some(binary_commands), user, handled.as_ptr(), handled.len()) }, 1);
+    unsafe { dbm_start_infrastructure(host.app) };
+    {
+        let rec = host.rec();
+        // All commands of the call in buffers, none through the text callbacks
+        assert!(rec.commands.iter().all(|c| c.starts_with("BIN ")), "{:?}", rec.commands);
+        assert!(rec.commands.iter().any(|c| c.lines().any(|l| l == "BIN noArg\trefresh\t" || l == "noArg\trefresh\t")), "{:?}", rec.commands);
+        assert!(rec.logs.iter().any(|l| l.contains("Command not handled by the host: noArg refresh")), "{:?}", rec.logs);
+    }
+
+    // A report in the binary form changes the model as its text
+    host.rec().commands.clear();
+    let report = binary("/track/count 4\n/track/0/exists 1\n/track/0/name Synth\n/track/0/select 1\n/unknown 1");
+    assert_eq!(take_string(unsafe { dbm_messages_to_text(report.as_ptr(), report.len()) }), "/track/count 4\n/track/0/exists 1\n/track/0/name Synth\n/track/0/select 1");
+    unsafe { dbm_update_model_bin(host.app, report.as_ptr(), report.len()) };
+    let setup_before = host.rec().commands.len();
+    unsafe { dbm_tick(host.app) };
+    assert!(host.rec().commands.len() >= setup_before);
+    // A buffer which is not of the protocol is logged
+    unsafe { dbm_update_model_bin(host.app, b"nonsense".as_ptr(), 8) };
+    assert!(host.rec().logs.iter().any(|l| l.contains("Not a buffer of the binary protocol")), "{:?}", host.rec().logs);
+}
