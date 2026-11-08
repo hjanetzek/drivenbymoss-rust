@@ -72,8 +72,11 @@ class IdleTickTest(unittest.TestCase):
         bridge.advance(2000)
 
         reporter = bridge.reporter
-        # The time of collect() (without counting: the counting wrapper costs as much as a put)
-        collect = reporter.collect
+        # The time of the collection (without counting: the counting wrapper costs as much as a
+        # put): collect() of the text protocol, collect_pass() of the binary one (its buffer is
+        # taken by the bridge)
+        name = "collect_pass" if reporter.binary else "collect"
+        collect = getattr(reporter, name)
         times = []
 
         def timed_collect():
@@ -82,11 +85,11 @@ class IdleTickTest(unittest.TestCase):
             times.append(time.perf_counter() - start)
             return result
 
-        reporter.collect = timed_collect
+        setattr(reporter, name, timed_collect)
         full = getattr(reporter, "full_passes", None)
         for _ in range(TICKS):
             bridge.advance(TICK_MS)
-        del reporter.collect
+        delattr(reporter, name)
         if full is not None:
             print(f"\nidle Mk2: {reporter.full_passes - full} full passes of {TICKS}", file=sys.stderr)
 
@@ -108,6 +111,6 @@ class IdleTickTest(unittest.TestCase):
         ordered = sorted(times)
         median_us = ordered[len(ordered) // 2] * 1e6
         max_us = ordered[-1] * 1e6
-        print(f"\nidle Mk2, {TICKS} ticks: {per_tick:.0f} put per tick, collect() mean {mean_us:.0f} µs, "
+        print(f"\nidle Mk2 ({reporter.protocol}), {TICKS} ticks: {per_tick:.0f} put per tick, {name}() mean {mean_us:.0f} µs, "
               f"median {median_us:.0f} µs, max {max_us:.0f} µs", file=sys.stderr)
         self.assertGreater(per_tick, 0)

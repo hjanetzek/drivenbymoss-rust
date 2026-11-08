@@ -1042,6 +1042,37 @@ of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary A
 - Tests (`bindings/python/tests/test_binding.py`): the same session in text and binary gives the
   same commands and MIDI; the typed views; the writer against the text conversions.
 
+- **The reports of `dbm_host` on the binary path** (`dbm_host/reporter.py`): `Reporter.put(where,
+  value)` takes an address or a key (`protocol.key(id, i0, i1, i2, i3)`, one int). The
+  protocol is selectable per reporter (`protocol_=`) or by `DBM_HOST_PROTOCOL` = `text`,
+  `binary` (the default) or `check`:
+  - text: unchanged (lines, last values by address, `format_value`);
+  - binary: everything keyed by int. An address is resolved to its key once by the core
+    (`address_key`: `dbm_messages_from_text` of the address with a dummy value; the reverse,
+    `key_address`, by `dbm_messages_to_text`), cached for the process. The value is normalized
+    by the kind of the ID (bool: `> 0`, i32, f64 rounded to 6 decimals, text with line breaks
+    replaced, color tuple) and written into a `protocol.Writer`; a value of another type, the
+    ChannelType names, the playing notes and the grid steps are converted by the core from their
+    text (`_convert`, cached), so the record is exactly the text's. Messages without a value
+    (`/track/offset`) are reported when their text changes. Addresses which are not in the table
+    would go as text lines (`UNKNOWN_ADDRESSES`; none in the suites);
+  - check (the **dual run**): binary, and every record is compared with
+    `dbm_messages_from_text(<address> <format_value(value)>)`, i.e. the text line of the text
+    protocol converted by the core; a difference raises. **Decision:** the comparison is in the
+    binary form, not in the text: the shortest-form doubles of `dbm_messages_to_text` never
+    meet the `%.6f` text, and the writer rounds to 6 decimals (§5.1 transition mode), so the
+    text line and the record carry the same double, byte for byte.
+  - `collect()`/`take()` still return text (in binary the text of the written records, for the
+    tests); the bridges call `collect_pass()` and `take_buffer()` and send one
+    `update_model_bin` per pass (`Bridge.send_report`). `last_values` is a live read-only view
+    by address (text), so the tests which read `reporter.last_values["/track/4/name"]` run
+    unchanged. `ZynReporter.collect` became `collect_pass`.
+- The collectors still put by address (prebuilt strings): the binary path costs the same as the
+  text path so far (below). Moving the collectors to keys is the next part.
+- All suites pass in all three protocols: the Python tests (85), conformance `--all` (195 the
+  same), the Zynthian tests (204); `test_host.ReporterTest.test_binary_reports_equal_the_text`
+  runs the dual run in the default suite.
+
 **Measured** (x86-64, Python 3.14, 1,000 records, `bench_protocol.py`-like loops):
 
 | | ns per record/value |
@@ -1058,3 +1089,6 @@ tuple subclass with `itemgetter` properties measured 700. Commands are few (§4)
 stay the API, `iter_flat` the hot path. Writing a record costs about as much as formatting a
 line: the gain of the reporter has to come from the compare before the write (§2.4), which
 both forms share.
+
+**The Zynthian idle pass** (`test_cpu.py`, Mk2, 300 ticks, 227 puts per tick, mean of the
+collection; noisy, ±10 %): text 189 µs, binary 204 µs, check 199 µs (the collectors by address).

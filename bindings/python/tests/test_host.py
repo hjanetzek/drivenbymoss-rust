@@ -21,6 +21,8 @@ from dbm_host import TAKEOVER_CATCH, Banks, Bridge, CommandHandler, Device, Para
 from dbm_host.device import EQ_PLUS, Equalizer, eq_plus, format_eq_frequency, format_eq_gain, format_eq_q  # noqa: E402
 from dbm_host.parameter import VOLUME_0DB, format_pan, format_three_digits, format_volume, limit_text  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
+from dbm_host import reporter as reporter_module  # noqa: E402
+from drivenbymoss import protocol  # noqa: E402
 
 LAUNCH_CONTROL_XL = "5AFA5045-FF92-4737-A091-5B371CD5E529"
 TEMPLATE_HEADER = bytes.fromhex("F0002029021177")
@@ -298,6 +300,34 @@ class ClipLauncherTest(unittest.TestCase):
 
 
 class ReporterTest(unittest.TestCase):
+
+    def test_binary_reports_equal_the_text(self):
+        """The dual run (TYPED_PROTOCOL_PLAN §3): the records of the binary protocol equal the
+        core's conversion of the text lines (the check protocol raises otherwise), and both give
+        the same text."""
+        hosts = {}
+        for name in (reporter_module.TEXT, reporter_module.CHECK):
+            host = Host()
+            host.reporter = Reporter(host.daw, host.banks, clock=lambda: 0.0, features=host.commands.host_features, protocol_=name)
+            host.commands.reporter = host.reporter
+            hosts[name] = host
+        for step in range(3):
+            texts = {}
+            for name, host in hosts.items():
+                if step == 1:
+                    host.daw.tracks[2].volume.set(0.123456789)
+                    host.daw.tracks[1].name = "Line\nbreak"
+                if step == 2:
+                    host.reporter.request_dump()
+                texts[name] = host.lines()
+            self.assertEqual(texts[reporter_module.CHECK], texts[reporter_module.TEXT])
+        check = hosts[reporter_module.CHECK].reporter
+        self.assertEqual([a for a in check.last_values if reporter_module.address_key(a) is None], [], "Every address is in the table")
+        self.assertIsNone(check.take_buffer()[0], "Taken by lines()")
+        self.assertEqual(check.last_values["/track/2/volume"], "0.123457")
+        k = protocol.key(protocol.Msg.CHANNEL_VOLUME, protocol.ChKind.TRACK, 2)
+        self.assertEqual(reporter_module.address_key("/track/2/volume"), k)
+        self.assertEqual(reporter_module.key_address(k), "/track/2/volume")
 
     def test_dump_then_only_changes(self):
         host = Host()

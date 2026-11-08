@@ -158,10 +158,7 @@ class ZynBridge(Bridge):
     # No histories (the reference host keeps them for its tests)
 
     def report(self):
-        lines = self.reporter.collect()
-        if lines:
-            self.app.update_model(lines)
-        return lines
+        return self.send_report(keep=False)
 
     def send_midi_data(self, device_id, data):
         if device_id == DEVICE and self.midi_sink is not None:

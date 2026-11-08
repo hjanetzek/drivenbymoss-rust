@@ -120,13 +120,33 @@ class Bridge(drivenbymoss.Backend):
             data = data + bytes(3 - len(data))
         self.midi_in.append(data)
 
-    def report(self) -> str:
-        """Collect the changes of the DAW and send them to the core."""
-        lines = self.reporter.collect()
-        if lines:
-            self.reports.append(lines)
-            self.app.update_model(lines)
-        return lines
+    def report(self) -> bool:
+        """Collect the changes of the DAW and send them to the core; True if there were any."""
+        return self.send_report(keep=True)
+
+    def send_report(self, keep: bool) -> bool:
+        """Collect the changes and send them: as lines (the text protocol) or as one buffer of
+        records (binary; lines which are not in the table as text). ``keep``: append the text to
+        ``reports``."""
+        reporter = self.reporter
+        if not reporter.binary:
+            lines = reporter.collect()
+            if lines:
+                if keep:
+                    self.reports.append(lines)
+                self.app.update_model(lines)
+            return bool(lines)
+        reporter.collect_pass()
+        writer, text = reporter.take_buffer()
+        if writer is not None:
+            if keep:
+                self.reports.append(drivenbymoss.messages_to_text(writer) + "\n")
+            self.app.update_model_bin(writer)
+        if text:
+            if keep:
+                self.reports.append(text)
+            self.app.update_model(text)
+        return writer is not None or bool(text)
 
     def step(self) -> None:
         """One loop pass: MIDI in -> tick -> report changes -> update_model."""

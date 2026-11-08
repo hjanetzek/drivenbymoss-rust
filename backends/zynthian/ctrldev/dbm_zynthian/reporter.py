@@ -170,8 +170,8 @@ class ZynReporter(Reporter):
         # The values of a commanded item are reported again
         return any(due <= now for due in self.pending.values())
 
-    def collect(self):
-        """As Reporter.collect (the cursor clip is read once for it), but a collector that fails (a zynthian object in an unexpected
+    def collect_pass(self):
+        """As Reporter.collect_pass (the cursor clip is read once for it), but a collector that fails (a zynthian object in an unexpected
         state, a missing library function) is logged once and skipped: the others still report.
         A full or a fast pass (the module's docstring)."""
         now = self.clock()
@@ -187,7 +187,6 @@ class ZynReporter(Reporter):
             self.fast_passes += 1
             self.prepare_pass()
             self.run_collectors(self.fast_collectors)
-        return self.take()
 
     def prepare_pass(self):
         self.daw.invalidate_clip()

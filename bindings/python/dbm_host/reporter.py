@@ -29,7 +29,13 @@ Differences from the Bitwig extension:
   project flags, the crossfader, groove, the sends of layers and pads, the browser. They are added as collectors (``Reporter.collectors``).
 """
 
+import os
+import struct
+from collections.abc import Mapping
 from typing import Callable
+
+import drivenbymoss
+from drivenbymoss import protocol
 
 from .banks import Banks
 from .device import EQ_NUM_BANDS
@@ -95,29 +101,147 @@ _NONE = object()
 # The values put keeps unformatted: they cannot change after the call (a tuple holds numbers)
 _IMMUTABLE = frozenset((bool, int, float, str, tuple, type(None)))
 
+# The protocols of the reports (Reporter.protocol, HostBridge's DBM_HOST_PROTOCOL)
+TEXT = "text"
+BINARY = "binary"
+CHECK = "check"
+"""Binary, and every record is checked against the text line converted by the core."""
+PROTOCOLS = (TEXT, BINARY, CHECK)
+
+
+def default_protocol() -> str:
+    """The protocol of the reports: the environment variable DBM_HOST_PROTOCOL (text, binary or
+    check), binary by default."""
+    value = os.environ.get("DBM_HOST_PROTOCOL", BINARY)
+    return value if value in PROTOCOLS else BINARY
+
+
+# The keys and addresses of the binary form, shared by all reporters (resolved by the core once)
+_ADDRESS_KEYS: dict[str, int | None] = {}
+_KEY_ADDRESSES: dict[int, str] = {}
+UNKNOWN_ADDRESSES: set[str] = set()
+"""The addresses which are not in the table (reported as text lines)."""
+_DUMMY_VALUES = ("0", "", "0 0 0", "AUDIO")
+_HEAD = struct.Struct("<HBB4HI")
+
+
+def address_key(address: str) -> int | None:
+    """The key (protocol.key: ID and indices) of a report address, None if it is not in the
+    table. Resolved once by the core (dbm_messages_from_text)."""
+    k = _ADDRESS_KEYS.get(address, _NONE)
+    if k is _NONE:
+        k = None
+        for dummy in _DUMMY_VALUES:
+            buffer = drivenbymoss.messages_from_text(f"{address} {dummy}")
+            if len(buffer) > protocol.HEADER_SIZE:
+                id_, _t, _op, i0, i1, i2, i3, _n = _HEAD.unpack_from(buffer, protocol.HEADER_SIZE)
+                k = protocol.key(id_, i0, i1, i2, i3)
+                _KEY_ADDRESSES.setdefault(k, address)
+                break
+        _ADDRESS_KEYS[address] = k
+        if k is None:
+            UNKNOWN_ADDRESSES.add(address)
+    return k
+
+
+def key_address(k: int) -> str:
+    """The address of a key (by the core's text form of a record)."""
+    address = _KEY_ADDRESSES.get(k)
+    if address is None:
+        id_ = k & 0xFFFF
+        w = protocol.Writer(64)
+        kind = protocol.KINDS[id_]
+        dummy = {"none": None, "bool": False, "i32": 0, "f64": 0.0, "text": "", "color": None, "notes": [], "step": None, "text_list": []}[kind]
+        w.put(id_, k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64 & 0xFFFF, dummy)
+        address = drivenbymoss.messages_to_text(w).split(" ", 1)[0]
+        _KEY_ADDRESSES[k] = address
+        _ADDRESS_KEYS.setdefault(address, k)
+    return address
+
+
+def _to_bool(value):
+    # The flags of the text: a number above 0 (True is 1)
+    return value > 0 if type(value) in (bool, int) else _NONE
+
+
+def _to_i32(value):
+    return int(value) if type(value) in (bool, int) and -0x80000000 <= value < 0x80000000 else _NONE
+
+
+def _to_f64(value):
+    # Rounded as %.6f: the record carries the double the text line gives (transition mode,
+    # TYPED_PROTOCOL_PLAN §5.1)
+    return round(float(value), 6) if type(value) in (float, int, bool) else _NONE
+
+
+def _to_text(value):
+    return value.replace("\n", " ").replace("\r", " ") if type(value) is str else _NONE
+
+
+def _to_color(value):
+    if type(value) is tuple and len(value) == 3:
+        r, g, b = value
+        if r < 0:
+            return None
+        if type(r) is int and type(g) is int and type(b) is int and 0 <= g <= 255 and 0 <= b <= 255 and r <= 255:
+            return value
+    return _NONE
+
+
+_NORMALIZERS = {"none": format_value, "bool": _to_bool, "i32": _to_i32, "f64": _to_f64, "text": _to_text, "color": _to_color}
+"""The Python value of a report as the value of its record (by the value kind); _NONE: the value
+is converted by the core from its text (ChannelType names, notes, steps, unusual types). A message
+without a value (e.g. /track/offset, the value is ignored) is reported when the text changes."""
+
+_WRITERS = {"none": lambda w, id_, i0, i1, i2, i3, v: w.put_none(id_, i0, i1, i2, i3), "bool": protocol.Writer.put_bool, "i32": protocol.Writer.put_i32, "f64": protocol.Writer.put_f64,
+            "text": protocol.Writer.put_text, "color": protocol.Writer.put_color}
+
+
+class _Converted(bytes):
+    """A record converted by the core from a text line, with that text."""
+
+    text = ""
+
 
 class Reporter:
-    """Collects the lines for ``dbm_update_model``.
+    """Collects the reports for the core: lines for ``dbm_update_model`` (``protocol`` text) or
+    records for ``dbm_update_model_bin`` (binary, the default; TYPED_PROTOCOL_PLAN §2.4).
 
     Remembers the last value of each address and reports only changes, unless a dump was
     requested (the core's ``refresh``); an unchanged raw value is not even formatted. Starts with
     a dump. The model is collected by the ``collectors``, in order; the later steps append theirs.
+
+    ``put`` takes an address (``"/track/3/name"``) or a key (``protocol.key(Msg.CHANNEL_NAME,
+    ChKind.TRACK, 3)``); the binary form keys everything by int and writes a record per
+    change. In the check protocol every record is compared with the core's conversion of the
+    text line which the text protocol reports (the dual run of TYPED_PROTOCOL_PLAN §3).
     """
 
     def __init__(self, daw: SimDaw, banks: Banks, clock: Callable[[], float] = lambda: 0.0,
-                 features: Callable[[], list[str]] = lambda: []):
+                 features: Callable[[], list[str]] = lambda: [], protocol_: str | None = None):
         """``clock`` returns the simulated time in ms (for ``forget_later``), ``features`` the
         host features of the command handler."""
         self.daw = daw
         self.banks = banks
         self.clock = clock
         self.features = features
-        self.last_values: dict[str, str] = {}
-        self.last_raw: dict[str, object] = {}
+        self.protocol = protocol_ or default_protocol()
+        self.binary = self.protocol != TEXT
+        self.check = self.protocol == CHECK
+        self._last_values: dict[object, object] = {}
+        """The last value of each address (text: the line's value by address; binary: the
+        record's value by key)."""
+        self.last_raw: dict[object, object] = {}
         """The last value of each address before formatting (``put`` compares it first; only
         immutable values: flags, numbers, texts, colors)."""
         self._limited_addresses: dict[str, tuple[str, ...]] = {}
         self.lines: list[str] = []
+        self.writer = protocol.Writer()
+        self._spare = protocol.Writer()
+        self.changed: list[object] = []
+        """The keys written in this collection (binary)."""
+        self.text_lines: list[str] = []
+        """Lines which are not in the table (binary: sent as text)."""
         self.dump_all = True
         self.pending: dict[str, float] = {}
         self._last_selected: int = -1
@@ -126,6 +250,7 @@ class Reporter:
         """The step grids of the cursor clip (``clip.NoteGrid``, from the model setup's
         ``noteClips``; set by ``CommandHandler.configure``)."""
         self._grid_steps: dict[str, set[str]] = {}
+        self._converted: dict[tuple, bytes] = {}
         self.collectors: list[Callable[["Reporter"], None]] = [
             Reporter.collect_host_features,
             Reporter.collect_transport,
@@ -150,11 +275,14 @@ class Reporter:
         """Report everything with the next collection."""
         self.dump_all = True
 
+    def _address(self, k) -> str:
+        return k if type(k) is str else key_address(k)
+
     def forget(self, prefix: str) -> None:
         """Report the values under the prefix again with the next collection."""
-        for address in [a for a in self.last_values if a.startswith(prefix)]:
-            del self.last_values[address]
-            self.last_raw.pop(address, None)
+        for k in [k for k in self._last_values if self._address(k).startswith(prefix)]:
+            del self._last_values[k]
+            self.last_raw.pop(k, None)
 
     def forget_later(self, prefix: str, delay_ms: float = REPORT_AGAIN_DELAY_MS) -> None:
         """As forget, after the delay counted from the last call for the prefix (HOST_BRIDGE_GUIDE
@@ -168,22 +296,84 @@ class Reporter:
                 self.forget(prefix)
                 del self.pending[prefix]
 
-    def put(self, address: str, value) -> None:
+    def put(self, where, value) -> None:
+        """Report a value: ``where`` is an address or a key (protocol.key)."""
+        if self.binary:
+            k = where if type(where) is int else address_key(where)
+            if k is None:
+                k = where
+        else:
+            k = where if type(where) is str else key_address(where)
         # The same raw value as last time (of the same type: True, 1 and 1.0 have other texts)
         # gives the same text: no formatting, nothing to report
         if not self.dump_all:
-            last_raw = self.last_raw.get(address, _NONE)
+            last_raw = self.last_raw.get(k, _NONE)
             if last_raw is not _NONE and type(last_raw) is type(value) and last_raw == value:
                 return
-        text = format_value(value)
-        last = self.last_values.get(address)
-        self.last_values[address] = text
         if type(value) in _IMMUTABLE:
-            self.last_raw[address] = value
+            self.last_raw[k] = value
         else:
-            self.last_raw.pop(address, None)
+            self.last_raw.pop(k, None)
+        if type(k) is int:
+            self._put_record(k, value)
+            return
+        text = format_value(value)
+        last = self._last_values.get(k)
+        self._last_values[k] = text
         if self.dump_all or text != last:
-            self.lines.append(f"{address} {text}")
+            if self.binary:
+                self.text_lines.append(f"{k} {text}")
+            else:
+                self.lines.append(f"{k} {text}")
+
+    def _put_record(self, k: int, value) -> None:
+        id_ = k & 0xFFFF
+        kind = protocol.KINDS[id_]
+        normalize = _NORMALIZERS.get(kind)
+        v = normalize(value) if normalize is not None else _NONE
+        if v is _NONE:
+            v = self._convert(k, format_value(value))
+        last = self._last_values.get(k, _NONE)
+        self._last_values[k] = v
+        if not self.dump_all and last is not _NONE and last == v and type(last) is type(v):
+            return
+        w = self.writer
+        start = w.size
+        if type(v) is _Converted:
+            w.buf[w._reserve(len(v)):w.size] = v
+        else:
+            _WRITERS[kind](w, id_, k >> 16 & 0xFFFF, k >> 32 & 0xFFFF, k >> 48 & 0xFFFF, k >> 64, v)
+        self.changed.append(k)
+        if self.check:
+            self._check(k, value, bytes(w.buf[start:w.size]))
+
+    def _convert(self, k: int, text: str) -> bytes:
+        """The record of a value by the core's conversion of its text line."""
+        record = self._converted.get((k, text))
+        if record is None:
+            record = _Converted(drivenbymoss.messages_from_text(f"{key_address(k)} {text}")[protocol.HEADER_SIZE:])
+            record.text = text
+            if len(self._converted) > 4096:
+                self._converted.clear()
+            self._converted[(k, text)] = record
+        return record
+
+    def _check(self, k: int, value, record: bytes) -> None:
+        """The dual run: the record equals the core's conversion of the text line."""
+        line = f"{key_address(k)} {format_value(value)}"
+        expected = drivenbymoss.messages_from_text(line)[protocol.HEADER_SIZE:]
+        if expected != record:
+            raise AssertionError(f"The record of '{line}' differs from the text: {list(protocol.iter_records(protocol.HEADER + record))} != {list(protocol.iter_records(protocol.HEADER + expected))}")
+
+    def text_value(self, k) -> str:
+        """The text of the last value of a key or address."""
+        v = self._last_values[k]
+        if type(k) is str or not self.binary:
+            return v
+        if type(v) is _Converted:
+            return v.text
+        raw = self.last_raw.get(k, _NONE)
+        return format_value(v if raw is _NONE else raw)
 
     def put_displayed(self, address: str, text: str, limited: list[str] | None = None) -> None:
         """A displayed value and its shortened texts (``<address>/6``, ``/8``)."""
@@ -198,22 +388,52 @@ class Reporter:
         self.put_displayed(address, parameter.displayed(), [parameter.displayed_limited(limit) for limit in LIMITS])
 
     def take(self) -> str:
-        """The collected lines (empty if nothing changed); starts a new collection."""
-        result = "".join(line + "\n" for line in self.lines)
-        self.lines = []
-        self.dump_all = False
-        return result
+        """The collected lines (empty if nothing changed); starts a new collection. In the binary
+        form the text of the records (for tests and logs)."""
+        if self.binary:
+            lines = [f"{self._address(k)} {self.text_value(k)}" for k in self.changed] + self.text_lines
+            self.take_buffer()
+        else:
+            lines = self.lines
+            self.lines = []
+            self.dump_all = False
+        return "".join(line + "\n" for line in lines)
 
-    def collect(self) -> str:
-        """Collect the model and take the lines."""
+    def take_buffer(self) -> tuple[protocol.Writer | None, str]:
+        """The collected records (None if nothing changed) and the lines which are not in the
+        table; starts a new collection. The writer is valid until the next collection."""
+        w = None if self.writer.empty() else self.writer
+        text = "".join(line + "\n" for line in self.text_lines)
+        if w is not None:
+            self.writer, self._spare = self._spare, w
+            self.writer.clear()
+        self.changed = []
+        self.text_lines = []
+        self.dump_all = False
+        return w, text
+
+    def collect_pass(self) -> None:
+        """Collect the model (the pending forgets first); the reports stay for take or
+        take_buffer."""
         self.apply_pending_forgets()
         for collector in self.collectors:
             collector(self)
+
+    def collect(self) -> str:
+        """Collect the model and take the lines."""
+        self.collect_pass()
         return self.take()
 
     def snapshot(self) -> dict[str, str]:
-        """The last reported value of every address (for tests and the conformance state view)."""
-        return dict(self.last_values)
+        """The last reported value of every address as text (for tests and the conformance state
+        view)."""
+        return {self._address(k): self.text_value(k) for k in self._last_values}
+
+    @property
+    def last_values(self) -> "Mapping[str, str]":
+        """The last reported value of every address as text (a live read-only view)."""
+        return _TextView(self)
+
 
     # The model (BitwigModel.collect)
 
@@ -643,4 +863,29 @@ class Reporter:
             self.put(f"/eq/band/{band}/value", device.equalizer.reaper_type(band) if exists else -1)
 
 
-__all__ = ["LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]
+class _TextView(Mapping):
+    """The last values of a reporter by address, as text."""
+
+    def __init__(self, reporter: Reporter):
+        self.reporter = reporter
+
+    def __getitem__(self, address: str) -> str:
+        r = self.reporter
+        k = address
+        if r.binary:
+            k = address_key(address)
+            if k is None:
+                k = address
+        if k not in r._last_values:
+            raise KeyError(address)
+        return r.text_value(k)
+
+    def __iter__(self):
+        r = self.reporter
+        return iter([r._address(k) for k in r._last_values])
+
+    def __len__(self) -> int:
+        return len(self.reporter._last_values)
+
+
+__all__ = ["BINARY", "CHECK", "TEXT", "address_key", "default_protocol", "key_address", "LIMITS", "NUM_SIBLINGS", "PARAMS_PER_PAGE", "REPORT_AGAIN_DELAY_MS", "Reporter", "format_beats", "format_time", "format_value"]
