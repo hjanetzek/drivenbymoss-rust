@@ -9,7 +9,9 @@ from the lower left; the Mk2 has no Shift in MIDI mode, STEP LEFT (the Stop CC 5
 display is the MCU text display (`F0 00 00 66 14 12 <position> <text> F7`), compared per
 position (`sysex_key_bytes = 7`).
 
-Last full run: 2026-11-01, on fresh fixture projects with restarted controllers (`pair ...
+Last full run: 2026-11-08 with the extension on the binary protocol (typed protocol step 3,
+also once with `DBM_HOST_PROTOCOL=check`: 0 differences to the text), unattended
+(`conformance_all.sh`); before: 2026-11-01, on fresh fixture projects with restarted controllers (`pair ...
 --fresh-project 8 --restart 15`), Bitwig 5.3.13: all 27 scenarios of both files the same, except
 the known differences below.
 

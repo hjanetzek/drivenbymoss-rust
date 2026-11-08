@@ -1,6 +1,7 @@
 # Conformance: Generic Flexi
 
-Status: 2026-11-02, five runs; last full run (the fifth): 100 of 100 the same, replays of all 9 files.
+Status: 2026-11-08, last full run with the extension on the binary protocol (typed protocol step 3):
+100 of 100 the same, replays of all 9 files; before: 2026-11-02, five runs, the fifth 100 of 100.
 
 Generic Flexi has no hardware of its own: the runner is the controller. The mapping (which MIDI
 message triggers which of the 1121 functions) is part of each scenario file (`[mapping]`), so

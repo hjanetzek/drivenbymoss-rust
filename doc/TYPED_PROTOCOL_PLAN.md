@@ -1,11 +1,11 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: **steps 0a, 0b and 1 done, step 2 in progress** (2026-11-08, branch `typed-protocol`; the
+Status: **steps 0a, 0b, 1 and 3 done, step 2 done for the hot paths** (2026-11-08, branch `typed-protocol`; the
 Python hosts report by key and dispatch the commands by `CmdId` in the binary form, the dual run
-passes; open: more typed handlers, then step 3, Bitwig, §6.4): the command table and
+passes; open: more typed handlers, §6.4; then step 5): the command table and
 the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
 binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
-`dbm_protocol.hpp`, `protocol.py`; the replay passes in both forms. Bitwig still uses the text protocol.
+`dbm_protocol.hpp`, `protocol.py`; the replay passes in both forms. The Bitwig extension uses the binary protocol (step 3, §6.5).
 The grid ID: two slots, channel and row packed into one (§5.3 Q7, decided after step 1). What was done, the choices and the deviations: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
@@ -1255,3 +1255,120 @@ the typed dispatch (view, `ViewCommand`, the resolution) costs about as much as 
    `ModelReporter` by key, a `long` key plus a fallback map for 4-index steps, §2.4), the
    command buffer read from the native segment, and the exhaustive `switch` over `Cmd` (§2.5).
    Reaper stays on the text protocol (out of scope).
+
+### 6.5 Step 3: the Bitwig extension (done 2026-11-08)
+
+**User decisions (2026-11-08)**
+1. The step-2 choices stay: a changed double is always reported (also when the 6-decimal
+   rounding gives the same record); the coverage test is a snapshot list of unhandled commands.
+2. Bitwig conformance runs and the installation of the Rust extension may be done by the agent
+   (`conformance_all.sh`; never kill a Bitwig it did not start).
+3. Conformance replays may be re-recorded and committed on the branch.
+4. The rounding to 6 decimals stays until step 5, so step 3 stays byte-comparable with the text
+   path.
+5. Bitwig switches to binary in one go, no per-handler text fallback in Java; a text mode only as
+   a debug switch until step 5.
+
+**Done**
+- `dbm-protocol-gen` writes `backends/bitwig/src/main/java/de/mossgrabers/dbm/bitwig/Protocol.java`
+  (the fourth output, covered by the staleness test): the constants, the domains (with the text
+  names of `ChannelType` and `RecordQuantization`), the report IDs (`Protocol.Msg`) with their
+  metadata (type, name, template, slots), the commands as an enum (`Protocol.Cmd`: ID, template,
+  slots, value type and kind), and the runtime (`src/protocol/java_runtime.java`, included
+  verbatim): `Protocol.key (id, i0, i1, i2)` (a `long`), a flyweight `View` over a
+  `MemorySegment` with an accessor per index field of the commands (generated: `chKind ()`,
+  `send ()`, `channel ()` of a packed grid slot, … by the ID of the record), and a `Writer` on a
+  growing native segment (`putBool/Int/Double/Text/Color/Doubles/Notes` by key and fourth slot).
+- `NativeCore`: `dbm_protocol_info` (another major version or a library without the binary ABI
+  stops the extension with an error; another hash is logged), `dbm_set_command_callback` (an
+  upcall with the buffer read in place, `reinterpret (length)`, valid only during the call),
+  `dbm_update_model_bin` (`invokeExact`), `dbm_messages_to_text` / `_from_text`.
+- `ModelReporter` on keys: the key (ID and three slots) plus the fourth slot (only
+  `SendVolumeStr` and `GridStep` use it) in one open addressing table (`long` keys, the raw
+  value as a `long`, texts/notes/steps as objects); no fallback map is needed. One buffer of
+  records per report → `dbm_update_model_bin`. Doubles rounded as `String.format ("%.6f")` +
+  `Double.parseDouble` (the exact semantics of the old Java text, which rounds the shortest
+  decimal form half-up; a value with at most 6 decimals takes a fast path). The channel types
+  and the record quantization are written as their numbers, the playing notes as notes, the
+  steps of a grid as the 24 values; a value without a direct form goes through the core's
+  conversion of its text (none in the extension today). Report again by entity
+  (`Family.CHANNEL`, `PARAM`, `PAD`, `HOST_PARAM`, `OWNER` from the slot names of the metadata)
+  instead of address prefixes, with the same rules as before (only the commands with a number
+  value; not the effect tracks).
+- `DBM_HOST_PROTOCOL` (the name of the Python hosts): `binary` (default), `check` (every record
+  compared with the core's conversion of the text line which the text protocol reports; a
+  difference is logged, the counts at exit), `text` (the text protocol: the address of a key
+  from the core, the commands of the text callbacks converted by the core and executed by the
+  same typed handler; a debug switch until step 5).
+- All collectors on keys (`BitwigModel`, `SpecificDevice` with a `Dev` code instead of a prefix,
+  `EqualizerDevice`, `BitwigBrowser`, `BitwigNoteClip`). No string work per tick on the binary
+  path except the texts themselves.
+- `CommandHandler`: `processCommands (MemorySegment)` with one exhaustive `switch` over
+  `Protocol.Cmd` (`case null` makes the statement exhaustive: a new command is a compile error);
+  the 16 commands of Reaper in one case and in `UNHANDLED` (metro_vol, the clip note commands,
+  inQuantResolution, recordClip, pin, overdub, the master crossfader, groove active/amount),
+  passed to the core as the handled bitset. The sub-handlers of the browser, the navigator and
+  the note clip got typed methods.
+- The recorder writes the core's text of the records (`dbm_messages_to_text`; the doubles in
+  the shortest form, the command lines as before). The conformance probe uses the text mode
+  without a core (its own address formatter for the clip and the grid).
+- `ProtocolTests` (`src/test/java`, a main class run by `maven-antrun-plugin` in the test phase:
+  no test framework is in the local repository; `-DskipTests` skips it): the command coverage
+  of §2.5 (a record of every command on stand-ins of the Bitwig API made with
+  `java.lang.reflect.Proxy`; the unhandled ones must be exactly `UNHANDLED`), the handled
+  bitset, the writer (also when it grows) and the view, `round6` against the text (300,000
+  values), and with `target/debug/libdrivenbymoss.so` the dual run of every report ID with the
+  value forms of the extension (1,635 records) and report again.
+
+**Deviations from the old text handler** (all where the old one ended "not handled"; found by
+the differential run below): a parameter value command with touch or indicate (`…/value/touch`)
+now touches/indicates; `browser column/<n>/reset` now selects the first item (the old handler
+stripped `/reset` as a value operation); a send volume touch now touches the send (the old
+handler set the volume to the touch flag; not sent by the tested controllers).
+
+**Verification**
+- A differential run (scratch, not committed): the old extension (63cfa3d) and the new one on
+  the same deterministic stand-ins of the Bitwig API (values by the object path, every void call
+  logged), with a rich model setup: the full dump (4,564 lines) is identical in the text
+  mode, and for 904 command samples (8 samples of every `CmdId`, the legacy lines of the core)
+  the Bitwig API calls and the values reported again are identical except the 7 lines of the
+  deviations above. The same run in the check mode: 13,919 records equal to the text.
+- It found one bug before any Bitwig run: the writer evaluated its segment before growing it.
+- **Bitwig conformance** (Bitwig 5.3.13, all four setups, the installed extension of this step,
+  `conformance_all.sh` with `JAVA_PORT="VirMIDI 0-2" RUST_PORT="VirMIDI 0-1"`: snd-virmidi was
+  card 0 after a reboot): maschine_mk2 27/27, launchcontrol_xl 27/27, maschine_jam 41/41,
+  generic_flexi 100/100 the same, as the last committed runs; all replays re-recorded (the
+  recordings now hold the core's text of the records). Maschine Mk2 also with
+  `DBM_HOST_PROTOCOL=check`: 27/27 the same, 38,383 records compared with the text in Bitwig, 0
+  differences. Note for runs from a worktree: the Flexi profile loads the mapping file of the
+  main checkout, so the runner needs `DBM_FLEXI_MAPPING=<main checkout>/tests/conformance/generic_flexi/flexi-mapping.properties`
+  (without it both sides fail the same 106 expectations).
+
+**Measured** (x86-64, JDK 27, 1,000 send volumes per pass, after warm-up):
+
+| | ns per value |
+| --- | --- |
+| binary, unchanged | 6 |
+| binary, changed double (with the 6-decimal rounding, transition) | 260–310 |
+| binary, changed double without the rounding (exact, step 5) | 23 |
+| text (old, address strings and `%.6f`), unchanged | 250–330 |
+| text (old), changed | 270–350 |
+
+The rounding costs a format and a parse per changed double; dropping it in step 5 makes a
+changed double about 10 times cheaper.
+
+**Hand-over for step 5** (retire the text path in the hosts)
+1. **Bitwig:** drop `ModelReporter.round6` (a changed double then costs about 23 ns instead of
+   about 280 ns); the check mode then compares parsed values with a tolerance of 5e-7 (or goes,
+   with the text mode). Remove `Mode.TEXT`, the text callbacks of `DbmExtension`
+   (`processNoArg` … `dispatchText`) and `ModelReporter.convert` (unused by the collectors).
+   The probe (`ProbeExtension`) uses the text mode without a core and needs its lines: keep a
+   small text formatter for it, or move the probe to the core's conversion.
+2. **Zero copy:** the Java command buffer is already read in place (`reinterpret`); Python still
+   copies it (§2.3 note).
+3. **Report again** still follows the old rules of the text prefixes (only commands with a
+   number value, not the effect tracks); with the text gone these rules can be revisited.
+4. **The handled bitset** is diagnostics only (phase 1 of §2.5); deriving `host_supports` from
+   it would retire `/host/features` for the binary hosts.
+5. The recordings: the extension writes the core's text of the records (shortest doubles); the
+   replays read both forms.

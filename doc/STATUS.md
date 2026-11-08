@@ -232,7 +232,11 @@ that is formatted on one side and parsed on the other.
   suites); the reporters on int keys (one dict, the collectors by key bases; the Zynthian idle
   pass 17 % cheaper, level with the text pass); the commands dispatched by `CmdId` (typed
   handlers for the channel and parameter commands, the rest through the text; the coverage test
-  and the handled set). Next: more typed handlers, then step 3 (Bitwig, plan §6.4).
+  and the handled set). Step 3 done: the Bitwig extension on the binary protocol (the generated
+  `Protocol.java`, the reporter on `long` keys, the commands by an exhaustive switch over
+  `Protocol.Cmd`, `DBM_HOST_PROTOCOL=check|text`; the Bitwig conformance runs the same as before,
+  plan §6.5). Next: more typed handlers in the Python hosts, then step 5 (retire the text path in
+  the hosts, drop the 6-decimal rounding).
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.
