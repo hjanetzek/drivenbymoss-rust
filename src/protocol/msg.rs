@@ -31,10 +31,10 @@
 use std::marker::PhantomData;
 use std::sync::OnceLock;
 
-use super::bin::{BinError, BinIdx, BinValue, IdxIn, IdxOut, Record, Writer};
+use super::bin::{BinError, BinIdx, BinValue, IdxIn, IdxOut, IdxSlot, Record, Writer};
 use super::legacy::{PathReader, PathWriter};
 use super::text::{push_field, push_lit, push_opt_lit, rules, Miss, Pat, Seg, TextValue, Trie};
-use super::types::{CueParam, GridId, GrooveParam, Pos1};
+use super::types::{CueParam, GridChannel, GridId, GridRow, GrooveParam, Pos1};
 use crate::daw::clip::{Note, StepInfo};
 use crate::daw::constants::{ChannelType, RecordQuantization};
 
@@ -720,7 +720,7 @@ messages! {
     ClipPinned = 0x0714 {} ["clip" "pinned"] => value: bool = flag;
     GridPlayingStep = 0x0720 { grid: GridId } ["clip" "grid" grid "playingStep"] => value: i32 = int_or(-1);
     /// A step of a grid (channel, step, row); None: empty.
-    GridStep = 0x0721 { grid: GridId, channel: usize, step: usize, row: usize } ["clip" "grid" grid "step" channel step row] => value: Option<StepInfo> = step;
+    GridStep = 0x0721 { grid: GridId, channel: GridChannel, row: GridRow, step: usize } ["clip" "grid" grid "step" channel step row] => value: Option<StepInfo> = step;
     /// All clips of the project (Reaper).
     ClipAll = 0x0730 {} ["clip" "all"] => value: &'a str = text;
 

@@ -4,8 +4,7 @@ Status: **steps 0a, 0b and 1 done** (2026-11-08, branch `typed-protocol`): the c
 the address table in `src/protocol/` (`Cmd`/`CmdId`, `Msg`/`MsgId`); the binary records, the
 binary C ABI next to the text one, the generated `include/dbm_protocol.h` and C++
 `dbm_protocol.hpp`; the replay passes in both forms. The hosts still use the text protocol.
-**Open: the grid ID** (§5.3 Q7 does not hold: the raindrops view has a 1536 × 128 grid, §6.3);
-it needs a decision before step 2. What was done, the choices and the deviations: §6. The decision and the motivation are in
+The grid ID: two slots, channel and row packed into one (§5.3 Q7, decided after step 1). What was done, the choices and the deviations: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
@@ -330,7 +329,7 @@ table. cbindgen is not needed for these outputs; it stays for `ffi.rs`.
 | 0 | 2 | `id` | `MsgId` or `CmdId` |
 | 2 | 1 | `type` | value type: 0 none, 1 bool, 2 i32, 3 f64, 4 text, 5 color, 6 struct, 7 struct array, 8 text list, 9 feature set; redundant with the table, checked by the core (a host bug shows at once) |
 | 3 | 1 | `op` | value operation of value commands: 0 set, 1 inc, 2 reset, 3 immediately, 4 touch, 5 indicate; 0 in reports |
-| 4 | 8 | `idx[4]` | u16 each, unused = 0; enum domains as their numbers; the grid id as `steps << 8 \| rows` (both ≤ 255; checked when the model setup is created) |
+| 4 | 8 | `idx[4]` | u16 each, unused = 0; enum domains as their numbers; the grid id as two slots (steps, rows), the channel and row of a grid step packed into one (`channel << 7 \| row`, §5.3 Q7) |
 | 12 | 4 | `len` | payload bytes after the record (0 for inline values) |
 | 16 | 8 | `value` | bool/i32 (as i64), f64, color (`r, g, b, valid, 0, 0, 0, 0`), feature set (u64); 0 for payload types |
 | 24 | `len`, padded to 8 | payload | text: UTF-8 without NUL; struct arrays: packed little-endian structs; text list: `u32 count, (u32 len, bytes)…` |
@@ -707,10 +706,13 @@ protocol.
 6. ~~Doubles in new recordings~~: **decided** (2026-11-08): the exact shortest round-trip form
    (`{}` in Rust). Old recordings keep `%.6f`; the text parser accepts both. Applies when the
    recorder moves into the core (step 1 or later); step 0a writes no recordings.
-7. ~~The grid id~~: **decided** (2026-11-08): one u16 index `steps << 8 | rows` in the binary
-   form, checked (both ≤ 255) when the model setup is created (step 1). All grids of the code
-   are ≤ 64 × 128. In Rust it is `protocol::GridId { steps, rows }` (u16 each), written
-   `<steps>x<rows>` in the legacy text.
+7. ~~The grid id~~: **decided** (2026-11-08, revised after step 1): the grid takes **two index
+   slots** (steps, rows, u16 each), and the channel and the row/note of a grid step share **one
+   slot** (`channel << 7 | row`: channel 4 bits, row 7 bits), so every record keeps 4 indices. The
+   first decision (one slot `steps << 8 | rows`, all grids ≤ 255) did not hold: the raindrops view
+   has a 1536 × 128 grid (§6.3). In Rust the grid is `protocol::GridId { steps, rows }`, written
+   `<steps>x<rows>` in the legacy text; the packed fields are `GridChannel` and `GridRow`
+   (adjacent in the braces of the entry, so the order of the slots differs from the text).
 8. ~~In-core diffing~~: **decided** (2026-11-08): not now. The host-side compare stays (§2.4).
 9. ~~The inconsistent names~~: **decided** (2026-11-08): normalized in the typed names only; the
    text form stays as it is, so the 21 recordings stay valid. In step 0a the command names are
@@ -912,7 +914,7 @@ without `lua`.
   the header and the lengths), `BinError` (header, truncated, unknown ID, value).
   - `BinIdx`: the index encoding of every address and command field (in the order of the
     table): numbers as u16, `i32` indices as i16, `Option<usize>` limit (0 = full text), `Pos1`
-    0-based, `GridId` = `steps << 8 | rows`, domains by their number, `Processor` by its
+    0-based, `GridId` two slots (steps, rows; originally `steps << 8 | rows`, see the grid ID below), domains by their number, `Processor` by its
     position in `Processor::ALL` (append only), and the composite fields with several slots:
     `Ch` (kind, pos), `Chan` (kind, processor, index), `PadRef` (kind, dev, index), `HostParam`
     (kind, param), `BrowserItem` (kind, column, item); `ParamOwner`/`PageOwner` one number.
@@ -977,7 +979,7 @@ without `lua`.
   rounds (§5.1).
 - Not yet: Python and Java outputs of the generator (steps 2 and 3); the recorder in the core
   (§5.3 Q5, later); `host_supports` from the handled bitset (later, §2.5).
-- **Open, needs a decision: the grid ID.** §5.3 Q7 decided one index `steps << 8 | rows`
+- **The grid ID** (decided after step 1: option 1). §5.3 Q7 decided one index `steps << 8 | rows`
   "checked when the model setup is created, all grids are ≤ 64 × 128". That does not hold: the
   raindrops view (`abstract_raindrops_view.rs`, `MAX_STEPS = 1536`, as in Java) creates a
   **1536 × 128** note clip, which is in the model setup's `noteClips` of the Launchpads and the
@@ -993,13 +995,25 @@ without `lua`.
      conversions (`dbm_messages_to_text`/`from_text`) need the model setup;
   3. a wider record (more or wider indices): a layout change for everything;
   4. `steps` in 11 bits and the rows as a code of a fixed set (1, 8, 16, 32, 64, 128, …).
+  **Decided: option 1** (done 2026-11-08, after step 1). `BinIdx for GridId` writes two slots
+  (steps, rows; the clamp to 255 is gone). The channel and the row/note of the grid step entries
+  (`GridStep`, `GridStepToggle` … `GridStepAttribute`) are the newtypes `GridChannel` and
+  `GridRow`: `GridChannel` opens a slot with `channel << 7` (clamped to 0–15), `GridRow` adds the
+  low 7 bits (clamped to 0–127) to the slot before it (`IdxOut::or_last`, `IdxIn::last`). They
+  are adjacent in the braces (`{ grid, channel, note, step }`), so the slots are
+  `grid_steps, grid_rows, channel<<7|note, step`, while the text keeps `…/step/<channel>/<step>/<note>`.
+  The metadata of the slots (`index_slots()`) is now a list of parts per slot (`IdxPart`: name,
+  shift, bits, signed); the generators write accessors per part (C++: `channel ()`, `note ()`;
+  signed slots return `int16_t`) and writer parameters per part. Test:
+  `large_grids_and_packed_channel_and_row` (1536 × 128, channel 15, row 127, message and
+  command); 1536 × 128 is also a sample of every round trip.
 - `src/parser_old.rs` (the differential test of 0b) is still there.
 
 **Proof:** `cargo test` (incl. the round trips and the staleness test), `cargo test --test
 conformance_replay` (both modes), the Python binding tests and conformance `--all` (195 the same),
 the Zynthian tests and the C++ wrapper tests; clippy clean with and without `lua`.
 
-**Next: the decision on the grid ID (above), then step 2** (§3): the generated `bindings/python/drivenbymoss/protocol.py` (a third output
+**Next: step 2** (§3): the generated `bindings/python/drivenbymoss/protocol.py` (a third output
 of `gen.rs`) with the view wrappers of §2.7, the Python binding on the binary ABI
 (`_ffi.py`: `dbm_set_command_callback`, `dbm_update_model_bin`, the conversions), `dbm_host`'s
 `Reporter` writing records (keyed by `(id, idx)`) and `CommandHandler` dispatching on `CmdId`

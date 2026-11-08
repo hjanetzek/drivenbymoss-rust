@@ -55,14 +55,14 @@ macro_rules! commands {
                 }
             }
 
-            /// The index slots of the binary form: (field, slot name) in the order of `idx`.
+            /// The index slots of the binary form, in the order of `idx`.
             #[allow(clippy::extra_unused_lifetimes)]
-            pub fn index_slots<'a>(self) -> Vec<(&'static str, &'static str)> {
+            pub fn index_slots<'a>(self) -> Vec<IdxSlot> {
                 match self {
                     $( CmdId::$name => {
                         #[allow(unused_mut)]
                         let mut slots = Vec::new();
-                        $( slots.extend(<$fty as BinIdx>::SLOTS.iter().map(|s| (stringify!($field), *s))); )*
+                        $( <$fty as BinIdx>::describe(stringify!($field), &mut slots); )*
                         slots
                     } )*
                 }
@@ -333,14 +333,14 @@ macro_rules! messages {
                 }
             }
 
-            /// The index slots of the binary form: (field, slot name) in the order of `idx`.
+            /// The index slots of the binary form, in the order of `idx`.
             #[allow(clippy::extra_unused_lifetimes)]
-            pub fn index_slots<'a>(self) -> Vec<(&'static str, &'static str)> {
+            pub fn index_slots<'a>(self) -> Vec<IdxSlot> {
                 match self {
                     $( MsgId::$name => {
                         #[allow(unused_mut)]
                         let mut slots = Vec::new();
-                        $( slots.extend(<$fty as BinIdx>::SLOTS.iter().map(|s| (stringify!($field), *s))); )*
+                        $( <$fty as BinIdx>::describe(stringify!($field), &mut slots); )*
                         slots
                     } )*
                 }

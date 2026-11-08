@@ -950,13 +950,13 @@ public:
     /** /{dev}/layer/count */
     void deviceLayerCount (uint16_t dev, int32_t value) { const uint16_t idx[4] = { dev, 0, 0, 0 }; this->putInt (DBM_MSG_DEVICE_LAYER_COUNT, idx, value); }
     /** /{dev}/sibling/{sibling}/name */
-    void deviceSiblingName (uint16_t dev, uint16_t sibling, const std::string & value) { const uint16_t idx[4] = { dev, sibling, 0, 0 }; this->putText (DBM_MSG_DEVICE_SIBLING_NAME, idx, value); }
+    void deviceSiblingName (uint16_t dev, int16_t sibling, const std::string & value) { const uint16_t idx[4] = { dev, static_cast<uint16_t> (sibling), 0, 0 }; this->putText (DBM_MSG_DEVICE_SIBLING_NAME, idx, value); }
     /** /{dev}/sibling/{sibling}/bypass */
-    void deviceSiblingBypass (uint16_t dev, uint16_t sibling, bool value) { const uint16_t idx[4] = { dev, sibling, 0, 0 }; this->putBool (DBM_MSG_DEVICE_SIBLING_BYPASS, idx, value); }
+    void deviceSiblingBypass (uint16_t dev, int16_t sibling, bool value) { const uint16_t idx[4] = { dev, static_cast<uint16_t> (sibling), 0, 0 }; this->putBool (DBM_MSG_DEVICE_SIBLING_BYPASS, idx, value); }
     /** /{dev}/sibling/{sibling}/position */
-    void deviceSiblingPosition (uint16_t dev, uint16_t sibling, int32_t value) { const uint16_t idx[4] = { dev, sibling, 0, 0 }; this->putInt (DBM_MSG_DEVICE_SIBLING_POSITION, idx, value); }
+    void deviceSiblingPosition (uint16_t dev, int16_t sibling, int32_t value) { const uint16_t idx[4] = { dev, static_cast<uint16_t> (sibling), 0, 0 }; this->putInt (DBM_MSG_DEVICE_SIBLING_POSITION, idx, value); }
     /** /{dev}/sibling/{sibling}/selected */
-    void deviceSiblingSelected (uint16_t dev, uint16_t sibling, bool value) { const uint16_t idx[4] = { dev, sibling, 0, 0 }; this->putBool (DBM_MSG_DEVICE_SIBLING_SELECTED, idx, value); }
+    void deviceSiblingSelected (uint16_t dev, int16_t sibling, bool value) { const uint16_t idx[4] = { dev, static_cast<uint16_t> (sibling), 0, 0 }; this->putBool (DBM_MSG_DEVICE_SIBLING_SELECTED, idx, value); }
     /** /eq/band/{band}/[value] */
     void eqBandType (uint16_t band, int32_t value) { const uint16_t idx[4] = { band, 0, 0, 0 }; this->putInt (DBM_MSG_EQ_BAND_TYPE, idx, value); }
     /** /drum/exists */
@@ -1052,9 +1052,9 @@ public:
     /** /clip/pinned */
     void clipPinned (bool value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putBool (DBM_MSG_CLIP_PINNED, idx, value); }
     /** /clip/grid/{grid}/playingStep */
-    void gridPlayingStep (uint16_t grid, int32_t value) { const uint16_t idx[4] = { grid, 0, 0, 0 }; this->putInt (DBM_MSG_GRID_PLAYING_STEP, idx, value); }
+    void gridPlayingStep (uint16_t grid_steps, uint16_t grid_rows, int32_t value) { const uint16_t idx[4] = { grid_steps, grid_rows, 0, 0 }; this->putInt (DBM_MSG_GRID_PLAYING_STEP, idx, value); }
     /** /clip/grid/{grid}/step/{channel}/{step}/{row} */
-    void gridStep (uint16_t grid, uint16_t channel, uint16_t step, uint16_t row, const std::vector<double> &value) { const uint16_t idx[4] = { grid, channel, step, row }; this->putStep (DBM_MSG_GRID_STEP, idx, value); }
+    void gridStep (uint16_t grid_steps, uint16_t grid_rows, uint16_t channel, uint16_t row, uint16_t step, const std::vector<double> &value) { const uint16_t idx[4] = { grid_steps, grid_rows, static_cast<uint16_t> (((channel & 15u) << 7) | ((row & 127u) << 0)), step }; this->putStep (DBM_MSG_GRID_STEP, idx, value); }
     /** /clip/all */
     void clipAll (const std::string & value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putText (DBM_MSG_CLIP_ALL, idx, value); }
     /** /browser/presetsfile */
@@ -1887,7 +1887,7 @@ struct ChannelColor
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     Color value () const { return this->record.color (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1899,7 +1899,7 @@ struct ChannelMute
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1911,7 +1911,7 @@ struct ChannelSolo
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1923,7 +1923,7 @@ struct ChannelSoloToggle
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/active */
@@ -1933,7 +1933,7 @@ struct ChannelActive
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1945,7 +1945,7 @@ struct ChannelRemove
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/duplicate */
@@ -1955,7 +1955,7 @@ struct ChannelDuplicate
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/select */
@@ -1965,7 +1965,7 @@ struct ChannelSelect
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1977,7 +1977,7 @@ struct ChannelSelectInEditor
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/volume */
@@ -1987,7 +1987,7 @@ struct ChannelVolume
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -1999,7 +1999,7 @@ struct ChannelPan
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2011,8 +2011,8 @@ struct ChannelSendVolume
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
-    uint16_t send () const { return this->record.idx (3); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
+    int16_t send () const { return this->record.signedIdx (3); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2024,8 +2024,8 @@ struct ChannelSendActive
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
-    uint16_t send () const { return this->record.idx (3); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
+    int16_t send () const { return this->record.signedIdx (3); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2037,7 +2037,7 @@ struct TrackToggleMultiSelect
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/name */
@@ -2047,7 +2047,7 @@ struct TrackName
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2059,7 +2059,7 @@ struct TrackGroupExpanded
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2071,7 +2071,7 @@ struct TrackRecArm
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2083,7 +2083,7 @@ struct TrackMonitor
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2095,7 +2095,7 @@ struct TrackAutoMonitor
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2107,7 +2107,7 @@ struct TrackStop
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/stopAlt */
@@ -2117,7 +2117,7 @@ struct TrackStopAlt
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/returnToArrangement */
@@ -2127,7 +2127,7 @@ struct TrackReturnToArrangement
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/inQuantResolution */
@@ -2137,7 +2137,7 @@ struct TrackInQuantResolution
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2149,8 +2149,8 @@ struct TrackCreateClip
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
-    uint16_t slot () const { return this->record.idx (3); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
+    int16_t slot () const { return this->record.signedIdx (3); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2162,7 +2162,7 @@ struct TrackRecordClip
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/movePrev */
@@ -2172,7 +2172,7 @@ struct TrackMovePrev
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/moveNext */
@@ -2182,7 +2182,7 @@ struct TrackMoveNext
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** {ch} {ch}/pin */
@@ -2192,7 +2192,7 @@ struct TrackPin
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2204,7 +2204,7 @@ struct TrackOverdub
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2216,7 +2216,7 @@ struct TrackScrollTo
     Record record;
     uint16_t ch_kind () const { return this->record.idx (0); }
     uint16_t ch_processor () const { return this->record.idx (1); }
-    uint16_t ch_index () const { return this->record.idx (2); }
+    int16_t ch_index () const { return this->record.signedIdx (2); }
 };
 
 /** track pinned/toggle */
@@ -2283,8 +2283,8 @@ struct SlotAction
 {
     static constexpr Cmd id = Cmd::SlotAction;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t slot () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t slot () const { return this->record.signedIdx (1); }
     uint16_t action () const { return this->record.idx (2); }
 };
 
@@ -2293,8 +2293,8 @@ struct SlotColor
 {
     static constexpr Cmd id = Cmd::SlotColor;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t slot () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t slot () const { return this->record.signedIdx (1); }
     Color value () const { return this->record.color (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2304,8 +2304,8 @@ struct SlotPaste
 {
     static constexpr Cmd id = Cmd::SlotPaste;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t slot () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t slot () const { return this->record.signedIdx (1); }
     uint8_t op () const { return this->record.op (); }
 };
 
@@ -2314,8 +2314,8 @@ struct SlotInsertFile
 {
     static constexpr Cmd id = Cmd::SlotInsertFile;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t slot () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t slot () const { return this->record.signedIdx (1); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2325,7 +2325,7 @@ struct SceneAction
 {
     static constexpr Cmd id = Cmd::SceneAction;
     Record record;
-    uint16_t scene () const { return this->record.idx (0); }
+    int16_t scene () const { return this->record.signedIdx (0); }
     uint16_t action () const { return this->record.idx (1); }
 };
 
@@ -2334,7 +2334,7 @@ struct SceneName
 {
     static constexpr Cmd id = Cmd::SceneName;
     Record record;
-    uint16_t scene () const { return this->record.idx (0); }
+    int16_t scene () const { return this->record.signedIdx (0); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2344,7 +2344,7 @@ struct SceneColor
 {
     static constexpr Cmd id = Cmd::SceneColor;
     Record record;
-    uint16_t scene () const { return this->record.idx (0); }
+    int16_t scene () const { return this->record.signedIdx (0); }
     Color value () const { return this->record.color (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2368,7 +2368,7 @@ struct DeviceSibling
 {
     static constexpr Cmd id = Cmd::DeviceSibling;
     Record record;
-    uint16_t sibling () const { return this->record.idx (0); }
+    int16_t sibling () const { return this->record.signedIdx (0); }
     uint16_t action () const { return this->record.idx (1); }
 };
 
@@ -2411,7 +2411,7 @@ struct DeviceIndexBypass
     static constexpr Cmd id = Cmd::DeviceIndexBypass;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t device () const { return this->record.idx (1); }
+    int16_t device () const { return this->record.signedIdx (1); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2422,7 +2422,7 @@ struct DeviceIndexRemove
     static constexpr Cmd id = Cmd::DeviceIndexRemove;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t device () const { return this->record.idx (1); }
+    int16_t device () const { return this->record.signedIdx (1); }
 };
 
 /** {dev} {device}/duplicate */
@@ -2431,7 +2431,7 @@ struct DeviceIndexDuplicate
     static constexpr Cmd id = Cmd::DeviceIndexDuplicate;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t device () const { return this->record.idx (1); }
+    int16_t device () const { return this->record.signedIdx (1); }
 };
 
 /** device {device}/movePrev */
@@ -2439,7 +2439,7 @@ struct DeviceIndexMovePrev
 {
     static constexpr Cmd id = Cmd::DeviceIndexMovePrev;
     Record record;
-    uint16_t device () const { return this->record.idx (0); }
+    int16_t device () const { return this->record.signedIdx (0); }
 };
 
 /** device {device}/moveNext */
@@ -2447,7 +2447,7 @@ struct DeviceIndexMoveNext
 {
     static constexpr Cmd id = Cmd::DeviceIndexMoveNext;
     Record record;
-    uint16_t device () const { return this->record.idx (0); }
+    int16_t device () const { return this->record.signedIdx (0); }
 };
 
 /** {dev} selected */
@@ -2571,7 +2571,7 @@ struct ParamValue
     static constexpr Cmd id = Cmd::ParamValue;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t param () const { return this->record.idx (1); }
+    int16_t param () const { return this->record.signedIdx (1); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2581,8 +2581,8 @@ struct TrackParamValue
 {
     static constexpr Cmd id = Cmd::TrackParamValue;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t param () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t param () const { return this->record.signedIdx (1); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2593,7 +2593,7 @@ struct ParamTouch
     static constexpr Cmd id = Cmd::ParamTouch;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t param () const { return this->record.idx (1); }
+    int16_t param () const { return this->record.signedIdx (1); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2604,7 +2604,7 @@ struct ParamIndicate
     static constexpr Cmd id = Cmd::ParamIndicate;
     Record record;
     uint16_t dev () const { return this->record.idx (0); }
-    uint16_t param () const { return this->record.idx (1); }
+    int16_t param () const { return this->record.signedIdx (1); }
     bool value () const { return this->record.boolValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2743,7 +2743,8 @@ struct GridStepSize
 {
     static constexpr Cmd id = Cmd::GridStepSize;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2753,10 +2754,11 @@ struct GridStepToggle
 {
     static constexpr Cmd id = Cmd::GridStepToggle;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2766,10 +2768,11 @@ struct GridStepSet
 {
     static constexpr Cmd id = Cmd::GridStepSet;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     uint8_t op () const { return this->record.op (); }
 };
 
@@ -2778,10 +2781,11 @@ struct GridStepSetFrom
 {
     static constexpr Cmd id = Cmd::GridStepSetFrom;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2791,10 +2795,11 @@ struct GridStepUpdate
 {
     static constexpr Cmd id = Cmd::GridStepUpdate;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2804,10 +2809,11 @@ struct GridStepClear
 {
     static constexpr Cmd id = Cmd::GridStepClear;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
 };
 
 /** clip grid/{grid}/step/{channel}/{step}/{note}/moveY */
@@ -2815,10 +2821,11 @@ struct GridStepMoveY
 {
     static constexpr Cmd id = Cmd::GridStepMoveY;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2828,10 +2835,11 @@ struct GridStepAttribute
 {
     static constexpr Cmd id = Cmd::GridStepAttribute;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t step () const { return this->record.idx (2); }
-    uint16_t note () const { return this->record.idx (3); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t channel () const { return static_cast<uint16_t> ((this->record.idx (2) >> 7) & 15); }
+    uint16_t note () const { return static_cast<uint16_t> ((this->record.idx (2) >> 0) & 127); }
+    int16_t step () const { return this->record.signedIdx (3); }
     uint8_t op () const { return this->record.op (); }
 };
 
@@ -2840,7 +2848,8 @@ struct GridClearAll
 {
     static constexpr Cmd id = Cmd::GridClearAll;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
 };
 
 /** clip grid/{grid}/clearRow/{channel}/{row} */
@@ -2848,9 +2857,10 @@ struct GridClearRow
 {
     static constexpr Cmd id = Cmd::GridClearRow;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t row () const { return this->record.idx (2); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    int16_t channel () const { return this->record.signedIdx (2); }
+    int16_t row () const { return this->record.signedIdx (3); }
 };
 
 /** clip grid/{grid}/clearColumn/{channel}/{column} */
@@ -2858,9 +2868,10 @@ struct GridClearColumn
 {
     static constexpr Cmd id = Cmd::GridClearColumn;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t column () const { return this->record.idx (2); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    int16_t channel () const { return this->record.signedIdx (2); }
+    int16_t column () const { return this->record.signedIdx (3); }
 };
 
 /** clip grid/{grid}/scroll */
@@ -2868,7 +2879,8 @@ struct GridScroll
 {
     static constexpr Cmd id = Cmd::GridScroll;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2878,8 +2890,9 @@ struct GridPage
 {
     static constexpr Cmd id = Cmd::GridPage;
     Record record;
-    uint16_t grid () const { return this->record.idx (0); }
-    uint16_t dir () const { return this->record.idx (1); }
+    uint16_t grid_steps () const { return this->record.idx (0); }
+    uint16_t grid_rows () const { return this->record.idx (1); }
+    uint16_t dir () const { return this->record.idx (2); }
 };
 
 /** clip note/{note}/toggle */
@@ -2887,7 +2900,7 @@ struct ClipNoteToggle
 {
     static constexpr Cmd id = Cmd::ClipNoteToggle;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
+    int16_t note () const { return this->record.signedIdx (0); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2897,7 +2910,7 @@ struct ClipNoteSet
 {
     static constexpr Cmd id = Cmd::ClipNoteSet;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
+    int16_t note () const { return this->record.signedIdx (0); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2907,7 +2920,7 @@ struct ClipNoteUpdate
 {
     static constexpr Cmd id = Cmd::ClipNoteUpdate;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
+    int16_t note () const { return this->record.signedIdx (0); }
     std::string value () const { return this->record.text (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2917,8 +2930,8 @@ struct ClipNoteClear
 {
     static constexpr Cmd id = Cmd::ClipNoteClear;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
+    int16_t note () const { return this->record.signedIdx (0); }
+    int16_t channel () const { return this->record.signedIdx (1); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2928,9 +2941,9 @@ struct ClipNoteMoveY
 {
     static constexpr Cmd id = Cmd::ClipNoteMoveY;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
-    uint16_t row () const { return this->record.idx (2); }
+    int16_t note () const { return this->record.signedIdx (0); }
+    int16_t channel () const { return this->record.signedIdx (1); }
+    int16_t row () const { return this->record.signedIdx (2); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -2940,8 +2953,8 @@ struct ClipNoteClearRow
 {
     static constexpr Cmd id = Cmd::ClipNoteClearRow;
     Record record;
-    uint16_t note () const { return this->record.idx (0); }
-    uint16_t channel () const { return this->record.idx (1); }
+    int16_t note () const { return this->record.signedIdx (0); }
+    int16_t channel () const { return this->record.signedIdx (1); }
 };
 
 /** clip note/0/clearPosition/{channel} */
@@ -2949,7 +2962,7 @@ struct ClipNoteClearPosition
 {
     static constexpr Cmd id = Cmd::ClipNoteClearPosition;
     Record record;
-    uint16_t channel () const { return this->record.idx (0); }
+    int16_t channel () const { return this->record.signedIdx (0); }
     double value () const { return this->record.doubleValue (); }
     uint8_t op () const { return this->record.op (); }
 };
@@ -3009,8 +3022,8 @@ struct BrowserReplaceSlot
 {
     static constexpr Cmd id = Cmd::BrowserReplaceSlot;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
-    uint16_t slot () const { return this->record.idx (1); }
+    int16_t track () const { return this->record.signedIdx (0); }
+    int16_t slot () const { return this->record.signedIdx (1); }
 };
 
 /** browser replace/{owner}/pad/{pad} */
@@ -3019,7 +3032,7 @@ struct BrowserReplacePad
     static constexpr Cmd id = Cmd::BrowserReplacePad;
     Record record;
     uint16_t owner () const { return this->record.idx (0); }
-    uint16_t pad () const { return this->record.idx (1); }
+    int16_t pad () const { return this->record.signedIdx (1); }
 };
 
 /** browser add/track/{track} */
@@ -3027,7 +3040,7 @@ struct BrowserAddToTrack
 {
     static constexpr Cmd id = Cmd::BrowserAddToTrack;
     Record record;
-    uint16_t track () const { return this->record.idx (0); }
+    int16_t track () const { return this->record.signedIdx (0); }
 };
 
 /** browser add/master */
@@ -3081,7 +3094,7 @@ struct MarkerAction
 {
     static constexpr Cmd id = Cmd::MarkerAction;
     Record record;
-    uint16_t marker () const { return this->record.idx (0); }
+    int16_t marker () const { return this->record.signedIdx (0); }
     uint16_t action () const { return this->record.idx (1); }
 };
 

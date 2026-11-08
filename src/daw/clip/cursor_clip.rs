@@ -12,7 +12,7 @@ use crate::daw::color::ColorEx;
 use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
 use crate::daw::constants::Resolution;
 use crate::daw::context::DawContext;
-use crate::protocol::{Cmd, Dir, GridId, GridNote, Rgb, StepAttr, StepValue, ValueOp};
+use crate::protocol::{Cmd, Dir, GridChannel, GridId, GridNote, GridRow, Rgb, StepAttr, StepValue, ValueOp};
 
 use super::note::Note;
 use super::note_occurrence::NoteOccurrenceType;
@@ -627,7 +627,7 @@ impl CursorClip {
     pub fn toggle_step(&self, position: &NotePosition, velocity: i32) {
         if self.host_grid {
             let p = position;
-            self.ctx.send(Cmd::GridStepToggle { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, velocity });
+            self.ctx.send(Cmd::GridStepToggle { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), velocity });
             return;
         }
         let pos = self.beat_position(position.step);
@@ -639,7 +639,7 @@ impl CursorClip {
     pub fn set_step(&self, position: &NotePosition, velocity: i32, duration: f64) {
         if self.host_grid {
             let p = position;
-            self.ctx.send(Cmd::GridStepSet { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, value: GridNote { velocity, duration } });
+            self.ctx.send(Cmd::GridStepSet { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), value: GridNote { velocity, duration } });
             return;
         }
         let pos = self.beat_position(position.step);
@@ -654,7 +654,7 @@ impl CursorClip {
             // The host creates the note and sets the other attributes a bit later, as the Java
             // version does
             let p = position;
-            self.ctx.send(Cmd::GridStepSetFrom { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &step_info.to_wire() });
+            self.ctx.send(Cmd::GridStepSetFrom { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), info: &step_info.to_wire() });
             return;
         }
         self.set_step(
@@ -678,7 +678,7 @@ impl CursorClip {
             info.set_duration(duration);
             info.set_muted(is_muted);
             let p = position;
-            self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &info.to_wire() });
+            self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), info: &info.to_wire() });
             return;
         }
         let pos = self.beat_position(position.step);
@@ -690,7 +690,7 @@ impl CursorClip {
     pub fn clear_step(&self, position: &NotePosition) {
         if self.host_grid {
             let p = position;
-            self.ctx.send(Cmd::GridStepClear { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note });
+            self.ctx.send(Cmd::GridStepClear { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note) });
             return;
         }
         self.ctx.send(Cmd::ClipNoteClear { note: position.note, channel: position.channel, position: self.beat_position(position.step) });
@@ -700,7 +700,7 @@ impl CursorClip {
     pub fn move_step_y(&self, position: &NotePosition, new_row: i32) {
         if self.host_grid {
             let p = position;
-            self.ctx.send(Cmd::GridStepMoveY { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, row: new_row });
+            self.ctx.send(Cmd::GridStepMoveY { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), row: new_row });
             return;
         }
         self.ctx.send(Cmd::ClipNoteMoveY { note: position.note, channel: position.channel, row: new_row, position: self.beat_position(position.step) });
@@ -857,7 +857,7 @@ impl CursorClip {
         let value = apply(info);
         if send_now {
             let p = position;
-            self.ctx.send(Cmd::GridStepAttribute { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, value: StepValue { attr, value } });
+            self.ctx.send(Cmd::GridStepAttribute { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), value: StepValue { attr, value } });
         }
     }
 
@@ -1427,7 +1427,7 @@ impl CursorClip {
         if self.host_grid {
             if info.state() != StepState::Off {
                 let p = position;
-                self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &info.to_wire() });
+                self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: GridChannel(p.channel), step: p.step, note: GridRow(p.note), info: &info.to_wire() });
             }
             return;
         }

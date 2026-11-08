@@ -483,6 +483,38 @@ impl Field for GridId {
     }
 }
 
+/// The MIDI channel of a step of the host's step grid (0–15). In the binary form it shares one
+/// index slot with the [`GridRow`] which follows it in the braces of the entry
+/// (`channel << 7 | row`), so that a step (grid steps, grid rows, channel/row, step) fits into the
+/// four index slots of a record (TYPED_PROTOCOL_PLAN §5.3 Q7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GridChannel(pub i32);
+
+/// The row (the note, 0–127) of a step of the host's step grid; packed into the slot of the
+/// [`GridChannel`] before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GridRow(pub i32);
+
+impl Field for GridChannel {
+    fn write(&self, w: &mut PathWriter) {
+        self.0.write(w);
+    }
+
+    fn read(processor: Processor, r: &mut PathReader<'_>) -> Option<Self> {
+        i32::read(processor, r).map(GridChannel)
+    }
+}
+
+impl Field for GridRow {
+    fn write(&self, w: &mut PathWriter) {
+        self.0.write(w);
+    }
+
+    fn read(processor: Processor, r: &mut PathReader<'_>) -> Option<Self> {
+        i32::read(processor, r).map(GridRow)
+    }
+}
+
 /// A 0-based index written 1-based in the legacy text (the devices of the Reaper commands
 /// `device <n>/…`, `device selected <n>` and the siblings `device sibling/<n>/…`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -549,7 +581,21 @@ impl Sample for GridNote {
 #[cfg(test)]
 impl Sample for GridId {
     fn samples() -> Vec<Self> {
-        vec![GridId { steps: 8, rows: 128 }, GridId { steps: 64, rows: 1 }]
+        vec![GridId { steps: 8, rows: 128 }, GridId { steps: 64, rows: 1 }, GridId { steps: 1536, rows: 128 }]
+    }
+}
+
+#[cfg(test)]
+impl Sample for GridChannel {
+    fn samples() -> Vec<Self> {
+        vec![GridChannel(0), GridChannel(15), GridChannel(9)]
+    }
+}
+
+#[cfg(test)]
+impl Sample for GridRow {
+    fn samples() -> Vec<Self> {
+        vec![GridRow(60), GridRow(127), GridRow(0)]
     }
 }
 

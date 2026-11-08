@@ -88,6 +88,13 @@ impl IdxOut {
         }
         self.n += 1;
     }
+
+    /// Add bits to the last slot (a field packed into the slot of the field before it).
+    pub fn or_last(&mut self, bits: u16) {
+        if let Some(slot) = self.n.checked_sub(1).and_then(|i| self.idx.get_mut(i)) {
+            *slot |= bits;
+        }
+    }
 }
 
 /// A buffer of records (reused: [`Writer::clear`] keeps its capacity).
@@ -233,6 +240,40 @@ impl IdxIn {
         self.n += 1;
         value
     }
+
+    /// The last slot taken (for a field packed into the slot of the field before it).
+    pub fn last(&self) -> Option<u16> {
+        self.idx.get(self.n.checked_sub(1)?).copied()
+    }
+}
+
+/// A part of an index slot (metadata for the generated bindings): a field, or a slot of a
+/// composite field, in `bits` bits from `shift` (16 and 0 for a whole slot).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdxPart {
+    pub name: String,
+    pub shift: u8,
+    pub bits: u8,
+    /// An i16 (a whole slot only).
+    pub signed: bool,
+}
+
+impl IdxPart {
+    pub fn whole(name: String, signed: bool) -> Self {
+        IdxPart { name, shift: 0, bits: 16, signed }
+    }
+}
+
+/// An index slot: one part, or several packed fields.
+pub type IdxSlot = Vec<IdxPart>;
+
+/// The name of an index slot: the field, or `field_slot` for a field with several slots.
+pub fn slot_name(field: &str, slot: &str) -> String {
+    if slot.is_empty() {
+        field.to_string()
+    } else {
+        format!("{field}_{slot}")
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -242,8 +283,15 @@ impl IdxIn {
 pub trait BinIdx: Sized {
     /// The names of its index slots (empty: one slot named as the field).
     const SLOTS: &'static [&'static str] = &[""];
+    /// The slots are i16.
+    const SIGNED: bool = false;
     fn put(&self, idx: &mut IdxOut);
     fn get(idx: &mut IdxIn) -> Option<Self>;
+
+    /// Append the slots of the field `field` (the metadata of [`Self::put`]).
+    fn describe(field: &'static str, slots: &mut Vec<IdxSlot>) {
+        slots.extend(Self::SLOTS.iter().map(|s| vec![IdxPart::whole(slot_name(field, s), Self::SIGNED)]));
+    }
 }
 
 /// The value of a message or command.
@@ -277,6 +325,8 @@ impl BinIdx for usize {
 
 /// A signed index (-32768..32767).
 impl BinIdx for i32 {
+    const SIGNED: bool = true;
+
     fn put(&self, idx: &mut IdxOut) {
         idx.push(*self as i16 as u16);
     }
@@ -299,6 +349,8 @@ impl BinIdx for Option<usize> {
 
 /// The 0-based index (-1 for none).
 impl BinIdx for Pos1 {
+    const SIGNED: bool = true;
+
     fn put(&self, idx: &mut IdxOut) {
         self.0.put(idx);
     }
@@ -308,14 +360,56 @@ impl BinIdx for Pos1 {
     }
 }
 
-/// `steps << 8 | rows`.
+/// Two slots: steps, rows.
 impl BinIdx for GridId {
+    const SLOTS: &'static [&'static str] = &["steps", "rows"];
+
     fn put(&self, idx: &mut IdxOut) {
-        idx.push((self.steps.min(255) << 8) | self.rows.min(255));
+        idx.push(self.steps);
+        idx.push(self.rows);
     }
 
     fn get(idx: &mut IdxIn) -> Option<Self> {
-        idx.take().map(|v| GridId { steps: v >> 8, rows: v & 0xFF })
+        Some(GridId { steps: idx.take()?, rows: idx.take()? })
+    }
+}
+
+/// The bits of the [`GridRow`] in the slot which it shares with the [`GridChannel`].
+pub const GRID_ROW_BITS: u8 = 7;
+/// The bits of the [`GridChannel`] (above the row).
+pub const GRID_CHANNEL_BITS: u8 = 4;
+
+/// `channel << 7` (0–15); the [`GridRow`] which follows adds its bits.
+impl BinIdx for GridChannel {
+    fn put(&self, idx: &mut IdxOut) {
+        idx.push((self.0.clamp(0, (1 << GRID_CHANNEL_BITS) - 1) as u16) << GRID_ROW_BITS);
+    }
+
+    fn get(idx: &mut IdxIn) -> Option<Self> {
+        idx.take().map(|v| GridChannel(i32::from(v >> GRID_ROW_BITS) & ((1 << GRID_CHANNEL_BITS) - 1)))
+    }
+
+    fn describe(field: &'static str, slots: &mut Vec<IdxSlot>) {
+        slots.push(vec![IdxPart { name: field.to_string(), shift: GRID_ROW_BITS, bits: GRID_CHANNEL_BITS, signed: false }]);
+    }
+}
+
+/// The low 7 bits of the slot of the [`GridChannel`] before it (0–127); no slot of its own.
+impl BinIdx for GridRow {
+    const SLOTS: &'static [&'static str] = &[];
+
+    fn put(&self, idx: &mut IdxOut) {
+        idx.or_last(self.0.clamp(0, (1 << GRID_ROW_BITS) - 1) as u16);
+    }
+
+    fn get(idx: &mut IdxIn) -> Option<Self> {
+        idx.last().map(|v| GridRow(i32::from(v) & ((1 << GRID_ROW_BITS) - 1)))
+    }
+
+    fn describe(field: &'static str, slots: &mut Vec<IdxSlot>) {
+        if let Some(slot) = slots.last_mut() {
+            slot.push(IdxPart { name: field.to_string(), shift: 0, bits: GRID_ROW_BITS, signed: false });
+        }
     }
 }
 
@@ -333,6 +427,12 @@ impl BinIdx for Processor {
 /// kind (0 master, 1 track, 2 pad, 3 layer), processor, index.
 impl BinIdx for Chan {
     const SLOTS: &'static [&'static str] = &["kind", "processor", "index"];
+
+    fn describe(field: &'static str, slots: &mut Vec<IdxSlot>) {
+        for (slot, signed) in [("kind", false), ("processor", false), ("index", true)] {
+            slots.push(vec![IdxPart::whole(slot_name(field, slot), signed)]);
+        }
+    }
 
     fn put(&self, idx: &mut IdxOut) {
         let (kind, processor, i) = match *self {
@@ -960,6 +1060,33 @@ mod tests {
                 assert_eq!(Cmd::decode_record(&all[0]).unwrap().legacy(), cmd.legacy());
             }
         }
+    }
+
+    /// The raindrops view's grid (1536 × 128, the Launchpads and the JAM) and the largest channel
+    /// and row: the grid takes two slots, the channel and the row share one.
+    #[test]
+    fn large_grids_and_packed_channel_and_row() {
+        use crate::protocol::{GridChannel, GridId, GridRow};
+        let grid = GridId { steps: 1536, rows: 128 };
+        let msg = Msg::GridStep { grid, channel: GridChannel(15), row: GridRow(127), step: 1535, value: None };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let record = records(w.as_bytes()).unwrap().next().unwrap().unwrap();
+        assert_eq!(record.idx, [1536, 128, 15 << 7 | 127, 1535]);
+        assert_eq!(Msg::decode_record(&record), Ok(msg.clone()));
+        assert_eq!(to_text(w.as_bytes()), "/clip/grid/1536x128/step/15/1535/127 0");
+        assert_eq!(from_text(&msg.to_text(), &mut |_| {}).as_bytes(), w.as_bytes());
+
+        let cmd = Cmd::GridStepToggle { grid, channel: GridChannel(15), note: GridRow(127), step: 1535, velocity: 100 };
+        let mut w = Writer::new();
+        cmd.encode(&mut w);
+        let record = records(w.as_bytes()).unwrap().next().unwrap().unwrap();
+        assert_eq!(record.idx, [1536, 128, 15 << 7 | 127, 1535]);
+        assert_eq!(Cmd::decode_record(&record), Ok(cmd.clone()));
+        assert_eq!(to_text(w.as_bytes()), "int\tclip\tgrid/1536x128/step/15/1535/127/toggle\t100");
+        let slots = CmdId::GridStepToggle.index_slots();
+        assert_eq!(slots.len(), 4);
+        assert_eq!(slots[2].iter().map(|p| (p.name.as_str(), p.shift, p.bits)).collect::<Vec<_>>(), [("channel", 7, 4), ("note", 0, 7)]);
     }
 
     #[test]

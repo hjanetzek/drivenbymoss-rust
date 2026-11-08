@@ -610,7 +610,7 @@ impl Parser {
             }
             Msg::GridStep { grid, channel, step, row, value } => {
                 if let Some(clip) = grid_clip(model, grid) {
-                    clip.set_host_step(channel as i32, step as i32, row as i32, value);
+                    clip.set_host_step(channel.0, step as i32, row.0, value);
                 }
             }
             Msg::ClipAll { value } => model.set_clips(value),

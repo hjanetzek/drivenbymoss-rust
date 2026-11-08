@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0x6fa91174f8ed788dULL
+#define DBM_PROTOCOL_HASH 0xbe1c1dec6f6d674dULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -678,9 +678,9 @@ enum DbmMsgId
     DBM_MSG_CLIP_ACCENT = 0x0713,
     /* /clip/pinned; idx: -; bool */
     DBM_MSG_CLIP_PINNED = 0x0714,
-    /* /clip/grid/{grid}/playingStep; idx: grid; i32 */
+    /* /clip/grid/{grid}/playingStep; idx: grid_steps, grid_rows; i32 */
     DBM_MSG_GRID_PLAYING_STEP = 0x0720,
-    /* /clip/grid/{grid}/step/{channel}/{step}/{row}; idx: grid, channel, step, row; struct */
+    /* /clip/grid/{grid}/step/{channel}/{step}/{row}; idx: grid_steps, grid_rows, channel<<7|row, step; struct */
     DBM_MSG_GRID_STEP = 0x0721,
     /* /clip/all; idx: -; text */
     DBM_MSG_CLIP_ALL = 0x0730,
@@ -1129,31 +1129,31 @@ enum DbmCmdId
     DBM_CMD_CLIP_TRANSPOSE = 0x870D,
     /* clip clear; idx: -; none */
     DBM_CMD_CLIP_CLEAR = 0x870E,
-    /* clip grid/{grid}/stepSize; idx: grid; f64 */
+    /* clip grid/{grid}/stepSize; idx: grid_steps, grid_rows; f64 */
     DBM_CMD_GRID_STEP_SIZE = 0x8720,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/toggle; idx: grid, channel, step, note; i32 */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/toggle; idx: grid_steps, grid_rows, channel<<7|note, step; i32 */
     DBM_CMD_GRID_STEP_TOGGLE = 0x8721,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/set; idx: grid, channel, step, note; struct */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/set; idx: grid_steps, grid_rows, channel<<7|note, step; struct */
     DBM_CMD_GRID_STEP_SET = 0x8722,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/setFrom; idx: grid, channel, step, note; text */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/setFrom; idx: grid_steps, grid_rows, channel<<7|note, step; text */
     DBM_CMD_GRID_STEP_SET_FROM = 0x8723,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/update; idx: grid, channel, step, note; text */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/update; idx: grid_steps, grid_rows, channel<<7|note, step; text */
     DBM_CMD_GRID_STEP_UPDATE = 0x8724,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/clear; idx: grid, channel, step, note; none */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/clear; idx: grid_steps, grid_rows, channel<<7|note, step; none */
     DBM_CMD_GRID_STEP_CLEAR = 0x8725,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}/moveY; idx: grid, channel, step, note; i32 */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}/moveY; idx: grid_steps, grid_rows, channel<<7|note, step; i32 */
     DBM_CMD_GRID_STEP_MOVE_Y = 0x8726,
-    /* clip grid/{grid}/step/{channel}/{step}/{note}; idx: grid, channel, step, note; struct */
+    /* clip grid/{grid}/step/{channel}/{step}/{note}; idx: grid_steps, grid_rows, channel<<7|note, step; struct */
     DBM_CMD_GRID_STEP_ATTRIBUTE = 0x8727,
-    /* clip grid/{grid}/clearAll; idx: grid; none */
+    /* clip grid/{grid}/clearAll; idx: grid_steps, grid_rows; none */
     DBM_CMD_GRID_CLEAR_ALL = 0x8728,
-    /* clip grid/{grid}/clearRow/{channel}/{row}; idx: grid, channel, row; none */
+    /* clip grid/{grid}/clearRow/{channel}/{row}; idx: grid_steps, grid_rows, channel, row; none */
     DBM_CMD_GRID_CLEAR_ROW = 0x8729,
-    /* clip grid/{grid}/clearColumn/{channel}/{column}; idx: grid, channel, column; none */
+    /* clip grid/{grid}/clearColumn/{channel}/{column}; idx: grid_steps, grid_rows, channel, column; none */
     DBM_CMD_GRID_CLEAR_COLUMN = 0x872A,
-    /* clip grid/{grid}/scroll; idx: grid; i32 */
+    /* clip grid/{grid}/scroll; idx: grid_steps, grid_rows; i32 */
     DBM_CMD_GRID_SCROLL = 0x872B,
-    /* clip grid/{grid}/page/{dir}; idx: grid, dir; none */
+    /* clip grid/{grid}/page/{dir}; idx: grid_steps, grid_rows, dir; none */
     DBM_CMD_GRID_PAGE = 0x872C,
     /* clip note/{note}/toggle; idx: note; text */
     DBM_CMD_CLIP_NOTE_TOGGLE = 0x8740,

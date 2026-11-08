@@ -24,7 +24,7 @@
 
 #![allow(clippy::enum_variant_names)]
 
-use super::bin::{BinConst, BinError, BinIdx, BinValue, IdxIn, Record, Writer};
+use super::bin::{BinConst, BinError, BinIdx, BinValue, IdxIn, IdxSlot, Record, Writer};
 use super::legacy::{Arg, ConstValue, Delay, Enable, Field, Legacy, One, PathReader, PathWriter, ProcField, Value};
 use super::types::*;
 use crate::backend::Processor;
@@ -324,17 +324,17 @@ commands! {
     ClipClear = 0x870E {} @ Clip ["clear"];
     GridStepSize = 0x8720 { grid: GridId } @ Clip ["grid" grid "stepSize"] => value: f64;
     /// Toggle the note at a step with the MIDI velocity.
-    GridStepToggle = 0x8721 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "toggle"] => velocity: i32;
-    GridStepSet = 0x8722 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "set"] => value: GridNote;
+    GridStepToggle = 0x8721 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "toggle"] => velocity: i32;
+    GridStepSet = 0x8722 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "set"] => value: GridNote;
     /// Create the note and copy the attributes of the step (the step text of
     /// `StepInfo::to_wire`).
-    GridStepSetFrom = 0x8723 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "setFrom"] => info: &'a str;
+    GridStepSetFrom = 0x8723 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "setFrom"] => info: &'a str;
     /// Update all attributes of the note (the step text of `StepInfo::to_wire`).
-    GridStepUpdate = 0x8724 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "update"] => info: &'a str;
-    GridStepClear = 0x8725 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "clear"];
-    GridStepMoveY = 0x8726 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note "moveY"] => row: i32;
+    GridStepUpdate = 0x8724 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "update"] => info: &'a str;
+    GridStepClear = 0x8725 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "clear"];
+    GridStepMoveY = 0x8726 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note "moveY"] => row: i32;
     /// Change one attribute of the note.
-    GridStepAttribute = 0x8727 { grid: GridId, channel: i32, step: i32, note: i32 } @ Clip ["grid" grid "step" channel step note] => value: StepValue;
+    GridStepAttribute = 0x8727 { grid: GridId, channel: GridChannel, note: GridRow, step: i32 } @ Clip ["grid" grid "step" channel step note] => value: StepValue;
     GridClearAll = 0x8728 { grid: GridId } @ Clip ["grid" grid "clearAll"];
     GridClearRow = 0x8729 { grid: GridId, channel: i32, row: i32 } @ Clip ["grid" grid "clearRow" channel row];
     GridClearColumn = 0x872A { grid: GridId, channel: i32, column: i32 } @ Clip ["grid" grid "clearColumn" channel column];
@@ -474,7 +474,7 @@ mod tests {
         let l = c.legacy();
         assert_eq!((l.processor, l.command.as_str()), (Processor::Drum, "pad/36/color"));
         assert_eq!(l.arg, Arg::Str("RGB(1,2,3)".into()));
-        let c = Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: 0, step: 3, note: 60, value: StepValue { attr: StepAttr::Velocity, value: 0.5 } };
+        let c = Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), step: 3, note: GridRow(60), value: StepValue { attr: StepAttr::Velocity, value: 0.5 } };
         let l = c.legacy();
         assert_eq!(l.command, "grid/8x128/step/0/3/60/velocity");
         let c = Cmd::DeviceSibling { sibling: Pos1(0), action: DeviceAction::Bypass };

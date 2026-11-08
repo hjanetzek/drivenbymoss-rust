@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use super::legacy::{PathReader, PathWriter};
-use super::types::{GridId, Pos1};
+use super::types::{GridChannel, GridId, GridRow, Pos1};
 use crate::daw::clip::{Note, StepInfo};
 use crate::daw::constants::{ChannelType, RecordQuantization};
 
@@ -105,6 +105,36 @@ impl Seg for GridId {
 
     fn patterns() -> Vec<Vec<Pat>> {
         vec![vec![Pat::Grid]]
+    }
+}
+
+/// The channel of a grid step: digits only.
+impl Seg for GridChannel {
+    fn write(&self, w: &mut PathWriter) {
+        w.seg(self.0);
+    }
+
+    fn read(r: &mut PathReader<'_>) -> Option<Self> {
+        usize::read(r).and_then(|v| i32::try_from(v).ok()).map(GridChannel)
+    }
+
+    fn patterns() -> Vec<Vec<Pat>> {
+        usize::patterns()
+    }
+}
+
+/// The row of a grid step: digits only.
+impl Seg for GridRow {
+    fn write(&self, w: &mut PathWriter) {
+        w.seg(self.0);
+    }
+
+    fn read(r: &mut PathReader<'_>) -> Option<Self> {
+        usize::read(r).and_then(|v| i32::try_from(v).ok()).map(GridRow)
+    }
+
+    fn patterns() -> Vec<Vec<Pat>> {
+        usize::patterns()
     }
 }
 

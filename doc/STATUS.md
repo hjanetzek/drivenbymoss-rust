@@ -225,8 +225,8 @@ that is formatted on one side and parsed on the other.
   current text protocol).
 - **Status:** steps 0a, 0b and 1 done (the command and the address table in `src/protocol/`,
   the binary records, the binary C ABI next to the text one, the generated `dbm_protocol.h` and
-  C++ `dbm_protocol.hpp`, the replay passes in both forms; plan §6). Open before step 2: the
-  grid ID of the binary form does not fit the 1536-step grid of the raindrops view (plan §6.3).
+  C++ `dbm_protocol.hpp`, the replay passes in both forms; the grid ID in two slots with
+  channel and row packed into one; plan §6). Next: step 2, the Python hosts.
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.

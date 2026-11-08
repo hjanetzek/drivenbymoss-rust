@@ -7,7 +7,7 @@
 
 use std::fmt::Write;
 
-use super::bin::{self, ty, CHANNEL_TYPES};
+use super::bin::{self, ty, IdxPart, IdxSlot, CHANNEL_TYPES};
 use super::msg::{ArrangerFlag, Dev, MixerFlag};
 use super::types::*;
 use super::{COMMANDS, MESSAGES};
@@ -42,13 +42,14 @@ fn lower_camel(name: &str) -> String {
     chars.next().map(|c| c.to_ascii_lowercase().to_string() + chars.as_str()).unwrap_or_default()
 }
 
-/// The name of an index slot: the field, or `field_slot` for a field with several slots.
-fn slot_name(field: &str, slot: &str) -> String {
-    if slot.is_empty() {
-        field.to_string()
-    } else {
-        format!("{field}_{slot}")
-    }
+/// The text of an index slot for the comments: `name`, or `channel<<7|row` for packed fields.
+fn slot_text(slot: &IdxSlot) -> String {
+    slot.iter().map(|p| if p.shift > 0 { format!("{}<<{}", p.name, p.shift) } else { p.name.clone() }).collect::<Vec<_>>().join("|")
+}
+
+/// The mask of a packed part.
+fn part_mask(part: &IdxPart) -> u32 {
+    (1u32 << part.bits) - 1
 }
 
 /// The index domains: (name, values with their numbers).
@@ -89,7 +90,7 @@ struct Entry {
     name: &'static str,
     id: u16,
     template: String,
-    slots: Vec<String>,
+    slots: Vec<IdxSlot>,
     value_type: u8,
 }
 
@@ -100,7 +101,7 @@ fn messages() -> Vec<Entry> {
             name: info.name,
             id: info.id as u16,
             template: info.template.to_string(),
-            slots: info.id.index_slots().iter().map(|(f, s)| slot_name(f, s)).collect(),
+            slots: info.id.index_slots(),
             value_type: info.id.value_type(),
         })
         .collect()
@@ -118,7 +119,7 @@ fn commands() -> Vec<Entry> {
                 name: info.name,
                 id: info.id as u16,
                 template: format!("{processor} {}", info.template),
-                slots: info.id.index_slots().iter().map(|(f, s)| slot_name(f, s)).collect(),
+                slots: info.id.index_slots(),
                 value_type: info.id.value_type(),
             }
         })
@@ -179,7 +180,7 @@ pub fn c_header() -> String {
     for (title, prefix, entries) in [("Reports (host -> core)", "MSG", messages()), ("Commands (core -> host)", "CMD", commands())] {
         let _ = writeln!(o, "\n/* {title}: ID = text template; indices; value type */\nenum Dbm{}Id\n{{", if prefix == "MSG" { "Msg" } else { "Cmd" });
         for e in &entries {
-            let _ = writeln!(o, "    /* {}; idx: {}; {} */", e.template, if e.slots.is_empty() { "-".to_string() } else { e.slots.join(", ") }, ty::NAMES[usize::from(e.value_type)]);
+            let _ = writeln!(o, "    /* {}; idx: {}; {} */", e.template, if e.slots.is_empty() { "-".to_string() } else { e.slots.iter().map(slot_text).collect::<Vec<_>>().join(", ") }, ty::NAMES[usize::from(e.value_type)]);
             let _ = writeln!(o, "    DBM_{prefix}_{} = 0x{:04X},", upper_snake(e.name), e.id);
         }
         o.push_str("};\n");
@@ -378,6 +379,14 @@ fn cpp_view_type(t: u8) -> &'static str {
         ty::COLOR => "Color",
         ty::TEXT_LIST => "std::vector<std::string>",
         _ => "",
+    }
+}
+
+/// The C++ expression of an index slot of a writer method: the parameter, or the packed parts.
+fn cpp_slot_value(slot: &IdxSlot) -> String {
+    match slot.as_slice() {
+        [p] if p.bits == 16 => if p.signed { format!("static_cast<uint16_t> ({})", p.name) } else { p.name.clone() },
+        parts => format!("static_cast<uint16_t> ({})", parts.iter().map(|p| format!("(({} & {}u) << {})", p.name, part_mask(p), p.shift)).collect::<Vec<_>>().join(" | ")),
     }
 }
 
@@ -620,7 +629,7 @@ public:
     );
     // The writer methods per report
     for e in messages() {
-        let mut params: Vec<String> = e.slots.iter().map(|s| format!("uint16_t {s}")).collect();
+        let mut params: Vec<String> = e.slots.iter().flatten().map(|p| format!("{} {}", if p.signed { "int16_t" } else { "uint16_t" }, p.name)).collect();
         let call = match e.value_type {
             ty::NONE => "putNone".to_string(),
             ty::BOOL => "putBool".to_string(),
@@ -637,7 +646,7 @@ public:
             ty::STRUCT => params.push("const std::vector<double> &value".into()),
             t => params.push(format!("{} value", cpp_value(t).map_or("", |v| v.0))),
         }
-        let mut idx: Vec<String> = e.slots.clone();
+        let mut idx: Vec<String> = e.slots.iter().map(cpp_slot_value).collect();
         idx.resize(4, "0".into());
         let value = if e.value_type == ty::NONE { "" } else { ", value" };
         let _ = writeln!(o, "    /** {} */", e.template);
@@ -655,8 +664,16 @@ public:
     o.push_str("/** The views of the commands: the indices by name and the typed value. */\nnamespace cmd\n{\n");
     for e in commands() {
         let _ = writeln!(o, "/** {} */\nstruct {}\n{{\n    static constexpr Cmd id = Cmd::{};\n    Record record;", e.template, e.name, e.name);
-        for (i, s) in e.slots.iter().enumerate() {
-            let _ = writeln!(o, "    uint16_t {s} () const {{ return this->record.idx ({i}); }}");
+        for (i, slot) in e.slots.iter().enumerate() {
+            for p in slot {
+                if p.bits == 16 && p.signed {
+                    let _ = writeln!(o, "    int16_t {} () const {{ return this->record.signedIdx ({i}); }}", p.name);
+                } else if p.bits == 16 {
+                    let _ = writeln!(o, "    uint16_t {} () const {{ return this->record.idx ({i}); }}", p.name);
+                } else {
+                    let _ = writeln!(o, "    uint16_t {} () const {{ return static_cast<uint16_t> ((this->record.idx ({i}) >> {}) & {}); }}", p.name, p.shift, part_mask(p));
+                }
+            }
         }
         if let Some((_, accessor)) = cpp_value(e.value_type) {
             let _ = writeln!(o, "    {} value () const {{ return this->{accessor}; }}", cpp_view_type(e.value_type));
