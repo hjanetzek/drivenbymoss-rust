@@ -2,7 +2,8 @@
 <!--
     The Bitwig Studio extension of the DrivenByMoss Rust core (see doc/BITWIG_BACKEND_PLAN.md).
 
-    mvn package    builds target/DrivenByMoss-Rust.bwextension
+    mvn package    builds target/DrivenByMoss-Rust.bwextension (after the protocol tests,
+                   src/test/java/.../ProtocolTests.java; -DskipTests skips them)
     mvn install    also copies it to ${bitwig.extension.directory}
 
     The native library is bundled from ../../target/release (a release build of the crate) if it
@@ -26,6 +27,9 @@
         <bitwig.api.version>21</bitwig.api.version>
         <bitwig.extension.directory>${user.home}/Bitwig Studio/Extensions</bitwig.extension.directory>
         <native.directory>${project.basedir}/../../target/release</native.directory>
+        <!-- The library of the protocol tests with the core (skipped if it does not exist) -->
+        <dbm.test.library>${project.basedir}/../../target/debug/libdrivenbymoss.so</dbm.test.library>
+        <skipTests>false</skipTests>
     </properties>
 
     <repositories>
@@ -92,6 +96,31 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+            </plugin>
+
+            <!-- The protocol tests: a plain main class (no test framework), run in the test phase -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>protocol-tests</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skipTests}</skip>
+                            <target>
+                                <java classname="de.mossgrabers.dbm.bitwig.ProtocolTests" classpathref="maven.test.classpath" fork="true" failonerror="true">
+                                    <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+                                    <sysproperty key="dbm.library" value="${dbm.test.library}" />
+                                </java>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Install the extension: copy the jar as .bwextension into Bitwig's extension folder -->

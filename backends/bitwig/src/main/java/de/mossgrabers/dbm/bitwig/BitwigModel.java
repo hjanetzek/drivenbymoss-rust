@@ -40,6 +40,8 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import de.mossgrabers.dbm.bitwig.Protocol.Msg;
+
 
 /**
  * The Bitwig objects the core needs, created during init from the core's model setup, and the
@@ -160,6 +162,8 @@ public final class BitwigModel
     private boolean          masterSelected;
     private int              masterVuLeft;
     private int              masterVuRight;
+    /** The pitch and velocity of the playing notes of the cursor track, in pairs (reused). */
+    private int []           playingNotes        = new int [32];
 
 
     /**
@@ -215,7 +219,7 @@ public final class BitwigModel
         this.siblings = this.cursorDevice.createSiblingsDeviceBank (NUM_SIBLINGS);
         // The layers of the cursor device (CursorDeviceImpl: layer bank of numDeviceLayers), with
         // hasLayers / hasDrumPads, which the layer commands of the controllers check
-        this.cursorDeviceLayers = new SpecificDevice (this.cursorDevice, "/device", 0, 0, Math.max (0, getInt (modelSetup, "numDeviceLayers", 8)));
+        this.cursorDeviceLayers = new SpecificDevice (this.cursorDevice, Protocol.Dev.DEVICE, 0, 0, Math.max (0, getInt (modelSetup, "numDeviceLayers", 8)));
         this.largeDeviceBank = this.cursorDevice.channel ().createDeviceBank (NUM_LARGE_DEVICES);
         this.remoteControls = this.cursorDevice.createCursorRemoteControlsPage (PARAMS_PER_PAGE);
         // CursorTrackImpl: the remote controls of the cursor track, in pages as for devices
@@ -230,12 +234,12 @@ public final class BitwigModel
 
         // The drum machine of the cursor track, as ModelImpl of the Java version
         if (getBoolean (modelSetup, "wantsDrumDevice", true))
-            this.drumDevice = new SpecificDevice (this.createDevice (host.createBitwigDeviceMatcher (INSTRUMENT_DRUM_MACHINE)), "/drum", 0, NUM_DRUM_PADS, 0);
+            this.drumDevice = new SpecificDevice (this.createDevice (host.createBitwigDeviceMatcher (INSTRUMENT_DRUM_MACHINE)), SpecificDevice.DRUM, 0, NUM_DRUM_PADS, 0);
         else
             this.drumDevice = null;
         // The first instrument of the cursor track (ModelImpl, DeviceID.FIRST_INSTRUMENT)
         if (modelSetup.contains ("\"FIRST_INSTRUMENT\""))
-            this.firstInstrument = new SpecificDevice (this.createDevice (host.createInstrumentMatcher ()), "/primary", numParamPages, NUM_DRUM_PADS, NUM_LAYERS);
+            this.firstInstrument = new SpecificDevice (this.createDevice (host.createInstrumentMatcher ()), Protocol.Dev.PRIMARY, numParamPages, NUM_DRUM_PADS, NUM_LAYERS);
         else
             this.firstInstrument = null;
         // The first EQ+ of the cursor track (ModelImpl, DeviceID.EQ)
@@ -489,21 +493,6 @@ public final class BitwigModel
     }
 
 
-    /**
-     * The names of the pages (as many as there are fixed page cursors) and the page selected in
-     * Bitwig, from the cursor which follows Bitwig's selection.
-     */
-    private static void collectPageNames (final ModelReporter reporter, final String prefix, final CursorRemoteControlsPage remoteControls, final int numPages)
-    {
-        final String [] pageNames = remoteControls.pageNames ().get ();
-        final int namedPages = Math.min (pageNames.length, numPages);
-        for (int p = 0; p < namedPages; p++)
-            reporter.put (prefix + "/page/" + p + "/name", pageNames[p]);
-        reporter.put (prefix + "/page/count", namedPages);
-        reporter.put (prefix + "/page/selected", remoteControls.selectedPageIndex ().get ());
-    }
-
-
     static void markPage (final CursorRemoteControlsPage page)
     {
         page.pageCount ().markInterested ();
@@ -543,17 +532,16 @@ public final class BitwigModel
      */
     public void collect (final ModelReporter reporter)
     {
-        reporter.applyPendingForgets ();
         // The command forms this extension handles (HostFeature of the core); reported once and
         // with every dump
-        reporter.put ("/host/features", this.navigator == null ? HOST_FEATURES : HOST_FEATURES + " " + HOST_FEATURE_NAVIGATOR);
+        reporter.put (Msg.HOST_FEATURES, this.navigator == null ? HOST_FEATURES : HOST_FEATURES + " " + HOST_FEATURE_NAVIGATOR);
         this.collectTransport (reporter);
         this.collectTracks (reporter);
         this.collectEffectTracks (reporter);
         if (this.trackPages.length > 0)
         {
-            collectPages (reporter, "/track/fx", this.trackPages);
-            collectPageNames (reporter, "/track/fx", this.trackRemoteControls, this.trackPages.length);
+            collectPages (reporter, Protocol.ParamOwner.TRACK_FX, this.trackPages);
+            collectPageNames (reporter, Protocol.PageOwner.TRACK_FX, this.trackRemoteControls, this.trackPages.length);
         }
         this.collectMarkers (reporter);
         this.collectScenes (reporter);
@@ -584,12 +572,12 @@ public final class BitwigModel
         if (this.arpeggiator == null)
             return;
         final double period = this.arpeggiator.rate ().get ();
-        reporter.put ("/noterepeat/active", this.arpeggiator.isEnabled ().get ());
+        reporter.put (Msg.NOTE_REPEAT_ACTIVE, this.arpeggiator.isEnabled ().get ());
         if (period > 0)
-            reporter.put ("/noterepeat/period", 1.0 / period);
-        reporter.put ("/noterepeat/notelength", this.arpeggiator.gateLength ().get ());
-        reporter.put ("/noterepeat/mode", Math.max (0, ARPEGGIATOR_MODES.indexOf (this.arpeggiator.mode ().get ())));
-        reporter.put ("/noterepeat/velocity", this.arpeggiator.usePressureToVelocity ().get ());
+            reporter.put (Msg.NOTE_REPEAT_PERIOD, 1.0 / period);
+        reporter.put (Msg.NOTE_REPEAT_NOTE_LENGTH, this.arpeggiator.gateLength ().get ());
+        reporter.put (Msg.NOTE_REPEAT_MODE, Math.max (0, ARPEGGIATOR_MODES.indexOf (this.arpeggiator.mode ().get ())));
+        reporter.put (Msg.NOTE_REPEAT_VELOCITY, this.arpeggiator.usePressureToVelocity ().get ());
     }
 
 
@@ -615,56 +603,57 @@ public final class BitwigModel
         final double seconds = tempo > 0 ? beats * 60.0 / tempo : 0;
         final double contentPerPixel = this.arranger.getHorizontalScrollbarModel ().getContentPerPixel ().get ();
 
-        reporter.put ("/play", this.transport.isPlaying ().get ());
-        reporter.put ("/record", this.transport.isArrangerRecordEnabled ().get ());
-        reporter.put ("/repeat", this.transport.isArrangerLoopEnabled ().get ());
-        reporter.put ("/tempo", tempo);
-        reporter.put ("/numerator", this.transport.timeSignature ().numerator ().get ());
-        reporter.put ("/denominator", this.transport.timeSignature ().denominator ().get ());
-        reporter.put ("/time", seconds);
+        reporter.put (Msg.PLAY, this.transport.isPlaying ().get ());
+        reporter.put (Msg.RECORD, this.transport.isArrangerRecordEnabled ().get ());
+        reporter.put (Msg.REPEAT, this.transport.isArrangerLoopEnabled ().get ());
+        reporter.put (Msg.TEMPO, tempo);
+        reporter.put (Msg.NUMERATOR, this.transport.timeSignature ().numerator ().get ());
+        reporter.put (Msg.DENOMINATOR, this.transport.timeSignature ().denominator ().get ());
+        reporter.put (Msg.TIME, seconds);
 
         // As the Java version: the position (for moving it) is the play start position, the
         // texts show the play position; the zoom is the inverse of the content per pixel
-        reporter.put ("/beats/position", this.transport.playStartPosition ().get ());
-        reporter.put ("/beats/loop/start", this.transport.arrangerLoopStart ().get ());
-        reporter.put ("/beats/loop/length", this.transport.arrangerLoopDuration ().get ());
-        reporter.put ("/time/text", tempo > 0 ? TimeFormat.formatTimeLong (tempo, beats) : "");
-        reporter.put ("/beats/text", this.transport.getPosition ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
-        reporter.put ("/beats/loop/start/text", this.transport.arrangerLoopStart ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
-        reporter.put ("/beats/loop/length/text", this.transport.arrangerLoopDuration ().getFormatted (TimeFormat.BEAT_LENGTH_FORMATTER));
+        reporter.put (Msg.BEATS_POSITION, this.transport.playStartPosition ().get ());
+        reporter.put (Msg.BEATS_LOOP_START, this.transport.arrangerLoopStart ().get ());
+        reporter.put (Msg.BEATS_LOOP_LENGTH, this.transport.arrangerLoopDuration ().get ());
+        reporter.put (Msg.TIME_TEXT, tempo > 0 ? TimeFormat.formatTimeLong (tempo, beats) : "");
+        reporter.put (Msg.BEATS_TEXT, this.transport.getPosition ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
+        reporter.put (Msg.BEATS_LOOP_START_TEXT, this.transport.arrangerLoopStart ().getFormatted (TimeFormat.BEAT_POSITION_FORMATTER));
+        reporter.put (Msg.BEATS_LOOP_LENGTH_TEXT, this.transport.arrangerLoopDuration ().getFormatted (TimeFormat.BEAT_LENGTH_FORMATTER));
         if (contentPerPixel > 0)
-            reporter.put ("/time/hzoom", 1.0 / contentPerPixel);
-        reporter.put ("/click", this.transport.isMetronomeEnabled ().get ());
+            reporter.put (Msg.TIME_H_ZOOM, 1.0 / contentPerPixel);
+        reporter.put (Msg.METRONOME, this.transport.isMetronomeEnabled ().get ());
         // The automation write switches, and the mode as the index of the core's mode (Reaper);
         // Read if no switch is on, as TransportImpl.getAutomationWriteMode
         final boolean arrangerAutomation = this.transport.isArrangerAutomationWriteEnabled ().get ();
         final boolean launcherAutomation = this.transport.isClipLauncherAutomationWriteEnabled ().get ();
         // The overdub switches, as TransportImpl.isArrangerOverdub / isLauncherOverdub
-        reporter.put ("/overdub/arranger", this.transport.isArrangerOverdubEnabled ().get ());
-        reporter.put ("/overdub/launcher", this.transport.isClipLauncherOverdubEnabled ().get ());
-        reporter.put ("/automode/arranger", arrangerAutomation);
-        reporter.put ("/automode/launcher", launcherAutomation);
-        reporter.put ("/automode", arrangerAutomation || launcherAutomation ? automationModeIndex (this.transport.automationWriteMode ().get ()) : AUTOMATION_READ);
+        reporter.put (Msg.OVERDUB_ARRANGER, this.transport.isArrangerOverdubEnabled ().get ());
+        reporter.put (Msg.OVERDUB_LAUNCHER, this.transport.isClipLauncherOverdubEnabled ().get ());
+        reporter.put (Msg.AUTOMATION_ARRANGER, arrangerAutomation);
+        reporter.put (Msg.AUTOMATION_LAUNCHER, launcherAutomation);
+        reporter.put (Msg.AUTOMATION_MODE, arrangerAutomation || launcherAutomation ? automationModeIndex (this.transport.automationWriteMode ().get ()) : AUTOMATION_READ);
         // As Reaper's pre-roll bit field: 2 = the metronome is audible during the pre-roll
-        reporter.put ("/click/preroll", this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
+        reporter.put (Msg.METRONOME_PREROLL, this.transport.isMetronomeAudibleDuringPreRoll ().get () ? 2 : 0);
         // TransportImpl.getPrerollMeasures
-        reporter.put ("/click/prerollMeasures", Math.max (0, Arrays.asList (PREROLLS).indexOf (this.transport.preRoll ().get ())));
+        reporter.put (Msg.METRONOME_PREROLL_MEASURES, Math.max (0, Arrays.asList (PREROLLS).indexOf (this.transport.preRoll ().get ())));
         // TransportImpl.getCrossfadeParameter
         final Parameter crossfade = this.transport.crossfade ();
-        reporter.put ("/crossfade/name", crossfade.name ().get ());
-        reporter.put ("/crossfade", crossfade.value ().get ());
-        putDisplayedValue (reporter, "/crossfade/str", crossfade.displayedValue (), true);
-        reporter.put ("/followPlayback", this.arranger.isPlaybackFollowEnabled ().get ());
-        reporter.put ("/click/volume", this.transport.metronomeVolume ().get ());
+        final long crossfadeKey = hostParamKey (Protocol.HostParamKind.CROSSFADE, 0);
+        reporter.put (Msg.HOST_PARAM_NAME | crossfadeKey, crossfade.name ().get ());
+        reporter.put (Msg.HOST_PARAM_VALUE | crossfadeKey, crossfade.value ().get ());
+        putDisplayedValue (reporter, Msg.HOST_PARAM_STR | crossfadeKey, crossfade.displayedValue (), true);
+        reporter.put (Msg.FOLLOW_PLAYBACK, this.arranger.isPlaybackFollowEnabled ().get ());
+        reporter.put (Msg.METRONOME_VOLUME, this.transport.metronomeVolume ().get ());
         // As TransportImpl.getMetronomeVolumeStr
-        reporter.put ("/click/volumeStr", this.transport.metronomeVolume ().displayedValue ().getLimited (6) + " dB");
-        reporter.put ("/click/ticks", this.transport.isMetronomeTickPlaybackEnabled ().get ());
+        reporter.put (Msg.METRONOME_VOLUME_STR, this.transport.metronomeVolume ().displayedValue ().getLimited (6) + " dB");
+        reporter.put (Msg.METRONOME_TICKS, this.transport.isMetronomeTickPlaybackEnabled ().get ());
         // Independent punch switches, the fill mode (TransportImpl)
-        reporter.put ("/punchIn", this.transport.isPunchInEnabled ().get ());
-        reporter.put ("/punchOut", this.transport.isPunchOutEnabled ().get ());
-        reporter.put ("/fill", this.transport.isFillModeActive ().get ());
-        reporter.put ("/project/canUndo", this.application.canUndo ().get ());
-        reporter.put ("/project/canRedo", this.application.canRedo ().get ());
+        reporter.put (Msg.PUNCH_IN, this.transport.isPunchInEnabled ().get ());
+        reporter.put (Msg.PUNCH_OUT, this.transport.isPunchOutEnabled ().get ());
+        reporter.put (Msg.FILL, this.transport.isFillModeActive ().get ());
+        reporter.put (Msg.PROJECT_CAN_UNDO, this.application.canUndo ().get ());
+        reporter.put (Msg.PROJECT_CAN_REDO, this.application.canRedo ().get ());
         this.collectApplication (reporter);
     }
 
@@ -676,43 +665,45 @@ public final class BitwigModel
      */
     private void collectApplication (final ModelReporter reporter)
     {
-        reporter.put ("/project/engine", this.application.hasActiveEngine ().get ());
+        reporter.put (Msg.PROJECT_ENGINE, this.application.hasActiveEngine ().get ());
         // ProjectImpl.getName, isDirty
-        reporter.put ("/project/name", this.application.projectName ().get ());
-        reporter.put ("/project/isDirty", this.project.isModified ().get ());
-        reporter.put ("/layout", this.application.panelLayout ().get ());
-        reporter.put ("/recordQuantization", this.application.recordQuantizationGrid ().get ());
-        reporter.put ("/recordQuantization/noteLength", this.application.recordQuantizeNoteLength ().get ());
-        reporter.put ("/project/hasSolo", this.project.hasSoloedTracks ().get ());
-        reporter.put ("/project/hasMute", this.project.hasMutedTracks ().get ());
-        reporter.put ("/project/cueVolume", this.project.cueVolume ().value ().get ());
-        putDisplayedValue (reporter, "/project/cueVolume/str", this.project.cueVolume ().displayedValue (), true);
-        reporter.put ("/project/cueMix", this.project.cueMix ().value ().get ());
-        putDisplayedValue (reporter, "/project/cueMix/str", this.project.cueMix ().displayedValue (), true);
-        reporter.put ("/arranger/cueMarkers", this.arranger.areCueMarkersVisible ().get ());
-        reporter.put ("/arranger/doubleRowTrackHeight", this.arranger.hasDoubleRowTrackHeight ().get ());
-        reporter.put ("/arranger/clipLauncher", this.arranger.isClipLauncherVisible ().get ());
-        reporter.put ("/arranger/timeline", this.arranger.isTimelineVisible ().get ());
-        reporter.put ("/arranger/ioSection", this.arranger.isIoSectionVisible ().get ());
-        reporter.put ("/arranger/effectTracks", this.arranger.areEffectTracksVisible ().get ());
-        reporter.put ("/mixer/clipLauncherSection", this.mixer.isClipLauncherSectionVisible ().get ());
-        reporter.put ("/mixer/crossFadeSection", this.mixer.isCrossFadeSectionVisible ().get ());
-        reporter.put ("/mixer/deviceSection", this.mixer.isDeviceSectionVisible ().get ());
-        reporter.put ("/mixer/ioSection", this.mixer.isIoSectionVisible ().get ());
-        reporter.put ("/mixer/meterSection", this.mixer.isMeterSectionVisible ().get ());
-        reporter.put ("/mixer/sendSection", this.mixer.isSendSectionVisible ().get ());
+        reporter.put (Msg.PROJECT_NAME, this.application.projectName ().get ());
+        reporter.put (Msg.PROJECT_IS_DIRTY, this.project.isModified ().get ());
+        reporter.put (Msg.LAYOUT, this.application.panelLayout ().get ());
+        reporter.put (Msg.RECORD_QUANTIZATION, this.application.recordQuantizationGrid ().get ());
+        reporter.put (Msg.RECORD_QUANTIZATION_NOTE_LENGTH, this.application.recordQuantizeNoteLength ().get ());
+        reporter.put (Msg.PROJECT_HAS_SOLO, this.project.hasSoloedTracks ().get ());
+        reporter.put (Msg.PROJECT_HAS_MUTE, this.project.hasMutedTracks ().get ());
+        final long cueVolume = hostParamKey (Protocol.HostParamKind.CUE, Protocol.CueParam.VOLUME);
+        reporter.put (Msg.HOST_PARAM_VALUE | cueVolume, this.project.cueVolume ().value ().get ());
+        putDisplayedValue (reporter, Msg.HOST_PARAM_STR | cueVolume, this.project.cueVolume ().displayedValue (), true);
+        final long cueMix = hostParamKey (Protocol.HostParamKind.CUE, Protocol.CueParam.MIX);
+        reporter.put (Msg.HOST_PARAM_VALUE | cueMix, this.project.cueMix ().value ().get ());
+        putDisplayedValue (reporter, Msg.HOST_PARAM_STR | cueMix, this.project.cueMix ().displayedValue (), true);
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.CUE_MARKERS), this.arranger.areCueMarkersVisible ().get ());
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.DOUBLE_ROW_TRACK_HEIGHT), this.arranger.hasDoubleRowTrackHeight ().get ());
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.CLIP_LAUNCHER), this.arranger.isClipLauncherVisible ().get ());
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.TIMELINE), this.arranger.isTimelineVisible ().get ());
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.IO_SECTION), this.arranger.isIoSectionVisible ().get ());
+        reporter.put (Msg.ARRANGER | flagKey (Protocol.ArrangerFlag.EFFECT_TRACKS), this.arranger.areEffectTracksVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.CLIP_LAUNCHER_SECTION), this.mixer.isClipLauncherSectionVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.CROSS_FADE_SECTION), this.mixer.isCrossFadeSectionVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.DEVICE_SECTION), this.mixer.isDeviceSectionVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.IO_SECTION), this.mixer.isIoSectionVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.METER_SECTION), this.mixer.isMeterSectionVisible ().get ());
+        reporter.put (Msg.MIXER | flagKey (Protocol.MixerFlag.SEND_SECTION), this.mixer.isSendSectionVisible ().get ());
         if (this.projectRemoteControls != null)
         {
-            collectPages (reporter, "/project", this.projectPages);
-            collectPageNames (reporter, "/project", this.projectRemoteControls, this.projectPages.length);
+            collectPages (reporter, Protocol.ParamOwner.PROJECT, this.projectPages);
+            collectPageNames (reporter, Protocol.PageOwner.PROJECT, this.projectRemoteControls, this.projectPages.length);
         }
         for (int i = 0; i < GROOVE_PARAMETERS.length; i++)
         {
             final Parameter parameter = this.grooveParameters[i];
-            final String prefix = "/groove/" + GROOVE_PARAMETERS[i];
-            reporter.put (prefix + "/name", parameter.name ().get ());
-            reporter.put (prefix, parameter.value ().get ());
-            putDisplayedValue (reporter, prefix + "/str", parameter.displayedValue (), true);
+            final long key = hostParamKey (Protocol.HostParamKind.GROOVE, i);
+            reporter.put (Msg.HOST_PARAM_NAME | key, parameter.name ().get ());
+            reporter.put (Msg.HOST_PARAM_VALUE | key, parameter.value ().get ());
+            putDisplayedValue (reporter, Msg.HOST_PARAM_STR | key, parameter.displayedValue (), true);
         }
     }
 
@@ -730,14 +721,14 @@ public final class BitwigModel
         // (CursorTrackImpl.isPinned) is reported as "/track/pinned" with its position
         final int selected = this.selectionTrack.position ().get ();
         final int cursor = this.cursorTrack.position ().get ();
-        reporter.put ("/track/pinned", this.cursorTrack.isPinned ().get () ? cursor : -1);
-        reporter.put ("/track/hasPrevious", this.cursorTrack.hasPrevious ().get ());
-        reporter.put ("/track/hasNext", this.cursorTrack.hasNext ().get ());
-        reporter.put ("/track/offset", offset);
+        reporter.put (Msg.TRACK_PINNED, this.cursorTrack.isPinned ().get () ? cursor : -1);
+        reporter.put (Msg.TRACK_HAS_PREVIOUS, this.cursorTrack.hasPrevious ().get ());
+        reporter.put (Msg.TRACK_HAS_NEXT, this.cursorTrack.hasNext ().get ());
+        reporter.put (Msg.TRACK_OFFSET, offset);
         if (selected != this.lastSelectedTrack)
         {
             if (this.lastSelectedTrack >= 0)
-                reporter.put ("/track/" + this.lastSelectedTrack + "/select", false);
+                reporter.put (Msg.CHANNEL_SELECTED | channelKey (Protocol.ChKind.TRACK, this.lastSelectedTrack), false);
             this.lastSelectedTrack = selected;
         }
         if (cursor != this.lastCursorTrack)
@@ -745,8 +736,8 @@ public final class BitwigModel
             this.lastCursorTrack = cursor;
             // The core keeps one note cache: report the notes of the new cursor track; the
             // remote controls belong to the track
-            reporter.forget ("/track/" + cursor + "/playingnotes");
-            reporter.forget ("/track/fx/");
+            reporter.forget (Msg.CHANNEL_PLAYING_NOTES | channelKey (Protocol.ChKind.TRACK, cursor), 0);
+            reporter.forget (new ModelReporter.Entity (ModelReporter.Family.OWNER, Protocol.ParamOwner.TRACK_FX, 0, 0));
         }
 
         final int sceneOffset = this.sceneBank.scrollPosition ().get ();
@@ -757,53 +748,53 @@ public final class BitwigModel
             if (position >= total)
                 break;
             final Track track = this.trackBank.getItemAt (i);
-            final String prefix = "/track/" + position + "/";
-            reporter.put (prefix + "exists", 1);
-            reporter.put (prefix + "number", position);
-            reporter.put (prefix + "type", trackType (track));
-            reporter.put (prefix + "isGroupExpanded", track.isGroupExpanded ().get ());
-            reporter.put (prefix + "select", position == selected);
-            reporter.put (prefix + "recarm", track.arm ().get ());
+            final long base = channelKey (Protocol.ChKind.TRACK, position);
+            reporter.put (Msg.CHANNEL_EXISTS | base, 1);
+            reporter.put (Msg.CHANNEL_NUMBER | base, position);
+            reporter.put (Msg.CHANNEL_TYPE | base, trackType (track));
+            reporter.put (Msg.CHANNEL_IS_GROUP_EXPANDED | base, track.isGroupExpanded ().get ());
+            reporter.put (Msg.CHANNEL_SELECTED | base, position == selected);
+            reporter.put (Msg.CHANNEL_REC_ARM | base, track.arm ().get ());
             final String monitorMode = track.monitorMode ().get ();
             // TrackImpl.isMonitor: the effective monitoring (also AUTO while armed)
-            reporter.put (prefix + "monitor", track.isMonitoring ().get ());
-            reporter.put (prefix + "autoMonitor", "AUTO".equals (monitorMode));
-            reporter.put (prefix + "canHoldNotes", track.canHoldNoteData ().get ());
-            reporter.put (prefix + "canHoldAudio", track.canHoldAudioData ().get ());
-            reportVu (reporter, prefix, this.trackVuLeft[i], this.trackVuRight[i]);
-            collectChannel (reporter, prefix, track, true);
+            reporter.put (Msg.CHANNEL_MONITOR | base, track.isMonitoring ().get ());
+            reporter.put (Msg.CHANNEL_AUTO_MONITOR | base, "AUTO".equals (monitorMode));
+            reporter.put (Msg.CHANNEL_CAN_HOLD_NOTES | base, track.canHoldNoteData ().get ());
+            reporter.put (Msg.CHANNEL_CAN_HOLD_AUDIO | base, track.canHoldAudioData ().get ());
+            reportVu (reporter, base, this.trackVuLeft[i], this.trackVuRight[i]);
+            collectChannel (reporter, base, track);
 
             final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
             for (int s = 0; s < sendCount; s++)
             {
                 final Send send = track.sendBank ().getItemAt (s);
-                final String sendPrefix = prefix + "send/" + s + "/";
-                reporter.put (sendPrefix + "name", send.name ().get ());
-                reporter.put (sendPrefix + "volume", send.value ().get ());
-                putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
-                reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+                final long sendBase = base | (long) s << 48;
+                reporter.put (Msg.SEND_NAME | sendBase, send.name ().get ());
+                reporter.put (Msg.SEND_VOLUME | sendBase, send.value ().get ());
+                putDisplayedValue (reporter, Msg.SEND_VOLUME_STR | sendBase, send.displayedValue (), true);
+                reporter.put (Msg.SEND_ACTIVE | sendBase, send.isEnabled ().get ());
                 // SendImpl.getColor: sendChannelColor ()
-                reporter.putColor (sendPrefix + "color", send.sendChannelColor ().red (), send.sendChannelColor ().green (), send.sendChannelColor ().blue ());
+                reporter.putColor (Msg.SEND_COLOR | sendBase, send.sendChannelColor ().red (), send.sendChannelColor ().green (), send.sendChannelColor ().blue ());
             }
-            reporter.put (prefix + "send/count", sendCount);
-            this.collectSlots (reporter, prefix, track, sceneOffset, sceneTotal);
+            reporter.put (Msg.SEND_COUNT | base, sendCount);
+            this.collectSlots (reporter, base, track, sceneOffset, sceneTotal);
         }
-        reporter.put ("/track/count", total);
+        reporter.put (Msg.TRACK_COUNT, total);
         if (selected >= 0 && selected < total)
-            reporter.put ("/track/" + selected + "/select", true);
+            reporter.put (Msg.CHANNEL_SELECTED | channelKey (Protocol.ChKind.TRACK, selected), true);
         if (cursor >= 0 && cursor < total)
         {
             // The notes which play on the selected track (live and from clips), e.g. to light
-            // the pads of the played notes, as the note observer of TrackImpl; in the note format
-            // of the core
-            final StringBuilder notes = new StringBuilder ();
-            for (final PlayingNote note: this.cursorTrack.playingNotes ().get ())
+            // the pads of the played notes, as the note observer of TrackImpl
+            final PlayingNote [] playingNotes = this.cursorTrack.playingNotes ().get ();
+            if (this.playingNotes.length < 2 * playingNotes.length)
+                this.playingNotes = new int [2 * playingNotes.length];
+            for (int n = 0; n < playingNotes.length; n++)
             {
-                if (!notes.isEmpty ())
-                    notes.append (';');
-                notes.append ("0:0:0:0:0:").append (note.pitch ()).append (':').append (note.velocity ());
+                this.playingNotes[2 * n] = playingNotes[n].pitch ();
+                this.playingNotes[2 * n + 1] = playingNotes[n].velocity ();
             }
-            reporter.put ("/track/" + cursor + "/playingnotes", notes.toString ());
+            reporter.putPlayingNotes (Msg.CHANNEL_PLAYING_NOTES | channelKey (Protocol.ChKind.TRACK, cursor), this.playingNotes, playingNotes.length);
         }
     }
 
@@ -811,31 +802,31 @@ public final class BitwigModel
     /**
      * The clip launcher slots of a track (protocol v2), as SlotImpl of the Java version.
      */
-    private void collectSlots (final ModelReporter reporter, final String prefix, final Track track, final int sceneOffset, final int sceneTotal)
+    private void collectSlots (final ModelReporter reporter, final long base, final Track track, final int sceneOffset, final int sceneTotal)
     {
-        reporter.put (prefix + "isStopped", track.isStopped ().get ());
-        reporter.put (prefix + "slot/count", sceneTotal);
+        reporter.put (Msg.CHANNEL_IS_STOPPED | base, track.isStopped ().get ());
+        reporter.put (Msg.SLOT_COUNT | base, sceneTotal);
         for (int s = 0; s < this.numScenes; s++)
         {
             final int position = sceneOffset + s;
             if (position >= sceneTotal)
                 break;
             final ClipLauncherSlot slot = track.clipLauncherSlotBank ().getItemAt (s);
-            final String slotPrefix = prefix + "slot/" + position + "/";
-            reporter.put (slotPrefix + "exists", slot.exists ().get ());
-            reporter.put (slotPrefix + "hasContent", slot.hasContent ().get ());
-            reporter.put (slotPrefix + "name", slot.name ().get ());
+            final long slotBase = base | (long) position << 48;
+            reporter.put (Msg.SLOT_EXISTS | slotBase, slot.exists ().get ());
+            reporter.put (Msg.SLOT_HAS_CONTENT | slotBase, slot.hasContent ().get ());
+            reporter.put (Msg.SLOT_NAME | slotBase, slot.name ().get ());
             // As the Java version: the slots of group tracks have the color of the track (API)
             if (track.isGroup ().get ())
-                reporter.putColor (slotPrefix + "color", track.color ().red (), track.color ().green (), track.color ().blue ());
+                reporter.putColor (Msg.SLOT_COLOR | slotBase, track.color ().red (), track.color ().green (), track.color ().blue ());
             else
-                reporter.putColor (slotPrefix + "color", slot.color ().red (), slot.color ().green (), slot.color ().blue ());
-            reporter.put (slotPrefix + "selected", slot.isSelected ().get ());
-            reporter.put (slotPrefix + "playing", slot.isPlaying ().get ());
-            reporter.put (slotPrefix + "recording", slot.isRecording ().get ());
-            reporter.put (slotPrefix + "playQueued", slot.isPlaybackQueued ().get ());
-            reporter.put (slotPrefix + "recQueued", slot.isRecordingQueued ().get ());
-            reporter.put (slotPrefix + "stopQueued", slot.isStopQueued ().get ());
+                reporter.putColor (Msg.SLOT_COLOR | slotBase, slot.color ().red (), slot.color ().green (), slot.color ().blue ());
+            reporter.put (Msg.SLOT_SELECTED | slotBase, slot.isSelected ().get ());
+            reporter.put (Msg.SLOT_PLAYING | slotBase, slot.isPlaying ().get ());
+            reporter.put (Msg.SLOT_RECORDING | slotBase, slot.isRecording ().get ());
+            reporter.put (Msg.SLOT_PLAY_QUEUED | slotBase, slot.isPlaybackQueued ().get ());
+            reporter.put (Msg.SLOT_REC_QUEUED | slotBase, slot.isRecordingQueued ().get ());
+            reporter.put (Msg.SLOT_STOP_QUEUED | slotBase, slot.isStopQueued ().get ());
         }
     }
 
@@ -851,17 +842,17 @@ public final class BitwigModel
         for (int i = 0; i < NUM_MARKERS; i++)
         {
             final CueMarker marker = this.markerBank.getItemAt (i);
-            final String prefix = "/marker/" + i + "/";
+            final long base = Protocol.key (0, i, 0, 0);
             final boolean exists = marker.exists ().get ();
-            reporter.put (prefix + "exists", exists);
+            reporter.put (Msg.MARKER_EXISTS | base, exists);
             if (!exists)
                 continue;
-            reporter.put (prefix + "number", i);
-            reporter.put (prefix + "name", marker.name ().get ());
-            reporter.putColor (prefix + "color", marker.getColor ().red (), marker.getColor ().green (), marker.getColor ().blue ());
-            reporter.put (prefix + "position", marker.position ().get ());
+            reporter.put (Msg.MARKER_NUMBER | base, i);
+            reporter.put (Msg.MARKER_NAME | base, marker.name ().get ());
+            reporter.putColor (Msg.MARKER_COLOR | base, marker.getColor ().red (), marker.getColor ().green (), marker.getColor ().blue ());
+            reporter.put (Msg.MARKER_POSITION | base, marker.position ().get ());
         }
-        reporter.put ("/marker/count", Math.min (this.markerBank.itemCount ().get (), NUM_MARKERS));
+        reporter.put (Msg.MARKER_COUNT, Math.min (this.markerBank.itemCount ().get (), NUM_MARKERS));
     }
 
 
@@ -869,31 +860,24 @@ public final class BitwigModel
     {
         final int offset = this.sceneBank.scrollPosition ().get ();
         final int total = this.sceneBank.itemCount ().get ();
-        reporter.put ("/scene/offset", offset);
+        reporter.put (Msg.SCENE_OFFSET, offset);
         for (int i = 0; i < this.numScenes; i++)
         {
             final int position = offset + i;
             if (position >= total)
                 break;
             final Scene scene = this.sceneBank.getItemAt (i);
-            final String prefix = "/scene/" + position + "/";
-            reporter.put (prefix + "exists", scene.exists ().get ());
-            reporter.put (prefix + "number", position);
-            reporter.put (prefix + "name", scene.name ().get ());
-            reporter.putColor (prefix + "color", scene.color ().red (), scene.color ().green (), scene.color ().blue ());
-            reporter.put (prefix + "select", this.sceneSelected[i]);
+            final long base = Protocol.key (0, position, 0, 0);
+            reporter.put (Msg.SCENE_EXISTS | base, scene.exists ().get ());
+            reporter.put (Msg.SCENE_NUMBER | base, position);
+            reporter.put (Msg.SCENE_NAME | base, scene.name ().get ());
+            reporter.putColor (Msg.SCENE_COLOR | base, scene.color ().red (), scene.color ().green (), scene.color ().blue ());
+            reporter.put (Msg.SCENE_SELECTED | base, this.sceneSelected[i]);
         }
-        reporter.put ("/scene/count", total);
+        reporter.put (Msg.SCENE_COUNT, total);
     }
 
 
-    /**
-     * Get the track at the absolute position: from the window if it is visible (with sends and
-     * slots), otherwise from the large bank.
-     *
-     * @param position The position
-     * @return The track or null
-     */
     /**
      * Report the effect tracks of the window as "/fxtrack/&lt;position&gt;/…" (the attributes of the
      * tracks without slots and VU), "/fxtrack/count" and "/fxtrack/offset" (the core pages them).
@@ -902,37 +886,37 @@ public final class BitwigModel
     {
         final int offset = this.effectTrackBank.scrollPosition ().get ();
         final int total = this.effectTrackBank.itemCount ().get ();
-        reporter.put ("/fxtrack/offset", offset);
+        reporter.put (Msg.EFFECT_TRACK_OFFSET, offset);
         for (int i = 0; i < this.numFxTracks; i++)
         {
             final int position = offset + i;
             if (position >= total)
                 break;
             final Track track = this.effectTrackBank.getItemAt (i);
-            final String prefix = "/fxtrack/" + position + "/";
-            reporter.put (prefix + "exists", 1);
-            reporter.put (prefix + "number", position);
-            reporter.put (prefix + "type", trackType (track));
-            reporter.put (prefix + "select", this.fxTrackSelected[i]);
-            reporter.put (prefix + "recarm", track.arm ().get ());
-            reporter.put (prefix + "monitor", track.isMonitoring ().get ());
-            reporter.put (prefix + "autoMonitor", "AUTO".equals (track.monitorMode ().get ()));
-            reporter.put (prefix + "canHoldNotes", track.canHoldNoteData ().get ());
-            reporter.put (prefix + "canHoldAudio", track.canHoldAudioData ().get ());
-            collectChannel (reporter, prefix, track, true);
+            final long base = channelKey (Protocol.ChKind.EFFECT, position);
+            reporter.put (Msg.CHANNEL_EXISTS | base, 1);
+            reporter.put (Msg.CHANNEL_NUMBER | base, position);
+            reporter.put (Msg.CHANNEL_TYPE | base, trackType (track));
+            reporter.put (Msg.CHANNEL_SELECTED | base, this.fxTrackSelected[i]);
+            reporter.put (Msg.CHANNEL_REC_ARM | base, track.arm ().get ());
+            reporter.put (Msg.CHANNEL_MONITOR | base, track.isMonitoring ().get ());
+            reporter.put (Msg.CHANNEL_AUTO_MONITOR | base, "AUTO".equals (track.monitorMode ().get ()));
+            reporter.put (Msg.CHANNEL_CAN_HOLD_NOTES | base, track.canHoldNoteData ().get ());
+            reporter.put (Msg.CHANNEL_CAN_HOLD_AUDIO | base, track.canHoldAudioData ().get ());
+            collectChannel (reporter, base, track);
             final int sendCount = Math.min (track.sendBank ().itemCount ().get (), this.numSends);
             for (int s = 0; s < sendCount; s++)
             {
                 final Send send = track.sendBank ().getItemAt (s);
-                final String sendPrefix = prefix + "send/" + s + "/";
-                reporter.put (sendPrefix + "name", send.name ().get ());
-                reporter.put (sendPrefix + "volume", send.value ().get ());
-                putDisplayedValue (reporter, sendPrefix + "volume/str", send.displayedValue (), true);
-                reporter.put (sendPrefix + "active", send.isEnabled ().get ());
+                final long sendBase = base | (long) s << 48;
+                reporter.put (Msg.SEND_NAME | sendBase, send.name ().get ());
+                reporter.put (Msg.SEND_VOLUME | sendBase, send.value ().get ());
+                putDisplayedValue (reporter, Msg.SEND_VOLUME_STR | sendBase, send.displayedValue (), true);
+                reporter.put (Msg.SEND_ACTIVE | sendBase, send.isEnabled ().get ());
             }
-            reporter.put (prefix + "send/count", sendCount);
+            reporter.put (Msg.SEND_COUNT | base, sendCount);
         }
-        reporter.put ("/fxtrack/count", total);
+        reporter.put (Msg.EFFECT_TRACK_COUNT, total);
     }
 
 
@@ -946,6 +930,13 @@ public final class BitwigModel
     }
 
 
+    /**
+     * Get the track at the absolute position: from the window if it is visible (with sends and
+     * slots), otherwise from the large bank.
+     *
+     * @param position The position
+     * @return The track or null
+     */
     Track getTrack (final int position)
     {
         final Track track = this.getWindowTrack (position);
@@ -1020,9 +1011,10 @@ public final class BitwigModel
 
     private void collectMaster (final ModelReporter reporter)
     {
-        reporter.put ("/master/select", this.masterSelected);
-        reportVu (reporter, "/master/", this.masterVuLeft, this.masterVuRight);
-        collectChannel (reporter, "/master/", this.masterTrack, true);
+        final long base = channelKey (Protocol.ChKind.MASTER, 0);
+        reporter.put (Msg.CHANNEL_SELECTED | base, this.masterSelected);
+        reportVu (reporter, base, this.masterVuLeft, this.masterVuRight);
+        collectChannel (reporter, base, this.masterTrack);
     }
 
 
@@ -1030,13 +1022,13 @@ public final class BitwigModel
      * Report the VU meters (0..1): left, right and the mono value as their average (as ChannelImpl
      * of the Java version).
      */
-    private static void reportVu (final ModelReporter reporter, final String prefix, final int left, final int right)
+    private static void reportVu (final ModelReporter reporter, final long base, final int left, final int right)
     {
         final double vuLeft = Math.min (left, VU_RANGE - 1) / (double) VU_RANGE;
         final double vuRight = Math.min (right, VU_RANGE - 1) / (double) VU_RANGE;
-        reporter.put (prefix + "vuleft", vuLeft);
-        reporter.put (prefix + "vuright", vuRight);
-        reporter.put (prefix + "vu", (vuLeft + vuRight) / 2.0);
+        reporter.put (Msg.CHANNEL_VU_LEFT | base, vuLeft);
+        reporter.put (Msg.CHANNEL_VU_RIGHT | base, vuRight);
+        reporter.put (Msg.CHANNEL_VU | base, (vuLeft + vuRight) / 2.0);
     }
 
 
@@ -1045,89 +1037,105 @@ public final class BitwigModel
 
 
     /**
-     * Report a displayed value and its texts shortened by Bitwig ("&lt;address&gt;/&lt;length&gt;"), as
-     * getDisplayedValue (limit) of the Java version, which shortens in its own way (e.g. drops
-     * the unit).
+     * The key base of a channel (the slots ch_kind, ch_pos), OR'ed with a channel, send or slot ID;
+     * a send or slot index goes into the third slot.
+     *
+     * @param kind The kind (Protocol.ChKind)
+     * @param position The position
+     * @return The key base
      */
-    static void putDisplayedValue (final ModelReporter reporter, final String address, final StringValue value, final boolean exists)
+    static long channelKey (final int kind, final int position)
     {
-        reporter.put (address, exists ? value.get () : "");
-        for (final int limit: LIMITS)
-            reporter.put (address + "/" + limit, exists ? value.getLimited (limit) : "");
+        return Protocol.key (0, kind, position, 0);
     }
 
 
-    static void collectChannel (final ModelReporter reporter, final String prefix, final Channel channel)
+    /** The key base of a parameter of the host (crossfader, cue, groove). */
+    private static long hostParamKey (final int kind, final int param)
     {
-        collectChannel (reporter, prefix, channel, false);
+        return Protocol.key (0, kind, param, 0);
+    }
+
+
+    /** The key base of a flag of the arranger or the mixer. */
+    private static long flagKey (final int flag)
+    {
+        return Protocol.key (0, flag, 0, 0);
     }
 
 
     /**
-     * The values of a channel; the shortened texts of volume and pan only for tracks and the
-     * master (the core does not read them for layers and pads).
+     * Report a displayed value and its texts shortened by Bitwig (the slot "limit" of the ID), as
+     * getDisplayedValue (limit) of the Java version, which shortens in its own way (e.g. drops
+     * the unit).
      */
-    static void collectChannel (final ModelReporter reporter, final String prefix, final Channel channel, final boolean limited)
+    static void putDisplayedValue (final ModelReporter reporter, final long key, final StringValue value, final boolean exists)
     {
-        reporter.put (prefix + "name", channel.name ().get ());
-        reporter.putColor (prefix + "color", channel.color ().red (), channel.color ().green (), channel.color ().blue ());
-        reporter.put (prefix + "mute", channel.mute ().get ());
-        reporter.put (prefix + "solo", channel.solo ().get ());
+        if (exists)
+            reporter.putDisplayed (key, value.get (), value.getLimited (LIMITS[0]), value.getLimited (LIMITS[1]));
+        else
+            reporter.putDisplayed (key, "", "", "");
+    }
+
+
+    /**
+     * The values of a track or the master, with the texts of volume and pan shortened by Bitwig.
+     */
+    static void collectChannel (final ModelReporter reporter, final long base, final Channel channel)
+    {
+        reporter.put (Msg.CHANNEL_NAME | base, channel.name ().get ());
+        reporter.putColor (Msg.CHANNEL_COLOR | base, channel.color ().red (), channel.color ().green (), channel.color ().blue ());
+        reporter.put (Msg.CHANNEL_MUTE | base, channel.mute ().get ());
+        reporter.put (Msg.CHANNEL_SOLO | base, channel.solo ().get ());
         // ChannelImpl.isActivated
-        reporter.put (prefix + "active", channel.isActivated ().get ());
-        reporter.put (prefix + "volume", channel.volume ().value ().get ());
-        if (limited)
-            putDisplayedValue (reporter, prefix + "volume/str", channel.volume ().displayedValue (), true);
-        else
-            reporter.put (prefix + "volume/str", channel.volume ().displayedValue ().get ());
-        reporter.put (prefix + "pan", channel.pan ().value ().get ());
-        if (limited)
-            putDisplayedValue (reporter, prefix + "pan/str", channel.pan ().displayedValue (), true);
-        else
-            reporter.put (prefix + "pan/str", channel.pan ().displayedValue ().get ());
+        reporter.put (Msg.CHANNEL_ACTIVE | base, channel.isActivated ().get ());
+        reporter.put (Msg.CHANNEL_VOLUME | base, channel.volume ().value ().get ());
+        putDisplayedValue (reporter, Msg.CHANNEL_VOLUME_STR | base, channel.volume ().displayedValue (), true);
+        reporter.put (Msg.CHANNEL_PAN | base, channel.pan ().value ().get ());
+        putDisplayedValue (reporter, Msg.CHANNEL_PAN_STR | base, channel.pan ().displayedValue (), true);
     }
 
 
     private void collectDevice (final ModelReporter reporter)
     {
         final int position = this.cursorDevice.position ().get ();
-        reporter.put ("/device/count", this.siblings.itemCount ().get ());
-        reporter.put ("/device/exists", this.cursorDevice.exists ().get ());
-        reporter.put ("/device/position", this.cursorDevice.exists ().get () ? position : -1);
-        reporter.put ("/device/name", this.cursorDevice.name ().get ());
-        reporter.put ("/device/bypass", !this.cursorDevice.isEnabled ().get ());
-        reporter.put ("/device/window", this.cursorDevice.isWindowOpen ().get ());
-        reporter.put ("/device/pinned", this.cursorDevice.isPinned ().get ());
-        reporter.put ("/device/expand", this.cursorDevice.isExpanded ().get ());
+        reporter.put (Msg.DEVICE_COUNT, this.siblings.itemCount ().get ());
+        reporter.put (Msg.DEVICE_EXISTS, this.cursorDevice.exists ().get ());
+        reporter.put (Msg.DEVICE_POSITION, this.cursorDevice.exists ().get () ? position : -1);
+        reporter.put (Msg.DEVICE_NAME, this.cursorDevice.name ().get ());
+        reporter.put (Msg.DEVICE_BYPASS, !this.cursorDevice.isEnabled ().get ());
+        reporter.put (Msg.DEVICE_WINDOW, this.cursorDevice.isWindowOpen ().get ());
+        reporter.put (Msg.DEVICE_PINNED, this.cursorDevice.isPinned ().get ());
+        reporter.put (Msg.DEVICE_EXPAND, this.cursorDevice.isExpanded ().get ());
 
         for (int i = 0; i < NUM_SIBLINGS; i++)
         {
             final Device device = this.siblings.getItemAt (i);
-            final String prefix = "/device/sibling/" + (i + 1) + "/";
+            // "/device/sibling/<i + 1>/…": the slot holds the index
+            final long base = Protocol.key (0, Protocol.Dev.DEVICE, i, 0);
             final boolean exists = device.exists ().get ();
-            reporter.put (prefix + "name", exists ? device.name ().get () : "");
-            reporter.put (prefix + "bypass", exists && !device.isEnabled ().get ());
-            reporter.put (prefix + "position", exists ? device.position ().get () : -1);
-            reporter.put (prefix + "selected", exists && device.position ().get () == position);
+            reporter.put (Msg.DEVICE_SIBLING_NAME | base, exists ? device.name ().get () : "");
+            reporter.put (Msg.DEVICE_SIBLING_BYPASS | base, exists && !device.isEnabled ().get ());
+            reporter.put (Msg.DEVICE_SIBLING_POSITION | base, exists ? device.position ().get () : -1);
+            reporter.put (Msg.DEVICE_SIBLING_SELECTED | base, exists && device.position ().get () == position);
         }
 
-        collectPages (reporter, "/device", this.pages);
+        collectPages (reporter, Protocol.ParamOwner.DEVICE, this.pages);
 
         // The page names and the page selected in Bitwig (protocol v2)
-        final String [] pageNames = this.remoteControls.pageNames ().get ();
-        final int namedPages = Math.min (pageNames.length, this.pages.length);
-        for (int p = 0; p < namedPages; p++)
-            reporter.put ("/device/page/" + p + "/name", pageNames[p]);
-        reporter.put ("/device/page/count", namedPages);
-        reporter.put ("/device/page/selected", this.remoteControls.selectedPageIndex ().get ());
+        collectPageNames (reporter, Protocol.PageOwner.DEVICE, this.remoteControls, this.pages.length);
     }
 
 
     /**
-     * Report the parameters of the page cursors as one flat list "&lt;prefix&gt;/param/&lt;index&gt;/...";
+     * Report the parameters of the page cursors as one flat list "&lt;owner&gt;/param/&lt;index&gt;/...";
      * each page cursor is kept on its page.
+     *
+     * @param reporter Where to report to
+     * @param owner The owner of the parameters (Protocol.ParamOwner)
+     * @param pages The page cursors
      */
-    static void collectPages (final ModelReporter reporter, final String prefix, final CursorRemoteControlsPage [] pages)
+    static void collectPages (final ModelReporter reporter, final int owner, final CursorRemoteControlsPage [] pages)
     {
         // Each remote control page object shows one page of the device: together a flat list
         final int pageCount = pages[0].pageCount ().get ();
@@ -1141,16 +1149,50 @@ public final class BitwigModel
             for (int i = 0; i < PARAMS_PER_PAGE; i++)
             {
                 final Parameter parameter = page.getParameter (i);
-                final String paramPrefix = prefix + "/param/" + (p * PARAMS_PER_PAGE + i) + "/";
+                final long base = Protocol.key (0, owner, p * PARAMS_PER_PAGE + i, 0);
                 final boolean exists = isUsed && parameter.exists ().get ();
-                reporter.put (paramPrefix + "name", exists ? parameter.name ().get () : "");
-                reporter.put (paramPrefix + "value", exists ? parameter.value ().get () : 0);
-                putDisplayedValue (reporter, paramPrefix + "value/str", parameter.displayedValue (), exists);
-                reporter.put (paramPrefix + "steps", -1);
-                reporter.put (paramPrefix + "modulated", exists ? parameter.modulatedValue ().get () : 0);
+                collectParameter (reporter, base, parameter, exists);
             }
         }
-        reporter.put (prefix + "/param/count", numPages * PARAMS_PER_PAGE);
+        reporter.put (Msg.PARAM_COUNT | Protocol.key (0, owner, 0, 0), numPages * PARAMS_PER_PAGE);
+    }
+
+
+    /**
+     * Report a parameter: name, value, the displayed value, steps (none) and the modulated value.
+     *
+     * @param reporter Where to report to
+     * @param base The key base (owner and index)
+     * @param parameter The parameter
+     * @param exists False to report an empty parameter
+     */
+    static void collectParameter (final ModelReporter reporter, final long base, final Parameter parameter, final boolean exists)
+    {
+        reporter.put (Msg.PARAM_NAME | base, exists ? parameter.name ().get () : "");
+        reporter.put (Msg.PARAM_VALUE | base, exists ? parameter.value ().get () : 0);
+        putDisplayedValue (reporter, Msg.PARAM_VALUE_STR | base, parameter.displayedValue (), exists);
+        reporter.put (Msg.PARAM_STEPS | base, -1);
+        reporter.put (Msg.PARAM_MODULATED | base, exists ? parameter.modulatedValue ().get () : 0);
+    }
+
+
+    /**
+     * The names of the pages (as many as there are fixed page cursors) and the page selected in
+     * Bitwig, from the cursor which follows Bitwig's selection.
+     *
+     * @param reporter Where to report to
+     * @param owner The owner of the pages (Protocol.PageOwner)
+     * @param remoteControls The cursor which follows Bitwig's page selection
+     * @param numPages The number of page cursors
+     */
+    static void collectPageNames (final ModelReporter reporter, final int owner, final CursorRemoteControlsPage remoteControls, final int numPages)
+    {
+        final String [] pageNames = remoteControls.pageNames ().get ();
+        final int namedPages = Math.min (pageNames.length, numPages);
+        for (int p = 0; p < namedPages; p++)
+            reporter.put (Msg.PAGE_NAME | Protocol.key (0, owner, p, 0), pageNames[p]);
+        reporter.put (Msg.PAGE_COUNT | Protocol.key (0, owner, 0, 0), namedPages);
+        reporter.put (Msg.PAGE_SELECTED | Protocol.key (0, owner, 0, 0), remoteControls.selectedPageIndex ().get ());
     }
 
 

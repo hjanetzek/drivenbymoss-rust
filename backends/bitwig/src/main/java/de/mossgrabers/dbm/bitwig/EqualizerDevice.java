@@ -9,6 +9,8 @@ import com.bitwig.extension.controller.api.SpecificBitwigDevice;
 
 import java.util.UUID;
 
+import de.mossgrabers.dbm.bitwig.Protocol.Msg;
+
 
 /**
  * The first EQ+ of the cursor track, as EqualizerDeviceImpl and EqTypeParameter of the Java
@@ -22,7 +24,6 @@ final class EqualizerDevice
     static final UUID          ID_BITWIG_EQ_PLUS = UUID.fromString ("e4815188-ba6f-4d14-bcfc-2dcb8f778ccb");
 
     private static final int   NUMBER_OF_BANDS   = 8;
-    private static final String PREFIX           = "/eq";
 
     /**
      * The types: the start of the displayed value of the EQ+ type parameter (EqualizerDeviceImpl),
@@ -113,27 +114,22 @@ final class EqualizerDevice
     void collect (final ModelReporter reporter)
     {
         final boolean exists = this.device.exists ().get ();
-        reporter.put (PREFIX + "/exists", exists);
-        reporter.put (PREFIX + "/name", exists ? this.device.name ().get () : "");
-        reporter.put (PREFIX + "/bypass", exists && !this.device.isEnabled ().get ());
-        reporter.put (PREFIX + "/window", exists && this.device.isWindowOpen ().get ());
-        reporter.put (PREFIX + "/expand", exists && this.device.isExpanded ().get ());
+        final long eq = Protocol.key (0, Protocol.Dev.EQ, 0, 0);
+        reporter.put (Msg.DEVICE_EXISTS | eq, exists);
+        reporter.put (Msg.DEVICE_NAME | eq, exists ? this.device.name ().get () : "");
+        reporter.put (Msg.DEVICE_BYPASS | eq, exists && !this.device.isEnabled ().get ());
+        reporter.put (Msg.DEVICE_WINDOW | eq, exists && this.device.isWindowOpen ().get ());
+        reporter.put (Msg.DEVICE_EXPAND | eq, exists && this.device.isExpanded ().get ());
 
         for (int i = 0; i < this.parameters.length; i++)
         {
             final Parameter parameter = this.parameters[i];
-            final String paramPrefix = PREFIX + "/param/" + i + "/";
-            final boolean paramExists = exists && parameter.exists ().get ();
-            reporter.put (paramPrefix + "name", paramExists ? parameter.name ().get () : "");
-            reporter.put (paramPrefix + "value", paramExists ? parameter.value ().get () : 0);
-            BitwigModel.putDisplayedValue (reporter, paramPrefix + "value/str", parameter.displayedValue (), paramExists);
-            reporter.put (paramPrefix + "steps", -1);
-            reporter.put (paramPrefix + "modulated", paramExists ? parameter.modulatedValue ().get () : 0);
+            BitwigModel.collectParameter (reporter, Protocol.key (0, Protocol.ParamOwner.EQ, i, 0), parameter, exists && parameter.exists ().get ());
         }
-        reporter.put (PREFIX + "/param/count", exists ? this.parameters.length : 0);
+        reporter.put (Msg.PARAM_COUNT | Protocol.key (0, Protocol.ParamOwner.EQ, 0, 0), exists ? this.parameters.length : 0);
 
         for (int i = 0; i < NUMBER_OF_BANDS; i++)
-            reporter.put (PREFIX + "/band/" + i + "/value", exists ? reaperType (this.types[i].displayedValue ().get ()) : -1);
+            reporter.put (Msg.EQ_BAND_TYPE | Protocol.key (0, i, 0, 0), exists ? reaperType (this.types[i].displayedValue ().get ()) : -1);
     }
 
 

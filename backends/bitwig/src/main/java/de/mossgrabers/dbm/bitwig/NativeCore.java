@@ -7,6 +7,7 @@ import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -77,6 +78,15 @@ public final class NativeCore implements AutoCloseable
         void log (String message);
 
         void error (String message, Throwable throwable);
+
+        /**
+         * The commands of one call in the binary form (see {@link NativeCore#setCommandCallback}).
+         * The buffer belongs to the core and is only valid during the call: no view of it may be
+         * kept.
+         *
+         * @param buffer The buffer of records (with the header)
+         */
+        void processCommands (MemorySegment buffer);
     }
 
 
@@ -98,6 +108,14 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  takeSettingStates;
     private final MethodHandle  takeNotifications;
     private final MethodHandle  freeString;
+    /** The functions of the binary protocol (TYPED_PROTOCOL_PLAN §2.3), null for an older core. */
+    private final MethodHandle  protocolInfo;
+    private final MethodHandle  setCommandCallback;
+    private final MethodHandle  updateModelBin;
+    private final MethodHandle  messagesToText;
+    private final MethodHandle  messagesFromText;
+    /** The stub of the command callback, created on demand. */
+    private MemorySegment       commandsStub;
     private final MemorySegment callbackTable;
     private final String        version;
     private MemorySegment       app = MemorySegment.NULL;
@@ -128,6 +146,11 @@ public final class NativeCore implements AutoCloseable
         this.takeSettingStates = lookup.find ("dbm_take_setting_states").map (symbol -> LINKER.downcallHandle (symbol, FunctionDescriptor.of (ADDRESS, ADDRESS))).orElse (null);
         this.takeNotifications = downcall (lookup, "dbm_take_notifications", FunctionDescriptor.of (ADDRESS, ADDRESS));
         this.freeString = downcall (lookup, "dbm_free_string", FunctionDescriptor.ofVoid (ADDRESS));
+        this.protocolInfo = optionalDowncall (lookup, "dbm_protocol_info", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, ADDRESS));
+        this.setCommandCallback = optionalDowncall (lookup, "dbm_set_command_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_LONG));
+        this.updateModelBin = optionalDowncall (lookup, "dbm_update_model_bin", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, JAVA_LONG));
+        this.messagesToText = optionalDowncall (lookup, "dbm_messages_to_text", FunctionDescriptor.of (ADDRESS, ADDRESS, JAVA_LONG));
+        this.messagesFromText = optionalDowncall (lookup, "dbm_messages_from_text", FunctionDescriptor.of (JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
 
         final MethodHandle versionHandle = downcall (lookup, "dbm_version", FunctionDescriptor.of (ADDRESS));
         this.version = readString ((MemorySegment) invoke (versionHandle));
@@ -227,6 +250,117 @@ public final class NativeCore implements AutoCloseable
         try (final Arena call = Arena.ofConfined ())
         {
             invoke (this.updateModel, this.app, call.allocateFrom (data));
+        }
+    }
+
+
+    /**
+     * Does the library have the binary protocol of the extension (the same major version)?
+     *
+     * @return The protocol identity of the library ("major.minor, hash"), null if it has none or
+     *         another major version
+     */
+    public String getProtocolMismatch ()
+    {
+        if (this.protocolInfo == null || this.setCommandCallback == null || this.updateModelBin == null || this.messagesToText == null || this.messagesFromText == null)
+            return "the library has no binary protocol";
+        try (final Arena call = Arena.ofConfined ())
+        {
+            final MemorySegment major = call.allocate (JAVA_INT);
+            final MemorySegment minor = call.allocate (JAVA_INT);
+            final MemorySegment hash = call.allocate (JAVA_LONG);
+            invoke (this.protocolInfo, major, minor, hash);
+            if (major.get (JAVA_INT, 0) != Protocol.VERSION_MAJOR)
+                return "the library has the protocol version " + major.get (JAVA_INT, 0) + "." + minor.get (JAVA_INT, 0) + ", the extension " + Protocol.VERSION_MAJOR + "." + Protocol.VERSION_MINOR;
+            if (hash.get (JAVA_LONG, 0) != Protocol.HASH)
+                this.callbacks.log ("The protocol tables of the library differ from the extension's (hash " + Long.toHexString (hash.get (JAVA_LONG, 0)) + ", extension " + Long.toHexString (Protocol.HASH) + "): unknown IDs are skipped.");
+        }
+        return null;
+    }
+
+
+    /**
+     * Switch the commands of the core to the binary form (dbm_set_command_callback): they are
+     * delivered to {@link Callbacks#processCommands(MemorySegment)} instead of the text callbacks.
+     * Call it before {@link #startInfrastructure()}.
+     *
+     * @param handled The bitset of the handled command IDs (word i bit j = ID 0x8000 + 64 * i + j)
+     * @return True if the core switched
+     * @throws ReflectiveOperationException The binding of the callback failed
+     */
+    public boolean setCommandCallback (final long [] handled) throws ReflectiveOperationException
+    {
+        if (!this.isValid () || this.setCommandCallback == null)
+            return false;
+        if (this.commandsStub == null)
+            this.commandsStub = this.upcall ("upcallCommands", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, JAVA_LONG));
+        final MemorySegment words = this.arena.allocate (JAVA_LONG, Math.max (1, handled.length));
+        for (int i = 0; i < handled.length; i++)
+            words.setAtIndex (JAVA_LONG, i, handled[i]);
+        final int result = ((Integer) invoke (this.setCommandCallback, this.app, Integer.valueOf (Protocol.VERSION_MAJOR), this.commandsStub, MemorySegment.NULL, words, Long.valueOf (handled.length))).intValue ();
+        return result != 0;
+    }
+
+
+    /**
+     * Send model data to the core in the binary form (one buffer = one report).
+     *
+     * @param buffer The buffer (with the header)
+     * @param size The size of the buffer
+     */
+    public void updateModelBin (final MemorySegment buffer, final long size)
+    {
+        if (!this.isValid () || size <= Protocol.HEADER_SIZE)
+            return;
+        try
+        {
+            this.updateModelBin.invokeExact (this.app, buffer, size);
+        }
+        catch (final RuntimeException | Error ex)
+        {
+            throw ex;
+        }
+        catch (final Throwable ex)
+        {
+            throw new IllegalStateException (ex);
+        }
+    }
+
+
+    /**
+     * The text of a binary buffer (dbm_messages_to_text): one line per record, the report line
+     * of a message or the legacy line of a command (the kinds of the recordings, escaped).
+     *
+     * @param buffer The buffer (with the header)
+     * @param size The size of the buffer
+     * @return The lines, separated by line feeds
+     */
+    public String messagesToText (final MemorySegment buffer, final long size)
+    {
+        if (this.messagesToText == null)
+            return "";
+        return this.takeString ((MemorySegment) invoke (this.messagesToText, buffer, Long.valueOf (size)));
+    }
+
+
+    /**
+     * The binary buffer of a text (dbm_messages_from_text): report lines and legacy command
+     * lines; lines which are not in the tables are skipped.
+     *
+     * @param text The text
+     * @return The buffer (with the header)
+     */
+    public byte [] messagesFromText (final String text)
+    {
+        if (this.messagesFromText == null)
+            return new byte [0];
+        try (final Arena call = Arena.ofConfined ())
+        {
+            final MemorySegment cText = call.allocateFrom (text);
+            final long size = ((Long) invoke (this.messagesFromText, cText, MemorySegment.NULL, Long.valueOf (0))).longValue ();
+            final MemorySegment out = call.allocate (Math.max (1, size), 8);
+            invoke (this.messagesFromText, cText, out, Long.valueOf (size));
+            return out.asSlice (0, size).toArray (JAVA_BYTE);
         }
     }
 
@@ -356,6 +490,12 @@ public final class NativeCore implements AutoCloseable
     {
         final MemorySegment symbol = lookup.find (name).orElseThrow ( () -> new UnsatisfiedLinkError ("Function not found in the native library: " + name));
         return LINKER.downcallHandle (symbol, descriptor);
+    }
+
+
+    private static MethodHandle optionalDowncall (final SymbolLookup lookup, final String name, final FunctionDescriptor descriptor)
+    {
+        return lookup.find (name).map (symbol -> LINKER.downcallHandle (symbol, descriptor)).orElse (null);
     }
 
 
@@ -633,6 +773,21 @@ public final class NativeCore implements AutoCloseable
         catch (final Throwable ex)
         {
             this.callbacks.error ("setNoteInputVelocityTranslationTable", ex);
+        }
+    }
+
+
+    @SuppressWarnings("unused")
+    private void upcallCommands (final MemorySegment user, final MemorySegment buffer, final long length)
+    {
+        try
+        {
+            if (!buffer.equals (MemorySegment.NULL) && length > 0)
+                this.callbacks.processCommands (buffer.reinterpret (length));
+        }
+        catch (final Throwable ex)
+        {
+            this.callbacks.error ("processCommands", ex);
         }
     }
 

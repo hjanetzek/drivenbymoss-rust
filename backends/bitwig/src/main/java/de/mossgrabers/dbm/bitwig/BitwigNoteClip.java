@@ -11,15 +11,16 @@ import com.bitwig.extension.controller.api.PinnableCursorClip;
 
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.Map;
+
+import de.mossgrabers.dbm.bitwig.Protocol.Msg;
 
 
 /**
  * The step grid of a note clip of the core (protocol v2), as CursorClipImpl of the Java version:
  * a launcher cursor clip with a window of the given number of steps and rows. The steps are
- * reported as "/clip/grid/&lt;steps&gt;x&lt;rows&gt;/step/&lt;channel&gt;/&lt;x&gt;/&lt;y&gt;" with all
- * values in one line (the format of StepInfo::to_wire of the core), "0" for an empty step.
+ * reported as GRID_STEP ("/clip/grid/&lt;steps&gt;x&lt;rows&gt;/step/&lt;channel&gt;/&lt;x&gt;/&lt;y&gt;")
+ * with the 24 values of StepInfo::to_values of the core, no values for an empty step.
  */
 final class BitwigNoteClip
 {
@@ -43,15 +44,19 @@ final class BitwigNoteClip
     final PinnableCursorClip            clip;
     final int                           numSteps;
     final int                           numRows;
-    /** The ID of the grid: "&lt;steps&gt;x&lt;rows&gt;". */
-    final String                        id;
-    /** The last state of each step which is not empty or still has to be reported as empty. */
     /**
-     * The changed steps, formatted when Bitwig reports them (as StepInfoImpl.updateData of the
-     * Java version): a NoteStep object changes locally with a setter (setGain in its own scale)
-     * before Bitwig confirms the value, so it must not be read later.
+     * The changed steps, read when Bitwig reports them (as StepInfoImpl.updateData of the Java
+     * version): a NoteStep object changes locally with a setter (setGain in its own scale) before
+     * Bitwig confirms the value, so it must not be read later. A step which is not empty or still
+     * has to be reported as empty (values null).
      */
-    private final Map<Long, String []>  steps = new HashMap<> ();
+    private final Map<Long, StepState>  steps = new HashMap<> ();
+
+
+    /** The state of a step: its position and its values (null: empty). */
+    private record StepState (int channel, int x, int y, double [] values)
+    {
+    }
 
 
     /**
@@ -67,13 +72,8 @@ final class BitwigNoteClip
         this.host = host;
         this.numSteps = numSteps;
         this.numRows = numRows;
-        this.id = numSteps + "x" + numRows;
         this.clip = cursorTrack.createLauncherCursorClip (numSteps, numRows);
-        this.clip.addNoteStepObserver (step -> this.steps.put (Long.valueOf (key (step.channel (), step.x (), step.y ())), new String []
-        {
-            step.channel () + "/" + step.x () + "/" + step.y (),
-            step.state () == NoteStep.State.Empty ? null : format (step)
-        }));
+        this.clip.addNoteStepObserver (step -> this.steps.put (Long.valueOf (key (step.channel (), step.x (), step.y ())), new StepState (step.channel (), step.x (), step.y (), step.state () == NoteStep.State.Empty ? null : values (step))));
         this.clip.exists ().markInterested ();
         this.clip.playingStep ().markInterested ();
         this.clip.getPlayStart ().markInterested ();
@@ -103,16 +103,16 @@ final class BitwigNoteClip
     void collectClip (final ModelReporter reporter)
     {
         final boolean exists = this.clip.exists ().get ();
-        reporter.put ("/clip/exists", exists);
-        reporter.put ("/clip/start", this.clip.getPlayStart ().get ());
-        reporter.put ("/clip/end", this.clip.getPlayStop ().get ());
-        reporter.put ("/clip/loop", this.clip.isLoopEnabled ().get ());
-        reporter.put ("/clip/loopStart", this.clip.getLoopStart ().get ());
-        reporter.put ("/clip/loopLength", this.clip.getLoopLength ().get ());
-        reporter.put ("/clip/shuffle", this.clip.getShuffle ().get ());
-        reporter.put ("/clip/accent", this.clip.getAccent ().get ());
-        reporter.put ("/clip/pinned", this.clip.isPinned ().get ());
-        reporter.putColor ("/clip/color", this.clip.color ().red (), this.clip.color ().green (), this.clip.color ().blue ());
+        reporter.put (Msg.CLIP_EXISTS, exists);
+        reporter.put (Msg.CLIP_START, this.clip.getPlayStart ().get ());
+        reporter.put (Msg.CLIP_END, this.clip.getPlayStop ().get ());
+        reporter.put (Msg.CLIP_LOOP, this.clip.isLoopEnabled ().get ());
+        reporter.put (Msg.CLIP_LOOP_START, this.clip.getLoopStart ().get ());
+        reporter.put (Msg.CLIP_LOOP_LENGTH, this.clip.getLoopLength ().get ());
+        reporter.put (Msg.CLIP_SHUFFLE, this.clip.getShuffle ().get ());
+        reporter.put (Msg.CLIP_ACCENT, this.clip.getAccent ().get ());
+        reporter.put (Msg.CLIP_PINNED, this.clip.isPinned ().get ());
+        reporter.putColor (Msg.CLIP_COLOR, this.clip.color ().red (), this.clip.color ().green (), this.clip.color ().blue ());
     }
 
 
@@ -123,146 +123,233 @@ final class BitwigNoteClip
      */
     void collectGrid (final ModelReporter reporter)
     {
-        final String prefix = "/clip/grid/" + this.id + "/";
-        reporter.put (prefix + "playingStep", this.clip.playingStep ().get ());
-        final Iterator<String []> iterator = this.steps.values ().iterator ();
+        final long grid = Protocol.key (0, this.numSteps, this.numRows, 0);
+        reporter.put (Msg.GRID_PLAYING_STEP | grid, this.clip.playingStep ().get ());
+        final Iterator<StepState> iterator = this.steps.values ().iterator ();
         while (iterator.hasNext ())
         {
-            final String [] step = iterator.next ();
-            final String address = prefix + "step/" + step[0];
-            if (step[1] == null)
-            {
-                reporter.put (address, "0");
+            final StepState step = iterator.next ();
+            // The channel and the row share the third slot, the step is the fourth
+            final long key = Msg.GRID_STEP | grid | (long) ((step.channel & 15) << 7 | step.y & 127) << 48;
+            reporter.putStep (key, step.x, step.values);
+            if (step.values == null)
                 iterator.remove ();
-            }
-            else
-                reporter.put (address, step[1]);
         }
     }
 
 
     /** All values of a step, as StepInfoImpl.updateData of the Java version (gain / 2). */
-    private static String format (final NoteStep step)
+    private static double [] values (final NoteStep step)
     {
         final int state = step.state () == NoteStep.State.NoteOn ? 1 : 2;
         int occurrence = 0;
         for (int i = 0; i < OCCURRENCES.length; i++)
             if (OCCURRENCES[i] == step.occurrence ())
                 occurrence = i;
-        return String.format (Locale.ROOT, "%d %d %d %s %s %s %s %s %s %s %s %s %d %s %d %d %d %d %d %d %d %s %s %s", Integer.valueOf (state), flag (step.isIsSelected ()), flag (step.isMuted ()), num (step.duration ()), num (step.velocity ()), num (step.velocitySpread ()), num (step.releaseVelocity ()), num (step.pressure ()), num (step.timbre ()), num (step.pan ()), num (step.transpose ()), num (step.gain () / 2.0), flag (step.isChanceEnabled ()), num (step.chance ()), flag (step.isOccurrenceEnabled ()), Integer.valueOf (occurrence), flag (step.isRecurrenceEnabled ()), Integer.valueOf (step.recurrenceLength ()), Integer.valueOf (step.recurrenceMask ()), flag (step.isRepeatEnabled ()), Integer.valueOf (step.repeatCount ()), num (step.repeatCurve ()), num (step.repeatVelocityCurve ()), num (step.repeatVelocityEnd ()));
+        return new double []
+        {
+            state,
+            flag (step.isIsSelected ()),
+            flag (step.isMuted ()),
+            step.duration (),
+            step.velocity (),
+            step.velocitySpread (),
+            step.releaseVelocity (),
+            step.pressure (),
+            step.timbre (),
+            step.pan (),
+            step.transpose (),
+            step.gain () / 2.0,
+            flag (step.isChanceEnabled ()),
+            step.chance (),
+            flag (step.isOccurrenceEnabled ()),
+            occurrence,
+            flag (step.isRecurrenceEnabled ()),
+            step.recurrenceLength (),
+            step.recurrenceMask (),
+            flag (step.isRepeatEnabled ()),
+            step.repeatCount (),
+            step.repeatCurve (),
+            step.repeatVelocityCurve (),
+            step.repeatVelocityEnd ()
+        };
     }
 
 
-    private static Integer flag (final boolean value)
+    private static int flag (final boolean value)
     {
-        return Integer.valueOf (value ? 1 : 0);
-    }
-
-
-    private static String num (final double value)
-    {
-        return Double.toString (value);
+        return value ? 1 : 0;
     }
 
 
     /**
-     * A command of the grid: "stepSize", "scroll", "page/+|-", "clearAll", "clearRow/&lt;ch&gt;/&lt;row&gt;",
-     * "clearColumn/&lt;ch&gt;/&lt;step&gt;", "step/&lt;ch&gt;/&lt;x&gt;/&lt;y&gt;/toggle|set|setFrom|update|clear|moveY|&lt;attribute&gt;".
+     * Set the step size in beats (CursorClipImpl.setStepLength).
      *
-     * @param parts The parts of the command after "grid/&lt;id&gt;/"
-     * @param value The numeric value
-     * @param text The text value or null
-     * @return False if the command is unknown
+     * @param stepSize The step size
      */
-    boolean handle (final String [] parts, final double value, final String text)
+    void setStepSize (final double stepSize)
     {
-        switch (parts[0])
-        {
-            case "stepSize" -> this.clip.setStepSize (value);
-            case "scroll" -> this.clip.scrollToStep ((int) value);
-            case "page" ->
-            {
-                // As CursorClipImpl.scrollStepsPageForward / Backwards
-                if (parts.length != 2)
-                    return false;
-                if ("+".equals (parts[1]))
-                    this.clip.scrollStepsPageForward ();
-                else
-                    this.clip.scrollStepsPageBackwards ();
-            }
-            case "clearAll" -> this.clip.clearSteps ();
-            case "clearRow" ->
-            {
-                if (parts.length != 3)
-                    return false;
-                this.clip.clearStepsAtY (parse (parts[1]), parse (parts[2]));
-            }
-            case "clearColumn" ->
-            {
-                if (parts.length != 3)
-                    return false;
-                this.clip.clearStepsAtX (parse (parts[1]), parse (parts[2]));
-            }
-            case "step" ->
-            {
-                if (parts.length != 5)
-                    return false;
-                return this.handleStep (parse (parts[1]), parse (parts[2]), parse (parts[3]), parts[4], value, text);
-            }
-            default ->
-            {
-                return false;
-            }
-        }
+        this.clip.setStepSize (stepSize);
+    }
+
+
+    /**
+     * Scroll the grid to a step.
+     *
+     * @param step The step
+     */
+    void scrollToStep (final int step)
+    {
+        this.clip.scrollToStep (step);
+    }
+
+
+    /**
+     * Scroll the grid by a page, as CursorClipImpl.scrollStepsPageForward / Backwards.
+     *
+     * @param next True for the next page
+     */
+    void page (final boolean next)
+    {
+        if (next)
+            this.clip.scrollStepsPageForward ();
+        else
+            this.clip.scrollStepsPageBackwards ();
+    }
+
+
+    /** Clear all steps. */
+    void clearAll ()
+    {
+        this.clip.clearSteps ();
+    }
+
+
+    /**
+     * Clear the steps of a row.
+     *
+     * @param channel The MIDI channel
+     * @param row The row
+     */
+    void clearRow (final int channel, final int row)
+    {
+        this.clip.clearStepsAtY (channel, row);
+    }
+
+
+    /**
+     * Clear the steps of a column.
+     *
+     * @param channel The MIDI channel
+     * @param column The step
+     */
+    void clearColumn (final int channel, final int column)
+    {
+        this.clip.clearStepsAtX (channel, column);
+    }
+
+
+    /**
+     * Toggle a note.
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param velocity The MIDI velocity
+     */
+    void toggle (final int channel, final int x, final int y, final int velocity)
+    {
+        this.clip.toggleStep (channel, x, y, velocity);
+    }
+
+
+    /**
+     * Clear a note.
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     */
+    void clear (final int channel, final int x, final int y)
+    {
+        this.clip.clearStep (channel, x, y);
+    }
+
+
+    /**
+     * Move a note to another row.
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param row The new row
+     */
+    void moveY (final int channel, final int x, final int y, final int row)
+    {
+        this.clip.moveStep (channel, x, y, 0, row - y);
+    }
+
+
+    /**
+     * Set a note.
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param velocity The MIDI velocity
+     * @param duration The duration in beats
+     */
+    void set (final int channel, final int x, final int y, final int velocity, final double duration)
+    {
+        this.clip.setStep (channel, x, y, velocity, duration);
+    }
+
+
+    /**
+     * Create a note and set the other values of the step a bit later when Bitwig has created it,
+     * as CursorClipImpl.setStep (NotePosition, IStepInfo).
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param text The values of the step (StepInfo::to_wire)
+     * @return False if the text has not all values
+     */
+    boolean setFrom (final int channel, final int x, final int y, final String text)
+    {
+        final String [] values = split (text);
+        if (values.length < 24)
+            return false;
+        this.clip.setStep (channel, x, y, (int) (parseDouble (values[4]) * 127), parseDouble (values[3]));
+        this.host.scheduleTask ( () -> {
+            final NoteStep step = this.clip.getStep (channel, x, y);
+            step.setVelocity (parseDouble (values[4]));
+            step.setGain (parseDouble (values[11]));
+            step.setPan (parseDouble (values[9]));
+            step.setPressure (parseDouble (values[7]));
+            step.setReleaseVelocity (parseDouble (values[6]));
+            step.setTimbre (parseDouble (values[8]));
+            step.setTranspose (parseDouble (values[10]));
+        }, 100);
         return true;
     }
 
 
-    private boolean handleStep (final int channel, final int x, final int y, final String command, final double value, final String text)
+    /**
+     * Update all values of a note, as CursorClipImpl.sendClipData of the Java version.
+     *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param text The values of the step (StepInfo::to_wire)
+     * @return False if the text has not all values
+     */
+    boolean update (final int channel, final int x, final int y, final String text)
     {
-        switch (command)
-        {
-            case "toggle" -> this.clip.toggleStep (channel, x, y, (int) value);
-            case "clear" -> this.clip.clearStep (channel, x, y);
-            case "moveY" -> this.clip.moveStep (channel, x, y, 0, (int) value - y);
-            case "set" ->
-            {
-                final String [] values = split (text);
-                if (values.length < 2)
-                    return false;
-                this.clip.setStep (channel, x, y, parse (values[0]), parseDouble (values[1]));
-            }
-            case "setFrom" ->
-            {
-                // As CursorClipImpl.setStep (NotePosition, IStepInfo): create the note, set the
-                // other values a bit later when Bitwig has created it
-                final String [] values = split (text);
-                if (values.length < 24)
-                    return false;
-                this.clip.setStep (channel, x, y, (int) (parseDouble (values[4]) * 127), parseDouble (values[3]));
-                this.host.scheduleTask ( () -> {
-                    final NoteStep step = this.clip.getStep (channel, x, y);
-                    step.setVelocity (parseDouble (values[4]));
-                    step.setGain (parseDouble (values[11]));
-                    step.setPan (parseDouble (values[9]));
-                    step.setPressure (parseDouble (values[7]));
-                    step.setReleaseVelocity (parseDouble (values[6]));
-                    step.setTimbre (parseDouble (values[8]));
-                    step.setTranspose (parseDouble (values[10]));
-                }, 100);
-            }
-            case "update" ->
-            {
-                final String [] values = split (text);
-                if (values.length < 24)
-                    return false;
-                update (this.clip.getStep (channel, x, y), values);
-            }
-            default ->
-            {
-                return updateAttribute (this.clip.getStep (channel, x, y), command, value);
-            }
-        }
+        final String [] values = split (text);
+        if (values.length < 24)
+            return false;
+        update (this.clip.getStep (channel, x, y), values);
         return true;
     }
 
@@ -271,37 +358,43 @@ final class BitwigNoteClip
      * Set one attribute of a step, as CursorClipImpl.updateStep* of the Java version outside of an
      * edit (getNoteStep (notePosition).setVelocity (v)).
      *
+     * @param channel The MIDI channel
+     * @param x The step
+     * @param y The row
+     * @param attribute The attribute (Protocol.StepAttr)
+     * @param value The value
      * @return False if the attribute is unknown
      */
-    private static boolean updateAttribute (final NoteStep step, final String attribute, final double value)
+    boolean updateAttribute (final int channel, final int x, final int y, final int attribute, final double value)
     {
+        final NoteStep step = this.clip.getStep (channel, x, y);
         if (step == null)
             return true;
         final boolean on = value > 0;
         switch (attribute)
         {
-            case "muted" -> step.setIsMuted (on);
-            case "duration" -> step.setDuration (value);
-            case "velocity" -> step.setVelocity (value);
-            case "velocitySpread" -> step.setVelocitySpread (value);
-            case "releaseVelocity" -> step.setReleaseVelocity (value);
-            case "pressure" -> step.setPressure (value);
-            case "timbre" -> step.setTimbre (value);
-            case "pan" -> step.setPan (value);
-            case "transpose" -> step.setTranspose (value);
-            case "gain" -> step.setGain (value);
-            case "chanceEnabled" -> step.setIsChanceEnabled (on);
-            case "chance" -> step.setChance (value);
-            case "occurrenceEnabled" -> step.setIsOccurrenceEnabled (on);
-            case "occurrence" -> step.setOccurrence (OCCURRENCES[Math.clamp ((int) value, 0, OCCURRENCES.length - 1)]);
-            case "recurrenceEnabled" -> step.setIsRecurrenceEnabled (on);
-            case "recurrenceLength" -> step.setRecurrence ((int) value, step.recurrenceMask ());
-            case "recurrenceMask" -> step.setRecurrence (step.recurrenceLength (), (int) value);
-            case "repeatEnabled" -> step.setIsRepeatEnabled (on);
-            case "repeatCount" -> step.setRepeatCount ((int) value);
-            case "repeatCurve" -> step.setRepeatCurve (value);
-            case "repeatVelocityCurve" -> step.setRepeatVelocityCurve (value);
-            case "repeatVelocityEnd" -> step.setRepeatVelocityEnd (value);
+            case Protocol.StepAttr.MUTED -> step.setIsMuted (on);
+            case Protocol.StepAttr.DURATION -> step.setDuration (value);
+            case Protocol.StepAttr.VELOCITY -> step.setVelocity (value);
+            case Protocol.StepAttr.VELOCITY_SPREAD -> step.setVelocitySpread (value);
+            case Protocol.StepAttr.RELEASE_VELOCITY -> step.setReleaseVelocity (value);
+            case Protocol.StepAttr.PRESSURE -> step.setPressure (value);
+            case Protocol.StepAttr.TIMBRE -> step.setTimbre (value);
+            case Protocol.StepAttr.PAN -> step.setPan (value);
+            case Protocol.StepAttr.TRANSPOSE -> step.setTranspose (value);
+            case Protocol.StepAttr.GAIN -> step.setGain (value);
+            case Protocol.StepAttr.CHANCE_ENABLED -> step.setIsChanceEnabled (on);
+            case Protocol.StepAttr.CHANCE -> step.setChance (value);
+            case Protocol.StepAttr.OCCURRENCE_ENABLED -> step.setIsOccurrenceEnabled (on);
+            case Protocol.StepAttr.OCCURRENCE -> step.setOccurrence (OCCURRENCES[Math.clamp ((int) value, 0, OCCURRENCES.length - 1)]);
+            case Protocol.StepAttr.RECURRENCE_ENABLED -> step.setIsRecurrenceEnabled (on);
+            case Protocol.StepAttr.RECURRENCE_LENGTH -> step.setRecurrence ((int) value, step.recurrenceMask ());
+            case Protocol.StepAttr.RECURRENCE_MASK -> step.setRecurrence (step.recurrenceLength (), (int) value);
+            case Protocol.StepAttr.REPEAT_ENABLED -> step.setIsRepeatEnabled (on);
+            case Protocol.StepAttr.REPEAT_COUNT -> step.setRepeatCount ((int) value);
+            case Protocol.StepAttr.REPEAT_CURVE -> step.setRepeatCurve (value);
+            case Protocol.StepAttr.REPEAT_VELOCITY_CURVE -> step.setRepeatVelocityCurve (value);
+            case Protocol.StepAttr.REPEAT_VELOCITY_END -> step.setRepeatVelocityEnd (value);
             default ->
             {
                 return false;

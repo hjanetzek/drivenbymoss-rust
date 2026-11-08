@@ -8,6 +8,7 @@ import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.PlayingNote;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -15,6 +16,8 @@ import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 
@@ -45,6 +48,8 @@ public class ProbeExtension extends ControllerExtension
     private int                 port;
     private volatile boolean    dumpRequested   = true;
     private volatile boolean    isRunning;
+    /** The last values of the probe's own lines. */
+    private final Map<String, String> probeValues = new HashMap<> ();
 
 
     /**
@@ -64,7 +69,29 @@ public class ProbeExtension extends ControllerExtension
     {
         final ControllerHost host = this.getHost ();
         this.model = new BitwigModel (host, MODEL_SETUP, null);
-        this.reporter = new ModelReporter ();
+        // The text protocol without the core: the addresses of the clip and the grid
+        this.reporter = new ModelReporter (ModelReporter.Mode.TEXT, new ModelReporter.Conversions ()
+        {
+            @Override
+            public String messagesToText (final MemorySegment buffer, final long size)
+            {
+                return probeAddress (buffer);
+            }
+
+
+            @Override
+            public byte [] messagesFromText (final String text)
+            {
+                return new byte [0];
+            }
+
+
+            @Override
+            public void log (final String message)
+            {
+                host.errorln (message);
+            }
+        });
         // A fixed grid: 64 steps of 1/16 from the start of the clip, all keys
         final BitwigNoteClip noteClip = this.model.noteClips.get (0);
         noteClip.clip.setStepSize (0.25);
@@ -136,19 +163,51 @@ public class ProbeExtension extends ControllerExtension
     {
         if (!this.isRunning)
             return;
-        if (this.dumpRequested)
+        final boolean dump = this.dumpRequested;
+        if (dump)
         {
             this.dumpRequested = false;
             this.reporter.requestDump ();
         }
+        this.reporter.startCollection ();
         final BitwigNoteClip noteClip = this.model.noteClips.get (0);
         noteClip.collectClip (this.reporter);
         noteClip.collectGrid (this.reporter);
+        this.reporter.finishCollection ();
+        final StringBuilder lines = new StringBuilder (this.reporter.getLines ());
         final PlayingNote [] notes = this.model.cursorTrack.playingNotes ().get ();
-        this.reporter.put ("/probe/version", this.getHost ().getHostProduct () + " " + this.getHost ().getHostVersion ());
-        this.reporter.put ("/probe/playingNotes", Arrays.stream (notes).sorted (Comparator.comparingInt (PlayingNote::pitch)).map (n -> n.pitch () + ":" + n.velocity ()).collect (Collectors.joining (" ")));
-        this.send (this.reporter.take ());
+        this.putProbe (lines, "/probe/version", this.getHost ().getHostProduct () + " " + this.getHost ().getHostVersion (), dump);
+        this.putProbe (lines, "/probe/playingNotes", Arrays.stream (notes).sorted (Comparator.comparingInt (PlayingNote::pitch)).map (n -> n.pitch () + ":" + n.velocity ()).collect (Collectors.joining (" ")), dump);
+        this.send (lines.toString ());
         this.getHost ().scheduleTask (this::tick, TICK_INTERVAL);
+    }
+
+
+    /** A line of the probe itself, if the value changed (or with a dump). */
+    private void putProbe (final StringBuilder lines, final String address, final String value, final boolean dump)
+    {
+        if (!dump && value.equals (this.probeValues.get (address)))
+            return;
+        this.probeValues.put (address, value);
+        lines.append (address).append (' ').append (value).append ('\n');
+    }
+
+
+    /**
+     * The address of the record of a buffer (the clip properties and the grid of the cursor clip,
+     * as the core's text form; the probe has no core).
+     */
+    static String probeAddress (final MemorySegment buffer)
+    {
+        final Protocol.View view = new Protocol.View ();
+        if (!view.reset (buffer) || !view.next ())
+            return "";
+        final int id = view.id ();
+        if (id == Protocol.Msg.GRID_PLAYING_STEP)
+            return "/clip/grid/" + view.idx (0) + "x" + view.idx (1) + "/playingStep";
+        if (id == Protocol.Msg.GRID_STEP)
+            return "/clip/grid/" + view.idx (0) + "x" + view.idx (1) + "/step/" + (view.idx (2) >> 7) + "/" + view.idx (3) + "/" + (view.idx (2) & 127);
+        return Protocol.msgTemplate (id);
     }
 
 

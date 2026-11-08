@@ -66,31 +66,35 @@ final class ClipLauncherNavigator
 
 
     /**
-     * Handle a command of the core.
+     * Select the track at the position (ClipLauncherNavigatorImpl.selectTrack: the core selects
+     * the track afterwards).
      *
-     * @param command The command: "selectTrack", "tracks/-|+", "clips/-|+", "scenes/-|+"
-     * @param value The value (the track position for "selectTrack")
-     * @return False if the command is unknown
+     * @param position The position of the track
      */
-    boolean handle (final String command, final double value)
+    void selectTrack (final int position)
     {
-        switch (command)
+        this.singleTrackBank.scrollPosition ().set (position);
+    }
+
+
+    /**
+     * Move the navigator.
+     *
+     * @param target The target (Protocol.NavigatorTarget: tracks, clips, scenes)
+     * @param next True to move to the next item
+     */
+    void step (final int target, final boolean next)
+    {
+        switch (target)
         {
-            // ClipLauncherNavigatorImpl.selectTrack: the core selects the track afterwards
-            case "selectTrack" -> this.singleTrackBank.scrollPosition ().set ((int) value);
-            case "tracks/-", "tracks/+" -> this.navigateTracks (command.endsWith ("-"));
-            case "clips/-", "clips/+" -> this.navigateClips (command.endsWith ("-"));
-            case "scenes/-", "scenes/+" ->
+            case Protocol.NavigatorTarget.TRACKS -> this.navigateTracks (!next);
+            case Protocol.NavigatorTarget.SCENES ->
             {
-                this.navigateClips (command.endsWith ("-"));
+                this.navigateClips (!next);
                 this.host.scheduleTask ( () -> this.sceneBank.getItemAt (0).selectInEditor (), 100);
             }
-            default ->
-            {
-                return false;
-            }
+            default -> this.navigateClips (!next);
         }
-        return true;
     }
 
 

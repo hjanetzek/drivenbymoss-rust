@@ -15,6 +15,8 @@ import com.bitwig.extension.controller.api.CursorBrowserResultItem;
 import com.bitwig.extension.controller.api.InsertionPoint;
 import com.bitwig.extension.controller.api.PopupBrowser;
 
+import de.mossgrabers.dbm.bitwig.Protocol.Msg;
+
 
 /**
  * The popup browser of Bitwig (protocol v2), as BrowserImpl, BrowserColumnImpl and
@@ -108,47 +110,47 @@ final class BitwigBrowser
     void collect (final ModelReporter reporter)
     {
         final boolean exists = this.browser.exists ().get ();
-        reporter.put ("/browser/exists", exists);
+        reporter.put (Msg.BROWSER_EXISTS, exists);
         if (!exists)
             return;
 
         final String [] contentTypes = this.browser.contentTypeNames ().get ();
         for (int i = 0; i < contentTypes.length; i++)
-            reporter.put ("/browser/contentType/" + i + "/name", contentTypes[i]);
-        reporter.put ("/browser/contentType/count", contentTypes.length);
-        reporter.put ("/browser/contentType/selected", this.browser.selectedContentTypeIndex ().get ());
+            reporter.put (Msg.CONTENT_TYPE_NAME | Protocol.key (0, i, 0, 0), contentTypes[i]);
+        reporter.put (Msg.CONTENT_TYPE_COUNT, contentTypes.length);
+        reporter.put (Msg.CONTENT_TYPE_SELECTED, this.browser.selectedContentTypeIndex ().get ());
         // As BrowserImpl.getSelectedContentType: the name is not usable since Bitwig 5
-        reporter.put ("/browser/contentType/selected/name", "Result");
-        reporter.put ("/browser/preview", this.browser.shouldAudition ().get ());
+        reporter.put (Msg.CONTENT_TYPE_SELECTED_NAME, "Result");
+        reporter.put (Msg.BROWSER_PREVIEW, this.browser.shouldAudition ().get ());
 
-        reporter.put ("/browser/column/count", this.columns.length);
+        reporter.put (Msg.COLUMN_COUNT, this.columns.length);
         for (int c = 0; c < this.columns.length; c++)
         {
             final BrowserFilterColumn column = this.columns[c];
-            final String prefix = "/browser/column/" + c + "/";
-            reporter.put (prefix + "exists", column.exists ().get ());
-            reporter.put (prefix + "name", column.name ().get ());
-            reporter.put (prefix + "wildcard", column.getWildcardItem ().name ().get ());
-            reporter.put (prefix + "cursor/exists", this.columnCursors[c].exists ().get ());
-            reporter.put (prefix + "cursor/name", this.columnCursors[c].name ().get ());
-            reporter.put (prefix + "cursorIndex", this.columnItemBanks[c].cursorIndex ().get ());
+            final long base = Protocol.key (0, c, 0, 0);
+            reporter.put (Msg.COLUMN_EXISTS | base, column.exists ().get ());
+            reporter.put (Msg.COLUMN_NAME | base, column.name ().get ());
+            reporter.put (Msg.COLUMN_WILDCARD | base, column.getWildcardItem ().name ().get ());
+            reporter.put (Msg.COLUMN_CURSOR_EXISTS | base, this.columnCursors[c].exists ().get ());
+            reporter.put (Msg.COLUMN_CURSOR_NAME | base, this.columnCursors[c].name ().get ());
+            reporter.put (Msg.COLUMN_CURSOR_INDEX | base, this.columnItemBanks[c].cursorIndex ().get ());
             for (int i = 0; i < this.numFilterColumnEntries; i++)
-                collectItem (reporter, prefix + "item/" + i + "/", this.columnItemBanks[c].getItemAt (i));
+                collectItem (reporter, Protocol.key (0, Protocol.BrowserItemKind.COLUMN, c, i), this.columnItemBanks[c].getItemAt (i));
         }
 
         for (int i = 0; i < this.numResults; i++)
-            collectItem (reporter, "/browser/result/" + i + "/", this.resultsItemBank.getItemAt (i));
-        reporter.put ("/browser/result/cursor/name", this.cursorResult.name ().get ());
+            collectItem (reporter, Protocol.key (0, Protocol.BrowserItemKind.RESULT, 0, i), this.resultsItemBank.getItemAt (i));
+        reporter.put (Msg.RESULT_CURSOR_NAME, this.cursorResult.name ().get ());
     }
 
 
-    private static void collectItem (final ModelReporter reporter, final String prefix, final BrowserItem item)
+    private static void collectItem (final ModelReporter reporter, final long base, final BrowserItem item)
     {
-        reporter.put (prefix + "exists", item.exists ().get ());
-        reporter.put (prefix + "name", item.name ().get ());
-        reporter.put (prefix + "select", item.isSelected ().get ());
+        reporter.put (Msg.ITEM_EXISTS | base, item.exists ().get ());
+        reporter.put (Msg.ITEM_NAME | base, item.name ().get ());
+        reporter.put (Msg.ITEM_SELECTED | base, item.isSelected ().get ());
         if (item instanceof final BrowserFilterItem filterItem)
-            reporter.put (prefix + "hits", filterItem.hitCount ().get ());
+            reporter.put (Msg.ITEM_HITS | base, filterItem.hitCount ().get ());
     }
 
 
@@ -188,48 +190,82 @@ final class BitwigBrowser
 
 
     /**
-     * Change the selection of a filter column: "+", "-", "page/+", "page/-", "reset".
+     * Select the previous or next item of a filter column ("column/&lt;column&gt;/-|+").
      *
-     * @return False if the column or command is unknown
+     * @param column The column
+     * @param next True for the next item
+     * @return False if the column is unknown
      */
-    boolean handleColumn (final int column, final String command)
+    boolean stepColumn (final int column, final boolean next)
     {
         if (column < 0 || column >= this.columns.length)
             return false;
-        switch (command)
-        {
-            case "+" -> this.columnCursors[column].selectNext ();
-            case "-" -> this.columnCursors[column].selectPrevious ();
-            case "page/+" -> this.columnItemBanks[column].scrollPageForwards ();
-            case "page/-" -> this.columnItemBanks[column].scrollPageBackwards ();
-            case "reset" -> this.columnCursors[column].selectFirst ();
-            default ->
-            {
-                return false;
-            }
-        }
+        if (next)
+            this.columnCursors[column].selectNext ();
+        else
+            this.columnCursors[column].selectPrevious ();
         return true;
     }
 
 
     /**
-     * Change the selected result: "+", "-", "page/+", "page/-".
+     * Scroll the items of a filter column by a page ("column/&lt;column&gt;/page/-|+").
      *
-     * @return False if the command is unknown
+     * @param column The column
+     * @param next True for the next page
+     * @return False if the column is unknown
      */
-    boolean handleResult (final String command)
+    boolean pageColumn (final int column, final boolean next)
     {
-        switch (command)
-        {
-            case "+" -> this.cursorResult.selectNext ();
-            case "-" -> this.cursorResult.selectPrevious ();
-            case "page/+" -> this.resultsItemBank.scrollPageForwards ();
-            case "page/-" -> this.resultsItemBank.scrollPageBackwards ();
-            default ->
-            {
-                return false;
-            }
-        }
+        if (column < 0 || column >= this.columns.length)
+            return false;
+        if (next)
+            this.columnItemBanks[column].scrollPageForwards ();
+        else
+            this.columnItemBanks[column].scrollPageBackwards ();
         return true;
+    }
+
+
+    /**
+     * Select the first item of a filter column ("column/&lt;column&gt;/reset").
+     *
+     * @param column The column
+     * @return False if the column is unknown
+     */
+    boolean resetColumn (final int column)
+    {
+        if (column < 0 || column >= this.columns.length)
+            return false;
+        this.columnCursors[column].selectFirst ();
+        return true;
+    }
+
+
+    /**
+     * Select the previous or next result ("result/-|+").
+     *
+     * @param next True for the next result
+     */
+    void stepResult (final boolean next)
+    {
+        if (next)
+            this.cursorResult.selectNext ();
+        else
+            this.cursorResult.selectPrevious ();
+    }
+
+
+    /**
+     * Scroll the results by a page ("result/page/-|+").
+     *
+     * @param next True for the next page
+     */
+    void pageResult (final boolean next)
+    {
+        if (next)
+            this.resultsItemBank.scrollPageForwards ();
+        else
+            this.resultsItemBank.scrollPageBackwards ();
     }
 }

@@ -200,20 +200,33 @@ final class ProtocolRecorder
 
 
     /**
-     * Record an event.
+     * Record an event: the time, the kind and the fields (escaped).
      *
-     * @param kind The kind of the event
+     * @param kind The kind
      * @param fields The fields
      */
     synchronized void event (final String kind, final String... fields)
+    {
+        final StringBuilder line = new StringBuilder (kind);
+        for (final String field: fields)
+            line.append ('\t').append (escape (field));
+        this.line (line.toString ());
+    }
+
+
+    /**
+     * Record a line which is already in the form of the recordings: the kind and the escaped
+     * fields, separated by tabs (e.g. a command line of dbm_messages_to_text).
+     *
+     * @param kindAndFields The kind and the fields
+     */
+    synchronized void line (final String kindAndFields)
     {
         final StringBuilder line = new StringBuilder ();
         // Milliseconds with 3 decimals: a replay at whole milliseconds can end a timed state (e.g.
         // a notification) one tick earlier than the run
         final long micros = (System.nanoTime () - this.start) / 1_000L;
-        line.append (micros / 1000L).append ('.').append (String.format ("%03d", Long.valueOf (micros % 1000L))).append ('\t').append (kind);
-        for (final String field: fields)
-            line.append ('\t').append (escape (field));
+        line.append (micros / 1000L).append ('.').append (String.format ("%03d", Long.valueOf (micros % 1000L))).append ('\t').append (kindAndFields);
         try
         {
             this.writer.write (line.append ('\n').toString ());

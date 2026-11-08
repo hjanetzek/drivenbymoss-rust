@@ -12,6 +12,7 @@ import com.bitwig.extension.controller.api.NoteInput;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -27,6 +28,11 @@ import java.util.TreeSet;
  * One controller of the Rust core in Bitwig: loads the core, connects the MIDI ports and ticks
  * the core. In dev mode (environment variable DBM_DEV_LIBRARY) it watches the library and
  * restarts the extension when it was rebuilt.
+ *
+ * The reports and commands use the binary protocol (doc/TYPED_PROTOCOL_PLAN.md, step 3); the
+ * environment variable DBM_HOST_PROTOCOL selects "check" (binary, every report compared with the
+ * core's conversion of its text line) or "text" (the text protocol, a debug switch until step 5),
+ * see ModelReporter.
  */
 public class DbmExtension extends ControllerExtension implements NativeCore.Callbacks
 {
@@ -49,7 +55,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     /** The note inputs by port and index, see {@link #noteInputKey(int, int)}. */
     private final Map<Integer, NoteInput>    noteInputs         = new HashMap<> ();
     private final Set<String>                unhandledCommands  = new TreeSet<> ();
-    private final ModelReporter              reporter           = new ModelReporter ();
+    private ModelReporter                    reporter;
     private NativeCore                       core;
     private BitwigModel                      model;
     private CommandHandler                   commands;
@@ -145,6 +151,57 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             return;
         }
 
+        final String mismatch = this.core.getProtocolMismatch ();
+        if (mismatch != null)
+        {
+            this.errorln ("The core (" + this.core.getVersion () + ") does not fit the extension: " + mismatch);
+            this.closeCore ();
+            return;
+        }
+        final NativeCore nativeCore = this.core;
+        this.reporter = new ModelReporter (ModelReporter.Mode.fromEnvironment (), new ModelReporter.Conversions ()
+        {
+            @Override
+            public String messagesToText (final MemorySegment buffer, final long size)
+            {
+                return nativeCore.messagesToText (buffer, size);
+            }
+
+
+            @Override
+            public byte [] messagesFromText (final String text)
+            {
+                return nativeCore.messagesFromText (text);
+            }
+
+
+            @Override
+            public void log (final String message)
+            {
+                DbmExtension.this.errorln (message);
+            }
+        });
+        if (this.reporter.getMode () != ModelReporter.Mode.TEXT)
+        {
+            try
+            {
+                if (!this.core.setCommandCallback (CommandHandler.handledBitset ()))
+                {
+                    this.errorln ("The core did not switch to the binary commands.");
+                    this.closeCore ();
+                    return;
+                }
+            }
+            catch (final ReflectiveOperationException ex)
+            {
+                this.error ("Could not bind the command callback", ex);
+                this.closeCore ();
+                return;
+            }
+        }
+        if (this.reporter.getMode () != ModelReporter.Mode.BINARY)
+            this.println ("Protocol: " + this.reporter.getMode ().name ().toLowerCase (java.util.Locale.ROOT) + " (DBM_HOST_PROTOCOL).");
+
         this.recorder = ProtocolRecorder.create (this.definition.getHardwareModel (), this.devLibrary);
         if (this.recorder != null)
         {
@@ -213,6 +270,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void exit ()
     {
         this.isRunning = false;
+        if (this.reporter != null && this.reporter.getMode () == ModelReporter.Mode.CHECK)
+            this.println ("Protocol check: " + this.reporter.getCheckedRecords () + " records compared with the text, " + this.reporter.getCheckErrors () + " differences.");
         this.closeCore ();
         if (this.recorder != null)
             this.recorder.close ();
@@ -296,11 +355,26 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         if (!this.isRunning || this.core == null)
             return;
         // Send the changed state first, so that the controller is updated with fresh values
+        this.reporter.startCollection ();
         this.model.collect (this.reporter);
-        final String lines = this.reporter.take ();
-        if (!lines.isEmpty ())
-            this.record ("model", lines);
-        this.core.updateModel (lines);
+        this.reporter.finishCollection ();
+        if (this.reporter.getMode () == ModelReporter.Mode.TEXT)
+        {
+            final String lines = this.reporter.getLines ();
+            if (!lines.isEmpty ())
+                this.record ("model", lines);
+            this.core.updateModel (lines);
+        }
+        else
+        {
+            final Protocol.Writer writer = this.reporter.getWriter ();
+            if (!writer.isEmpty ())
+            {
+                if (this.recorder != null)
+                    this.record ("model", this.reporter.getText ());
+                this.core.updateModelBin (writer.segment (), writer.size ());
+            }
+        }
         this.record ("tick");
         this.core.tick ();
         this.settings.apply (this.core.takeSettingChanges ());
@@ -340,13 +414,50 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
     /** {@inheritDoc} */
     @Override
+    public void processCommands (final MemorySegment buffer)
+    {
+        if (this.recorder != null)
+        {
+            for (final String line: this.core.messagesToText (buffer, buffer.byteSize ()).split ("\n"))
+            {
+                if (!line.isEmpty ())
+                    this.recorder.line (line);
+            }
+        }
+        this.dispatch (buffer);
+    }
+
+
+    /**
+     * Execute the commands of a buffer. Before the command handler exists (the first commands
+     * while the core starts) only the refresh.
+     */
+    private void dispatch (final MemorySegment buffer)
+    {
+        if (this.commands != null)
+        {
+            this.commands.processCommands (buffer);
+            return;
+        }
+        final Protocol.View view = new Protocol.View ();
+        view.reset (buffer);
+        while (view.next ())
+        {
+            if (view.cmd () == Protocol.Cmd.REFRESH)
+                this.reporter.requestDump ();
+        }
+    }
+
+
+    // The text callbacks (the debug switch DBM_HOST_PROTOCOL=text): recorded and converted to
+    // the binary form by the core, executed as the binary commands
+
+    /** {@inheritDoc} */
+    @Override
     public void processNoArg (final String processor, final String command)
     {
         this.record ("noArg", processor, command);
-        if ("refresh".equals (processor))
-            this.reporter.requestDump ();
-        else if (this.commands != null)
-            this.commands.handle (processor, command);
+        this.dispatchText ("noArg", processor, command);
     }
 
 
@@ -355,8 +466,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void processStringArg (final String processor, final String command, final String value)
     {
         this.record ("string", processor, command, value);
-        if (this.commands != null)
-            this.commands.handle (processor, command, value);
+        this.dispatchText ("string", processor, command, value);
     }
 
 
@@ -364,17 +474,13 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     @Override
     public void processStringArgs (final String processor, final String command, final String [] values)
     {
+        final String [] fields = new String [values.length + 2];
+        fields[0] = processor;
+        fields[1] = command;
+        System.arraycopy (values, 0, fields, 2, values.length);
         if (this.recorder != null)
-        {
-            final String [] fields = new String [values.length + 2];
-            fields[0] = processor;
-            fields[1] = command;
-            System.arraycopy (values, 0, fields, 2, values.length);
             this.recorder.event ("strings", fields);
-        }
-        if (this.commands != null && this.commands.handle (processor, command, values))
-            return;
-        this.unhandled (processor + " " + command);
+        this.dispatchText ("strings", fields);
     }
 
 
@@ -383,8 +489,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void processIntArg (final String processor, final String command, final int value)
     {
         this.record ("int", processor, command, Integer.toString (value));
-        if (this.commands != null)
-            this.commands.handle (processor, command, value);
+        this.dispatchText ("int", processor, command, Integer.toString (value));
     }
 
 
@@ -393,8 +498,7 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void processDoubleArg (final String processor, final String command, final double value)
     {
         this.record ("double", processor, command, Double.toString (value));
-        if (this.commands != null)
-            this.commands.handle (processor, command, value);
+        this.dispatchText ("double", processor, command, Double.toString (value));
     }
 
 
@@ -411,6 +515,22 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public void enableUpdates (final String processor, final boolean enable)
     {
         this.record ("enable", processor, enable ? "1" : "0");
+    }
+
+
+    /**
+     * Execute a command of the text callbacks: its legacy line converted by the core.
+     */
+    private void dispatchText (final String kind, final String... fields)
+    {
+        final StringBuilder line = new StringBuilder (kind);
+        for (final String field: fields)
+            line.append ('\t').append (field.replace ("\\", "\\\\").replace ("\n", "\\n").replace ("\t", "\\t"));
+        final byte [] buffer = this.core.messagesFromText (line.toString ());
+        if (buffer.length > Protocol.HEADER_SIZE)
+            this.dispatch (MemorySegment.ofArray (buffer));
+        else
+            this.unhandled (kind + " " + String.join (" ", fields));
     }
 
 

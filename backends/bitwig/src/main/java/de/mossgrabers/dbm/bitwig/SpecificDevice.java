@@ -11,6 +11,8 @@ import com.bitwig.extension.controller.api.DeviceLayerBank;
 import com.bitwig.extension.controller.api.DrumPad;
 import com.bitwig.extension.controller.api.DrumPadBank;
 
+import de.mossgrabers.dbm.bitwig.Protocol.Msg;
+
 
 /**
  * A device found by a matcher on the cursor track (the drum machine, the first instrument), with
@@ -19,8 +21,11 @@ import com.bitwig.extension.controller.api.DrumPadBank;
  */
 final class SpecificDevice
 {
-    /** The address prefix, e.g. "/drum". */
-    private final String                     prefix;
+    /** The drum machine (its own report IDs), see the constructor. */
+    static final int                         DRUM = -1;
+
+    /** The device: {@link #DRUM}, Protocol.Dev.DEVICE (the layers of the cursor device) or PRIMARY. */
+    private final int                        dev;
     final Device                             device;
     /** One remote control page cursor per page, each fixed to its page; may be empty. */
     final CursorRemoteControlsPage []        pages;
@@ -43,15 +48,21 @@ final class SpecificDevice
      * Create all Bitwig objects; must be called during init.
      *
      * @param device The matched device
-     * @param prefix The address prefix of the reported values
+     * @param dev The device: {@link #DRUM}, Protocol.Dev.DEVICE or Protocol.Dev.PRIMARY
      * @param numParamPages The number of parameter pages, 0 for none
      * @param numPads The number of drum pads
      * @param numLayers The number of layers, 0 for none
      */
-    SpecificDevice (final Device device, final String prefix, final int numParamPages, final int numPads, final int numLayers)
+    SpecificDevice (final Device device, final int dev, final int numParamPages, final int numPads, final int numLayers)
     {
         this.device = device;
-        this.prefix = prefix;
+        this.dev = dev;
+        final String prefix = switch (dev)
+        {
+            case DRUM -> "/drum";
+            case Protocol.Dev.PRIMARY -> "/primary";
+            default -> "/device";
+        };
 
         this.pages = new CursorRemoteControlsPage [numParamPages];
         for (int i = 0; i < numParamPages; i++)
@@ -134,47 +145,61 @@ final class SpecificDevice
     void collect (final ModelReporter reporter)
     {
         final boolean exists = this.device.exists ().get ();
-        reporter.put (this.prefix + "/exists", exists);
-        reporter.put (this.prefix + "/name", exists ? this.device.name ().get () : "");
-        reporter.put (this.prefix + "/bypass", exists && !this.device.isEnabled ().get ());
-        reporter.put (this.prefix + "/window", exists && this.device.isWindowOpen ().get ());
-        reporter.put (this.prefix + "/expand", exists && this.device.isExpanded ().get ());
-        reporter.put (this.prefix + "/parameters", exists && this.device.isRemoteControlsSectionVisible ().get ());
-        reporter.put (this.prefix + "/hasDrumPads", exists && this.device.hasDrumPads ().get ());
-        reporter.put (this.prefix + "/hasLayers", exists && this.device.hasLayers ().get ());
+        final boolean isDrum = this.dev == DRUM;
+        // The drum machine has its own IDs without an index, the others the IDs of /device with
+        // the Dev index
+        final long base = isDrum ? 0 : Protocol.key (0, this.dev, 0, 0);
+        reporter.put ((isDrum ? Msg.DRUM_EXISTS : Msg.DEVICE_EXISTS) | base, exists);
+        reporter.put ((isDrum ? Msg.DRUM_NAME : Msg.DEVICE_NAME) | base, exists ? this.device.name ().get () : "");
+        reporter.put ((isDrum ? Msg.DRUM_BYPASS : Msg.DEVICE_BYPASS) | base, exists && !this.device.isEnabled ().get ());
+        reporter.put ((isDrum ? Msg.DRUM_WINDOW : Msg.DEVICE_WINDOW) | base, exists && this.device.isWindowOpen ().get ());
+        reporter.put ((isDrum ? Msg.DRUM_EXPAND : Msg.DEVICE_EXPAND) | base, exists && this.device.isExpanded ().get ());
+        reporter.put ((isDrum ? Msg.DRUM_PARAMETERS : Msg.DEVICE_PARAMETERS) | base, exists && this.device.isRemoteControlsSectionVisible ().get ());
+        reporter.put ((isDrum ? Msg.DRUM_HAS_DRUM_PADS : Msg.DEVICE_HAS_DRUM_PADS) | base, exists && this.device.hasDrumPads ().get ());
+        reporter.put ((isDrum ? Msg.DRUM_HAS_LAYERS : Msg.DEVICE_HAS_LAYERS) | base, exists && this.device.hasLayers ().get ());
 
         if (this.remoteControls != null)
         {
-            BitwigModel.collectPages (reporter, this.prefix, this.pages);
-            final String [] pageNames = this.remoteControls.pageNames ().get ();
-            final int namedPages = Math.min (pageNames.length, this.pages.length);
-            for (int p = 0; p < namedPages; p++)
-                reporter.put (this.prefix + "/page/" + p + "/name", pageNames[p]);
-            reporter.put (this.prefix + "/page/count", namedPages);
-            reporter.put (this.prefix + "/page/selected", this.remoteControls.selectedPageIndex ().get ());
+            // The owners of parameters and pages have the numbers of Dev
+            BitwigModel.collectPages (reporter, this.dev, this.pages);
+            BitwigModel.collectPageNames (reporter, this.dev, this.remoteControls, this.pages.length);
         }
 
+        final int padDev = isDrum ? Protocol.Dev.DEVICE : this.dev;
         if (this.drumPadBank != null)
         {
-            reporter.put (this.prefix + "/hasMutedPads", exists && this.drumPadBank.hasMutedPads ().get ());
-            reporter.put (this.prefix + "/hasSoloedPads", exists && this.drumPadBank.hasSoloedPads ().get ());
+            reporter.put ((isDrum ? Msg.DRUM_HAS_MUTED_PADS : Msg.DEVICE_HAS_MUTED_PADS) | base, exists && this.drumPadBank.hasMutedPads ().get ());
+            reporter.put ((isDrum ? Msg.DRUM_HAS_SOLOED_PADS : Msg.DEVICE_HAS_SOLOED_PADS) | base, exists && this.drumPadBank.hasSoloedPads ().get ());
         }
+        final long padBase = Protocol.key (0, isDrum ? Protocol.PadKind.DRUM_PAD : Protocol.PadKind.PAD, padDev, 0);
         for (int i = 0; i < this.numPads; i++)
-            this.collectItem (reporter, this.prefix + "/pad/" + i + "/", this.drumPadBank.getItemAt (i), exists && this.padFirstDevices[i].exists ().get (), this.padSelected[i]);
+            collectItem (reporter, padBase | (long) i << 48, this.drumPadBank.getItemAt (i), exists && this.padFirstDevices[i].exists ().get (), this.padSelected[i]);
 
         if (this.layerBank == null)
             return;
-        reporter.put (this.prefix + "/layer/count", exists ? Math.min (this.layerBank.itemCount ().get (), this.numLayers) : 0);
+        reporter.put (Msg.DEVICE_LAYER_COUNT | base, exists ? Math.min (this.layerBank.itemCount ().get (), this.numLayers) : 0);
+        final long layerBase = Protocol.key (0, Protocol.PadKind.LAYER, padDev, 0);
         for (int i = 0; i < this.numLayers; i++)
-            this.collectItem (reporter, this.prefix + "/layer/" + i + "/", this.layerBank.getItemAt (i), exists && this.layerFirstDevices[i].exists ().get (), this.layerSelected[i]);
+            collectItem (reporter, layerBase | (long) i << 48, this.layerBank.getItemAt (i), exists && this.layerFirstDevices[i].exists ().get (), this.layerSelected[i]);
     }
 
 
-    private void collectItem (final ModelReporter reporter, final String itemPrefix, final Channel channel, final boolean exists, final boolean selected)
+    /**
+     * A drum pad or layer: exists, selected, the channel values (the texts not shortened, the
+     * core does not read them for layers and pads).
+     */
+    private static void collectItem (final ModelReporter reporter, final long base, final Channel channel, final boolean exists, final boolean selected)
     {
-        reporter.put (itemPrefix + "exists", exists);
-        reporter.put (itemPrefix + "select", selected);
-        // "active" with the channel values
-        BitwigModel.collectChannel (reporter, itemPrefix, channel);
+        reporter.put (Msg.PAD_EXISTS | base, exists);
+        reporter.put (Msg.PAD_SELECTED | base, selected);
+        reporter.put (Msg.PAD_NAME | base, channel.name ().get ());
+        reporter.putColor (Msg.PAD_COLOR | base, channel.color ().red (), channel.color ().green (), channel.color ().blue ());
+        reporter.put (Msg.PAD_MUTE | base, channel.mute ().get ());
+        reporter.put (Msg.PAD_SOLO | base, channel.solo ().get ());
+        reporter.put (Msg.PAD_ACTIVE | base, channel.isActivated ().get ());
+        reporter.put (Msg.PAD_VOLUME | base, channel.volume ().value ().get ());
+        reporter.put (Msg.PAD_VOLUME_STR | base, channel.volume ().displayedValue ().get ());
+        reporter.put (Msg.PAD_PAN | base, channel.pan ().value ().get ());
+        reporter.put (Msg.PAD_PAN_STR | base, channel.pan ().displayedValue ().get ());
     }
 }
