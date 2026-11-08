@@ -19,6 +19,8 @@ pub mod host;
 pub mod json;
 pub mod midi;
 pub mod parser;
+#[cfg(test)]
+mod parser_old;
 pub mod protocol;
 pub mod scale;
 #[cfg(feature = "lua")]

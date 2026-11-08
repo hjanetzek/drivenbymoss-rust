@@ -1,8 +1,9 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: **step 0a done** (2026-11-08, branch `typed-protocol`): the command table in
-`src/protocol/`, `Cmd`/`CmdId`, the core sends `Cmd` values, the text on the wire is unchanged.
-Next: step 0b. What was done, the choices and the deviations from this plan: §6. The decision and the motivation are in
+Status: **steps 0a and 0b done** (2026-11-08, branch `typed-protocol`): the command table and
+the address table in `src/protocol/`, `Cmd`/`CmdId` and `Msg`/`MsgId`; the core sends `Cmd`
+values and applies `Msg` values, the text on the wire is unchanged. Next: step 1. What was done,
+the choices and the deviations from this plan: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
@@ -824,8 +825,85 @@ then follows, with the binary replay mode as its proof.
 conformance_replay`, the Python binding tests and conformance `--all`, the Zynthian tests and
 the C++ wrapper tests pass unchanged; clippy is clean with and without `lua`.
 
-**Next: step 0b** (`Msg` + `apply`, §3): the address half of the table (a second macro or a
-second section of the same one, ids without the direction bit), text → `Msg` replacing the
-path matching of `parser.rs` with `ParserEvent` kept, an exhaustive `apply`. The traits of
-`legacy.rs` (`Field`, `PathReader`) are the starting point of the text → typed side; the
-lenient value rules (`parse_flag`, `parse_int`, `on_error=`) need their own value parsers.
+### 6.2 Step 0b (done 2026-11-08)
+
+**What is there**
+- `src/protocol/msg.rs`: the address table, **222 entries** in blocks of 0x100 per area (0x01
+  transport … 0x0B note repeat/groove, the block list is in the file's header), expanded by the
+  `messages!` macro (`src/protocol/macros.rs`). An entry is
+  `Name = 0x0301 { field: Type, … } [ <segments> ] => value = rule;`: literals, `("lit")` for an
+  optional literal (`/eq/band/<b>[/value]`: Reaper sends it without, Bitwig and Python with) and
+  fields. It expands into `Msg<'a>` (strings borrowed from the line), `MsgId`
+  (`#[repr(u16)]`, high bit clear), `MsgId::decode`, `MsgId::patterns`, `Msg::to_text` and
+  the metadata table `MESSAGES: &[MsgInfo]` (name, template such as `/{ch}/volume/str/{limit}`,
+  fields, value field, rule).
+- The address fields (`msg.rs`): `Ch` (`track/<p>`, `fxtrack/<p>`, `master`), `Dev` (`device`,
+  `primary`, `eq`), `ParamOwner` (a device, `project`, `track/fx`, `master/fx`), `PageOwner`,
+  `PadRef` (`drum/pad/<i>`, `<dev>/pad/<i>`, `<dev>/layer/<i>`), `HostParam` (`crossfade`,
+  `project/cueVolume|cueMix`, `groove/<name>`), `BrowserItem` (a column item or a result),
+  `ArrangerFlag`, `MixerFlag`; `Option<usize>` for the optional `/str/<limit>`; `Pos1` for the
+  1-based siblings; `GridId`.
+- `src/protocol/text.rs`:
+  - the `Seg` trait (a typed address field: write, read, its segment patterns);
+  - the `Trie` over the path segments (literal, digits, `<n>x<m>`), built once from the
+    patterns of the table (`OnceLock`); a test checks that no path leads to two entries;
+  - the value rules (`rules::f64`, `int`, `flag`, `dflag`, `iflag`, `int_or(-1)`, `color`,
+    `color_logged`, `channel_type`, …): each keeps the lenient parsing and the failure rule of
+    the former parser (drop the message, or a default), which is the `on_error=` of §2.6;
+  - `TextValue`: the text of a typed value (doubles in their shortest exact form, §5.3 Q6).
+- `src/parser.rs`: `Parser::parse` = `Msg::from_text` + `Parser::apply`, an exhaustive `match`
+  over `Msg` without a wildcard arm (about 1,490 lines of path matching → about 600 lines of
+  `apply` and helpers). `ParserEvent` and the 41 parser tests are unchanged. A line which is not
+  in the table logs `Unhandled OSC address: <address> <value>`; a known address with an invalid
+  value is ignored, as before.
+- `src/parser_old.rs` (test only): the former parser and the **differential test**: every
+  model line of the 21 recordings (in order) and every table line (6 samples per entry, each also
+  with the values `x`, ``, `-1`, `0.5`, `2`, `1 2`, `300 -2 7` and a note list, and without the
+  leading `/`) give the same log lines, events and commands with both parsers. Remove it once
+  the table is stable (with step 1 or 2).
+- `Model::note_clip_mut(steps, rows)` (the grid lookup without formatting the grid ID).
+
+**Choices and deviations from the plan**
+- **The trie is built at run time** from the patterns which the macro generates (no build
+  script, no generated source), once per process. A path leads to one entry; the entry's
+  generated decoder reads the typed fields and the value.
+- **Lines not in the table** (§2.1: "the remaining Unhandled cases are lines that are not in
+  the table at all"): the former parser accepted some malformed forms silently or partly, e.g.
+  extra segments (`/play/x 1` set the play state, `/track/3/volume/x` was ignored),
+  `/time/loop/start/<anything>` (now only `beat` and `str`), a missing index
+  (`/clip/grid/<id>/step/x/x/x`), unknown arranger/mixer flag names (stored before, unused), and
+  `/device/band/…` or `/primary/sibling/…` with malformed indices. These now log one
+  "Unhandled OSC address" error and change nothing. No host sends them (the differential test
+  over all recordings, the Python conformance `core_errors` check and the Reaper collectors).
+- **Invalid values with the "drop" rule** drop the whole message before the model is touched;
+  the former parser sometimes looked up the addressed item first (e.g. `/track/5/exists x`
+  created track 5 as a default item). Valid values behave exactly as before.
+- **The value types are typed** where the former parser converted at once: flags are `bool`
+  with their rule (`dflag`: drop if not a number; `flag`: false; `iflag`: an int above 0;
+  `int_nonzero` for bypass, …), `ChannelType` and `RecordQuantization` are enums, colors are
+  `Option<[f64; 3]>` (None for "no color" and for an error; `apply` uses gray for both, as
+  before), notes `Vec<Note>`, a step `Option<StepInfo>`. Kept as text in 0b: `/host/features`
+  (the bitset of §2.5 comes with the binary form), `/clip/all` (Reaper), the layout.
+- **Normalized names** (§5.3 Q9): `SlotSelected`/`SceneSelected` (text `selected`/`select`),
+  `MetronomeVolumeStr` (`/click/volumeStr`), `TimeStr` (formatted by the core) vs `TimeText`
+  (by the host), `ItemSelected` (`…/item/<i>/select`), `DeviceSiblingSelected`.
+- **Accepted and ignored** entries for forms which hosts send or which the former parser
+  explicitly accepted: `/marker/<i>/position|endPosition`, `/browser/selected/name`,
+  `/<dev>/pad/count`, `/drum/pad/count`, and the value of `/track/offset`, `/fxtrack/offset`,
+  `/scene/offset`.
+- **`/action/select`** is in the table (`ActionSelect`); `parse` returns its event without
+  `after_parse`, as before.
+- **Speed:** the Mk2 recordings (16,700 lines, release build) take 504 ns per line against 457 ns
+  before (+10 %, most of it is the model's work); the trie uses std's `HashMap`.
+
+**Proof:** `cargo test` (the 41 parser tests and all text feeds unchanged, the differential
+test, the round trip of every table entry through its text), `cargo test --test
+conformance_replay`, the Python binding tests and conformance `--all` (195 the same, 0 core
+errors), the Zynthian tests and the C++ wrapper tests pass unchanged; clippy is clean with and
+without `lua`.
+
+**Next: step 1** (§3, §2.2–§2.7): the binary record encode/decode in the core (from the two
+tables: indices from the address fields and the command fields, values by type),
+`dbm_update_model_bin`, `dbm_set_command_callback` with per-call buffering, the text
+conversions, the generator binary `dbm-protocol-gen` with the staleness test, the generated
+`include/dbm_protocol.h` and the C++ wrapper, and the replay's binary mode as the proof.

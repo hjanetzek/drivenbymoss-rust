@@ -33,18 +33,32 @@ macro_rules! domain {
             }
         }
 
-        impl Field for $name {
-            fn write(&self, w: &mut PathWriter) {
+        impl $crate::protocol::legacy::Field for $name {
+            fn write(&self, w: &mut $crate::protocol::legacy::PathWriter) {
                 w.seg(self.name());
             }
 
-            fn read(_: Processor, r: &mut PathReader<'_>) -> Option<Self> {
+            fn read(_: $crate::backend::Processor, r: &mut $crate::protocol::legacy::PathReader<'_>) -> Option<Self> {
                 $name::from_name(r.next_segment()?)
             }
         }
 
+        impl $crate::protocol::text::Seg for $name {
+            fn write(&self, w: &mut $crate::protocol::legacy::PathWriter) {
+                w.seg(self.name());
+            }
+
+            fn read(r: &mut $crate::protocol::legacy::PathReader<'_>) -> Option<Self> {
+                $name::from_name(r.next_segment()?)
+            }
+
+            fn patterns() -> Vec<Vec<$crate::protocol::text::Pat>> {
+                $name::ALL.iter().map(|v| vec![$crate::protocol::text::Pat::Lit(v.name())]).collect()
+            }
+        }
+
         #[cfg(test)]
-        impl Sample for $name {
+        impl $crate::protocol::legacy::Sample for $name {
             fn samples() -> Vec<Self> {
                 $name::ALL.to_vec()
             }

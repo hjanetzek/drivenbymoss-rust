@@ -205,3 +205,165 @@ macro_rules! cmd_feature {
     () => { None };
     ($f:ident) => { Some(HostFeature::$f) };
 }
+
+/// The macro which expands the address table of the reports ([`super::msg`]).
+///
+/// One entry per message:
+///
+/// ```text
+/// /// doc
+/// Name = 0x0301 { field: Type, … } [ <segments> ] => <value field> = <rule>;
+/// ```
+///
+/// - `<segments>`: string literals, `("lit")` for an optional literal (accepted with and without,
+///   written with it) and fields ([`super::text::Seg`]), joined with `/`. The text form is the
+///   address `/<segments>`.
+/// - `=> field = rule`: the field holding the value and its parser in [`super::text::rules`],
+///   e.g. `= f64`, `= int_or(-1)`; nothing: the value is ignored.
+///
+/// It expands into `Msg`, `MsgId`, `Msg::id`, `Msg::to_text`, `MsgId::decode`, `MsgId::patterns`
+/// and the metadata table `MESSAGES`.
+macro_rules! messages {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident = $code:literal { $($field:ident : $fty:ty),* $(,)? }
+            [ $($seg:tt)* ] $(=> $val:ident = $rule:ident $(( $($arg:expr),* ))?)? ;
+    )*) => {
+        /// A report of the host to the core. The text form is [`Msg::to_text`].
+        #[derive(Debug, Clone, PartialEq)]
+        pub enum Msg<'a> {
+            $( $(#[$meta])* $name { $($field: $fty),* }, )*
+        }
+
+        /// The ID of a report (stable; the high bit is clear: host → core).
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[repr(u16)]
+        pub enum MsgId {
+            $( $name = $code, )*
+        }
+
+        impl MsgId {
+            /// All message IDs in the order of the table.
+            pub const ALL: &'static [MsgId] = &[$(MsgId::$name),*];
+
+            /// The metadata of the message.
+            pub fn info(self) -> &'static MsgInfo {
+                MESSAGES.iter().find(|info| info.id == self).expect("every ID is in the table")
+            }
+
+            /// The segment patterns of the address (the alternatives, for the trie).
+            #[allow(unused_variables, unused_mut, clippy::extra_unused_lifetimes)]
+            pub fn patterns<'a>(self) -> Vec<Vec<Pat>> {
+                match self {
+                    $( MsgId::$name => {
+                        $( let $field = PhantomData::<$fty>; )*
+                        let mut acc: Vec<Vec<Pat>> = vec![vec![]];
+                        $( msg_seg!(pat acc $seg); )*
+                        acc
+                    } )*
+                }
+            }
+
+            /// Decode a report line of this ID: the path (without the leading `/`) and the value.
+            #[allow(unused_mut, unused_variables)]
+            pub fn decode<'a>(self, path: &'a str, value: &'a str, log: rules::Log) -> Result<Msg<'a>, Miss> {
+                let mut r = PathReader::new(path);
+                match self {
+                    $( MsgId::$name => {
+                        $( msg_seg!(read r $seg); )*
+                        if !r.is_empty() {
+                            return Err(Miss::Path);
+                        }
+                        $( let $val = rules::$rule(value, log $($(, $arg)*)?).ok_or(Miss::Value)?; )?
+                        Ok(Msg::$name { $($field),* })
+                    } )*
+                }
+            }
+
+            /// Sample messages of this ID for the round-trip test: the k-th sample of every field.
+            #[cfg(test)]
+            pub(crate) fn sample(self, k: usize) -> Msg<'static> {
+                fn pick<T: $crate::protocol::legacy::Sample>(k: usize) -> T {
+                    let mut samples = T::samples();
+                    let n = samples.len();
+                    samples.swap_remove(k % n)
+                }
+                let _ = k;
+                match self {
+                    $( MsgId::$name => Msg::$name { $($field: pick(k)),* }, )*
+                }
+            }
+        }
+
+        /// The metadata of all messages, in the order of the table.
+        pub const MESSAGES: &[MsgInfo] = &[$(
+            MsgInfo {
+                id: MsgId::$name,
+                name: stringify!($name),
+                template: concat!("/", msg_template!($($seg)*)),
+                fields: &[$((stringify!($field), stringify!($fty))),*],
+                value: msg_val!(info $($val)?),
+                rule: msg_val!(info $($rule)?),
+            },
+        )*];
+
+        impl<'a> Msg<'a> {
+            pub fn id(&self) -> MsgId {
+                match self {
+                    $( Msg::$name { .. } => MsgId::$name, )*
+                }
+            }
+
+            /// The report line `<address> <value>` (the value in the form which the rule of the
+            /// entry parses back; doubles in their shortest exact form).
+            pub fn to_text(&self) -> String {
+                match self {
+                    $( Msg::$name { $($field),* } => {
+                        #[allow(unused_mut)]
+                        let mut w = PathWriter::new();
+                        $( msg_seg!(write w $seg); )*
+                        let mut line = String::from("/");
+                        line.push_str(&w.finish());
+                        $(
+                            line.push(' ');
+                            TextValue::write_text($val, &mut line);
+                        )?
+                        line
+                    } )*
+                }
+            }
+        }
+    };
+}
+
+/// A segment of an address template: a literal, an optional literal or a field.
+macro_rules! msg_seg {
+    (pat $acc:ident $l:literal) => { push_lit(&mut $acc, $l) };
+    (pat $acc:ident ($l:literal)) => { push_opt_lit(&mut $acc, $l) };
+    (pat $acc:ident $f:ident) => { push_field(&mut $acc, &$f) };
+    (read $r:ident $l:literal) => {
+        if !$r.literal($l) {
+            return Err(Miss::Path);
+        }
+    };
+    (read $r:ident ($l:literal)) => { $r.optional($l) };
+    (read $r:ident $f:ident) => { let $f = Seg::read(&mut $r).ok_or(Miss::Path)?; };
+    (write $w:ident $l:literal) => { $w.seg($l) };
+    (write $w:ident ($l:literal)) => { $w.seg($l) };
+    (write $w:ident $f:ident) => { Seg::write($f, &mut $w) };
+}
+
+macro_rules! msg_val {
+    (info) => { None };
+    (info $v:ident) => { Some(stringify!($v)) };
+}
+
+/// The template text of an address, e.g. `track/{ch}/volume/str/{limit}`.
+macro_rules! msg_template {
+    (@one $l:literal) => { $l };
+    (@one ($l:literal)) => { concat!("[", $l, "]") };
+    (@one $f:ident) => { concat!("{", stringify!($f), "}") };
+    () => { "" };
+    ($s:tt) => { msg_template!(@one $s) };
+    ($s:tt $($rest:tt)+) => { concat!(msg_template!(@one $s), "/", msg_template!($($rest)+)) };
+}

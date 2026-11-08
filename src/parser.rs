@@ -2,22 +2,25 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! Parser for the messages sent from Reaper (former `MessageParser`).
+//! Parser for the messages sent from the host (former `MessageParser`).
 //!
-//! Reaper sends text messages of the form `<address> <value>`, e.g. `/track/3/volume 0.7`. The
-//! parser updates the [`Model`] accordingly. Everything which the Java parser did with the
-//! controller setup (re-binding knobs, updating the note mapping, configuration values, note
-//! repeat settings of the surface) is returned as [`ParserEvent`]s which the app layer handles.
+//! The host sends text messages of the form `<address> <value>`, e.g. `/track/3/volume 0.7`.
+//! The address table of the typed protocol turns a line into a [`Msg`] ([`Msg::from_text`],
+//! `src/protocol/msg.rs`), which [`Parser::apply`] applies to the [`Model`]. Everything which the
+//! Java parser did with the controller setup (re-binding knobs, updating the note mapping,
+//! configuration values, note repeat settings of the surface) is returned as [`ParserEvent`]s
+//! which the app layer handles.
 
-use crate::daw::clip::{Note, StepInfo};
+use crate::daw::channel::Channel;
 use crate::daw::color::ColorEx;
-use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId, RecordQuantization};
+use crate::daw::constants::{AutomationMode, ChannelType, DeviceId, GrooveParameterId};
 use crate::daw::device::SpecificDevice;
 use crate::daw::model::Model;
-use crate::daw::parameter::ParameterKind;
+use crate::daw::parameter::{Parameter, ParameterKind};
 use crate::daw::parameter_bank::ParameterBank;
-use crate::daw::track::Track;
-use crate::daw::track_bank::TrackRef;
+use crate::daw::track_bank::{TrackBank, TrackRef};
+use crate::protocol::msg::{BrowserItem, Ch, Dev, HostParam, Msg, PadRef, PageOwner, ParamOwner};
+use crate::protocol::{CueParam, Miss};
 
 /// Actions which the app layer has to execute after parsing a message.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,69 +50,7 @@ pub enum ParserEvent {
 /// The delay of the note mapping update in Java.
 pub const UPDATE_NOTE_MAPPING_DELAY_MS: u64 = 1000;
 
-const TAG_POSITION: &str = "position";
-const TAG_ACTIVE: &str = "active";
-const TAG_PARAM: &str = "param";
-const TAG_COLOR: &str = "color";
-const TAG_SELECT: &str = "select";
-const TAG_NUMBER: &str = "number";
-const TAG_COUNT: &str = "count";
-const TAG_EXISTS: &str = "exists";
-const TAG_NAME: &str = "name";
-const TAG_VOLUME: &str = "volume";
-
-/// A queue of path parts.
-struct Parts<'a> {
-    parts: Vec<&'a str>,
-    pos: usize,
-}
-
-impl<'a> Parts<'a> {
-    fn poll(&mut self) -> Option<&'a str> {
-        let part = self.parts.get(self.pos).copied();
-        if part.is_some() {
-            self.pos += 1;
-        }
-        part
-    }
-
-    fn peek(&self) -> Option<&'a str> {
-        self.parts.get(self.pos).copied()
-    }
-
-    fn remaining(&self) -> Parts<'a> {
-        Parts { parts: self.parts.clone(), pos: self.pos }
-    }
-}
-
-fn parse_double(value: &str) -> Option<f64> {
-    value.trim().parse::<f64>().ok()
-}
-
-/// A boolean value: true if the number is positive.
-fn parse_flag(value: &str) -> bool {
-    parse_double(value).is_some_and(|v| v > 0.0)
-}
-
-fn parse_int(value: &str) -> Option<i32> {
-    let v = value.trim();
-    v.parse::<i32>().ok().or_else(|| v.parse::<f64>().ok().map(|d| d as i32))
-}
-
-/// The length of a shortened text: "&lt;value&gt;/str/&lt;length&gt;" (Bitwig, `getLimited`).
-fn parse_limit(parts: &mut Parts) -> Option<usize> {
-    parts.poll().and_then(|p| p.parse().ok())
-}
-
-fn parse_index(value: &str) -> Option<usize> {
-    let v = value.trim();
-    if v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    v.parse::<usize>().ok()
-}
-
-/// Parses the messages from Reaper and updates the model.
+/// Parses the messages from the host and updates the model.
 pub struct Parser {
     events: Vec<ParserEvent>,
 }
@@ -117,6 +58,104 @@ pub struct Parser {
 impl Default for Parser {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A gray color for the reports without a (valid) color.
+fn gray() -> [f64; 3] {
+    ColorEx::GRAY.to_double_rgb()
+}
+
+/// The device of the common device reports: the cursor device, the first instrument or the EQ
+/// (if the model setup created them).
+fn device_mut(model: &mut Model, dev: Dev) -> Option<&mut SpecificDevice> {
+    match dev {
+        Dev::Device => Some(model.cursor_device_mut()),
+        Dev::Primary => model.specific_device_mut(DeviceId::FirstInstrument),
+        Dev::Eq => model.specific_device_mut(DeviceId::Eq),
+    }
+}
+
+/// The track bank and the track of a channel report.
+fn channel_mut(model: &mut Model, ch: Ch) -> (&mut TrackBank, TrackRef) {
+    match ch {
+        Ch::Track(p) => (model.track_bank_mut(), TrackRef::Position(p)),
+        Ch::Effect(p) => (model.reported_effect_track_bank_mut(), TrackRef::Position(p)),
+        Ch::Master => (model.track_bank_mut(), TrackRef::Master),
+    }
+}
+
+/// Apply `f` to the channel of a drum pad (of every drum machine for `drum/pad`) or a layer.
+fn for_pad(model: &mut Model, pad: PadRef, mut f: impl FnMut(&mut Channel)) {
+    match pad {
+        PadRef::DrumPad(i) => model.for_each_drum_device(|device| {
+            let bank = device.drum_pad_bank_mut();
+            bank.set_host_reported();
+            f(bank.unpaged_item_mut(i));
+        }),
+        PadRef::Pad(dev, i) => {
+            if let Some(device) = device_mut(model, dev) {
+                let bank = device.drum_pad_bank_mut();
+                bank.set_host_reported();
+                f(bank.unpaged_item_mut(i));
+            }
+        }
+        PadRef::Layer(dev, i) => {
+            if let Some(device) = device_mut(model, dev) {
+                f(device.layer_bank_mut().unpaged_item_mut(i));
+            }
+        }
+    }
+}
+
+/// The parameter bank of a parameter report, if it exists.
+fn param_bank_mut(model: &mut Model, owner: ParamOwner) -> Option<&mut ParameterBank> {
+    match owner {
+        ParamOwner::Device(dev) => device_mut(model, dev)?.parameter_bank_mut(),
+        ParamOwner::Project => model.project_mut().host_parameter_bank_mut(),
+        // A host which pins its cursor track (Bitwig) reports the remote controls of that track
+        // (CursorTrackImpl.getParameterBank of the Java version), Reaper those of the selected
+        // track
+        ParamOwner::TrackFx => {
+            if model.host_pins_track() {
+                model.cursor_track_parameter_bank_mut()
+            } else {
+                model.track_bank_mut().selected_item_mut()?.parameter_bank_mut()
+            }
+        }
+        ParamOwner::MasterFx => model.project_mut().parameter_bank_mut(),
+    }
+}
+
+/// The parameter bank with the named pages of a page report, if it exists.
+fn page_bank_mut(model: &mut Model, owner: PageOwner) -> Option<&mut ParameterBank> {
+    match owner {
+        PageOwner::Device(dev) => device_mut(model, dev)?.parameter_bank_mut(),
+        PageOwner::Project => model.project_mut().host_parameter_bank_mut(),
+        // Bitwig: the named pages of the cursor track's remote controls and the page selected
+        // in Bitwig (CursorTrackImpl.getParameterBank of the Java version)
+        PageOwner::TrackFx => model.cursor_track_parameter_bank_mut(),
+    }
+}
+
+/// A parameter of the host which is reported as `<prefix> <value>`, `<prefix>/str <text>`,
+/// `<prefix>/str/<limit> <text>` and `<prefix>/name <name>` (protocol v2).
+fn host_param_mut(model: &mut Model, param: HostParam) -> Option<&mut Parameter> {
+    match param {
+        // Bitwig (TransportImpl.getCrossfadeParameter): the crossfader of the transport; the
+        // master crossfader then sends `transport crossfade`
+        HostParam::Crossfade => {
+            let param = model.crossfade_parameter_mut()?;
+            if param.kind() != ParameterKind::HostCrossfade {
+                param.set_kind(ParameterKind::HostCrossfade);
+            }
+            Some(param)
+        }
+        // Bitwig (ProjectImpl): cue volume and mix
+        HostParam::Cue(CueParam::Volume) => Some(model.project_mut().cue_volume_parameter_mut()),
+        HostParam::Cue(CueParam::Mix) => Some(model.project_mut().cue_mix_parameter_mut()),
+        // Bitwig: the six parameters of GrooveImpl; from now on the host's parameters are used
+        HostParam::Groove(groove) => model.groove_mut().host_parameter_mut(groove.name()),
     }
 }
 
@@ -133,16 +172,20 @@ impl Parser {
 
     /// Parse a message and update the model. Returns the events for the app layer.
     pub fn parse(&mut self, model: &mut Model, address: &str, value: &str) -> Vec<ParserEvent> {
-        if address == "/action/select" || address == "action/select" {
-            return vec![ParserEvent::ActionSelected(value.to_string())];
+        let path = address.strip_prefix('/').unwrap_or(address);
+        if !path.is_empty() {
+            let host = model.host().clone();
+            match Msg::from_text(address, value, &mut |error| host.error(error)) {
+                // Not a model value
+                Ok(Msg::ActionSelect { value }) => return vec![ParserEvent::ActionSelected(value.to_string())],
+                Ok(msg) => self.apply(model, msg),
+                // An invalid value: ignored
+                Err(Miss::Value) => {}
+                Err(Miss::Path) => host.error(&format!("Unhandled OSC address: {address} {value}")),
+            }
         }
-        self.parse_osc(model, address, value);
         model.after_parse();
         std::mem::take(&mut self.events)
-    }
-
-    fn error(model: &Model, message: &str) {
-        model.host().error(message);
     }
 
     fn rebind_knobs(&mut self) {
@@ -153,1341 +196,564 @@ impl Parser {
         self.events.push(ParserEvent::UpdateNoteMapping);
     }
 
-    fn parse_osc(&mut self, model: &mut Model, osc: &str, value: &str) {
-        let path = osc.strip_prefix('/').unwrap_or(osc);
-        if path.is_empty() {
-            return;
-        }
-        let mut parts = Parts { parts: path.split('/').collect(), pos: 0 };
-        let Some(command) = parts.poll() else {
-            return;
-        };
-
-        if self.parse_transport(model, command, &mut parts, value) {
-            return;
-        }
-
-        match command {
-            "project" => {
-                let project_cmd = parts.poll().unwrap_or("");
-                match project_cmd {
-                    TAG_NAME => {
-                        model.project_mut().set_internal_name(value);
-                        self.update_note_mapping();
-                    }
-                    "engine" => {
-                        if let Some(v) = parse_int(value) {
-                            model.application_mut().set_internal_engine_active(v > 0);
-                        }
-                    }
-                    "canUndo" => {
-                        if let Some(v) = parse_int(value) {
-                            model.application_mut().set_can_undo_state(v > 0);
-                        }
-                    }
-                    "canRedo" => {
-                        if let Some(v) = parse_int(value) {
-                            model.application_mut().set_can_redo_state(v > 0);
-                        }
-                    }
-                    "isDirty" => {
-                        if let Some(v) = parse_int(value) {
-                            model.project_mut().set_dirty(v > 0);
-                        }
-                    }
-                    // Bitwig (ProjectImpl): the project's remote controls (page cursors on the
-                    // root track group, as the parameters of a device)
-                    TAG_PARAM => {
-                        let host = model.host().clone();
-                        let param_cmd = parts.poll().unwrap_or("");
-                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
-                            match parse_index(param_cmd) {
-                                Some(param_no) => Self::parse_device_param_value(&host, param_no, bank, &mut parts, value),
-                                None if param_cmd == TAG_COUNT => {
-                                    if let Some(count) = parse_int(value) {
-                                        bank.set_item_count(count.max(0) as usize);
-                                        self.rebind_knobs();
-                                    }
-                                }
-                                None => host.error(&format!("Unhandled project parameter: {param_cmd}")),
-                            }
-                        }
-                    }
-                    "page" => {
-                        if let Some(bank) = model.project_mut().host_parameter_bank_mut() {
-                            match (parts.poll(), parts.poll()) {
-                                (Some(TAG_COUNT), None) => {
-                                    if let Some(v) = parse_int(value) {
-                                        bank.set_page_count(v.max(0) as usize);
-                                    }
-                                }
-                                (Some("selected"), None) => {
-                                    if let Some(v) = parse_int(value).filter(|v| *v >= 0) {
-                                        bank.set_selected_page_from_host(v as usize);
-                                    }
-                                }
-                                (Some(index), Some(TAG_NAME)) => {
-                                    if let Some(page) = parse_index(index) {
-                                        bank.set_page_name(page, value);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    // Bitwig (ProjectImpl): solo and mute of all tracks, cue volume and mix
-                    "hasSolo" => model.track_bank_mut().set_host_project_solo(parse_flag(value)),
-                    "hasMute" => model.track_bank_mut().set_host_project_mute(parse_flag(value)),
-                    "cueVolume" | "cueMix" => {
-                        let project = model.project_mut();
-                        let param = if project_cmd == "cueVolume" { project.cue_volume_parameter_mut() } else { project.cue_mix_parameter_mut() };
-                        Self::parse_host_parameter(param, &mut parts, value);
-                    }
-                    _ => Self::error(model, &format!("Unhandled Project parameter: {project_cmd}")),
+    /// Apply a message to the model. Every message of the table has its arm (no wildcard), so
+    /// a message without a handler does not compile.
+    pub fn apply(&mut self, model: &mut Model, msg: Msg<'_>) {
+        match msg {
+            // ------------------------------------------------------------------------------
+            // Transport, time, beats, click
+            Msg::Play { value } => model.transport_mut().set_play_state(value),
+            Msg::Stop { value } => model.transport_mut().set_play_state(value == 0.0),
+            Msg::Repeat { value } => model.transport_mut().set_looping_state(value),
+            Msg::Record { value } => model.transport_mut().set_record_state(value),
+            Msg::Tempo { value } => model.transport_mut().tempo_parameter_mut().set_internal_value(value),
+            Msg::Time { value } => model.transport_mut().set_position_value(value),
+            Msg::TimeStr { value } => model.transport_mut().set_position_text(value),
+            Msg::TimeText { value } => model.transport_mut().set_position_text_verbatim(value),
+            Msg::TimeHZoom { value } => model.transport_mut().set_h_zoom(value),
+            Msg::TimeLoopStart { value } => model.transport_mut().set_loop_start_value(value),
+            Msg::TimeLoopStartStr { value } => model.transport_mut().set_loop_start_text(value),
+            Msg::TimeLoopStartBeat { value } => model.transport_mut().set_loop_start_beat_text(value),
+            Msg::TimeLoopLength { value } => model.transport_mut().set_loop_length_value(value),
+            Msg::TimeLoopLengthStr { value } => model.transport_mut().set_loop_length_text(value),
+            Msg::TimeLoopLengthBeat { value } => model.transport_mut().set_loop_length_beat_text(value),
+            Msg::BeatsPosition { value } => model.transport_mut().set_position_beats_value(value),
+            Msg::BeatsText { value } => model.transport_mut().set_beats_verbatim(value),
+            Msg::BeatsLoopStart { value } => model.transport_mut().set_loop_start_beats_value(value),
+            Msg::BeatsLoopLength { value } => model.transport_mut().set_loop_length_beats_value(value),
+            Msg::BeatsLoopStartText { value } => model.transport_mut().set_loop_start_beat_text_verbatim(value),
+            Msg::BeatsLoopLengthText { value } => model.transport_mut().set_loop_length_beat_text_verbatim(value),
+            Msg::Beat { value } => model.transport_mut().set_beats(value),
+            Msg::Numerator { value } => {
+                if value > 0 {
+                    model.transport_mut().set_numerator(value);
                 }
             }
-            // Bitwig: application.panelLayout (), the visibility flags of the arranger and the
-            // mixer (ArrangerImpl, MixerImpl)
-            "layout" => model.application_mut().set_internal_panel_layout(value),
-            // Bitwig (ApplicationImpl): the global record quantization grid and note length
-            "recordQuantization" => match parts.poll() {
-                None => model.ctx().update_host_record_quantization(None, Some(RecordQuantization::lookup(value.trim()))),
-                Some("noteLength") => model.ctx().update_host_record_quantization(Some(parse_flag(value)), None),
-                Some(other) => Self::error(model, &format!("Unhandled record quantization parameter: {other}")),
-            },
-            "arranger" => {
-                let flag = parts.poll().unwrap_or("");
-                model.arranger_mut().set_flag_state(flag, parse_flag(value));
-            }
-            "mixer" => {
-                let flag = parts.poll().unwrap_or("");
-                model.mixer_mut().set_flag_state(flag, parse_flag(value));
-            }
-            "click" => Self::parse_click(model, &mut parts, value),
-            "track" => self.parse_track(model, &mut parts, value),
-            // The effect tracks (Bitwig's effect track bank): count, offset and the track values
-            "fxtrack" => self.parse_effect_track(model, &mut parts, value),
-            "master" => self.parse_master_track_value(model, &mut parts, value),
-            "device" => self.parse_device_of(model, DeviceTarget::Cursor, value, &mut parts),
-            "primary" => self.parse_device_of(model, DeviceTarget::Specific(DeviceId::FirstInstrument), value, &mut parts),
-            "eq" => self.parse_device_of(model, DeviceTarget::Specific(DeviceId::Eq), value, &mut parts),
-            "clip" => Self::parse_clip_value(model, &mut parts, value),
-            "browser" => Self::parse_browser_value(model, &mut parts, value),
-            "marker" => Self::parse_marker(model, &mut parts, value),
-            "scene" => Self::parse_scene(model, &parts, value),
-            "quantize" => {
-                if parts.poll() == Some("strength") {
-                    if let Some(v) = parse_int(value) {
-                        self.events.push(ParserEvent::QuantizeAmount(v));
-                    }
-                }
-            }
-            "noterepeat" => self.parse_note_repeat(model, &mut parts, value),
-            "groove" => Self::parse_groove(model, &mut parts, value),
-            // Bitwig (TransportImpl.getCrossfadeParameter): the crossfader of the transport;
-            // the master crossfader then sends `transport crossfade`
-            "crossfade" => {
-                if let Some(param) = model.crossfade_parameter_mut() {
-                    if param.kind() != ParameterKind::HostCrossfade {
-                        param.set_kind(ParameterKind::HostCrossfade);
-                    }
-                    Self::parse_host_parameter(param, &mut parts, value);
-                }
-            }
-            "drum" => Self::parse_drum(model, &mut parts, value),
-            // The command forms the host understands (HostFeature), e.g. `/host/features
-            // valueInc valueReset`
-            "host" => match parts.poll() {
-                Some("features") => model.ctx().set_host_features(value),
-                _ => Self::error(model, &format!("Unhandled host parameter: {osc}")),
-            },
-            _ => Self::error(model, &format!("Unhandled OSC address: {osc} {value}")),
-        }
-    }
-
-    /// The drum machine of the cursor track with its 128 pads (protocol v2), applied to the main
-    /// and the additional drum devices.
-    /// A parameter of the host which is reported as `<prefix> <value>`, `<prefix>/str <text>`,
-    /// `<prefix>/str/<limit> <text>` and `<prefix>/name <name>` (protocol v2). The parameter
-    /// exists once its value is reported.
-    fn parse_host_parameter(param: &mut crate::daw::parameter::Parameter, parts: &mut Parts, value: &str) {
-        match parts.poll() {
-            None => {
-                if let Some(v) = parse_double(value) {
-                    param.set_exists(true);
-                    param.set_internal_value(v);
-                }
-            }
-            Some("str") => match parse_limit(parts) {
-                Some(limit) => param.set_limited_value_str(limit, value),
-                None => param.set_value_str(value),
-            },
-            Some(TAG_NAME) => param.set_internal_name(value),
-            Some(_) => {}
-        }
-    }
-
-    fn parse_drum(model: &mut Model, parts: &mut Parts, value: &str) {
-        let host = model.host().clone();
-        let flag = parse_double(value).map(|v| v > 0.0);
-        let command = parts.poll().unwrap_or("");
-        let (pad, field, sub) = (parts.poll(), parts.poll(), parts.poll());
-        let color = if field == Some(TAG_COLOR) { parse_color_static(&host, value) } else { None };
-        model.for_each_drum_device(|device| match command {
-            TAG_EXISTS => device.set_exists(flag.unwrap_or(false)),
-            TAG_NAME => device.set_name(value),
-            "bypass" => device.set_enabled(!flag.unwrap_or(false)),
-            "window" => device.set_window_open(flag.unwrap_or(false)),
-            "expand" => device.set_expanded(flag.unwrap_or(false)),
-            "parameters" => device.set_parameter_page_section_visible(flag.unwrap_or(true)),
-            "hasDrumPads" => device.set_has_drum_pads(flag.unwrap_or(false)),
-            "hasLayers" => device.set_has_layers(flag.unwrap_or(false)),
-            "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(flag.unwrap_or(false)),
-            "hasSoloedPads" => device.drum_pad_bank_mut().set_has_soloed_pads(flag.unwrap_or(false)),
-            "pad" => {
-                let Some(position) = pad.and_then(parse_index) else {
-                    return;
-                };
-                let bank = device.drum_pad_bank_mut();
-                bank.set_host_reported();
-                Self::parse_device_channel(&host, bank.unpaged_item_mut(position), field.unwrap_or(""), sub, value, color);
-            }
-            other => host.error(&format!("Unhandled Drum parameter: {other}")),
-        });
-    }
-
-    /// A field of a drum pad or layer of a device (protocol v2).
-    fn parse_device_channel(host: &crate::host::Host, channel: &mut crate::daw::channel::Channel, field: &str, sub: Option<&str>, value: &str, color: Option<[f64; 3]>) {
-        let flag = parse_double(value).is_some_and(|v| v > 0.0);
-        match (field, sub) {
-            (TAG_EXISTS, None) => channel.set_exists(flag),
-            (TAG_NAME, None) => channel.set_internal_name(value),
-            (TAG_COLOR, None) => channel.set_color_state(color.unwrap_or(ColorEx::GRAY.to_double_rgb())),
-            (TAG_SELECT, None) => channel.set_selected(flag),
-            (TAG_ACTIVE, None) => channel.set_internal_is_activated(flag),
-            ("mute", None) => channel.set_mute_state(flag),
-            ("solo", None) => channel.set_solo_state(flag),
-            (TAG_VOLUME, None) => {
-                if let Some(v) = parse_double(value) {
-                    channel.set_internal_volume(v);
-                }
-            }
-            (TAG_VOLUME, Some("str")) => channel.set_volume_str(value),
-            ("pan", None) => {
-                if let Some(v) = parse_double(value) {
-                    channel.set_internal_pan(v);
-                }
-            }
-            ("pan", Some("str")) => channel.set_pan_str(value),
-            (other, _) => host.error(&format!("Unhandled Device Channel parameter: {other}")),
-        }
-    }
-
-    fn parse_click(model: &mut Model, parts: &mut Parts, value: &str) {
-        let transport = model.transport_mut();
-        let Some(click_command) = parts.poll() else {
-            if let Some(v) = parse_double(value) {
-                transport.set_metronome_state(v > 0.0);
-            }
-            return;
-        };
-        match click_command {
-            "preroll" => {
-                if let Some(v) = parse_int(value) {
-                    transport.set_preroll_metronome_internal((v & 2) > 0);
-                }
-            }
-            "prerollMeasures" => {
-                if let Some(v) = parse_double(value) {
-                    transport.set_preroll_measures_internal(v as i32);
-                }
-            }
-            TAG_VOLUME => {
-                if let Some(v) = parse_double(value) {
-                    transport.set_internal_metronome_volume(v);
-                }
-            }
-            "volumeStr" => transport.metronome_volume_parameter_mut().set_metronome_volume_str(value),
-            // Bitwig: isMetronomeTickPlaybackEnabled
-            "ticks" => transport.set_host_switch_state("ticks", parse_double(value).is_some_and(|v| v > 0.0)),
-            _ => Self::error(model, &format!("Unhandled Click Parameter: {click_command}")),
-        }
-    }
-
-    fn parse_transport(&mut self, model: &mut Model, command: &str, parts: &mut Parts, value: &str) -> bool {
-        let d = parse_double(value);
-        match command {
-            "play" => {
-                if let Some(v) = d {
-                    model.transport_mut().set_play_state(v > 0.0);
-                }
-            }
-            "stop" => {
-                if let Some(v) = d {
-                    model.transport_mut().set_play_state(v == 0.0);
-                }
-            }
-            "repeat" => {
-                if let Some(v) = d {
-                    model.transport_mut().set_looping_state(v > 0.0);
-                }
-            }
-            "record" => {
-                if let Some(v) = d {
-                    model.transport_mut().set_record_state(v > 0.0);
-                }
-            }
-            "tempo" => {
-                if let Some(v) = d {
-                    model.transport_mut().tempo_parameter_mut().set_internal_value(v);
-                }
-            }
-            "time" => Self::parse_time(model, parts, value),
-            "beats" => Self::parse_beats(model, parts, value),
-            "beat" => model.transport_mut().set_beats(value),
-            "numerator" => {
-                if let Some(v) = d {
-                    if v as i32 > 0 {
-                        model.transport_mut().set_numerator(v as i32);
-                    }
-                }
-            }
-            "denominator" => {
-                if let Some(v) = d {
-                    if v as i32 > 0 {
-                        model.transport_mut().set_denominator(v as i32);
-                    }
+            Msg::Denominator { value } => {
+                if value > 0 {
+                    model.transport_mut().set_denominator(value);
                 }
             }
             // Bitwig: the independent punch switches, the fill mode
-            "punchIn" | "punchOut" | "fill" => model.transport_mut().set_host_switch_state(command, d.is_some_and(|v| v > 0.0)),
-            "followPlayback" => {
-                if let Some(v) = d {
-                    model.arranger_mut().set_playback_follow(v > 0.0);
-                }
-            }
-            "overdub" => {
-                // Bitwig: the arranger and clip launcher overdub switches
-                let enabled = d.is_some_and(|v| v > 0.0);
-                match parts.poll() {
-                    Some("arranger") => model.transport_mut().set_arranger_overdub_state(enabled),
-                    Some("launcher") => model.transport_mut().set_launcher_overdub_state(enabled),
-                    _ => return false,
-                }
-            }
-            "automode" => {
-                // Bitwig: the arranger and clip launcher automation write switches
-                match parts.poll() {
-                    Some("arranger") => {
-                        model.transport_mut().set_writing_arranger_automation_state(d.is_some_and(|v| v > 0.0));
-                        return true;
-                    }
-                    Some("launcher") => {
-                        model.transport_mut().set_writing_clip_launcher_automation_state(d.is_some_and(|v| v > 0.0));
-                        return true;
-                    }
-                    _ => {}
-                }
-                let mode = match d.map(|v| v as i32) {
-                    Some(0) => Some(AutomationMode::TrimRead),
-                    Some(1) => Some(AutomationMode::Read),
-                    Some(2) => Some(AutomationMode::Touch),
-                    Some(3) => Some(AutomationMode::Write),
-                    Some(4) => Some(AutomationMode::Latch),
-                    Some(5) => Some(AutomationMode::LatchPreview),
-                    _ => None,
+            Msg::PunchIn { value } => model.transport_mut().set_host_switch_state("punchIn", value),
+            Msg::PunchOut { value } => model.transport_mut().set_host_switch_state("punchOut", value),
+            Msg::Fill { value } => model.transport_mut().set_host_switch_state("fill", value),
+            Msg::FollowPlayback { value } => model.arranger_mut().set_playback_follow(value),
+            // Bitwig: the arranger and clip launcher overdub switches
+            Msg::OverdubArranger { value } => model.transport_mut().set_arranger_overdub_state(value),
+            Msg::OverdubLauncher { value } => model.transport_mut().set_launcher_overdub_state(value),
+            Msg::AutomationMode { value } => {
+                let mode = match value {
+                    0 => AutomationMode::TrimRead,
+                    1 => AutomationMode::Read,
+                    2 => AutomationMode::Touch,
+                    3 => AutomationMode::Write,
+                    4 => AutomationMode::Latch,
+                    5 => AutomationMode::LatchPreview,
+                    _ => return,
                 };
-                if let Some(mode) = mode {
-                    model.transport_mut().set_automation_write_mode_state(mode);
-                }
+                model.transport_mut().set_automation_write_mode_state(mode);
             }
-            _ => return false,
-        }
-        true
-    }
+            // Bitwig: the arranger and clip launcher automation write switches
+            Msg::AutomationArranger { value } => model.transport_mut().set_writing_arranger_automation_state(value),
+            Msg::AutomationLauncher { value } => model.transport_mut().set_writing_clip_launcher_automation_state(value),
+            Msg::Metronome { value } => model.transport_mut().set_metronome_state(value),
+            Msg::MetronomePreroll { value } => model.transport_mut().set_preroll_metronome_internal((value & 2) > 0),
+            Msg::MetronomePrerollMeasures { value } => model.transport_mut().set_preroll_measures_internal(value),
+            Msg::MetronomeVolume { value } => model.transport_mut().set_internal_metronome_volume(value),
+            Msg::MetronomeVolumeStr { value } => model.transport_mut().metronome_volume_parameter_mut().set_metronome_volume_str(value),
+            // Bitwig: isMetronomeTickPlaybackEnabled
+            Msg::MetronomeTicks { value } => model.transport_mut().set_host_switch_state("ticks", value),
 
-    /// The play position and the loop in quarter notes (protocol v2); "text" values are formatted
-    /// by the host and used as is.
-    fn parse_beats(model: &mut Model, parts: &mut Parts, value: &str) {
-        let transport = model.transport_mut();
-        match (parts.poll(), parts.poll(), parts.poll()) {
-            (Some("position"), None, None) => {
-                if let Some(v) = parse_double(value) {
-                    transport.set_position_beats_value(v);
-                }
+            // ------------------------------------------------------------------------------
+            // Application, project, host
+            Msg::ProjectName { value } => {
+                model.project_mut().set_internal_name(value);
+                self.update_note_mapping();
             }
-            (Some("text"), None, None) => transport.set_beats_verbatim(value),
-            (Some("loop"), Some("start"), None) => {
-                if let Some(v) = parse_double(value) {
-                    transport.set_loop_start_beats_value(v);
-                }
-            }
-            (Some("loop"), Some("length"), None) => {
-                if let Some(v) = parse_double(value) {
-                    transport.set_loop_length_beats_value(v);
-                }
-            }
-            (Some("loop"), Some("start"), Some("text")) => transport.set_loop_start_beat_text_verbatim(value),
-            (Some("loop"), Some("length"), Some("text")) => transport.set_loop_length_beat_text_verbatim(value),
-            _ => Self::error(model, &format!("Unhandled beats parameter: {value}")),
-        }
-    }
+            Msg::ProjectEngine { value } => model.application_mut().set_internal_engine_active(value),
+            Msg::ProjectCanUndo { value } => model.application_mut().set_can_undo_state(value),
+            Msg::ProjectCanRedo { value } => model.application_mut().set_can_redo_state(value),
+            Msg::ProjectIsDirty { value } => model.project_mut().set_dirty(value),
+            // Bitwig (ProjectImpl): solo and mute of all tracks
+            Msg::ProjectHasSolo { value } => model.track_bank_mut().set_host_project_solo(value),
+            Msg::ProjectHasMute { value } => model.track_bank_mut().set_host_project_mute(value),
+            // Bitwig: application.panelLayout ()
+            Msg::Layout { value } => model.application_mut().set_internal_panel_layout(value),
+            // Bitwig (ApplicationImpl): the global record quantization grid and note length
+            Msg::RecordQuantization { value } => model.ctx().update_host_record_quantization(None, Some(value)),
+            Msg::RecordQuantizationNoteLength { value } => model.ctx().update_host_record_quantization(Some(value), None),
+            // Bitwig: the visibility flags of the arranger and the mixer (ArrangerImpl, MixerImpl)
+            Msg::Arranger { flag, value } => model.arranger_mut().set_flag_state(flag.name(), value),
+            Msg::Mixer { flag, value } => model.mixer_mut().set_flag_state(flag.name(), value),
+            // The command forms the host understands (HostFeature), e.g. `/host/features
+            // valueInc valueReset`
+            Msg::HostFeatures { value } => model.ctx().set_host_features(value),
+            Msg::ActionSelect { value } => self.events.push(ParserEvent::ActionSelected(value.to_string())),
 
-    fn parse_time(model: &mut Model, parts: &mut Parts, value: &str) {
-        let Some(cmd) = parts.poll() else {
-            if let Some(v) = parse_double(value) {
-                model.transport_mut().set_position_value(v);
+            // ------------------------------------------------------------------------------
+            // Track banks, channels, sends
+            Msg::TrackCount { value } => {
+                let tb = model.track_bank_mut();
+                tb.set_item_count(value.max(0) as usize);
+                tb.mark_dirty();
+                self.rebind_knobs();
             }
-            return;
-        };
-        match cmd {
-            "str" => model.transport_mut().set_position_text(value),
-            // Formatted by the host, used as is (Bitwig)
-            "text" => model.transport_mut().set_position_text_verbatim(value),
-            "hzoom" => {
-                if let Some(v) = parse_double(value) {
-                    model.transport_mut().set_h_zoom(v);
-                }
-            }
-            "loop" => {
-                let Some(loop_cmd) = parts.poll() else {
-                    return;
-                };
-                match loop_cmd {
-                    "start" => match parts.poll() {
-                        None => {
-                            if let Some(v) = parse_double(value) {
-                                model.transport_mut().set_loop_start_value(v);
-                            }
-                        }
-                        Some("str") => model.transport_mut().set_loop_start_text(value),
-                        Some(_) => model.transport_mut().set_loop_start_beat_text(value),
-                    },
-                    "length" => match parts.poll() {
-                        None => {
-                            if let Some(v) = parse_double(value) {
-                                model.transport_mut().set_loop_length_value(v);
-                            }
-                        }
-                        Some("str") => model.transport_mut().set_loop_length_text(value),
-                        Some(_) => model.transport_mut().set_loop_length_beat_text(value),
-                    },
-                    _ => Self::error(model, &format!("Unhandled Loop parameter: {loop_cmd}")),
-                }
-            }
-            _ => Self::error(model, &format!("Unhandled Time parameter: {cmd}")),
-        }
-    }
-
-    fn parse_track(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
-        let part = parts.poll().unwrap_or("");
-        match part {
-            "fx" => self.parse_track_fx_parameter(model, value, parts),
             // The host pages the tracks (protocol v2); the core keeps its own offset
-            "offset" => model.track_bank_mut().enable_host_paging(),
+            Msg::TrackOffset {} => model.track_bank_mut().enable_host_paging(),
             // Bitwig (CursorTrackImpl): the position of the pinned cursor track (-1 if not
             // pinned), hasPrevious (), hasNext ()
-            "pinned" => {
-                if let Some(position) = parse_int(value) {
-                    model.set_host_pinned_track(position);
-                }
+            Msg::TrackPinned { value } => model.set_host_pinned_track(value),
+            Msg::TrackHasPrevious { value } => model.set_host_cursor_track_neighbours(Some(value), None),
+            Msg::TrackHasNext { value } => model.set_host_cursor_track_neighbours(None, Some(value)),
+            // The effect tracks (Bitwig's effect track bank)
+            Msg::EffectTrackCount { value } => {
+                let tb = model.reported_effect_track_bank_mut();
+                tb.set_item_count(value.max(0) as usize);
+                tb.mark_dirty();
+                self.rebind_knobs();
             }
-            "hasPrevious" => model.set_host_cursor_track_neighbours(Some(parse_flag(value)), None),
-            "hasNext" => model.set_host_cursor_track_neighbours(None, Some(parse_flag(value))),
-            TAG_COUNT => {
-                if let Some(count) = parse_int(value) {
-                    let tb = model.track_bank_mut();
-                    tb.set_item_count(count.max(0) as usize);
-                    tb.mark_dirty();
-                    self.rebind_knobs();
-                }
-            }
-            _ => match parse_index(part) {
-                Some(position) => self.parse_track_value(model, TrackRef::Position(position), parts, value),
-                None => Self::error(model, &format!("Unhandled Track command: {part}")),
-            },
-        }
-    }
+            Msg::EffectTrackOffset {} => model.reported_effect_track_bank_mut().enable_host_paging(),
 
-    /// `/fxtrack/count`, `/fxtrack/offset` and `/fxtrack/<position>/<attribute>` (the attributes
-    /// of `/track/<position>/…`), the effect track bank of the host.
-    fn parse_effect_track(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
-        let part = parts.poll().unwrap_or("");
-        match part {
-            "offset" => model.reported_effect_track_bank_mut().enable_host_paging(),
-            TAG_COUNT => {
-                if let Some(count) = parse_int(value) {
-                    let tb = model.reported_effect_track_bank_mut();
-                    tb.set_item_count(count.max(0) as usize);
-                    tb.mark_dirty();
-                    self.rebind_knobs();
-                }
+            Msg::ChannelExists { ch, value } => channel(model, ch, |track| track.set_exists(value)),
+            Msg::ChannelDepth { ch, value } => {
+                let (tb, r) = channel_mut(model, ch);
+                tb.track_mut(r).set_depth(value);
+                tb.mark_dirty();
             }
-            _ => match parse_index(part) {
-                Some(position) => self.parse_track_value_in(model, true, TrackRef::Position(position), parts, value),
-                None => Self::error(model, &format!("Unhandled effect track command: {part}")),
-            },
-        }
-    }
-
-    fn parse_master_track_value(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
-        if parts.peek() == Some("fx") {
-            parts.poll();
-            let cmd = parts.poll();
-            if cmd == Some(TAG_PARAM) {
-                let param_cmd = parts.poll().unwrap_or("");
-                match parse_index(param_cmd) {
-                    Some(param_no) => {
-                        let host = model.host().clone();
-                        let Some(bank) = model.project_mut().parameter_bank_mut() else {
-                            return;
-                        };
-                        Self::parse_device_param_value(&host, param_no, bank, parts, value);
-                        if param_no == 0 {
-                            // Copy the values to the crossfader parameter
-                            let mut copy = None;
-                            if let Some(bank) = model.project().parameter_bank() {
-                                let source = bank.unpaged_item(0);
-                                copy = Some((source.name().to_string(), source.does_exist(), source.internal_value(), source.displayed_value()));
-                            }
-                            if let (Some((name, exists, v, s)), Some(dest)) = (copy, model.crossfade_parameter_mut()) {
-                                dest.set_internal_name(&name);
-                                dest.set_exists(exists);
-                                dest.set_internal_value(v);
-                                dest.set_value_str(&s);
-                            }
-                        }
-                    }
-                    None => {
-                        if param_cmd == TAG_COUNT {
-                            if let (Some(count), Some(bank)) = (parse_int(value), model.project_mut().parameter_bank_mut()) {
-                                bank.set_item_count(count.max(0) as usize);
-                                self.rebind_knobs();
-                            }
-                        } else {
-                            Self::error(model, &format!("Unhandled Track FX Param parameter: {}", cmd.unwrap_or("")));
-                        }
-                    }
-                }
-            }
-            return;
-        }
-        self.parse_track_value(model, TrackRef::Master, parts, value);
-    }
-
-    fn parse_track_value(&mut self, model: &mut Model, track_ref: TrackRef, parts: &mut Parts, value: &str) {
-        self.parse_track_value_in(model, false, track_ref, parts, value);
-    }
-
-    /// A value of a track of the track bank or (`effect`) of the effect track bank.
-    fn parse_track_value_in(&mut self, model: &mut Model, effect: bool, track_ref: TrackRef, parts: &mut Parts, value: &str) {
-        let command = parts.poll().unwrap_or("");
-        let d = parse_double(value);
-        let color = if command == TAG_COLOR { Some(model.parse_color(value).unwrap_or(ColorEx::GRAY.to_double_rgb())) } else { None };
-        let host = model.host().clone();
-        let tb = if effect { model.reported_effect_track_bank_mut() } else { model.track_bank_mut() };
-        let track: &mut Track = tb.track_mut(track_ref);
-        match command {
-            TAG_EXISTS => {
-                if let Some(v) = d {
-                    track.set_exists(v > 0.0);
-                }
-            }
-            "depth" => {
-                if let Some(v) = parse_int(value) {
-                    track.set_depth(v);
-                    tb.mark_dirty();
-                }
-            }
-            TAG_ACTIVE => {
-                if let Some(v) = d {
-                    track.set_internal_is_activated(v > 0.0);
-                    tb.mark_dirty();
-                }
+            Msg::ChannelActive { ch, value } => {
+                let (tb, r) = channel_mut(model, ch);
+                tb.track_mut(r).set_internal_is_activated(value);
+                tb.mark_dirty();
             }
             // Bitwig (TrackImpl): canHoldNoteData (), canHoldAudioData ()
-            "canHoldNotes" => track.set_can_hold_notes_state(parse_flag(value)),
-            "canHoldAudio" => track.set_can_hold_audio_state(parse_flag(value)),
-            "type" => match ChannelType::from_name(value.trim()) {
-                Some(t) => {
-                    track.set_type(t);
-                    // A master in the track list of the host replaces the one of the core
-                    if t == ChannelType::Master {
-                        tb.mark_dirty();
-                    }
-                }
-                None => host.error(&format!("Unknown channel type: {value}")),
-            },
-            "isGroupExpanded" => {
-                if let Some(v) = parse_int(value) {
-                    track.set_is_group_expanded(v > 0);
+            Msg::ChannelCanHoldNotes { ch, value } => channel(model, ch, |track| track.set_can_hold_notes_state(value)),
+            Msg::ChannelCanHoldAudio { ch, value } => channel(model, ch, |track| track.set_can_hold_audio_state(value)),
+            Msg::ChannelType { ch, value } => {
+                let (tb, r) = channel_mut(model, ch);
+                tb.track_mut(r).set_type(value);
+                // A master in the track list of the host replaces the one of the core
+                if value == ChannelType::Master {
+                    tb.mark_dirty();
                 }
             }
-            TAG_SELECT => {
-                if let Some(v) = d {
-                    let is_selected = v > 0.0;
-                    // Only a change: Bitwig reports the values of a track again after a command
-                    // to it, a repeated selection must not e.g. recall the preferred view. The
-                    // selection itself, not the pinned track (Track::is_selected)
-                    if track.channel().is_selected() == is_selected {
-                        return;
-                    }
-                    track.set_selected(is_selected);
-                    tb.handle_bank_track_selection(track_ref, is_selected);
-                    if is_selected {
-                        self.update_note_mapping();
-                    }
-                }
-            }
-            TAG_NUMBER => {
-                if let Some(v) = parse_int(value) {
-                    if track_ref == TrackRef::Master {
-                        // The position of the master track is calculated by the track bank
-                    } else {
-                        track.set_position(v);
-                    }
-                }
-            }
-            TAG_NAME => track.set_internal_name(value),
-            TAG_VOLUME => match parts.poll() {
-                None => {
-                    if let Some(v) = d {
-                        track.set_internal_volume(v);
-                    }
-                }
-                Some("str") => match parse_limit(parts) {
-                    Some(limit) => track.volume_parameter_mut().set_limited_value_str(limit, value),
-                    None => track.set_volume_str(value),
-                },
-                Some(_) => {}
-            },
-            "pan" => match parts.poll() {
-                None => {
-                    if let Some(v) = d {
-                        track.set_internal_pan(v);
-                    }
-                }
-                Some("str") => match parse_limit(parts) {
-                    Some(limit) => track.pan_parameter_mut().set_limited_value_str(limit, value),
-                    None => track.set_pan_str(value),
-                },
-                Some(_) => {}
-            },
-            "vu" | "vuleft" | "vuright" | "vuholdleft" | "vuholdright" | "mute" | "solo" | "recarm" | "monitor" | "autoMonitor" | "overdub"
-            | "inQuantLengthEnabled" | "inQuantResolution" => {
-                let Some(v) = d else {
+            Msg::ChannelIsGroupExpanded { ch, value } => channel(model, ch, |track| track.set_is_group_expanded(value)),
+            Msg::ChannelSelected { ch, value: is_selected } => {
+                let (tb, r) = channel_mut(model, ch);
+                let track = tb.track_mut(r);
+                // Only a change: Bitwig reports the values of a track again after a command to
+                // it, a repeated selection must not e.g. recall the preferred view. The
+                // selection itself, not the pinned track (Track::is_selected)
+                if track.channel().is_selected() == is_selected {
                     return;
-                };
-                match command {
-                    "vu" => track.set_vu(v),
-                    "vuleft" => track.set_vu_left(v),
-                    "vuright" => track.set_vu_right(v),
-                    "vuholdleft" => track.set_vu_hold_left(v),
-                    "vuholdright" => track.set_vu_hold_right(v),
-                    "mute" => track.set_mute_state(v > 0.0),
-                    "solo" => track.set_solo_state(v > 0.0),
-                    "recarm" => track.set_rec_arm_state(v > 0.0),
-                    "monitor" => track.set_monitor_state(v > 0.0),
-                    "autoMonitor" => track.set_auto_monitor_state(v > 0.0),
-                    "overdub" => track.set_overdub(v > 0.0),
-                    "inQuantLengthEnabled" => track.set_record_quantization_note_length_state(v > 0.0),
-                    _ => track.set_record_quantization_grid_value(v),
+                }
+                track.set_selected(is_selected);
+                tb.handle_bank_track_selection(r, is_selected);
+                if is_selected {
+                    self.update_note_mapping();
                 }
             }
-            TAG_COLOR => {
-                if let Some(c) = color {
-                    track.set_color_state(c);
-                }
-            }
-            "send" => self.parse_send(&host, track, parts, value),
-            "slot" => Self::parse_slot(&host, track, parts, value),
-            "isStopped" => {
-                if let Some(v) = d {
-                    track.set_stopped_state(v > 0.0);
-                }
-            }
-            "playingnotes" => {
-                if let TrackRef::Position(p) = track_ref {
-                    let notes = Note::parse_notes(value);
-                    tb.handle_notes(p, &notes);
-                }
-            }
-            _ => host.error(&format!("Unhandled Track Parameter: {command}")),
-        }
-    }
-
-    /// The clip launcher slots of a track (protocol v2): "count" or "&lt;position&gt;/&lt;field&gt;" with
-    /// the absolute slot (scene) position. Reported states replace the derived ones.
-    fn parse_slot(host: &crate::host::Host, track: &mut Track, parts: &mut Parts, value: &str) {
-        let flag = || parse_double(value).map(|v| v > 0.0);
-        let slot_bank = track.slot_bank_mut();
-        let Some(part) = parts.poll() else {
-            return;
-        };
-        if part == TAG_COUNT {
-            if let Some(count) = parse_int(value) {
-                slot_bank.set_item_count(count.max(0) as usize);
-            }
-            return;
-        }
-        let Some(position) = parse_index(part) else {
-            host.error(&format!("Unhandled Slot parameter: {part}"));
-            return;
-        };
-        let slot = slot_bank.unpaged_item_mut(position);
-        slot.set_position(position as i32);
-        match parts.poll().unwrap_or("") {
-            TAG_EXISTS => slot.set_exists(flag().unwrap_or(false)),
-            "hasContent" => slot.set_has_content(flag().unwrap_or(false)),
-            TAG_NAME => slot.set_internal_name(value),
-            TAG_COLOR => slot.set_color_state(parse_color_static(host, value).map(ColorEx::from_array).unwrap_or(ColorEx::GRAY)),
-            "selected" => slot.set_selected(flag().unwrap_or(false)),
-            "playing" => slot.set_playing_state(flag().unwrap_or(false)),
-            "recording" => slot.set_recording_state(flag().unwrap_or(false)),
-            "playQueued" => slot.set_play_queued_state(flag().unwrap_or(false)),
-            "recQueued" => slot.set_rec_queued_state(flag().unwrap_or(false)),
-            "stopQueued" => slot.set_stop_queued_state(flag().unwrap_or(false)),
-            other => host.error(&format!("Unhandled Slot parameter: {other}")),
-        }
-    }
-
-    fn parse_send(&mut self, host: &crate::host::Host, track: &mut Track, parts: &mut Parts, value: &str) {
-        let Some(send_cmd) = parts.poll() else {
-            return;
-        };
-        let send_bank = track.send_bank_mut();
-        match parse_index(send_cmd) {
-            Some(position) => {
-                let send = send_bank.unpaged_item_mut(position);
-                let command = parts.poll().unwrap_or("");
-                match command {
-                    TAG_ACTIVE => send.set_internal_enabled(parse_int(value).map(|v| v > 0).unwrap_or(false)),
-                    TAG_NAME => {
-                        send.set_internal_name(value);
-                        send.set_exists(!value.is_empty());
-                    }
-                    TAG_VOLUME => match parts.poll() {
-                        None => {
-                            if let Some(v) = parse_double(value) {
-                                send.set_internal_value(v);
-                            }
-                        }
-                        Some("str") => match parse_limit(parts) {
-                            Some(limit) => send.set_limited_value_str(limit, value),
-                            None => send.set_value_str(value),
-                        },
-                        Some(_) => {}
-                    },
-                    TAG_COLOR => {
-                        let c = parse_color_static(host, value).unwrap_or(ColorEx::GRAY.to_double_rgb());
-                        send.set_color_state(c);
-                    }
-                    _ => host.error(&format!("Unhandled Send command: {command}")),
-                }
-            }
-            None => {
-                if send_cmd == TAG_COUNT {
-                    if let Some(count) = parse_int(value) {
-                        send_bank.set_item_count(count.max(0) as usize);
-                        self.rebind_knobs();
-                    }
+            Msg::ChannelNumber { ch, value } => {
+                // The position of the master track is calculated by the track bank
+                if ch != Ch::Master {
+                    channel(model, ch, |track| track.set_position(value));
                 } else {
-                    host.error(&format!("Unhandled Send command: {send_cmd}"));
+                    channel(model, ch, |_| {});
                 }
             }
-        }
-    }
+            Msg::ChannelName { ch, value } => channel(model, ch, |track| track.set_internal_name(value)),
+            Msg::ChannelVolume { ch, value } => channel(model, ch, |track| track.set_internal_volume(value)),
+            Msg::ChannelVolumeStr { ch, limit, value } => channel(model, ch, |track| match limit {
+                Some(limit) => track.volume_parameter_mut().set_limited_value_str(limit, value),
+                None => track.set_volume_str(value),
+            }),
+            Msg::ChannelPan { ch, value } => channel(model, ch, |track| track.set_internal_pan(value)),
+            Msg::ChannelPanStr { ch, limit, value } => channel(model, ch, |track| match limit {
+                Some(limit) => track.pan_parameter_mut().set_limited_value_str(limit, value),
+                None => track.set_pan_str(value),
+            }),
+            Msg::ChannelVu { ch, value } => channel(model, ch, |track| track.set_vu(value)),
+            Msg::ChannelVuLeft { ch, value } => channel(model, ch, |track| track.set_vu_left(value)),
+            Msg::ChannelVuRight { ch, value } => channel(model, ch, |track| track.set_vu_right(value)),
+            Msg::ChannelVuHoldLeft { ch, value } => channel(model, ch, |track| track.set_vu_hold_left(value)),
+            Msg::ChannelVuHoldRight { ch, value } => channel(model, ch, |track| track.set_vu_hold_right(value)),
+            Msg::ChannelMute { ch, value } => channel(model, ch, |track| track.set_mute_state(value)),
+            Msg::ChannelSolo { ch, value } => channel(model, ch, |track| track.set_solo_state(value)),
+            Msg::ChannelRecArm { ch, value } => channel(model, ch, |track| track.set_rec_arm_state(value)),
+            Msg::ChannelMonitor { ch, value } => channel(model, ch, |track| track.set_monitor_state(value)),
+            Msg::ChannelAutoMonitor { ch, value } => channel(model, ch, |track| track.set_auto_monitor_state(value)),
+            Msg::ChannelOverdub { ch, value } => channel(model, ch, |track| track.set_overdub(value)),
+            Msg::ChannelInQuantLengthEnabled { ch, value } => channel(model, ch, |track| track.set_record_quantization_note_length_state(value)),
+            Msg::ChannelInQuantResolution { ch, value } => channel(model, ch, |track| track.set_record_quantization_grid_value(value)),
+            Msg::ChannelColor { ch, value } => channel(model, ch, |track| track.set_color_state(value.unwrap_or(gray()))),
+            Msg::ChannelIsStopped { ch, value } => channel(model, ch, |track| track.set_stopped_state(value)),
+            Msg::ChannelPlayingNotes { ch, value } => {
+                let (tb, r) = channel_mut(model, ch);
+                tb.track_mut(r);
+                if let TrackRef::Position(p) = r {
+                    tb.handle_notes(p, &value);
+                }
+            }
 
-    fn parse_device_of(&mut self, model: &mut Model, target: DeviceTarget, value: &str, parts: &mut Parts) {
-        let host = model.host().clone();
-        let device = match target {
-            DeviceTarget::Cursor => Some(model.cursor_device_mut()),
-            DeviceTarget::Specific(id) => model.specific_device_mut(id),
-        };
-        let Some(device) = device else {
-            return;
-        };
-        let is_cursor = target == DeviceTarget::Cursor;
-        let command = parts.poll().unwrap_or("");
-        match command {
-            TAG_COUNT => {
-                if is_cursor {
-                    if let Some(v) = parse_int(value) {
-                        device.set_device_count(v.max(0) as usize);
-                    }
+            Msg::SendCount { ch, value } => {
+                channel(model, ch, |track| track.send_bank_mut().set_item_count(value.max(0) as usize));
+                self.rebind_knobs();
+            }
+            Msg::SendActive { ch, send, value } => channel(model, ch, |track| track.send_bank_mut().unpaged_item_mut(send).set_internal_enabled(value)),
+            Msg::SendName { ch, send, value } => channel(model, ch, |track| {
+                let send = track.send_bank_mut().unpaged_item_mut(send);
+                send.set_internal_name(value);
+                send.set_exists(!value.is_empty());
+            }),
+            Msg::SendVolume { ch, send, value } => channel(model, ch, |track| track.send_bank_mut().unpaged_item_mut(send).set_internal_value(value)),
+            Msg::SendVolumeStr { ch, send, limit, value } => channel(model, ch, |track| {
+                let send = track.send_bank_mut().unpaged_item_mut(send);
+                match limit {
+                    Some(limit) => send.set_limited_value_str(limit, value),
+                    None => send.set_value_str(value),
+                }
+            }),
+            Msg::SendColor { ch, send, value } => channel(model, ch, |track| track.send_bank_mut().unpaged_item_mut(send).set_color_state(value.unwrap_or(gray()))),
+
+            // ------------------------------------------------------------------------------
+            // The clip launcher slots of a track (protocol v2) with the absolute slot (scene)
+            // position. Reported states replace the derived ones.
+            Msg::SlotCount { ch, value } => channel(model, ch, |track| track.slot_bank_mut().set_item_count(value.max(0) as usize)),
+            Msg::SlotExists { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_exists(value)),
+            Msg::SlotHasContent { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_has_content(value)),
+            Msg::SlotName { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_internal_name(value)),
+            Msg::SlotColor { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_color_state(value.map(ColorEx::from_array).unwrap_or(ColorEx::GRAY))),
+            Msg::SlotSelected { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_selected(value)),
+            Msg::SlotPlaying { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_playing_state(value)),
+            Msg::SlotRecording { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_recording_state(value)),
+            Msg::SlotPlayQueued { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_play_queued_state(value)),
+            Msg::SlotRecQueued { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_rec_queued_state(value)),
+            Msg::SlotStopQueued { ch, slot, value } => self.slot(model, ch, slot, |slot| slot.set_stop_queued_state(value)),
+
+            // Scenes (of every scene bank)
+            // The host pages the scenes (protocol v2); the core keeps its own offset
+            Msg::SceneOffset {} => model.track_bank_mut().enable_host_scene_paging(),
+            Msg::SceneCount { value } => model.for_each_scene_bank(|bank| bank.set_item_count(value.max(0) as usize)),
+            Msg::SceneExists { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_exists(value)),
+            Msg::SceneNumber { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_position(value)),
+            Msg::SceneName { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_internal_name(value)),
+            Msg::SceneSelected { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_selected(value)),
+            Msg::SceneColor { scene, value } => {
+                model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_color_state(value.map(ColorEx::from_array).unwrap_or(ColorEx::GRAY)))
+            }
+            Msg::ScenePosition { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_begin_position(value)),
+            Msg::SceneEndPosition { scene, value } => model.for_each_scene_bank(|bank| bank.unpaged_item_mut(scene).set_end_position(value)),
+
+            // ------------------------------------------------------------------------------
+            // Devices
+            Msg::DeviceCount { dev, value } => {
+                if dev == Dev::Device {
+                    model.cursor_device_mut().set_device_count(value.max(0) as usize);
                 }
             }
-            TAG_EXISTS => {
-                if let Some(v) = parse_int(value) {
-                    device.set_exists(v > 0);
-                }
-            }
-            TAG_POSITION => {
-                if let Some(v) = parse_int(value) {
-                    device.set_position(v);
-                }
-            }
-            "bypass" => {
-                if let Some(v) = parse_int(value) {
-                    device.set_enabled(v == 0);
-                }
-            }
-            TAG_NAME => device.set_name(value),
-            "window" => {
-                if let Some(v) = parse_double(value) {
-                    device.set_window_open(v > 0.0);
-                }
-            }
-            "pinned" => {
-                if let Some(v) = parse_double(value) {
-                    device.set_pinned_state(v > 0.0);
-                }
-            }
-            "expand" => {
-                if let Some(v) = parse_double(value) {
-                    device.set_expanded(v > 0.0);
-                }
-            }
-            "parameters" => {
-                if let Some(v) = parse_double(value) {
-                    device.set_parameter_page_section_visible(v > 0.0);
-                }
-            }
-            "sibling" => {
-                if is_cursor {
-                    Self::parse_sibling(&host, device, parts, value);
-                }
-            }
-            TAG_PARAM => {
-                let cmd = parts.poll().unwrap_or("");
-                match parse_index(cmd) {
-                    Some(param_no) => {
-                        if let Some(bank) = device.parameter_bank_mut() {
-                            Self::parse_device_param_value(&host, param_no, bank, parts, value);
-                        }
-                    }
-                    None => {
-                        if cmd == TAG_COUNT {
-                            if let Some(v) = parse_int(value) {
-                                device.set_parameter_count(v.max(0) as usize);
-                                self.rebind_knobs();
-                            }
-                        } else {
-                            host.error(&format!("Unhandled Device Param parameter: {cmd}"));
-                        }
-                    }
-                }
-            }
-            "touchedParam" => {
-                if let Some(v) = parse_int(value) {
-                    device.set_last_touched_parameter_index(v);
-                }
-            }
+            Msg::DeviceExists { dev, value } => device(model, dev, |device| device.set_exists(value)),
+            Msg::DevicePosition { dev, value } => device(model, dev, |device| device.set_position(value)),
+            Msg::DeviceBypass { dev, value } => device(model, dev, |device| device.set_enabled(!value)),
+            Msg::DeviceName { dev, value } => device(model, dev, |device| device.set_name(value)),
+            Msg::DeviceWindow { dev, value } => device(model, dev, |device| device.set_window_open(value)),
+            Msg::DevicePinned { dev, value } => device(model, dev, |device| device.set_pinned_state(value)),
+            Msg::DeviceExpand { dev, value } => device(model, dev, |device| device.set_expanded(value)),
+            Msg::DeviceParameters { dev, value } => device(model, dev, |device| device.set_parameter_page_section_visible(value)),
+            Msg::DeviceTouchedParam { dev, value } => device(model, dev, |device| device.set_last_touched_parameter_index(value)),
             // Drum pads and layers of a device (protocol v2)
-            "hasDrumPads" => device.set_has_drum_pads(parse_double(value).is_some_and(|v| v > 0.0)),
-            "hasLayers" => device.set_has_layers(parse_double(value).is_some_and(|v| v > 0.0)),
-            "hasMutedPads" => device.drum_pad_bank_mut().set_has_muted_pads(parse_double(value).is_some_and(|v| v > 0.0)),
-            "hasSoloedPads" => device.drum_pad_bank_mut().set_has_soloed_pads(parse_double(value).is_some_and(|v| v > 0.0)),
-            "pad" | "layer" => {
-                let (index, field, sub) = (parts.poll().unwrap_or(""), parts.poll().unwrap_or(""), parts.poll());
-                let color = if field == TAG_COLOR { parse_color_static(&host, value) } else { None };
-                if index == TAG_COUNT {
-                    if command == "layer" {
-                        if let Some(v) = parse_int(value) {
-                            device.layer_bank_mut().set_item_count(v.max(0) as usize);
-                        }
-                    }
-                } else if let Some(position) = parse_index(index) {
-                    if command == "pad" {
-                        let bank = device.drum_pad_bank_mut();
-                        bank.set_host_reported();
-                        Self::parse_device_channel(&host, bank.unpaged_item_mut(position), field, sub, value, color);
-                    } else {
-                        Self::parse_device_channel(&host, device.layer_bank_mut().unpaged_item_mut(position), field, sub, value, color);
-                    }
-                } else {
-                    host.error(&format!("Unhandled Device {command} parameter: {index}"));
-                }
-            }
-            // The named parameter pages (protocol v2): count, selected, <index>/name
-            "page" => {
-                if let Some(bank) = device.parameter_bank_mut() {
-                    match (parts.poll(), parts.poll()) {
-                        (Some(TAG_COUNT), None) => {
-                            if let Some(v) = parse_int(value) {
-                                bank.set_page_count(v.max(0) as usize);
-                            }
-                        }
-                        (Some("selected"), None) => {
-                            if let Some(v) = parse_int(value) {
-                                if v >= 0 {
-                                    bank.set_selected_page_from_host(v as usize);
-                                }
-                            }
-                        }
-                        (Some(index), Some(TAG_NAME)) => match parse_index(index) {
-                            Some(page) => bank.set_page_name(page, value),
-                            None => host.error(&format!("Unhandled Device Page parameter: {index}")),
-                        },
-                        _ => host.error("Unhandled Device Page parameter"),
-                    }
-                }
-            }
-            "band" => {
-                if target == DeviceTarget::Specific(DeviceId::Eq) {
-                    let band_index = parts.poll().unwrap_or("");
-                    match (parse_index(band_index), parse_int(value)) {
-                        (Some(position), Some(v)) => device.set_type_internal(position, v),
-                        _ => host.error(&format!("Unhandled Equalizer command: {band_index}")),
-                    }
-                }
-            }
-            _ => host.error(&format!("Unhandled Device parameter: {command}")),
-        }
-    }
-
-    fn parse_sibling(host: &crate::host::Host, device: &mut SpecificDevice, parts: &mut Parts, value: &str) {
-        let sibling_cmd = parts.poll().unwrap_or("");
-        let Some(sibling_no) = parse_int(sibling_cmd).filter(|_| parse_index(sibling_cmd).is_some()) else {
-            host.error(&format!("Unhandled device sibling parameter: {sibling_cmd}"));
-            return;
-        };
-        let sibling_no = sibling_no - 1;
-        let bank = device.device_bank_mut();
-        if sibling_no < 0 || sibling_no as usize >= bank.page_size() {
-            return;
-        }
-        let sibling = bank.item_mut(sibling_no as usize);
-        let sub_cmd = parts.poll().unwrap_or("");
-        match sub_cmd {
-            TAG_NAME => {
+            Msg::DeviceHasDrumPads { dev, value } => device(model, dev, |device| device.set_has_drum_pads(value)),
+            Msg::DeviceHasLayers { dev, value } => device(model, dev, |device| device.set_has_layers(value)),
+            Msg::DeviceHasMutedPads { dev, value } => device(model, dev, |device| device.drum_pad_bank_mut().set_has_muted_pads(value)),
+            Msg::DeviceHasSoloedPads { dev, value } => device(model, dev, |device| device.drum_pad_bank_mut().set_has_soloed_pads(value)),
+            Msg::DevicePadCount { .. } => {}
+            Msg::DeviceLayerCount { dev, value } => device(model, dev, |device| device.layer_bank_mut().set_item_count(value.max(0) as usize)),
+            Msg::DeviceSiblingName { dev, sibling, value } => sibling_of(model, dev, sibling.0, |sibling| {
                 sibling.set_name(value);
                 sibling.set_exists(!value.is_empty());
-            }
-            "bypass" => {
-                if let Some(v) = parse_int(value) {
-                    sibling.set_enabled(v == 0);
-                }
-            }
-            TAG_POSITION => {
-                if let Some(v) = parse_int(value) {
-                    sibling.set_position(v);
-                }
-            }
-            "selected" => {
-                if let Some(v) = parse_int(value) {
-                    sibling.set_selected(v > 0);
-                }
-            }
-            _ => host.error(&format!("Unhandled device indexed sibling parameter: {sub_cmd}")),
-        }
-    }
+            }),
+            Msg::DeviceSiblingBypass { dev, sibling, value } => sibling_of(model, dev, sibling.0, |sibling| sibling.set_enabled(!value)),
+            Msg::DeviceSiblingPosition { dev, sibling, value } => sibling_of(model, dev, sibling.0, |sibling| sibling.set_position(value)),
+            Msg::DeviceSiblingSelected { dev, sibling, value } => sibling_of(model, dev, sibling.0, |sibling| sibling.set_selected(value)),
+            Msg::EqBandType { band, value } => device(model, Dev::Eq, |device| device.set_type_internal(band, value)),
 
-    fn parse_track_fx_parameter(&mut self, model: &mut Model, value: &str, parts: &mut Parts) {
-        let type_part = parts.poll().unwrap_or("");
-        // Bitwig: the named pages of the cursor track's remote controls and the page selected
-        // in Bitwig (CursorTrackImpl.getParameterBank of the Java version)
-        if type_part == "page" {
-            if let Some(bank) = model.cursor_track_parameter_bank_mut() {
-                match (parts.poll(), parts.poll()) {
-                    (Some(TAG_COUNT), None) => {
-                        if let Some(v) = parse_int(value) {
-                            bank.set_page_count(v.max(0) as usize);
-                        }
-                    }
-                    (Some("selected"), None) => {
-                        if let Some(v) = parse_int(value).filter(|v| *v >= 0) {
-                            bank.set_selected_page_from_host(v as usize);
-                        }
-                    }
-                    (Some(index), Some(TAG_NAME)) => {
-                        if let Some(page) = parse_index(index) {
-                            bank.set_page_name(page, value);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            return;
-        }
-        if type_part != TAG_PARAM {
-            Self::error(model, &format!("Unhandled Track FX parameter: {type_part}"));
-            return;
-        }
-        let host = model.host().clone();
-        let cmd = parts.poll().unwrap_or("");
-        // A host which pins its cursor track (Bitwig) reports the remote controls of that track
-        // (CursorTrackImpl.getParameterBank of the Java version), Reaper those of the selected
-        // track
-        let bank = if model.host_pins_track() {
-            model.cursor_track_parameter_bank_mut()
-        } else {
-            match model.track_bank_mut().selected_item_mut() {
-                Some(selected) => selected.parameter_bank_mut(),
-                None => None,
-            }
-        };
-        let Some(bank) = bank else {
-            return;
-        };
-        match parse_index(cmd) {
-            Some(param_no) => Self::parse_device_param_value(&host, param_no, bank, parts, value),
-            None => {
-                if cmd == TAG_COUNT {
-                    if let Some(v) = parse_int(value) {
-                        bank.set_item_count(v.max(0) as usize);
-                        self.rebind_knobs();
-                    }
-                } else {
-                    host.error(&format!("Unhandled Track FX Param parameter: {cmd}"));
-                }
-            }
-        }
-    }
+            // The drum machine of the cursor track with its 128 pads (protocol v2), applied to
+            // the main and the additional drum devices
+            Msg::DrumExists { value } => model.for_each_drum_device(|device| device.set_exists(value)),
+            Msg::DrumName { value } => model.for_each_drum_device(|device| device.set_name(value)),
+            Msg::DrumBypass { value } => model.for_each_drum_device(|device| device.set_enabled(!value)),
+            Msg::DrumWindow { value } => model.for_each_drum_device(|device| device.set_window_open(value)),
+            Msg::DrumExpand { value } => model.for_each_drum_device(|device| device.set_expanded(value)),
+            Msg::DrumParameters { value } => model.for_each_drum_device(|device| device.set_parameter_page_section_visible(value)),
+            Msg::DrumHasDrumPads { value } => model.for_each_drum_device(|device| device.set_has_drum_pads(value)),
+            Msg::DrumHasLayers { value } => model.for_each_drum_device(|device| device.set_has_layers(value)),
+            Msg::DrumHasMutedPads { value } => model.for_each_drum_device(|device| device.drum_pad_bank_mut().set_has_muted_pads(value)),
+            Msg::DrumHasSoloedPads { value } => model.for_each_drum_device(|device| device.drum_pad_bank_mut().set_has_soloed_pads(value)),
+            Msg::DrumPadCount {} => {}
 
-    fn parse_device_param_value(host: &crate::host::Host, param_no: usize, bank: &mut ParameterBank, parts: &mut Parts, value: &str) {
-        let command = parts.poll().unwrap_or("");
-        match command {
-            TAG_NAME => {
-                let p = bank.unpaged_item_mut(param_no);
+            // A field of a drum pad or layer of a device (protocol v2)
+            Msg::PadExists { pad, value } => for_pad(model, pad, |c| c.set_exists(value)),
+            Msg::PadName { pad, value } => for_pad(model, pad, |c| c.set_internal_name(value)),
+            Msg::PadColor { pad, value } => for_pad(model, pad, |c| c.set_color_state(value.unwrap_or(gray()))),
+            Msg::PadSelected { pad, value } => for_pad(model, pad, |c| c.set_selected(value)),
+            Msg::PadActive { pad, value } => for_pad(model, pad, |c| c.set_internal_is_activated(value)),
+            Msg::PadMute { pad, value } => for_pad(model, pad, |c| c.set_mute_state(value)),
+            Msg::PadSolo { pad, value } => for_pad(model, pad, |c| c.set_solo_state(value)),
+            Msg::PadVolume { pad, value } => for_pad(model, pad, |c| c.set_internal_volume(value)),
+            Msg::PadVolumeStr { pad, value } => for_pad(model, pad, |c| c.set_volume_str(value)),
+            Msg::PadPan { pad, value } => for_pad(model, pad, |c| c.set_internal_pan(value)),
+            Msg::PadPanStr { pad, value } => for_pad(model, pad, |c| c.set_pan_str(value)),
+
+            // ------------------------------------------------------------------------------
+            // Parameters, pages, host parameters
+            Msg::ParamCount { owner, value } => {
+                let count = value.max(0) as usize;
+                match owner {
+                    ParamOwner::Device(dev) => {
+                        let Some(device) = device_mut(model, dev) else {
+                            return;
+                        };
+                        device.set_parameter_count(count);
+                    }
+                    _ => {
+                        let Some(bank) = param_bank_mut(model, owner) else {
+                            return;
+                        };
+                        bank.set_item_count(count);
+                    }
+                }
+                self.rebind_knobs();
+            }
+            Msg::ParamName { owner, param, value } => param_of(model, owner, param, |bank| {
+                let p = bank.unpaged_item_mut(param);
                 p.set_internal_name(value);
-                p.set_position(param_no as i32);
+                p.set_position(param as i32);
                 p.set_exists(!value.is_empty());
+            }),
+            Msg::ParamValue { owner, param, value } => param_of(model, owner, param, |bank| {
+                bank.unpaged_item_mut(param).set_internal_value(value);
+                bank.notify_value_observers(param);
+            }),
+            Msg::ParamValueStr { owner, param, limit, value } => param_of(model, owner, param, |bank| match limit {
+                Some(limit) => bank.unpaged_item_mut(param).set_limited_value_str(limit, value),
+                None => bank.unpaged_item_mut(param).set_value_str(value),
+            }),
+            Msg::ParamSteps { owner, param, value } => param_of(model, owner, param, |bank| bank.unpaged_item_mut(param).set_internal_number_of_steps(value)),
+            Msg::ParamModulated { owner, param, value } => param_of(model, owner, param, |bank| bank.unpaged_item_mut(param).set_modulated_value(value)),
+            // The named parameter pages (protocol v2): count, selected, <index>/name
+            Msg::PageCount { owner, value } => {
+                if let Some(bank) = page_bank_mut(model, owner) {
+                    bank.set_page_count(value.max(0) as usize);
+                }
             }
-            "value" => match parts.poll() {
-                None => {
-                    if let Some(v) = parse_double(value) {
-                        bank.unpaged_item_mut(param_no).set_internal_value(v);
-                        bank.notify_value_observers(param_no);
+            Msg::PageSelected { owner, value } => {
+                if let Some(bank) = page_bank_mut(model, owner) {
+                    if value >= 0 {
+                        bank.set_selected_page_from_host(value as usize);
                     }
                 }
-                Some("str") => match parse_limit(parts) {
-                    Some(limit) => bank.unpaged_item_mut(param_no).set_limited_value_str(limit, value),
-                    None => bank.unpaged_item_mut(param_no).set_value_str(value),
-                },
-                Some(_) => {}
-            },
-            "steps" => {
-                if let Some(v) = parse_int(value) {
-                    bank.unpaged_item_mut(param_no).set_internal_number_of_steps(v);
+            }
+            Msg::PageName { owner, page, value } => {
+                if let Some(bank) = page_bank_mut(model, owner) {
+                    bank.set_page_name(page, value);
                 }
             }
-            "modulated" => {
-                if let Some(v) = parse_double(value) {
-                    bank.unpaged_item_mut(param_no).set_modulated_value(v);
+            // The parameter exists once its value is reported
+            Msg::HostParamValue { param, value } => {
+                if let Some(param) = host_param_mut(model, param) {
+                    param.set_exists(true);
+                    param.set_internal_value(value);
                 }
             }
-            _ => host.error(&format!("Unhandled FX Param Value: {command}")),
-        }
-    }
+            Msg::HostParamStr { param, limit, value } => {
+                if let Some(param) = host_param_mut(model, param) {
+                    match limit {
+                        Some(limit) => param.set_limited_value_str(limit, value),
+                        None => param.set_value_str(value),
+                    }
+                }
+            }
+            Msg::HostParamName { param, value } => {
+                if let Some(param) = host_param_mut(model, param) {
+                    param.set_internal_name(value);
+                }
+            }
 
-    fn parse_browser_value(model: &mut Model, parts: &mut Parts, value: &str) {
-        let host = model.host().clone();
-        let Some(browser) = model.browser_mut() else {
-            return;
-        };
-        let command = parts.poll().unwrap_or("");
-        match command {
-            "presetsfile" => browser.set_presets_file(value),
-            "selected" => match parts.poll() {
-                Some(TAG_NAME) => {}
-                Some("index") => {
-                    if let Some(v) = parse_int(value) {
-                        browser.set_preset_selected(v);
-                    }
+            // ------------------------------------------------------------------------------
+            // Clip, step grid
+            Msg::ClipExists { value } => model.set_cursor_clip_exists(value),
+            Msg::ClipStart { value } => model.set_cursor_clip_play_start(value),
+            Msg::ClipEnd { value } => model.set_cursor_clip_play_end(value),
+            Msg::ClipPlayPosition { value } => model.set_cursor_clip_play_position(value),
+            Msg::ClipColor { value } => model.set_cursor_clip_color_value(value.unwrap_or(gray())),
+            Msg::ClipLoop { value } => model.set_cursor_clip_loop_is_enabled(value),
+            Msg::ClipNotes { value } => model.set_cursor_clip_notes(value),
+            // The step grids of the host (protocol v2)
+            Msg::ClipLoopStart { value } => grids(model, |clip| clip.set_loop_start_value(value)),
+            Msg::ClipLoopLength { value } => grids(model, |clip| clip.set_loop_length_value(value)),
+            Msg::ClipShuffle { value } => grids(model, |clip| clip.set_shuffle_value(value)),
+            Msg::ClipAccent { value } => grids(model, |clip| clip.set_accent_value(value)),
+            Msg::ClipPinned { value } => grids(model, |clip| clip.set_pinned_value(value)),
+            Msg::GridPlayingStep { grid, value } => {
+                if let Some(clip) = grid_clip(model, grid) {
+                    clip.set_host_playing_step(value);
                 }
-                _ => host.error(&format!("Unhandled Browser Parameter Selected: {command}")),
-            },
+            }
+            Msg::GridStep { grid, channel, step, row, value } => {
+                if let Some(clip) = grid_clip(model, grid) {
+                    clip.set_host_step(channel as i32, step as i32, row as i32, value);
+                }
+            }
+            Msg::ClipAll { value } => model.set_clips(value),
+
+            // ------------------------------------------------------------------------------
+            // Browser
+            Msg::BrowserPresetsFile { value } => browser(model, |b| b.set_presets_file(value)),
+            Msg::BrowserSelectedIndex { value } => browser(model, |b| b.set_preset_selected(value)),
+            Msg::BrowserSelectedName {} => {}
             // The browser of the host (protocol v2)
-            TAG_EXISTS => browser.set_host_active(parse_flag(value)),
-            "preview" => browser.set_preview(parse_flag(value)),
-            "contentType" => match (parts.poll(), parts.poll()) {
-                (Some(TAG_COUNT), None) => browser.set_content_type_count(parse_int(value).unwrap_or(0).max(0) as usize),
-                (Some("selected"), None) => browser.set_selected_content_type(parse_int(value).unwrap_or(0).max(0) as usize),
-                (Some("selected"), Some(TAG_NAME)) => browser.set_selected_content_type_name(value),
-                (Some(index), Some(TAG_NAME)) => match parse_index(index) {
-                    Some(i) => browser.set_content_type_name(i, value),
-                    None => host.error(&format!("Unhandled Browser Content Type: {index}")),
-                },
-                (other, _) => host.error(&format!("Unhandled Browser Content Type: {}", other.unwrap_or(""))),
-            },
-            "column" => {
-                let index = parts.poll().unwrap_or("");
-                if index == TAG_COUNT {
-                    browser.set_filter_column_count(parse_int(value).unwrap_or(0).max(0) as usize);
-                    return;
-                }
-                let Some(column_index) = parse_index(index) else {
-                    host.error(&format!("Unhandled Browser Column: {index}"));
-                    return;
-                };
-                let column = browser.filter_column_mut(column_index);
-                match (parts.poll(), parts.poll(), parts.poll()) {
-                    (Some(TAG_EXISTS), None, None) => column.exists = parse_flag(value),
-                    (Some(TAG_NAME), None, None) => column.name = value.to_string(),
-                    (Some("wildcard"), None, None) => column.wildcard = value.to_string(),
-                    (Some("cursorIndex"), None, None) => column.cursor_index = parse_int(value).unwrap_or(-1),
-                    (Some("cursor"), Some(TAG_EXISTS), None) => column.cursor_exists = parse_flag(value),
-                    (Some("cursor"), Some(TAG_NAME), None) => column.cursor_name = value.to_string(),
-                    (Some("item"), Some(item), Some(field)) => {
-                        if let Some(item) = parse_index(item).and_then(|i| column.items.get_mut(i)) {
-                            Self::parse_browser_item(item, field, value);
-                        }
-                    }
-                    (field, _, _) => host.error(&format!("Unhandled Browser Column Parameter: {}", field.unwrap_or(""))),
-                }
+            Msg::BrowserExists { value } => browser(model, |b| b.set_host_active(value)),
+            Msg::BrowserPreview { value } => browser(model, |b| b.set_preview(value)),
+            Msg::ContentTypeCount { value } => browser(model, |b| b.set_content_type_count(value.max(0) as usize)),
+            Msg::ContentTypeSelected { value } => browser(model, |b| b.set_selected_content_type(value.max(0) as usize)),
+            Msg::ContentTypeSelectedName { value } => browser(model, |b| b.set_selected_content_type_name(value)),
+            Msg::ContentTypeName { index, value } => browser(model, |b| b.set_content_type_name(index, value)),
+            Msg::ColumnCount { value } => browser(model, |b| b.set_filter_column_count(value.max(0) as usize)),
+            Msg::ColumnExists { column, value } => browser(model, |b| b.filter_column_mut(column).exists = value),
+            Msg::ColumnName { column, value } => browser(model, |b| b.filter_column_mut(column).name = value.to_string()),
+            Msg::ColumnWildcard { column, value } => browser(model, |b| b.filter_column_mut(column).wildcard = value.to_string()),
+            Msg::ColumnCursorIndex { column, value } => browser(model, |b| b.filter_column_mut(column).cursor_index = value),
+            Msg::ColumnCursorExists { column, value } => browser(model, |b| b.filter_column_mut(column).cursor_exists = value),
+            Msg::ColumnCursorName { column, value } => browser(model, |b| b.filter_column_mut(column).cursor_name = value.to_string()),
+            Msg::ResultCursorName { value } => browser(model, |b| b.set_selected_result_name(value)),
+            Msg::ItemExists { item, value } => browser_item(model, item, |i| i.exists = value),
+            Msg::ItemName { item, value } => browser_item(model, item, |i| i.name = value.to_string()),
+            Msg::ItemSelected { item, value } => browser_item(model, item, |i| i.is_selected = value),
+            Msg::ItemHits { item, value } => browser_item(model, item, |i| i.hit_count = value),
+
+            // ------------------------------------------------------------------------------
+            // Markers
+            Msg::MarkerCount { value } => model.marker_bank_mut().set_item_count(value.max(0) as usize),
+            Msg::MarkerExists { marker, value } => model.marker_bank_mut().unpaged_item_mut(marker).set_exists(value),
+            Msg::MarkerNumber { marker, value } => model.marker_bank_mut().unpaged_item_mut(marker).set_position(value),
+            Msg::MarkerName { marker, value } => model.marker_bank_mut().unpaged_item_mut(marker).set_internal_name(value),
+            Msg::MarkerColor { marker, value } => model.marker_bank_mut().unpaged_item_mut(marker).set_color_state(value.unwrap_or(gray())),
+            Msg::MarkerPosition { marker } | Msg::MarkerEndPosition { marker } => {
+                model.marker_bank_mut().unpaged_item_mut(marker);
             }
-            "result" => match (parts.poll(), parts.poll()) {
-                (Some("cursor"), Some(TAG_NAME)) => browser.set_selected_result_name(value),
-                (Some(index), Some(field)) => {
-                    if let Some(item) = parse_index(index).and_then(|i| browser.result_item_mut(i)) {
-                        Self::parse_browser_item(item, field, value);
-                    }
-                }
-                (other, _) => host.error(&format!("Unhandled Browser Result: {}", other.unwrap_or(""))),
-            },
-            _ => host.error(&format!("Unhandled Browser Parameter: {command}")),
+
+            // ------------------------------------------------------------------------------
+            // Note repeat, quantize, groove
+            Msg::NoteRepeatActive { value } => self.events.push(ParserEvent::NoteRepeatActive(value)),
+            Msg::NoteRepeatPeriod { value } => self.events.push(ParserEvent::NoteRepeatPeriod(1.0 / value)),
+            Msg::NoteRepeatNoteLength { value } => self.events.push(ParserEvent::NoteRepeatNoteLength(value)),
+            Msg::NoteRepeatMode { value } => self.events.push(ParserEvent::NoteRepeatMode(value)),
+            Msg::NoteRepeatVelocity { value } => self.events.push(ParserEvent::NoteRepeatUsePressure(value)),
+            Msg::QuantizeStrength { value } => self.events.push(ParserEvent::QuantizeAmount(value)),
+            Msg::GrooveActive { value } => model.groove_mut().parameter_mut(GrooveParameterId::Enabled).set_internal_value(value),
+            Msg::GrooveAmount { value } => model.groove_mut().parameter_mut(GrooveParameterId::ShuffleAmount).set_internal_value(value),
         }
     }
 
-    fn parse_browser_item(item: &mut crate::daw::browser::BrowserColumnItem, field: &str, value: &str) {
-        match field {
-            TAG_EXISTS => item.exists = parse_flag(value),
-            TAG_NAME => item.name = value.to_string(),
-            TAG_SELECT => item.is_selected = parse_flag(value),
-            "hits" => item.hit_count = parse_int(value).unwrap_or(0),
-            _ => {}
-        }
-    }
-
-    fn parse_marker(model: &mut Model, parts: &mut Parts, value: &str) {
-        let part = parts.poll().unwrap_or("");
-        // Only the value of the color is a color (the other values logged color errors)
-        let color = if parts.peek() == Some(TAG_COLOR) { model.parse_color(value) } else { None };
-        let host = model.host().clone();
-        let bank = model.marker_bank_mut();
-        match parse_index(part) {
-            Some(position) => {
-                let marker = bank.unpaged_item_mut(position);
-                let command = parts.poll().unwrap_or("");
-                match command {
-                    TAG_EXISTS => {
-                        if let Some(v) = parse_double(value) {
-                            marker.set_exists(v > 0.0);
-                        }
-                    }
-                    TAG_NUMBER => {
-                        if let Some(v) = parse_int(value) {
-                            marker.set_position(v);
-                        }
-                    }
-                    TAG_NAME => marker.set_internal_name(value),
-                    TAG_COLOR => marker.set_color_state(color.unwrap_or(ColorEx::GRAY.to_double_rgb())),
-                    TAG_POSITION | "endPosition" => {}
-                    _ => host.error(&format!("Unhandled Marker Parameter: {command}")),
-                }
-            }
-            None => {
-                if part == TAG_COUNT {
-                    if let Some(v) = parse_int(value) {
-                        bank.set_item_count(v.max(0) as usize);
-                    }
-                } else {
-                    host.error(&format!("Unhandled Marker command: {part}"));
-                }
-            }
-        }
-    }
-
-    fn parse_scene(model: &mut Model, parts: &Parts, value: &str) {
-        // The host pages the scenes (protocol v2); the core keeps its own offset
-        if parts.peek() == Some("offset") {
-            model.track_bank_mut().enable_host_scene_paging();
-            return;
-        }
-        // Only parse the color for the color command, other values are no colors
-        let is_color = {
-            let mut p = parts.remaining();
-            p.poll();
-            p.poll() == Some(TAG_COLOR)
-        };
-        let color = if is_color { model.parse_color(value) } else { None };
-        let host = model.host().clone();
-        model.for_each_scene_bank(|scene_bank| {
-            let mut parts_copy = parts.remaining();
-            let part = parts_copy.poll().unwrap_or("");
-            if part == TAG_COUNT {
-                if let Some(v) = parse_int(value) {
-                    scene_bank.set_item_count(v.max(0) as usize);
-                }
-                return;
-            }
-            let Some(position) = parse_index(part) else {
-                host.error(&format!("Unhandled Scene command: {part}"));
-                return;
-            };
-            let scene = scene_bank.unpaged_item_mut(position);
-            let command = parts_copy.poll().unwrap_or("");
-            match command {
-                TAG_EXISTS => {
-                    if let Some(v) = parse_double(value) {
-                        scene.set_exists(v > 0.0);
-                    }
-                }
-                TAG_NUMBER => {
-                    if let Some(v) = parse_int(value) {
-                        scene.set_position(v);
-                    }
-                }
-                TAG_NAME => scene.set_internal_name(value),
-                "select" => scene.set_selected(parse_double(value).is_some_and(|v| v > 0.0)),
-                TAG_COLOR => scene.set_color_state(color.map(ColorEx::from_array).unwrap_or(ColorEx::GRAY)),
-                TAG_POSITION => {
-                    if let Some(v) = parse_double(value) {
-                        scene.set_begin_position(v);
-                    }
-                }
-                "endPosition" => {
-                    if let Some(v) = parse_double(value) {
-                        scene.set_end_position(v);
-                    }
-                }
-                _ => host.error(&format!("Unhandled Scene Parameter: {command}")),
-            }
+    /// Apply `f` to a slot of a track (which sets its position first).
+    fn slot(&mut self, model: &mut Model, ch: Ch, slot: usize, f: impl FnOnce(&mut crate::daw::slot::Slot)) {
+        channel(model, ch, |track| {
+            let slot_item = track.slot_bank_mut().unpaged_item_mut(slot);
+            slot_item.set_position(slot as i32);
+            f(slot_item);
         });
     }
+}
 
-    fn parse_clip_value(model: &mut Model, parts: &mut Parts, value: &str) {
-        let command = parts.poll().unwrap_or("");
-        let d = parse_double(value);
-        match command {
-            TAG_EXISTS => {
-                if let Some(v) = d {
-                    model.set_cursor_clip_exists(v > 0.0);
-                }
-            }
-            "start" => {
-                if let Some(v) = d {
-                    model.set_cursor_clip_play_start(v);
-                }
-            }
-            "end" => {
-                if let Some(v) = d {
-                    model.set_cursor_clip_play_end(v);
-                }
-            }
-            "playposition" => {
-                if let Some(v) = d {
-                    model.set_cursor_clip_play_position(v);
-                }
-            }
-            TAG_COLOR => {
-                let color = model.parse_color(value).unwrap_or(ColorEx::GRAY.to_double_rgb());
-                model.set_cursor_clip_color_value(color);
-            }
-            "loop" => {
-                if let Some(v) = d {
-                    model.set_cursor_clip_loop_is_enabled(v > 0.0);
-                }
-            }
-            "notes" => model.set_cursor_clip_notes(Note::parse_notes(value)),
-            // The step grids of the host (protocol v2)
-            "loopStart" | "loopLength" | "shuffle" | "accent" | "pinned" => {
-                let v = d.unwrap_or(0.0);
-                model.for_each_cursor_clip(|clip| {
-                    clip.set_host_grid();
-                    match command {
-                        "loopStart" => clip.set_loop_start_value(v),
-                        "loopLength" => clip.set_loop_length_value(v),
-                        "shuffle" => clip.set_shuffle_value(v > 0.0),
-                        "accent" => clip.set_accent_value(v),
-                        _ => clip.set_pinned_value(v > 0.0),
-                    }
-                });
-            }
-            "grid" => {
-                let id = parts.poll().unwrap_or("");
-                let field = parts.poll().unwrap_or("");
-                let Some(clip) = model.note_clip_by_grid_id_mut(id) else {
-                    Self::error(model, &format!("Unknown Clip Grid: {id}"));
-                    return;
-                };
-                match field {
-                    "playingStep" => clip.set_host_playing_step(parse_int(value).unwrap_or(-1)),
-                    "step" => {
-                        let mut index = || parts.poll().and_then(parse_index).map(|i| i as i32);
-                        if let (Some(channel), Some(step), Some(row)) = (index(), index(), index()) {
-                            clip.set_host_step(channel, step, row, StepInfo::from_wire(value));
-                        }
-                    }
-                    _ => Self::error(model, &format!("Unhandled Clip Grid Parameter: {field}")),
-                }
-            }
-            "all" => model.set_clips(value),
-            _ => Self::error(model, &format!("Unhandled Clip Parameter: {command}")),
-        }
+/// Apply `f` to the track of a channel report (it is created if necessary).
+fn channel(model: &mut Model, ch: Ch, f: impl FnOnce(&mut crate::daw::track::Track)) {
+    let (tb, r) = channel_mut(model, ch);
+    f(tb.track_mut(r));
+}
+
+/// Apply `f` to a device of the common device reports if it exists.
+fn device(model: &mut Model, dev: Dev, f: impl FnOnce(&mut SpecificDevice)) {
+    if let Some(device) = device_mut(model, dev) {
+        f(device);
     }
+}
 
-    fn parse_note_repeat(&mut self, model: &mut Model, parts: &mut Parts, value: &str) {
-        let command = parts.poll().unwrap_or("");
-        let event = match command {
-            TAG_ACTIVE => parse_double(value).map(|v| ParserEvent::NoteRepeatActive(v > 0.0)),
-            "period" => parse_double(value).map(|v| ParserEvent::NoteRepeatPeriod(1.0 / v)),
-            "notelength" => parse_double(value).map(ParserEvent::NoteRepeatNoteLength),
-            "mode" => parse_int(value).map(ParserEvent::NoteRepeatMode),
-            "velocity" => parse_int(value).map(|v| ParserEvent::NoteRepeatUsePressure(v > 0)),
-            _ => {
-                Self::error(model, &format!("Unhandled NoteRepeat Parameter: {command}"));
-                None
-            }
-        };
-        if let Some(event) = event {
-            self.events.push(event);
-        }
+/// Apply `f` to a sibling of the cursor device (0-based) if it is in the page.
+fn sibling_of(model: &mut Model, dev: Dev, sibling: i32, f: impl FnOnce(&mut crate::daw::device::Device)) {
+    if dev != Dev::Device {
+        return;
     }
+    let bank = model.cursor_device_mut().device_bank_mut();
+    if sibling < 0 || sibling as usize >= bank.page_size() {
+        return;
+    }
+    f(bank.item_mut(sibling as usize));
+}
 
-    fn parse_groove(model: &mut Model, parts: &mut Parts, value: &str) {
-        let command = parts.poll().unwrap_or("");
-        // Bitwig: the six parameters of GrooveImpl
-        if let Some(param) = model.groove_mut().host_parameter_mut(command) {
-            Self::parse_host_parameter(param, parts, value);
-            return;
+/// Apply `f` to the parameter bank of a parameter report; the first master FX parameter is also
+/// copied to the crossfader parameter.
+fn param_of(model: &mut Model, owner: ParamOwner, param: usize, f: impl FnOnce(&mut ParameterBank)) {
+    let Some(bank) = param_bank_mut(model, owner) else {
+        return;
+    };
+    f(bank);
+    if owner == ParamOwner::MasterFx && param == 0 {
+        // Copy the values to the crossfader parameter
+        let mut copy = None;
+        if let Some(bank) = model.project().parameter_bank() {
+            let source = bank.unpaged_item(0);
+            copy = Some((source.name().to_string(), source.does_exist(), source.internal_value(), source.displayed_value()));
         }
-        let Some(v) = parse_double(value) else {
-            return;
-        };
-        match command {
-            TAG_ACTIVE => model.groove_mut().parameter_mut(GrooveParameterId::Enabled).set_internal_value(v),
-            "amount" => model.groove_mut().parameter_mut(GrooveParameterId::ShuffleAmount).set_internal_value(v),
-            _ => Self::error(model, &format!("Unhandled Groove Parameter: {command}")),
+        if let (Some((name, exists, v, s)), Some(dest)) = (copy, model.crossfade_parameter_mut()) {
+            dest.set_internal_name(&name);
+            dest.set_exists(exists);
+            dest.set_internal_value(v);
+            dest.set_value_str(&s);
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeviceTarget {
-    Cursor,
-    Specific(DeviceId),
+/// Apply `f` to all cursor clips, which are the step grids of the host from now on.
+fn grids(model: &mut Model, mut f: impl FnMut(&mut crate::daw::clip::CursorClip)) {
+    model.for_each_cursor_clip(|clip| {
+        clip.set_host_grid();
+        f(clip);
+    });
 }
 
-fn parse_color_static(host: &crate::host::Host, value: &str) -> Option<[f64; 3]> {
-    let values: Vec<&str> = value.split(' ').collect();
-    if values.len() != 3 {
-        host.error(&format!("Color: Wrong number of arguments: {}", values.len()));
+/// The cursor clip of a grid of the host; logs an unknown grid.
+fn grid_clip(model: &mut Model, grid: crate::protocol::GridId) -> Option<&mut crate::daw::clip::CursorClip> {
+    if model.note_clip_ref(grid.steps as usize, grid.rows as usize).is_none() {
+        model.host().error(&format!("Unknown Clip Grid: {}x{}", grid.steps, grid.rows));
         return None;
     }
-    let r: f64 = values[0].trim().parse().ok()?;
-    if r < 0.0 {
-        return None;
+    model.note_clip_mut(grid.steps as usize, grid.rows as usize)
+}
+
+fn browser(model: &mut Model, f: impl FnOnce(&mut crate::daw::browser::Browser)) {
+    if let Some(browser) = model.browser_mut() {
+        f(browser);
     }
-    let g: f64 = values[1].trim().parse().ok()?;
-    let b: f64 = values[2].trim().parse().ok()?;
-    Some([r / 255.0, g / 255.0, b / 255.0])
+}
+
+/// Apply `f` to an item of a filter column or a result of the browser if it exists.
+fn browser_item(model: &mut Model, item: BrowserItem, f: impl FnOnce(&mut crate::daw::browser::BrowserColumnItem)) {
+    let Some(browser) = model.browser_mut() else {
+        return;
+    };
+    let item = match item {
+        BrowserItem::Column(column, i) => browser.filter_column_mut(column).items.get_mut(i),
+        BrowserItem::Result(i) => browser.result_item_mut(i),
+    };
+    if let Some(item) = item {
+        f(item);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daw::clip::Note;
+    use crate::daw::constants::RecordQuantization;
     use crate::backend::{BackendCall, RecordingBackend, Sender};
     use crate::daw::bank::BankItem;
     use crate::daw::clip::{NotePosition, StepState};

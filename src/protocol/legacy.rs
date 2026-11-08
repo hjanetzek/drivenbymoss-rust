@@ -106,6 +106,14 @@ impl<'a> PathReader<'a> {
         literal.split('/').all(|expected| self.next_segment() == Some(expected))
     }
 
+    /// Consume the segments of an optional literal if they follow.
+    pub fn optional(&mut self, literal: &str) {
+        let mut probe = self.clone();
+        if probe.literal(literal) {
+            *self = probe;
+        }
+    }
+
     /// Parse the next segment.
     pub fn parse<T: std::str::FromStr>(&mut self) -> Option<T> {
         self.next_segment()?.parse().ok()

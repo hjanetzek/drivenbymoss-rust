@@ -744,8 +744,12 @@ impl Model {
     /// The note clip with the given grid ID ("<steps>x<rows>", see [`CursorClip::grid_id`]).
     pub fn note_clip_by_grid_id_mut(&mut self, id: &str) -> Option<&mut CursorClip> {
         let (cols, rows) = id.split_once('x')?;
-        let key = (cols.parse().ok()?, rows.parse().ok()?);
-        self.cursor_clips.iter_mut().find(|(k, _)| *k == key).map(|(_, c)| c)
+        self.note_clip_mut(cols.parse().ok()?, rows.parse().ok()?)
+    }
+
+    /// The note clip with the given number of steps and rows if it was created.
+    pub fn note_clip_mut(&mut self, cols: usize, rows: usize) -> Option<&mut CursorClip> {
+        self.cursor_clips.iter_mut().find(|(k, _)| *k == (cols, rows)).map(|(_, c)| c)
     }
 
     /// Get the cursor clip with the given number of steps and rows if it was created.
