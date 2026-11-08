@@ -547,10 +547,12 @@ daemon, no ALSA sequencer ports, no PipeWire MIDI bridge, no JACK ports for them
   there is no query at start (the library says hello when it opens the device; a query besides
   brought a second hello which restarted the controller). The pads play through
   `ui_send_note_on` as before. Without the library the driver logs an error and stays dormant.
-- **Packaging**: the library ships in the dbm-nihost package (`/usr/lib/dbm-nihost/`), which
-  already has the C++ build (CMake), the sources and the udev rule the library needs; the
-  drivenbymoss package is unchanged (the drivers find the library at that path, or
-  `$DBM_NIHOST_LIBRARY`). The udev rule gives the nodes to the group `audio` besides `uaccess`:
+- **Packaging**: the drivenbymoss package builds the library (CMake, without ALSA) and ships it
+  next to the core, `/usr/lib/drivenbymoss/libdbm_nihost.so` (or `$DBM_NIHOST_LIBRARY`), with
+  the udev rule as `/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules`. The package
+  dbm-nihost is dropped (2026-11-08): zynthian doesn't need the daemon; it stays in
+  support/linux/ni_host for Bitwig and the like, built by hand. On a device which still has the
+  old package: `apk del dbm-nihost`. The udev rule gives the nodes to the group `audio` besides `uaccess`:
   on the Duet no session is on the seat, and the uaccess ACL disappeared at the next udev event
   of the nodes (2026-11-08 18:29, after which neither dbm-nihost nor the library could open them).
 - **Tested**: `ctest` (c_api_test), `backends/zynthian/tests` (`test_nihost_inprocess.py` with a

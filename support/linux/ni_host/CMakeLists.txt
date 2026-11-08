@@ -64,8 +64,8 @@ include(GNUInstallDirs)
 if(ALSA_FOUND)
     install(TARGETS dbm-nihost RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
-# The library in a folder of its own (the zynthian drivers look for
-# /usr/lib/dbm-nihost/libdbm_nihost.so), with its header
+# The library in a folder of its own, with its header (the package drivenbymoss installs it as
+# /usr/lib/drivenbymoss/libdbm_nihost.so, where the zynthian drivers look first)
 install(TARGETS dbm_nihost LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/dbm-nihost)
 install(FILES include/dbm_nihost.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 configure_file(packaging/dbm-nihost.service.in dbm-nihost.service @ONLY)

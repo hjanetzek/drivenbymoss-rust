@@ -26,8 +26,9 @@
 and JAM over hidraw, with the MIDI of dbm-nihost's ports (template MIDI, hello, gone, query),
 but in the driver's process instead of through dbm-nihost, ALSA, PipeWire's MIDI bridge and JACK.
 
-The library is ``$DBM_NIHOST_LIBRARY``, else ``/usr/lib/dbm-nihost/libdbm_nihost.so`` (the
-dbm-nihost package), else a build in the repository (``build-nihost`` at the top or
+The library is ``$DBM_NIHOST_LIBRARY``, else ``/usr/lib/drivenbymoss/libdbm_nihost.so`` (the
+drivenbymoss package, next to the core), else ``/usr/lib/dbm-nihost/libdbm_nihost.so`` (dbm-nihost
+0.2.0 shipped it), else a build in the repository (``build-nihost`` at the top or
 ``support/linux/ni_host/build``).
 
 The sysfs check ``hid_present`` needs no library.
@@ -44,7 +45,8 @@ KIND_JAM = 2
 
 API_VERSION = 1
 
-DEFAULT_LIBRARY = "/usr/lib/dbm-nihost/libdbm_nihost.so"
+DEFAULT_LIBRARY = "/usr/lib/drivenbymoss/libdbm_nihost.so"
+OLD_LIBRARY = "/usr/lib/dbm-nihost/libdbm_nihost.so"
 # backends/zynthian/ctrldev/dbm_zynthian -> the repository (development)
 _PARENTS = Path(__file__).resolve().parents
 REPOSITORY_LIBRARIES = [] if len(_PARENTS) < 5 else [
@@ -62,7 +64,7 @@ def library_path():
     path = os.environ.get("DBM_NIHOST_LIBRARY")
     if path:
         return path
-    for candidate in [DEFAULT_LIBRARY] + REPOSITORY_LIBRARIES:
+    for candidate in [DEFAULT_LIBRARY, OLD_LIBRARY] + REPOSITORY_LIBRARIES:
         if os.path.isfile(candidate):
             return candidate
     return DEFAULT_LIBRARY

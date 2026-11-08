@@ -520,7 +520,7 @@ drivers on two ports of one Launchpad.
 
 ### Phase 4: packaging and the device
 
-The drivenbymoss and dbm-nihost packages (§5: recipes in `nura/`, built by nura-builds' zynthian target), the generator, settings, a test on the Duet; acceptance as before
+The drivenbymoss package (§5: recipes in `nura/`, built by nura-builds' zynthian target), the generator, settings, a test on the Duet; acceptance as before
 (`pmbootstrap build` for aarch64/x86_64 without network, the LCXL on the Duet, tick thread CPU).
 
 ## 5. Packaging for Nura
@@ -534,8 +534,8 @@ no change.
 
 | Package | Recipe | Contents |
 | --- | --- | --- |
-| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/` |
-| `dbm-nihost` | `nura/dbm-nihost/APKBUILD` | `/usr/lib/dbm-nihost/libdbm_nihost.so`, which zynthian's Maschine drivers load to drive the devices in-process (ZYNTHIAN_INTEGRATION.md §10); `/usr/bin/dbm-nihost` (`support/linux/ni_host`), the udev rule (hidraw access for the group audio and uaccess, `/usr/lib/udev/rules.d/70-dbm-nihost.rules`), the systemd user service, no longer enabled (since 0.2.0: it would take the devices from the in-process drivers; before, it was enabled for every user session so that the ports existed in the kiosk session); the snd-virmidi files (Bitwig only) stay in `/usr/share/dbm-nihost/` |
+| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`; `/usr/lib/drivenbymoss/libdbm_nihost.so` (the Maschines in-process, ZYNTHIAN_INTEGRATION.md §10) and its udev rule `/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules` (hidraw for the group audio and uaccess) |
+| ~~`dbm-nihost`~~ | dropped 2026-11-08 | the drivers drive the Maschines in-process with `libdbm_nihost.so`, which the drivenbymoss package ships (see above); the daemon (`support/linux/ni_host`) is only for Bitwig and the like, built by hand. A device with the old package: `apk del dbm-nihost` |
 
 - **Native library.** `cargo build --release --frozen --lib` natively in pmbootstrap's chroot,
   with the default `lua` feature (mlua builds Lua 5.4 from its vendored C source; a native build

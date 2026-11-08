@@ -1,5 +1,8 @@
 # DrivenByMoss (Rust port) for zynthian on postmarketOS/Nura: the core library, its Python
-# binding and reference host, and the zynthian controller drivers (doc/ZYNTHIAN_PLAN.md §5).
+# binding and reference host, and the zynthian controller drivers (doc/ZYNTHIAN_PLAN.md §5), with
+# libdbm_nihost.so and its udev rule: the Maschine Mk2 and JAM drivers drive the devices over
+# hidraw in zynthian's process (support/linux/ni_host, doc/ZYNTHIAN_INTEGRATION.md §10); the
+# dbm-nihost daemon (support/linux/ni_host, no package; Bitwig and the like) is not needed.
 #
 # Built from a checkout of this repository:
 #   pmbootstrap build --src=/path/to/drivenbymoss-rust drivenbymoss
@@ -17,8 +20,8 @@ options="net !check"
 # (crossdirect) also in the host chroot, where there is no zynthian-ui (it then tries to build
 # zynthian-ui and Qt 6.12 for x86_64). The drivers only run inside zynthian anyway.
 depends="python3"
-# python3: compileall in package()
-makedepends="cargo python3"
+# python3: compileall in package(); cmake, samurai: libdbm_nihost (C++, no ALSA)
+makedepends="cargo python3 cmake samurai"
 builddir="$srcdir/$pkgname"
 
 # pmbootstrap sets RUSTC_WRAPPER=sccache, which CI's chroot doesn't have: cargo then fails
@@ -41,10 +44,19 @@ build() {
 	export CARGO_HOME="$srcdir"/cargo
 	# With Lua (the default feature): mlua builds Lua 5.4 from its vendored C source, natively
 	cargo build --release --frozen --lib
+
+	# libdbm_nihost only (the daemon, which needs ALSA, is not packaged)
+	cmake -S support/linux/ni_host -B build-nihost -G Ninja -DCMAKE_BUILD_TYPE=Release
+	cmake --build build-nihost --target dbm_nihost
 }
 
 package() {
 	install -Dm755 target/release/libdrivenbymoss.so -t "$pkgdir"/usr/lib/drivenbymoss/
+	install -Dm755 build-nihost/libdbm_nihost.so -t "$pkgdir"/usr/lib/drivenbymoss/
+	# hidraw access to the Maschines for the group audio (and uaccess). Not 70-dbm-nihost.rules:
+	# that file belongs to the former package dbm-nihost, which may still be installed
+	install -Dm644 support/linux/ni_host/packaging/70-dbm-nihost.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/70-drivenbymoss-maschine.rules
 
 	# The binding and the reference host: the drivers' default DBM_PYTHON_DIR
 	local py="$pkgdir"/usr/share/drivenbymoss/python
