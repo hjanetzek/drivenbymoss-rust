@@ -12,6 +12,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::{Chan, Cmd, DeviceAction, Dir, IntText, Pos1};
 
 use super::bank::{BankItem, PagedBank};
 use super::channel::{Channel, ChannelKind};
@@ -59,12 +60,12 @@ impl Device {
     /// With [`HostFeature::DeviceCommands`] (Bitwig) the command acts on the sibling itself
     /// (DeviceImpl), addressed by its index in the sibling window: `sibling/<index +
     /// 1>/<command>`.
-    fn send_sibling(&self, command: &str) -> bool {
+    fn send_sibling(&self, action: DeviceAction) -> bool {
         if !self.ctx.host_supports(HostFeature::DeviceCommands) {
             return false;
         }
         if self.index >= 0 {
-            self.ctx.send(Processor::Device, &format!("sibling/{}/{command}", self.index + 1));
+            self.ctx.send(Cmd::DeviceSibling { sibling: Pos1(self.index), action });
         }
         true
     }
@@ -72,22 +73,22 @@ impl Device {
     /// Toggle the bypass state of the device (DeviceImpl.toggleEnabledState:
     /// `device.isEnabled ().toggle ()`).
     pub fn toggle_enabled_state(&mut self) {
-        if !self.send_sibling("bypass") {
-            self.ctx.send_bool(Processor::Device, &format!("{}/bypass", self.index + 1), self.is_enabled);
+        if !self.send_sibling(DeviceAction::Bypass) {
+            self.ctx.send(Cmd::DeviceIndexBypass { dev: Processor::Device, device: Pos1(self.index), value: self.is_enabled });
         }
     }
 
     /// DeviceImpl.remove: `device.deleteObject ()`.
     pub fn remove(&mut self) {
-        if !self.send_sibling("remove") {
-            self.ctx.send(Processor::Device, &format!("{}/remove", self.index + 1));
+        if !self.send_sibling(DeviceAction::Remove) {
+            self.ctx.send(Cmd::DeviceIndexRemove { dev: Processor::Device, device: Pos1(self.index) });
         }
     }
 
     /// DeviceImpl.duplicate: `device.afterDeviceInsertionPoint ().copyDevices (device)`.
     pub fn duplicate(&mut self) {
-        if !self.send_sibling("duplicate") {
-            self.ctx.send(Processor::Device, &format!("{}/duplicate", self.index + 1));
+        if !self.send_sibling(DeviceAction::Duplicate) {
+            self.ctx.send(Cmd::DeviceIndexDuplicate { dev: Processor::Device, device: Pos1(self.index) });
         }
     }
 
@@ -136,8 +137,8 @@ impl BankItem for Device {
 
     /// DeviceImpl.select: `device.selectInEditor ()`.
     fn select(&mut self) {
-        if !self.send_sibling("select") {
-            self.ctx.send_int(Processor::Device, "selected", self.index + 1);
+        if !self.send_sibling(DeviceAction::Select) {
+            self.ctx.send(Cmd::DeviceSelected { dev: Processor::Device, device: Pos1(self.index) });
         }
     }
 }
@@ -214,14 +215,14 @@ impl DeviceBank {
     /// AbstractItemBankImpl.selectPreviousPage of the siblings: scroll the page backwards and
     /// select its first device 75 ms later (Bitwig).
     pub fn select_previous_page(&mut self) {
-        self.ctx.send(Processor::Device, "page/-");
+        self.ctx.send(Cmd::DevicePageStep { dir: Dir::Prev });
         self.select_first_later();
     }
 
     /// AbstractItemBankImpl.selectNextPage of the siblings: scroll the page forwards and select
     /// its first device 75 ms later (Bitwig).
     pub fn select_next_page(&mut self) {
-        self.ctx.send(Processor::Device, "page/+");
+        self.ctx.send(Cmd::DevicePageStep { dir: Dir::Next });
         self.select_first_later();
     }
 
@@ -284,7 +285,7 @@ impl BankItem for DrumPad {
     /// selections (`select_next_item` etc.) work on pads.
     fn select(&mut self) {
         if self.channel.ctx.host_supports(HostFeature::DeviceCommands) && self.channel.exists {
-            self.channel.send_cmd("select");
+            self.channel.ctx.send(Cmd::ChannelSelectInEditor { ch: self.channel.address() });
         }
     }
 }
@@ -392,7 +393,7 @@ impl DrumPadBank {
             self.bank.unpaged_item_mut(i).set_selected(i == position);
         }
         if self.host_reported {
-            self.bank.ctx.send(self.owner, &format!("pad/{position}/select"));
+            self.bank.ctx.send(Cmd::ChannelSelectInEditor { ch: Chan::Pad { owner: self.owner, i: position as i32 } });
         }
     }
 
@@ -441,12 +442,12 @@ impl DrumPadBank {
 
     /// Unmute all pads (not supported by Reaper).
     pub fn clear_mute(&mut self) {
-        self.bank.ctx.send(self.owner, "clearMute");
+        self.bank.ctx.send(Cmd::DrumClearMute { dev: self.owner });
     }
 
     /// Unsolo all pads (not supported by Reaper).
     pub fn clear_solo(&mut self) {
-        self.bank.ctx.send(self.owner, "clearSolo");
+        self.bank.ctx.send(Cmd::DrumClearSolo { dev: self.owner });
     }
 
     pub fn has_muted_pads(&self) -> bool {
@@ -467,7 +468,7 @@ impl DrumPadBank {
 
     /// Indicate the pads on the DAW user interface (not supported by Reaper).
     pub fn set_indication(&mut self, indicate: bool) {
-        self.bank.ctx.send_int(self.owner, "indicate", if indicate { 1 } else { 0 });
+        self.bank.ctx.send(Cmd::BankIndicate { bank: self.owner, value: indicate });
     }
 }
 
@@ -701,7 +702,7 @@ impl SpecificDevice {
     }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(Processor::Device, enable);
+        self.ctx.send(Cmd::enable_updates(Processor::Device, enable));
     }
 
     pub fn does_exist(&self) -> bool {
@@ -838,61 +839,61 @@ impl SpecificDevice {
 
     /// With [`HostFeature::DeviceCommands`] (Bitwig) send a command to the device itself; false
     /// otherwise.
-    fn send_own(&self, command: &str) -> bool {
+    fn send_own(&self, cmd: impl FnOnce(Processor) -> Cmd<'static>) -> bool {
         if !self.ctx.host_supports(HostFeature::DeviceCommands) {
             return false;
         }
-        self.ctx.send(self.own_processor(), command);
+        self.ctx.send(cmd(self.own_processor()));
         true
     }
 
     /// SpecificDeviceImpl.toggleWindowOpen: `device.isWindowOpen ().toggle ()`.
     pub fn toggle_window_open(&mut self) {
-        if !self.send_own("window/toggle") {
-            self.ctx.send_bool(Processor::Device, "window", !self.is_window_open);
+        if !self.send_own(|dev| Cmd::DeviceToggleWindow { dev }) {
+            self.ctx.send(Cmd::DeviceWindow { value: !self.is_window_open });
         }
     }
 
     /// SpecificDeviceImpl.toggleExpanded: `device.isExpanded ().toggle ()`.
     pub fn toggle_expanded(&mut self) {
-        if self.send_own("expand/toggle") {
+        if self.send_own(|dev| Cmd::DeviceToggleExpanded { dev }) {
             return;
         }
         self.is_expanded = !self.is_expanded;
-        self.ctx.send_bool(Processor::Device, "expand", self.is_expanded);
+        self.ctx.send(Cmd::DeviceExpand { value: self.is_expanded });
     }
 
     /// SpecificDeviceImpl.toggleParameterPageSectionVisible: `isRemoteControlsSectionVisible ().toggle ()`;
     /// nothing without the device commands of the host (Reaper has no such section).
     pub fn toggle_parameter_page_section_visible(&mut self) {
-        self.send_own("parameters/toggle");
+        self.send_own(|dev| Cmd::DeviceToggleParameterPageSection { dev });
     }
 
     /// Toggle the bypass state (DeviceImpl.toggleEnabledState: `device.isEnabled ().toggle ()`).
     pub fn toggle_enabled_state(&mut self) {
-        if !self.send_own("bypass") {
-            self.ctx.send_bool(self.processor(), &format!("{}/bypass", self.index() + 1), self.is_enabled);
+        if !self.send_own(|dev| Cmd::DeviceAction { dev, action: DeviceAction::Bypass }) {
+            self.ctx.send(Cmd::DeviceIndexBypass { dev: self.processor(), device: Pos1(self.index()), value: self.is_enabled });
         }
     }
 
     /// Select this device in the DAW (DeviceImpl.select: `device.selectInEditor ()`).
     pub fn select(&mut self) {
-        if !self.send_own("select") {
-            self.ctx.send_int(self.processor(), "selected", self.index() + 1);
+        if !self.send_own(|dev| Cmd::DeviceAction { dev, action: DeviceAction::Select }) {
+            self.ctx.send(Cmd::DeviceSelected { dev: self.processor(), device: Pos1(self.index()) });
         }
     }
 
     /// DeviceImpl.remove: `device.deleteObject ()`.
     pub fn remove(&mut self) {
-        if !self.send_own("remove") {
-            self.ctx.send(self.processor(), &format!("{}/remove", self.index() + 1));
+        if !self.send_own(|dev| Cmd::DeviceAction { dev, action: DeviceAction::Remove }) {
+            self.ctx.send(Cmd::DeviceIndexRemove { dev: self.processor(), device: Pos1(self.index()) });
         }
     }
 
     /// DeviceImpl.duplicate: `device.afterDeviceInsertionPoint ().copyDevices (device)`.
     pub fn duplicate(&mut self) {
-        if !self.send_own("duplicate") {
-            self.ctx.send(self.processor(), &format!("{}/duplicate", self.index() + 1));
+        if !self.send_own(|dev| Cmd::DeviceAction { dev, action: DeviceAction::Duplicate }) {
+            self.ctx.send(Cmd::DeviceIndexDuplicate { dev: self.processor(), device: Pos1(self.index()) });
         }
     }
 
@@ -951,7 +952,7 @@ impl SpecificDevice {
     /// Only on hosts which report the pinned state (Bitwig).
     pub fn set_pinned(&mut self, pinned: bool) {
         if self.pinned.is_some() {
-            self.ctx.send_bool(self.processor(), "pinned", pinned);
+            self.ctx.send(Cmd::DevicePinned { dev: self.processor(), value: pinned });
         }
     }
 
@@ -966,7 +967,7 @@ impl SpecificDevice {
             // CursorDeviceImpl.selectPrevious: at the first device of the sibling page, the page
             // moves as well (and selects its first device, AbstractItemBankImpl.selectPreviousPage)
             let move_bank = self.index() == 0;
-            self.ctx.send(Processor::Device, "-");
+            self.ctx.send(Cmd::DeviceStep { dir: Dir::Prev });
             if move_bank {
                 self.device_bank.select_previous_page();
             }
@@ -980,7 +981,7 @@ impl SpecificDevice {
             let name = self.device_bank.item(index as usize - 1).name().to_string();
             self.set_name(&name);
         }
-        self.ctx.send(Processor::Device, "-");
+        self.ctx.send(Cmd::DeviceStep { dir: Dir::Prev });
     }
 
     /// Select the next device of the track.
@@ -989,7 +990,7 @@ impl SpecificDevice {
             // CursorDeviceImpl.selectNext: at the last device of the sibling page, the page moves
             // as well (and selects its first device)
             let move_bank = self.index() == self.device_bank.page_size() as i32 - 1;
-            self.ctx.send(Processor::Device, "+");
+            self.ctx.send(Cmd::DeviceStep { dir: Dir::Next });
             if move_bank {
                 self.device_bank.select_next_page();
             }
@@ -1003,7 +1004,7 @@ impl SpecificDevice {
             let name = self.device_bank.item(index as usize + 1).name().to_string();
             self.set_name(&name);
         }
-        self.ctx.send(Processor::Device, "+");
+        self.ctx.send(Cmd::DeviceStep { dir: Dir::Next });
     }
 
     pub fn select_parent(&mut self) {}
@@ -1012,7 +1013,7 @@ impl SpecificDevice {
 
     /// Move the device one position to the left.
     pub fn swap_with_previous(&mut self) {
-        self.ctx.send(Processor::Device, &format!("{}/movePrev", self.index() + 1));
+        self.ctx.send(Cmd::DeviceIndexMovePrev { device: Pos1(self.index()) });
         let ps = self.device_bank.page_size();
         if ps > 0 {
             let i = (self.index() - 1).max(0) as usize;
@@ -1022,7 +1023,7 @@ impl SpecificDevice {
 
     /// Move the device one position to the right.
     pub fn swap_with_next(&mut self) {
-        self.ctx.send(Processor::Device, &format!("{}/moveNext", self.index() + 1));
+        self.ctx.send(Cmd::DeviceIndexMoveNext { device: Pos1(self.index()) });
         let ps = self.device_bank.page_size();
         if ps > 0 {
             let i = ((self.index() + 1).max(0) as usize).min(ps - 1);
@@ -1051,7 +1052,7 @@ impl SpecificDevice {
 
     /// Set the type of the band with the given index.
     pub fn set_type(&mut self, index: usize, band_type: EqualizerBandType) {
-        self.ctx.send_str(Processor::Eq, &format!("band/{index}"), &band_type.reaper_index().to_string());
+        self.ctx.send(Cmd::EqBandType { band: index, value: IntText(band_type.reaper_index()) });
     }
 
     /// Change the type of the band with the given index by the increment.

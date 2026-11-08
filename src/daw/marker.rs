@@ -7,6 +7,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::{Cmd, MarkerAction};
 
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
@@ -55,17 +56,17 @@ impl Marker {
         self.color
     }
 
-    fn send(&self, command: &str) {
-        self.ctx.send(Processor::Marker, &format!("{}/{}", self.position, command));
+    fn send(&self, action: MarkerAction) {
+        self.ctx.send(Cmd::MarkerAction { marker: self.position, action });
     }
 
     /// Move the play cursor to the marker.
     pub fn launch(&mut self, _quantized: bool) {
-        self.send("launch");
+        self.send(MarkerAction::Launch);
     }
 
     pub fn remove_marker(&mut self) {
-        self.send("remove");
+        self.send(MarkerAction::Remove);
     }
 
     // Internal setters
@@ -111,7 +112,7 @@ impl BankItem for Marker {
     }
 
     fn select(&mut self) {
-        self.send("select");
+        self.send(MarkerAction::Select);
     }
 }
 
@@ -137,22 +138,22 @@ impl MarkerBank {
     }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.bank.ctx.enable_updates(Processor::Marker, enable);
+        self.bank.ctx.send(Cmd::enable_updates(Processor::Marker, enable));
     }
 
     /// Add a marker at the play position.
     pub fn add_marker(&self) {
-        self.bank.ctx.send(Processor::Marker, "add");
+        self.bank.ctx.send(Cmd::MarkerAdd {});
     }
 
     /// Move the play cursor to the previous marker.
     pub fn select_previous_item(&mut self) {
-        self.bank.ctx.send(Processor::Marker, "previous");
+        self.bank.ctx.send(Cmd::MarkerPrevious {});
     }
 
     /// Move the play cursor to the next marker.
     pub fn select_next_item(&mut self) {
-        self.bank.ctx.send(Processor::Marker, "next");
+        self.bank.ctx.send(Cmd::MarkerNext {});
     }
 }
 

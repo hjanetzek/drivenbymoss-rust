@@ -9,6 +9,7 @@
 //! (`Model::crossfade_parameter`...) and the launcher overdub of the selected track
 //! (`Model::is_launcher_overdub` / `Model::set_launcher_overdub`).
 
+use crate::protocol::{Cmd, Dir, Signature, TempoStep, ValueOp};
 use crate::backend::Processor;
 use crate::framework::value_changer::ValueChanger;
 
@@ -93,12 +94,12 @@ impl TempoParameter {
         let increase = value_changer.is_increase(control);
         let slow = value_changer.calc_knob_change(control).abs() > 1.0;
         let dir = match (increase, slow) {
-            (true, true) => "+",
-            (true, false) => "++",
-            (false, true) => "-",
-            (false, false) => "--",
+            (true, true) => TempoStep::Plus,
+            (true, false) => TempoStep::PlusPlus,
+            (false, true) => TempoStep::Minus,
+            (false, false) => TempoStep::MinusMinus,
         };
-        self.ctx.send(Processor::Tempo, dir);
+        self.ctx.send(Cmd::TempoStep { step: dir });
     }
 
     pub fn change_value(&mut self, control: i32) {
@@ -152,11 +153,11 @@ impl MetronomeVolumeParameter {
     /// Bitwig: `metronomeVolume ().set (value, upperBound)` (`transport metronomeVolume`).
     pub fn set_normalized_value(&mut self, value: f64) {
         if self.ctx.host_supports(HostFeature::TransportCommands) {
-            self.ctx.send_double(Processor::Transport, "metronomeVolume", value);
+            self.ctx.send(Cmd::TransportMetronomeVolume { op: ValueOp::Set(value) });
             return;
         }
         self.volume = value;
-        self.ctx.send_int(Processor::MetroVol, "", (self.volume * 127.0).round() as i32);
+        self.ctx.send(Cmd::MetroVolSet { value: (self.volume * 127.0).round() as i32 });
     }
 
     /// Bitwig: RangedValueImpl.changeValue, `inc (calcKnobChange (control))`.
@@ -181,10 +182,10 @@ impl MetronomeVolumeParameter {
     pub fn inc(&mut self, increment: f64) {
         if self.ctx.host_supports(HostFeature::TransportCommands) {
             let upper = self.ctx.value_changer().upper_bound() as f64;
-            self.ctx.send_double(Processor::Transport, "metronomeVolume/inc", increment / upper);
+            self.ctx.send(Cmd::TransportMetronomeVolume { op: ValueOp::Inc(increment / upper) });
             return;
         }
-        self.ctx.send(Processor::MetroVol, if increment > 0.0 { "+" } else { "-" });
+        self.ctx.send(Cmd::MetroVolStep { dir: if increment > 0.0 { Dir::Next } else { Dir::Prev } });
     }
 
     pub fn set_internal_metronome_volume(&mut self, volume: f64) {
@@ -290,7 +291,7 @@ impl Transport {
     }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(Processor::Transport, enable);
+        self.ctx.send(Cmd::enable_updates(Processor::Transport, enable));
     }
 
     // ----------------------------------------------------------------------------------------
@@ -299,22 +300,22 @@ impl Transport {
     /// With [`HostFeature::TransportCommands`] (Bitwig) the commands of TransportImpl for
     /// Bitwig: `transport.play ()`, `stop ()`, `restart ()`, and stop and rewind (`stop ()`,
     /// `setPosition (0)` 100 ms later); record is not touched. Returns false without the feature.
-    fn send_host(&self, command: &str) -> bool {
+    fn send_host(&self, cmd: Cmd) -> bool {
         if !self.ctx.host_supports(HostFeature::TransportCommands) {
             return false;
         }
-        self.ctx.send(Processor::Transport, command);
+        self.ctx.send(cmd);
         true
     }
 
     pub fn play(&mut self) {
-        if self.send_host("play") {
+        if self.send_host(Cmd::TransportPlay {}) {
             return;
         }
         if self.is_playing && self.is_recording {
-            self.ctx.send(Processor::Record, "");
+            self.ctx.send(Cmd::RecordToggle {});
         }
-        self.ctx.send(Processor::Play, "");
+        self.ctx.send(Cmd::PlayToggle {});
     }
 
     pub fn is_playing(&self) -> bool {
@@ -322,7 +323,7 @@ impl Transport {
     }
 
     pub fn restart(&mut self) {
-        if self.send_host("restart") {
+        if self.send_host(Cmd::TransportRestart {}) {
             return;
         }
         if self.is_playing {
@@ -332,25 +333,25 @@ impl Transport {
     }
 
     pub fn stop(&mut self) {
-        if self.send_host("stop") {
+        if self.send_host(Cmd::TransportStop {}) {
             return;
         }
         if self.is_playing && self.is_recording {
-            self.ctx.send(Processor::Record, "");
+            self.ctx.send(Cmd::RecordToggle {});
         }
-        self.ctx.send(Processor::Stop, "");
+        self.ctx.send(Cmd::StopToggle {});
     }
 
     pub fn stop_and_rewind(&mut self) {
-        if self.send_host("stopAndRewind") {
+        if self.send_host(Cmd::TransportStopAndRewind {}) {
             return;
         }
         self.stop();
-        self.ctx.send_int(Processor::Time, "", 0);
+        self.ctx.send(Cmd::TimeSetInt { value: 0 });
     }
 
     pub fn start_recording(&mut self) {
-        self.ctx.send(Processor::Record, "");
+        self.ctx.send(Cmd::RecordToggle {});
     }
 
     pub fn is_recording(&self) -> bool {
@@ -361,7 +362,7 @@ impl Transport {
     // Metronome
 
     pub fn set_metronome(&mut self, on: bool) {
-        self.ctx.send_bool(Processor::Transport, "metronome", on);
+        self.ctx.send(Cmd::TransportMetronome { value: on });
     }
 
     pub fn is_metronome_on(&self) -> bool {
@@ -369,7 +370,7 @@ impl Transport {
     }
 
     pub fn toggle_metronome(&mut self) {
-        self.ctx.send(Processor::Transport, "toggleMetronome");
+        self.ctx.send(Cmd::TransportToggleMetronome {});
     }
 
     /// TransportImpl.isMetronomeTicksOn: `isMetronomeTickPlaybackEnabled ()` (Bitwig), false
@@ -379,12 +380,12 @@ impl Transport {
     }
 
     pub fn toggle_metronome_ticks(&mut self) {
-        self.send_host("toggleMetronomeTicks");
+        self.send_host(Cmd::TransportToggleMetronomeTicks {});
     }
 
     pub fn set_metronome_ticks(&mut self, on: bool) {
         if self.ctx.host_supports(HostFeature::TransportCommands) {
-            self.ctx.send_bool(Processor::Transport, "metronomeTicks", on);
+            self.ctx.send(Cmd::TransportMetronomeTicks { value: on });
         }
     }
 
@@ -423,7 +424,7 @@ impl Transport {
     }
 
     pub fn toggle_preroll_metronome(&mut self) {
-        self.ctx.send(Processor::Transport, "togglePrerollMetronome");
+        self.ctx.send(Cmd::TransportTogglePrerollMetronome {});
     }
 
     pub fn preroll_measures(&self) -> i32 {
@@ -432,7 +433,7 @@ impl Transport {
 
     pub fn set_preroll_measures(&mut self, measures: i32) {
         self.preroll_measures = measures;
-        self.ctx.send_int(Processor::IniFile, "reaper/prerollmeas", measures);
+        self.ctx.send(Cmd::IniFilePrerollMeasures { value: measures });
     }
 
     // ----------------------------------------------------------------------------------------
@@ -440,12 +441,12 @@ impl Transport {
 
     pub fn set_loop(&mut self, on: bool) {
         if on != self.is_looping {
-            self.ctx.send_int(Processor::Repeat, "", 1);
+            self.ctx.send(Cmd::RepeatToggle {});
         }
     }
 
     pub fn toggle_loop(&mut self) {
-        self.ctx.send_int(Processor::Repeat, "", 1);
+        self.ctx.send(Cmd::RepeatToggle {});
     }
 
     pub fn is_loop(&self) -> bool {
@@ -483,7 +484,7 @@ impl Transport {
             AutomationMode::Latch => 4,
             AutomationMode::LatchPreview => 5,
         };
-        self.ctx.send_int(Processor::Automation, "", id);
+        self.ctx.send(Cmd::AutomationMode { value: id });
     }
 
     pub fn previous_automation_write_mode(&mut self) {
@@ -517,7 +518,7 @@ impl Transport {
 
     pub fn toggle_write_arranger_automation(&mut self) {
         if self.host_automation.is_some() {
-            self.ctx.send(Processor::Automation, "toggleArranger");
+            self.ctx.send(Cmd::AutomationToggleArranger {});
             return;
         }
         if self.is_writing_arranger_automation() {
@@ -530,14 +531,14 @@ impl Transport {
     /// Only on hosts with a clip launcher automation switch (Bitwig).
     pub fn toggle_write_clip_launcher_automation(&mut self) {
         if self.host_automation.is_some() {
-            self.ctx.send(Processor::Automation, "toggleLauncher");
+            self.ctx.send(Cmd::AutomationToggleLauncher {});
         }
     }
 
     /// Only on hosts with automation overrides (Bitwig).
     pub fn reset_automation_overrides(&mut self) {
         if self.host_automation.is_some() {
-            self.ctx.send(Processor::Automation, "resetOverrides");
+            self.ctx.send(Cmd::AutomationResetOverrides {});
         }
     }
 
@@ -566,19 +567,19 @@ impl Transport {
 
     fn set_position_with_snap(&mut self, time: f64, snap: bool) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.position = time;
         self.ctx.update_transport_snapshot(|s| s.position = time);
         if snap {
-            self.ctx.send_double(Processor::Time, "", self.position);
+            self.ctx.send(Cmd::TimeSet { value: self.position });
         } else {
-            self.ctx.send_double(Processor::Time, "nosnap", self.position);
+            self.ctx.send(Cmd::TimeSetNoSnap { value: self.position });
         }
     }
 
     pub fn set_position_to_end(&mut self) {
-        self.ctx.send(Processor::Transport, "end");
+        self.ctx.send(Cmd::TransportEnd {});
     }
 
     /// The play position in quarter notes.
@@ -589,10 +590,10 @@ impl Transport {
     /// Set the play position in quarter notes; snapped to the grid if `snap` is set.
     pub fn set_position_beats(&mut self, beats: f64, snap: bool) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.position_beats = beats;
-        self.ctx.send_double(Processor::Beats, if snap { "position" } else { "position/nosnap" }, beats);
+        self.ctx.send(if snap { Cmd::BeatsPosition { value: beats } } else { Cmd::BeatsPositionNoSnap { value: beats } });
     }
 
     /// Move the play position depending on the zoom level.
@@ -654,19 +655,19 @@ impl Transport {
 
     pub fn set_loop_start(&mut self, time: f64) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.loop_start = time;
-        self.ctx.send_double(Processor::Time, "loop/start", self.loop_start);
+        self.ctx.send(Cmd::TimeLoopStart { value: self.loop_start });
     }
 
     /// Set the loop start in quarter notes, the length stays the same.
     pub fn set_loop_start_beats(&mut self, beats: f64) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.loop_start_beats = beats;
-        self.ctx.send_double(Processor::Beats, "loop/start", beats);
+        self.ctx.send(Cmd::BeatsLoopStart { value: beats });
     }
 
     pub fn change_loop_start(&mut self, increase: bool, slow: bool) {
@@ -685,19 +686,19 @@ impl Transport {
 
     pub fn set_loop_length(&mut self, time: f64) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.loop_length = time;
-        self.ctx.send_double(Processor::Time, "loop/length", self.loop_length);
+        self.ctx.send(Cmd::TimeLoopLength { value: self.loop_length });
     }
 
     /// Set the loop length in quarter notes.
     pub fn set_loop_length_beats(&mut self, beats: f64) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(Processor::Transport);
+            self.ctx.send(Cmd::DelayUpdates { area: Processor::Transport });
         }
         self.loop_length_beats = beats;
-        self.ctx.send_double(Processor::Beats, "loop/length", beats);
+        self.ctx.send(Cmd::BeatsLoopLength { value: beats });
     }
 
     pub fn change_loop_length(&mut self, increase: bool, slow: bool) {
@@ -714,7 +715,7 @@ impl Transport {
     // each other.
 
     pub fn toggle_punch_in(&mut self) {
-        if self.send_host("togglePunchIn") {
+        if self.send_host(Cmd::TransportTogglePunchIn {}) {
             return;
         }
         let v = !self.is_punch_in_enabled();
@@ -722,7 +723,7 @@ impl Transport {
     }
 
     pub fn set_punch_in(&mut self, enable: bool) {
-        self.ctx.send_bool(Processor::Transport, "punchIn", enable);
+        self.ctx.send(Cmd::TransportPunchIn { value: enable });
         if !self.ctx.host_supports(HostFeature::TransportCommands) {
             self.punch_mode = if enable { PUNCH_LOOP } else { PUNCH_OFF };
         }
@@ -736,7 +737,7 @@ impl Transport {
     }
 
     pub fn toggle_punch_out(&mut self) {
-        if self.send_host("togglePunchOut") {
+        if self.send_host(Cmd::TransportTogglePunchOut {}) {
             return;
         }
         let v = !self.is_punch_out_enabled();
@@ -744,7 +745,7 @@ impl Transport {
     }
 
     pub fn set_punch_out(&mut self, enable: bool) {
-        self.ctx.send_bool(Processor::Transport, "punchOut", enable);
+        self.ctx.send(Cmd::TransportPunchOut { value: enable });
         if !self.ctx.host_supports(HostFeature::TransportCommands) {
             self.punch_mode = if enable { PUNCH_ITEMS } else { PUNCH_OFF };
         }
@@ -773,17 +774,17 @@ impl Transport {
     // Tempo
 
     pub fn tap_tempo(&mut self) {
-        self.ctx.send(Processor::Transport, "tapTempo");
+        self.ctx.send(Cmd::TransportTapTempo {});
     }
 
     pub fn change_tempo(&mut self, increase: bool, slow: bool) {
         let dir = match (increase, slow) {
-            (true, true) => "+",
-            (true, false) => "++",
-            (false, true) => "-",
-            (false, false) => "--",
+            (true, true) => TempoStep::Plus,
+            (true, false) => TempoStep::PlusPlus,
+            (false, true) => TempoStep::Minus,
+            (false, false) => TempoStep::MinusMinus,
         };
-        self.ctx.send(Processor::Tempo, dir);
+        self.ctx.send(Cmd::TempoStep { step: dir });
     }
 
     pub fn tempo_parameter(&self) -> &TempoParameter {
@@ -795,7 +796,7 @@ impl Transport {
     }
 
     pub fn set_tempo(&mut self, tempo: f64) {
-        self.ctx.send_double(Processor::Tempo, "", tempo);
+        self.ctx.send(Cmd::TempoSet { value: tempo });
     }
 
     /// The tempo in BPM.
@@ -839,7 +840,7 @@ impl Transport {
     }
 
     pub fn set_time_signature(&mut self, numerator: i32, denominator: i32) {
-        self.ctx.send_int(Processor::Time, "signature", numerator + denominator * 100);
+        self.ctx.send(Cmd::TimeSignature { value: Signature { numerator, denominator } });
     }
 
     pub fn quarters_per_measure(&self) -> i32 {
@@ -876,12 +877,12 @@ impl Transport {
 
     pub fn set_fill_mode_active(&mut self, active: bool) {
         if self.ctx.host_supports(HostFeature::TransportCommands) {
-            self.ctx.send_bool(Processor::Transport, "fill", active);
+            self.ctx.send(Cmd::TransportFill { value: active });
         }
     }
 
     pub fn toggle_fill_mode_active(&mut self) {
-        self.send_host("toggleFill");
+        self.send_host(Cmd::TransportToggleFill {});
     }
 
     // ----------------------------------------------------------------------------------------
@@ -946,7 +947,7 @@ impl Transport {
     /// Set an overdub switch of the host (Bitwig), as `TransportImpl.setOverdub` /
     /// `setLauncherOverdub`.
     pub(crate) fn send_overdub(&self, launcher: bool, on: bool) {
-        self.ctx.send_bool(Processor::Transport, if launcher { "overdub/launcher" } else { "overdub/arranger" }, on);
+        self.ctx.send(if launcher { Cmd::TransportOverdubLauncher { value: on } } else { Cmd::TransportOverdubArranger { value: on } });
     }
 
     /// The host reported its clip launcher automation write switch (Bitwig).

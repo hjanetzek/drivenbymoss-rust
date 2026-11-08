@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 use super::context::DawContext;
 use crate::backend::Processor;
+use crate::protocol::Cmd;
 use super::events::ModelEvent;
 use super::model::Model;
 
@@ -60,8 +61,8 @@ pub struct PagedBank<T> {
     pub(crate) item_count: usize,
     pub(crate) bank_offset: usize,
     page_event: Option<ModelEvent>,
-    /// The name of the bank for the host's `bank` command, if the host can page it.
-    host_bank: Option<&'static str>,
+    /// The bank in the host's `bank` command (`bank scene`), if the host can page it.
+    host_bank: Option<Processor>,
     /// True if the host pages the bank (it reported the bank offset, protocol v2): the host only
     /// reports the items of its window and is told each change of the bank offset.
     host_paged: bool,
@@ -128,7 +129,7 @@ impl<T: BankItem + 'static> PagedBank<T> {
     }
 
     /// Set the name with which the host can page this bank (`bank <name> <offset>`).
-    pub(crate) fn set_host_bank(&mut self, name: &'static str) {
+    pub(crate) fn set_host_bank(&mut self, name: Processor) {
         self.host_bank = Some(name);
     }
 
@@ -148,7 +149,7 @@ impl<T: BankItem + 'static> PagedBank<T> {
 
     fn send_bank_offset(&self) {
         if let (true, Some(name)) = (self.host_paged, self.host_bank) {
-            self.ctx.send_int(Processor::Bank, name, self.bank_offset as i32);
+            self.ctx.send(Cmd::BankScroll { bank: name, offset: self.bank_offset as i32 });
         }
     }
 

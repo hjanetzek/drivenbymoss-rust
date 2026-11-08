@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::{Chan, Cmd, Rgb};
 
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
@@ -383,8 +384,7 @@ impl Channel {
 
     /// Set the color of the channel in the DAW.
     pub fn set_color(&mut self, color: ColorEx) {
-        let [r, g, b] = color.to_int_rgb255();
-        self.send_str("color", &format!("RGB({r},{g},{b})"));
+        self.ctx.send(Cmd::ChannelColor { ch: self.address(), value: Rgb(color.to_int_rgb255()) });
     }
 
     // ----------------------------------------------------------------------------------------
@@ -396,10 +396,10 @@ impl Channel {
 
     pub fn set_mute(&mut self, value: bool) {
         if self.ctx.is_automation_rec_active() {
-            self.ctx.delay_updates(if self.kind == ChannelKind::Track { self.owner } else { Processor::Track });
+            self.ctx.send(Cmd::DelayUpdates { area: if self.kind == ChannelKind::Track { self.owner } else { Processor::Track } });
         }
         self.set_mute_state(value);
-        self.send_bool("mute", value);
+        self.ctx.send(Cmd::ChannelMute { ch: self.address(), value });
     }
 
     pub fn toggle_mute(&mut self) {
@@ -412,14 +412,14 @@ impl Channel {
 
     pub fn set_solo(&mut self, value: bool) {
         self.set_solo_state(value);
-        self.send_bool("solo", value);
+        self.ctx.send(Cmd::ChannelSolo { ch: self.address(), value });
     }
 
     /// ChannelImpl.toggleSolo: `solo ().toggleUsingPreferences (false)` on Bitwig (exclusive
     /// solo as set in Bitwig's preferences): `solo/toggle`.
     pub fn toggle_solo(&mut self) {
         if self.ctx.host_supports(HostFeature::SoloToggle) {
-            self.send_cmd("solo/toggle");
+            self.ctx.send(Cmd::ChannelSoloToggle { ch: self.address() });
             return;
         }
         self.set_solo(!self.is_solo());
@@ -498,7 +498,7 @@ impl Channel {
             return;
         }
         self.is_activated = enable;
-        self.send_bool("active", enable);
+        self.ctx.send(Cmd::ChannelActive { ch: self.address(), value: enable });
     }
 
     pub fn toggle_is_activated(&mut self) {
@@ -508,21 +508,21 @@ impl Channel {
 
     /// Remove the channel.
     pub fn remove(&mut self) {
-        self.send_cmd("remove");
+        self.ctx.send(Cmd::ChannelRemove { ch: self.address() });
     }
 
     /// Duplicate the channel.
     pub fn duplicate(&mut self) {
-        self.send_cmd("duplicate");
+        self.ctx.send(Cmd::ChannelDuplicate { ch: self.address() });
     }
 
     /// Add the device with the given creation name to the channel.
     pub fn add_device(&mut self, creation_name: &str) {
-        self.ctx.send_str(Processor::Device, "add/0", creation_name);
+        self.ctx.send(Cmd::DeviceAdd { name: creation_name });
     }
 
     pub fn add_equalizer_device(&mut self) {
-        self.ctx.send(Processor::Eq, "add");
+        self.ctx.send(Cmd::EqAdd {});
     }
 
     pub fn send_bank(&self) -> &SendBank {
@@ -538,7 +538,7 @@ impl Channel {
             return;
         }
         match self.kind {
-            ChannelKind::Track | ChannelKind::Master => self.send_int("select", 1),
+            ChannelKind::Track | ChannelKind::Master => self.ctx.send(Cmd::ChannelSelect { ch: self.address(), value: true }),
             _ => {}
         }
     }
@@ -546,44 +546,17 @@ impl Channel {
     // ----------------------------------------------------------------------------------------
     // Sending
 
-    fn processor(&self) -> Processor {
+    /// The address of the channel in the commands (processor and prefix): tracks `<owner>
+    /// <position>/…` (`track` or `fxtrack`), the master `master …`, drum pads and layers `<owner>
+    /// pad|layer/<position>/…` (protocol v2; Reaper ignores them), others `track <position>/…`.
+    pub(crate) fn address(&self) -> Chan {
         match self.kind {
-            ChannelKind::Master => Processor::Master,
-            // Drum pads and layers have their own commands (protocol v2); Reaper ignores them
-            // Tracks: `track`, effect tracks `fxtrack`
-            ChannelKind::DrumPad | ChannelKind::Layer | ChannelKind::Track => self.owner,
-            _ => Processor::Track,
+            ChannelKind::Master => Chan::Master,
+            ChannelKind::DrumPad => Chan::Pad { owner: self.owner, i: self.position },
+            ChannelKind::Layer => Chan::Layer { owner: self.owner, i: self.position },
+            ChannelKind::Track => Chan::Track { bank: self.owner, p: self.position },
+            ChannelKind::Empty => Chan::Track { bank: Processor::Track, p: self.position },
         }
-    }
-
-    /// Create the command with the position prefix.
-    pub(crate) fn create_command(&self, command: &str) -> String {
-        match self.kind {
-            ChannelKind::Master => command.to_string(),
-            ChannelKind::DrumPad => format!("pad/{}/{}", self.position, command),
-            ChannelKind::Layer => format!("layer/{}/{}", self.position, command),
-            _ => format!("{}/{}", self.position, command),
-        }
-    }
-
-    pub(crate) fn send_cmd(&self, command: &str) {
-        self.ctx.send(self.processor(), &self.create_command(command));
-    }
-
-    pub(crate) fn send_int(&self, command: &str, value: i32) {
-        self.ctx.send_int(self.processor(), &self.create_command(command), value);
-    }
-
-    pub(crate) fn send_bool(&self, command: &str, value: bool) {
-        self.ctx.send_bool(self.processor(), &self.create_command(command), value);
-    }
-
-    pub(crate) fn send_double(&self, command: &str, value: f64) {
-        self.ctx.send_double(self.processor(), &self.create_command(command), value);
-    }
-
-    pub(crate) fn send_str(&self, command: &str, value: &str) {
-        self.ctx.send_str(self.processor(), &self.create_command(command), value);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -687,7 +660,7 @@ impl BankItem for Channel {
     /// back. Tracks, the master and drum pads have their own selection.
     fn select(&mut self) {
         if self.kind == ChannelKind::Layer {
-            self.send_cmd("select");
+            self.ctx.send(Cmd::ChannelSelectInEditor { ch: self.address() });
         }
     }
 

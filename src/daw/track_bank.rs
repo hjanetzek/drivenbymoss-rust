@@ -13,6 +13,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::{Chan, Cmd};
 
 use super::bank::BankItem;
 use super::clip::Note;
@@ -132,7 +133,7 @@ impl TrackBank {
 
     /// Enable or disable the updates of the track data.
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(self.processor, enable);
+        self.ctx.send(Cmd::enable_updates(self.processor, enable));
     }
 
     // ----------------------------------------------------------------------------------------
@@ -343,7 +344,7 @@ impl TrackBank {
         }
         let ps = self.page_size.max(1);
         let pos = if adjust_page { position / ps * ps } else { position };
-        self.ctx.send(self.processor, &format!("{pos}/scrollto"));
+        self.ctx.send(Cmd::TrackScrollTo { ch: Chan::Track { bank: self.processor, p: pos as i32 } });
     }
 
     fn scroll_page_backwards(&mut self) {
@@ -365,10 +366,10 @@ impl TrackBank {
         }
         if let Some(selected) = self.selected_item() {
             let pos = selected.position();
-            self.ctx.send_int(self.processor, &format!("{pos}/select"), 0);
+            self.ctx.send(Cmd::ChannelSelect { ch: Chan::Track { bank: self.processor, p: pos }, value: false });
         }
         let sel_pos = self.item(sel_index).position();
-        self.ctx.send_int(self.processor, &format!("{sel_pos}/select"), 1);
+        self.ctx.send(Cmd::ChannelSelect { ch: Chan::Track { bank: self.processor, p: sel_pos }, value: true });
     }
 
     /// Set the position of the first track of the page (clamped).
@@ -377,7 +378,7 @@ impl TrackBank {
         let old_offset = self.bank_offset;
         self.bank_offset = bank_offset.clamp(0, max) as usize;
         if self.host_paged && self.bank_offset != old_offset {
-            self.ctx.send_int(Processor::Bank, self.processor.id(), self.bank_offset as i32);
+            self.ctx.send(Cmd::BankScroll { bank: self.processor, offset: self.bank_offset as i32 });
         }
         self.ctx.post_event(ModelEvent::TrackBankPageChanged);
     }
@@ -388,7 +389,7 @@ impl TrackBank {
         if !self.host_paged {
             self.host_paged = true;
             self.ctx.set_host_paging();
-            self.ctx.send_int(Processor::Bank, self.processor.id(), self.bank_offset as i32);
+            self.ctx.send(Cmd::BankScroll { bank: self.processor, offset: self.bank_offset as i32 });
         }
     }
 
@@ -558,7 +559,7 @@ impl TrackBank {
     /// state (Bitwig: all tracks, not only the known ones).
     pub fn clear_solo(&mut self) {
         if self.host_project_solo.is_some() {
-            self.ctx.send(Processor::Project, "unsoloAll");
+            self.ctx.send(Cmd::ProjectUnsoloAll {});
             return;
         }
         for track in &mut self.tracks {
@@ -570,7 +571,7 @@ impl TrackBank {
     /// state (Bitwig).
     pub fn clear_mute(&mut self) {
         if self.host_project_mute.is_some() {
-            self.ctx.send(Processor::Project, "unmuteAll");
+            self.ctx.send(Cmd::ProjectUnmuteAll {});
             return;
         }
         for track in &mut self.tracks {
@@ -595,14 +596,14 @@ impl TrackBank {
 
     /// Stop all clips (not supported by Reaper).
     pub fn stop(&mut self, is_alternative: bool) {
-        self.ctx.send(Processor::Scene, if is_alternative { "stopAlt" } else { "stop" });
+        self.ctx.send(if is_alternative { Cmd::SceneStopAllAlt {} } else { Cmd::SceneStopAll {} });
     }
 
     /// AbstractTrackBankImpl.setIndication: `trackBank.setShouldShowClipLauncherFeedback` on
     /// Bitwig (`track indicate <0|1>`).
     pub fn set_indication(&mut self, enable: bool) {
         if self.ctx.host_supports(HostFeature::Indication) {
-            self.ctx.send_bool(self.processor, "indicate", enable);
+            self.ctx.send(Cmd::BankIndicate { bank: self.processor, value: enable });
         }
     }
 
@@ -870,7 +871,7 @@ pub(crate) fn add_channel(ctx: &DawContext, channel_type: ChannelType, name: Opt
     };
     let mut params: Vec<&str> = vec![type_str, name.unwrap_or(""), &color_txt];
     params.extend_from_slice(devices);
-    ctx.send_strs(Processor::Track, "addTrack", &params);
+    ctx.send(Cmd::TrackAdd { params });
 }
 
 /// Gives mutable access to the scene bank and synchronizes the slot banks when dropped.

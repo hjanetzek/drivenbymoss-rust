@@ -12,6 +12,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::Cmd;
 
 use super::bank::BankItem;
 use super::channel::{Channel, ChannelKind};
@@ -147,13 +148,13 @@ impl Track {
     /// Add the track to the multi-selection or remove it.
     pub fn toggle_multi_select(&mut self) {
         if self.does_exist() && !self.is_master() {
-            self.channel.send_int("toggleMultiSelect", 1);
+            self.channel.ctx.send(Cmd::TrackToggleMultiSelect { ch: self.channel.address() });
         }
     }
 
     /// Rename the track.
     pub fn set_name(&mut self, name: &str) {
-        self.channel.send_str("name", name);
+        self.channel.ctx.send(Cmd::TrackName { ch: self.channel.address(), name });
     }
 
     /// The crossfader parameter of the track (not supported in Reaper, does not exist).
@@ -180,7 +181,7 @@ impl Track {
 
     pub fn set_group_expanded(&mut self, is_expanded: bool) {
         self.is_group_expanded = is_expanded;
-        self.channel.send_bool("isGroupExpanded", is_expanded);
+        self.channel.ctx.send(Cmd::TrackGroupExpanded { ch: self.channel.address(), value: is_expanded });
     }
 
     pub fn toggle_group_expanded(&mut self) {
@@ -197,7 +198,7 @@ impl Track {
             return;
         }
         self.set_rec_arm_state(value);
-        self.channel.send_bool("recarm", value);
+        self.channel.ctx.send(Cmd::TrackRecArm { ch: self.channel.address(), value });
     }
 
     pub fn toggle_rec_arm(&mut self) {
@@ -214,7 +215,7 @@ impl Track {
             return;
         }
         self.monitor = value;
-        self.channel.send_int("monitor", i32::from(value));
+        self.channel.ctx.send(Cmd::TrackMonitor { ch: self.channel.address(), value: i32::from(value) });
     }
 
     pub fn toggle_monitor(&mut self) {
@@ -231,7 +232,7 @@ impl Track {
             return;
         }
         self.auto_monitor = value;
-        self.channel.send_bool("autoMonitor", value);
+        self.channel.ctx.send(Cmd::TrackAutoMonitor { ch: self.channel.address(), value });
     }
 
     pub fn toggle_auto_monitor(&mut self) {
@@ -259,12 +260,13 @@ impl Track {
 
     /// Stop the playing clip of the track (not supported by Reaper).
     pub fn stop(&mut self, is_alternative: bool) {
-        self.channel.send_cmd(if is_alternative { "stopAlt" } else { "stop" });
+        let ch = self.channel.address();
+        self.channel.ctx.send(if is_alternative { Cmd::TrackStopAlt { ch } } else { Cmd::TrackStop { ch } });
     }
 
     /// Switch the track back to the arranger (not supported by Reaper).
     pub fn return_to_arrangement(&mut self) {
-        self.channel.send_cmd("returnToArrangement");
+        self.channel.ctx.send(Cmd::TrackReturnToArrangement { ch: self.channel.address() });
     }
 
     pub fn set_stopped_state(&mut self, is_stopped: bool) {
@@ -284,7 +286,7 @@ impl Track {
     /// Bitwig; not supported by Reaper.
     pub fn toggle_record_quantization_note_length(&mut self) {
         if self.channel.ctx.host_record_quantization().is_some() {
-            self.channel.ctx.send(Processor::Application, "recordQuantization/noteLength/toggle");
+            self.channel.ctx.send(Cmd::ApplicationToggleRecordQuantizationNoteLength {});
         }
     }
 
@@ -300,11 +302,11 @@ impl Track {
     /// (`application recordQuantization <OFF|1/32|1/16|1/8|1/4>`).
     pub fn set_record_quantization_grid(&mut self, rq: RecordQuantization) {
         if self.channel.ctx.host_record_quantization().is_some() {
-            self.channel.ctx.send_str(Processor::Application, "recordQuantization", rq.value());
+            self.channel.ctx.send(Cmd::ApplicationRecordQuantization { value: rq.value() });
             return;
         }
         self.record_quantization = rq;
-        self.channel.send_double("inQuantResolution", rq.beats());
+        self.channel.ctx.send(Cmd::TrackInQuantResolution { ch: self.channel.address(), value: rq.beats() });
     }
 
     pub fn previous_record_quantization(&mut self) {
@@ -334,12 +336,12 @@ impl Track {
     /// Create a new clip in the slot with the given absolute position (Reaper ignores the slot and
     /// creates the clip at the edit cursor).
     pub fn create_clip(&mut self, slot_position: i32, length_in_beats: i32) {
-        self.channel.send_int(&format!("createClip/{slot_position}"), length_in_beats);
+        self.channel.ctx.send(Cmd::TrackCreateClip { ch: self.channel.address(), slot: slot_position, length: length_in_beats });
     }
 
     /// Record a new clip.
     pub fn record_clip(&mut self) {
-        self.channel.send_cmd("recordClip");
+        self.channel.ctx.send(Cmd::TrackRecordClip { ch: self.channel.address() });
     }
 
     /// Not supported.
@@ -366,17 +368,17 @@ impl Track {
 
     /// Move the track one position up.
     pub fn swap_with_previous(&mut self) {
-        self.channel.send_cmd("movePrev");
+        self.channel.ctx.send(Cmd::TrackMovePrev { ch: self.channel.address() });
     }
 
     /// Move the track one position down.
     pub fn swap_with_next(&mut self) {
-        self.channel.send_cmd("moveNext");
+        self.channel.ctx.send(Cmd::TrackMoveNext { ch: self.channel.address() });
     }
 
     pub fn enable_observers(&self, enable: bool) {
         if self.is_master() {
-            self.channel.ctx.enable_updates(Processor::Master, enable);
+            self.channel.ctx.send(Cmd::enable_updates(Processor::Master, enable));
         }
     }
 

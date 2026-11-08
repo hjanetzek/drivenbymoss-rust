@@ -15,10 +15,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::backend::Processor;
 use crate::daw::bank::BankItem;
 use crate::daw::context::HostFeature;
 use crate::framework::ctx::Ctx;
+use crate::protocol::{Cmd, Dir, NavigatorTarget};
 
 /// The interval of the slot selection task.
 const SELECT_SLOT_INTERVAL_MS: u64 = 50;
@@ -37,17 +37,17 @@ pub struct ClipLauncherNavigator {
 pub type SharedNavigator = Rc<RefCell<ClipLauncherNavigator>>;
 
 /// True if the host has its own navigator; then the command was sent to it.
-fn send_to_host(ctx: &Ctx, command: &str, is_left: bool) -> bool {
+fn send_to_host(ctx: &Ctx, target: NavigatorTarget, is_left: bool) -> bool {
     if !ctx.model.ctx().host_supports(HostFeature::ClipLauncherNavigator) {
         return false;
     }
-    ctx.model.ctx().send(Processor::Navigator, &format!("{command}/{}", if is_left { "-" } else { "+" }));
+    ctx.model.ctx().send(Cmd::NavigatorStep { target, dir: if is_left { Dir::Prev } else { Dir::Next } });
     true
 }
 
 /// Select the previous or next scene (former `navigateScenes`).
 pub fn navigate_scenes(ctx: &mut Ctx, is_left: bool) {
-    if send_to_host(ctx, "scenes", is_left) {
+    if send_to_host(ctx, NavigatorTarget::Scenes, is_left) {
         return;
     }
     let mut scene_bank = ctx.model.scene_bank_mut();
@@ -60,7 +60,7 @@ pub fn navigate_scenes(ctx: &mut Ctx, is_left: bool) {
 
 /// Select the previous or next clip of the cursor track (former `navigateClips`).
 pub fn navigate_clips(ctx: &mut Ctx, is_left: bool) {
-    if send_to_host(ctx, "clips", is_left) {
+    if send_to_host(ctx, NavigatorTarget::Clips, is_left) {
         return;
     }
     select_clip(ctx, is_left);
@@ -97,7 +97,7 @@ fn current_target_slot(ctx: &Ctx) -> Option<i32> {
 /// Select the previous or next track and move the selected slot as well (former
 /// `navigateTracks`).
 pub fn navigate_tracks(navigator: &SharedNavigator, ctx: &mut Ctx, is_left: bool) {
-    if send_to_host(ctx, "tracks", is_left) {
+    if send_to_host(ctx, NavigatorTarget::Tracks, is_left) {
         return;
     }
     if !ctx.model.cursor_track_exists() {
@@ -133,7 +133,7 @@ pub fn select_track(navigator: &SharedNavigator, ctx: &mut Ctx, index: usize) {
             return;
         }
         let position = first.position() + index as i32;
-        ctx.model.ctx().send_int(Processor::Navigator, "selectTrack", position);
+        ctx.model.ctx().send(Cmd::NavigatorSelectTrack { position });
         ctx.model.track_bank_mut().item_mut(index).select();
         return;
     }

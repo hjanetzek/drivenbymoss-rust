@@ -1,6 +1,8 @@
 # A typed, binary protocol between the core and its hosts: plan
 
-Status: plan only, nothing implemented (2026-11-08). The decision and the motivation are in
+Status: **step 0a done** (2026-11-08, branch `typed-protocol`): the command table in
+`src/protocol/`, `Cmd`/`CmdId`, the core sends `Cmd` values, the text on the wire is unchanged.
+Next: step 0b. What was done, the choices and the deviations from this plan: §6. The decision and the motivation are in
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
@@ -699,16 +701,19 @@ protocol.
 5. ~~Recordings by binary hosts~~: **decided**: the `.rec` format stays text (through
    `dbm_messages_to_text`), and the recorder moves into the core, so that every host can record
    (today only the Bitwig extension's `ProtocolRecorder` does).
-6. **Doubles in new recordings:** the shortest round-trip form (exact, recommended), or `%.6f`
-   (matches old recordings, loses precision)?
-7. **The grid id:** pack `steps<<8|rows` into one u16 index (needs both ≤ 255), or a fifth index
-   or the position in the model setup's `noteClips`?
-8. **In-core diffing** (`DBM_REPORT_FULL`, §2.4): wanted as an option for simple hosts, or not
-   at all?
-9. **The inconsistent names** (slot `selected` vs scene `select`, `/click/volumeStr`,
-   `/time/str` vs `/time/text`): normalize them in the typed names only (the text stays as it
-   is, recommended), or also in the text form, which would need a conversion of the 21
-   recordings?
+6. ~~Doubles in new recordings~~: **decided** (2026-11-08): the exact shortest round-trip form
+   (`{}` in Rust). Old recordings keep `%.6f`; the text parser accepts both. Applies when the
+   recorder moves into the core (step 1 or later); step 0a writes no recordings.
+7. ~~The grid id~~: **decided** (2026-11-08): one u16 index `steps << 8 | rows` in the binary
+   form, checked (both ≤ 255) when the model setup is created (step 1). All grids of the code
+   are ≤ 64 × 128. In Rust it is `protocol::GridId { steps, rows }` (u16 each), written
+   `<steps>x<rows>` in the legacy text.
+8. ~~In-core diffing~~: **decided** (2026-11-08): not now. The host-side compare stays (§2.4).
+9. ~~The inconsistent names~~: **decided** (2026-11-08): normalized in the typed names only; the
+   text form stays as it is, so the 21 recordings stay valid. In step 0a the command names are
+   uniform already (e.g. `SlotAction::Select`, `SceneAction::Select`, `MarkerAction::Select`);
+   the address names (slot `selected` vs scene `select`, `/click/volumeStr`, `/time/str` vs
+   `/time/text`) are normalized in `Msg` in step 0b.
 
 ### 5.4 The recommended first step
 
@@ -735,3 +740,92 @@ What it brings at once:
 
 Step 0b (`Msg` + `apply`) follows with the same "nothing changes on the wire" property. Step 1
 then follows, with the binary replay mode as its proof.
+
+---
+
+## 6. Implementation status
+
+### 6.1 Step 0a (done 2026-11-08)
+
+**What is there**
+- `src/protocol/macros.rs`: the `commands!` macro (`macro_rules!`, no dependency). An entry is
+  `Name = 0x8301 { field: Type, … } @ <processor> [ <segments> ] => <value>, feature = F;`.
+  It expands into `Cmd<'a>`, `CmdId` (`#[repr(u16)]`, `CmdId::ALL`, `info()`), `Cmd::id`,
+  `Cmd::legacy()`, `Cmd::from_legacy()` and the metadata table `COMMANDS: &[CmdInfo]` (name,
+  processor, template such as `{ch}/send/{send}/volume`, fields with their Rust types, value,
+  feature).
+- `src/protocol/cmd.rs`: the table, **236 entries** in blocks of 0x100 per area (0x81
+  transport … 0x8B note repeat/groove; the block list is in the file's header). With the action
+  domains below they cover all ≈300 command forms of §1.3.
+- `src/protocol/legacy.rs`: the legacy form (`Legacy { processor, command, arg }`, `Arg::{None,
+  Int, Double, Str, Strs, Delay, Enable}`) and the traits which convert the typed fields:
+  `Field` (path segments), `ProcField` (a field selecting the processor), `Value` (the value
+  with its legacy callback kind, e.g. `bool` → `process_int_arg` 0/1), `ConstValue` (`One`:
+  the constant 1 of `repeat` and `toggleMultiSelect`; `Delay`).
+- `src/protocol/types.rs`: the domains (`domain!`: stable number = discriminant, text form =
+  name) and the structured types: `Chan` (master, track/fxtrack position, drum pad, layer: the
+  former `Channel::create_command`), `ValueOp` (set, inc, reset, immediately, touch, indicate:
+  the suffixes of §1.5), `Rgb` (`RGB(r,g,b)`), `Signature` (`num + den*100`), `IntText` (the EQ
+  band type as a string), `SlotRef` (`<track>/<slot>`), `GridNote` (`<velocity> <duration>`),
+  `GridId`, `Pos1` (a 0-based index written 1-based: the Reaper device commands and the
+  siblings).
+- `Backend::send_command(&Cmd)` replaces the seven text methods (`process_no_arg` …
+  `enable_updates`); `Sender::send(&Cmd)`; `DawContext::send(Cmd)` (suppressed while muted, as
+  before). `FfiBackend` and `RecordingBackend` turn the `Cmd` into its legacy form, so the C
+  callbacks, the `BackendCall` assertions and the recordings are unchanged. The C ABI and
+  `include/drivenbymoss.h` are unchanged.
+- All send sites in `src/daw`, `src/framework` and `src/midi.rs` send `Cmd` values (about 265
+  calls; `src/controller` and the Lua layer `src/script` never sent commands directly, they
+  call the model). The string helpers are gone: `Channel::create_command` became
+  `Channel::address() -> Chan`, `Parameter::value_address` became `value_cmd(op) -> Cmd`, the
+  helpers of the slots, scenes, markers, siblings, the browser columns, the step grid
+  (`send_grid*`, `step_path`) and the transport take typed values.
+- Tests (`src/protocol/cmd.rs`): every `CmdId`, with 8 samples per ID (every sample of every
+  field type is used), has a legacy form which `Cmd::from_legacy` parses back to the same `Cmd`;
+  IDs and names are unique and have the direction bit; some fixed legacy texts; the
+  `GrooveParam` names equal `HOST_GROOVE_PARAMETERS`.
+
+**Choices and deviations from the plan**
+- **Families as domains:** commands which differ only by a verb are one entry with a domain
+  field, as the plan does for owners: `SlotAction` (8 verbs), `SceneAction` (7),
+  `MarkerAction` (3), `DeviceAction` (4, the device itself and the siblings), `Dir` (`-`/`+`),
+  `TempoStep`, `NavigatorTarget`, `StepAttr` (22 step attributes), `GrooveParam`, `CueParam`.
+  The other commands have one entry each (e.g. the 22 application, 7 arranger and 6 mixer
+  toggles), so a use is found by `grep Cmd::ApplicationToggleMixer`.
+- **Owners are `Processor` for now:** fields such as `dev` (`device`, `primary`, `drum`, `eq`,
+  `project`, `track`), `bank` (`track`, `fxtrack`, `scene`) and `area` (delay/enable updates)
+  use the legacy `Processor` enum. Narrower domains can replace them when the binary form needs
+  the numbers (step 1). `Processor::Session` is not unused as §1.1 says: the scene bank sends
+  `enable_updates(session)`. No processor was dropped.
+- **`Cmd<'a>` borrows its strings** (`&'a str`, `Vec<&'a str>`) instead of owning them, so a
+  send site allocates no more than before.
+- **Text values kept as text** where the core formats them for Reaper or the step grid: the
+  Reaper note commands (`ClipNote*`, `<position> <length> <velocity> <channel> <muted>`) and the
+  step text of `GridStepSetFrom`/`GridStepUpdate` (`StepInfo::to_wire`). The `Step` struct of
+  §2.1 comes with the binary form (step 1).
+- **No `entity=`, `ops=`, `detects=` columns yet:** `entity=` belongs to the reports and
+  "report again" (step 0b/2), `detects=` to the reports (0b); the ops of a value command are
+  those of its `ValueOp` value. `feature=` is in the table (documentation; the call sites check
+  the features as before).
+- **Decoding** (`from_legacy`) tries the entries with a fixed processor first, so an owner field
+  (any processor) does not shadow them (`clip pinned` vs `<dev> pinned`). `Chan` only accepts the
+  processors of channels.
+- **Merged forms:** `track indicate` (clip launcher feedback) and `drum|primary indicate` (pad
+  indication) are the same form: one entry `BankIndicate`. `time <double>` and `time 0` (int)
+  are two entries (`TimeSet`, `TimeSetInt`).
+- **Found while writing the table:** the touch and indicate of a device parameter are
+  `param/<i>/touch|indicate`, not the value command plus a suffix, and they have no track prefix
+  (track FX parameters: `track param/<i>/touch` but `track <t>/param/<i>/value`); entries
+  `ParamTouch`, `ParamIndicate` keep that.
+- **The generator binary** (`dbm-protocol-gen`) is left for step 1, as §5.4 says; nothing
+  outside the core needs the table yet.
+
+**Proof:** `cargo test` (all `BackendCall` assertions unchanged), `cargo test --test
+conformance_replay`, the Python binding tests and conformance `--all`, the Zynthian tests and
+the C++ wrapper tests pass unchanged; clippy is clean with and without `lua`.
+
+**Next: step 0b** (`Msg` + `apply`, §3): the address half of the table (a second macro or a
+second section of the same one, ids without the direction bit), text → `Msg` replacing the
+path matching of `parser.rs` with `ParserEvent` kept, an exhaustive `apply`. The traits of
+`legacy.rs` (`Field`, `PathReader`) are the starting point of the text → typed side; the
+lenient value rules (`parse_flag`, `parse_int`, `on_error=`) need their own value parsers.

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use crate::backend::Processor;
+use crate::protocol::Cmd;
 
 use super::bank::PagedBank;
 use super::context::DawContext;
@@ -114,7 +115,7 @@ impl ParameterBank {
                 || (self.id == ParameterBankId::CursorTrack && self.host_page.is_some())
             {
                 let page = self.bank.bank_offset as i64 / ps;
-                self.bank.ctx.send_int(self.processor, "parameterPage", page as i32);
+                self.bank.ctx.send(Cmd::DeviceParameterPage { dev: self.processor, page: page as i32 });
             }
         }
     }

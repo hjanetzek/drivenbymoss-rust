@@ -9,6 +9,7 @@
 //! `[0..upper_bound-1]`, internally the normalized value `[0..1]` is stored.
 
 use crate::backend::Processor;
+use crate::protocol::{Chan, Cmd, CueParam, GrooveParam, ValueOp};
 use crate::framework::value_changer::ValueChanger;
 
 use super::bank::BankItem;
@@ -48,12 +49,21 @@ pub enum ParameterKind {
     Groove(GrooveParameterId),
     /// The cue volume or cue mix of the project (Bitwig: `project` `cueVolume` / `cueMix`,
     /// ProjectImpl of the Java version).
-    ProjectCue(&'static str),
+    ProjectCue(CueParam),
     /// A parameter of the groove of the host (Bitwig: `groove` `<name>`, GrooveImpl of the Java
     /// version: a `ParameterImpl` on `groove.getEnabled ()` etc.).
-    HostGroove(&'static str),
+    HostGroove(GrooveParam),
     /// A parameter which does not exist (former `EmptyParameter`).
     Empty,
+}
+
+/// The address of a drum pad (prefix `pad`) or layer (prefix `layer`) of a device.
+fn device_channel(owner: Processor, prefix: &str, i: i32) -> Chan {
+    if prefix == "layer" {
+        Chan::Layer { owner, i }
+    } else {
+        Chan::Pad { owner, i }
+    }
 }
 
 /// A parameter of a device, track or other part of the DAW.
@@ -282,7 +292,7 @@ impl Parameter {
                 return;
             }
             if self.ctx.is_automation_rec_active() {
-                self.ctx.delay_updates(self.track_processor);
+                self.ctx.send(Cmd::DelayUpdates { area: self.track_processor });
             }
             self.value = normalized;
             self.send_value();
@@ -319,8 +329,8 @@ impl Parameter {
     /// command>/reset`). Reaper: the default of the core (the Reaper backend has no reset).
     pub fn reset_value(&mut self) {
         if self.host_value_command(HostFeature::ValueReset) {
-            if let Some((processor, cmd)) = self.value_address() {
-                self.ctx.send(processor, &format!("{cmd}/reset"));
+            if let Some(cmd) = self.value_cmd(ValueOp::Reset) {
+                self.ctx.send(cmd);
             }
             return;
         }
@@ -333,16 +343,20 @@ impl Parameter {
     /// Signal that the parameter is touched (e.g. a touch sensitive knob). While touched, values
     /// received from the DAW are deferred (Reaper; Bitwig: only `parameter.touch (b)`).
     pub fn touch_value(&mut self, is_being_touched: bool) {
-        let touch = if is_being_touched { 1 } else { 0 };
         match self.kind {
-            ParameterKind::TrackVolume => self.ctx.send_int(self.track_processor, &format!("{}/volume/touch", self.index), touch),
-            ParameterKind::TrackPan => self.ctx.send_int(self.track_processor, &format!("{}/pan/touch", self.index), touch),
-            ParameterKind::MasterVolume => self.ctx.send_int(Processor::Master, "volume/touch", touch),
-            ParameterKind::MasterPan => self.ctx.send_int(Processor::Master, "pan/touch", touch),
-            ParameterKind::Device(processor) => self.ctx.send_int(processor, &format!("param/{}/touch", self.position), touch),
-            ParameterKind::ProjectCue(name) => self.ctx.send_int(Processor::Project, &format!("{name}/touch"), touch),
-            ParameterKind::HostGroove(name) => self.ctx.send_int(Processor::Groove, &format!("{name}/touch"), touch),
-            ParameterKind::HostCrossfade => self.ctx.send_int(Processor::Transport, "crossfade/touch", touch),
+            // The touch of a device parameter has no track prefix (track FX parameters)
+            ParameterKind::Device(dev) => self.ctx.send(Cmd::ParamTouch { dev, param: self.position, value: is_being_touched }),
+            ParameterKind::TrackVolume
+            | ParameterKind::TrackPan
+            | ParameterKind::MasterVolume
+            | ParameterKind::MasterPan
+            | ParameterKind::ProjectCue(_)
+            | ParameterKind::HostGroove(_)
+            | ParameterKind::HostCrossfade => {
+                if let Some(cmd) = self.value_cmd(ValueOp::Touch(is_being_touched)) {
+                    self.ctx.send(cmd);
+                }
+            }
             _ => {}
         }
         self.is_being_touched = is_being_touched;
@@ -355,9 +369,9 @@ impl Parameter {
 
     /// Indicate the parameter on the DAW UI (device parameters, not supported by Reaper).
     pub fn set_indication(&mut self, enable: bool) {
-        if let ParameterKind::Device(processor) = self.kind {
+        if let ParameterKind::Device(dev) = self.kind {
             if self.position >= 0 {
-                self.ctx.send_int(processor, &format!("param/{}/indicate", self.position), if enable { 1 } else { 0 });
+                self.ctx.send(Cmd::ParamIndicate { dev, param: self.position, value: enable });
             }
             return;
         }
@@ -366,40 +380,39 @@ impl Parameter {
         if !self.host_value_command(HostFeature::Indication) {
             return;
         }
-        if let Some((processor, cmd)) = self.value_address() {
-            self.ctx.send_int(processor, &format!("{cmd}/indicate"), if enable { 1 } else { 0 });
+        if let Some(cmd) = self.value_cmd(ValueOp::Indicate(enable)) {
+            self.ctx.send(cmd);
         }
     }
 
-    /// The processor and the command of the value (without a suffix), None if the parameter
-    /// has no value command.
-    fn value_address(&self) -> Option<(Processor, String)> {
+    /// The value command of the parameter with the operation, None if the parameter has no
+    /// value command.
+    fn value_cmd(&self, op: ValueOp) -> Option<Cmd<'static>> {
+        let track = |p| Chan::Track { bank: self.track_processor, p };
         Some(match self.kind {
-            ParameterKind::Device(processor) => {
-                let mut cmd = format!("param/{}/value", self.position);
-                if processor == Processor::Track {
-                    let pos = self.ctx.cursor_track_position();
-                    if pos == MASTER_POSITION {
-                        // The master track uses no position prefix
-                    } else if pos >= 0 {
-                        cmd = format!("{pos}/{cmd}");
-                    }
+            ParameterKind::Device(dev) => {
+                // Track FX parameters: the position of the cursor track is prepended (not for
+                // the master track)
+                let pos = self.ctx.cursor_track_position();
+                if dev == Processor::Track && pos != MASTER_POSITION && pos >= 0 {
+                    Cmd::TrackParamValue { track: pos, param: self.position, op }
+                } else {
+                    Cmd::ParamValue { dev, param: self.position, op }
                 }
-                (processor, cmd)
             }
-            ParameterKind::TrackVolume => (self.track_processor, format!("{}/volume", self.index)),
-            ParameterKind::TrackPan => (self.track_processor, format!("{}/pan", self.index)),
-            ParameterKind::DeviceChannelVolume(processor, prefix) => (processor, format!("{prefix}/{}/volume", self.index)),
-            ParameterKind::DeviceChannelPan(processor, prefix) => (processor, format!("{prefix}/{}/pan", self.index)),
-            ParameterKind::MasterVolume => (Processor::Master, "volume".into()),
-            ParameterKind::MasterPan => (Processor::Master, "pan".into()),
-            ParameterKind::Send { channel_position } => (self.track_processor, format!("{}/send/{}/volume", channel_position, self.position)),
-            ParameterKind::MasterCrossfader => (Processor::Master, "user/param/0/value".into()),
-            ParameterKind::HostCrossfade => (Processor::Transport, "crossfade".into()),
-            ParameterKind::ProjectCue(name) => (Processor::Project, name.into()),
-            ParameterKind::HostGroove(name) => (Processor::Groove, name.into()),
-            ParameterKind::Groove(GrooveParameterId::Enabled) => (Processor::Groove, "active".into()),
-            ParameterKind::Groove(_) => (Processor::Groove, "amount".into()),
+            ParameterKind::TrackVolume => Cmd::ChannelVolume { ch: track(self.index), op },
+            ParameterKind::TrackPan => Cmd::ChannelPan { ch: track(self.index), op },
+            ParameterKind::DeviceChannelVolume(owner, prefix) => Cmd::ChannelVolume { ch: device_channel(owner, prefix, self.index), op },
+            ParameterKind::DeviceChannelPan(owner, prefix) => Cmd::ChannelPan { ch: device_channel(owner, prefix, self.index), op },
+            ParameterKind::MasterVolume => Cmd::ChannelVolume { ch: Chan::Master, op },
+            ParameterKind::MasterPan => Cmd::ChannelPan { ch: Chan::Master, op },
+            ParameterKind::Send { channel_position } => Cmd::ChannelSendVolume { ch: track(channel_position), send: self.position, op },
+            ParameterKind::MasterCrossfader => Cmd::MasterCrossfader { op },
+            ParameterKind::HostCrossfade => Cmd::TransportCrossfade { op },
+            ParameterKind::ProjectCue(param) => Cmd::ProjectCue { param, op },
+            ParameterKind::HostGroove(param) => Cmd::GrooveParam { param, op },
+            ParameterKind::Groove(GrooveParameterId::Enabled) => Cmd::GrooveActive { op },
+            ParameterKind::Groove(_) => Cmd::GrooveAmount { op },
             ParameterKind::Empty => return None,
         })
     }
@@ -407,28 +420,28 @@ impl Parameter {
     /// Send a relative change of the normalized value (`<value command>/inc <delta>`, Bitwig
     /// `SettableRangedValue.inc`).
     fn send_increment(&self, delta: f64) {
-        if let Some((processor, cmd)) = self.value_address() {
-            self.ctx.send_double(processor, &format!("{cmd}/inc"), delta);
+        if let Some(cmd) = self.value_cmd(ValueOp::Inc(delta)) {
+            self.ctx.send(cmd);
         }
     }
 
     fn send_value(&self) {
-        let Some((processor, cmd)) = self.value_address() else {
-            return;
-        };
-        match self.kind {
-            ParameterKind::TrackVolume | ParameterKind::TrackPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(self.track_processor),
-            ParameterKind::MasterVolume | ParameterKind::MasterPan if self.ctx.is_automation_rec_active() => self.ctx.delay_updates(Processor::Master),
-            _ => {}
-        }
         let value = match self.kind {
             ParameterKind::Groove(GrooveParameterId::Enabled) => self.value,
             ParameterKind::Groove(_) => self.value * 2.0 - 1.0,
             _ => self.value,
         };
         // The host knows the commands to set a value immediately (Bitwig)
-        let suffix = if self.immediately && self.ctx.host_supports(HostFeature::Immediately) { "/immediately" } else { "" };
-        self.ctx.send_double(processor, &format!("{cmd}{suffix}"), value);
+        let op = if self.immediately && self.ctx.host_supports(HostFeature::Immediately) { ValueOp::Immediately(value) } else { ValueOp::Set(value) };
+        let Some(cmd) = self.value_cmd(op) else {
+            return;
+        };
+        match self.kind {
+            ParameterKind::TrackVolume | ParameterKind::TrackPan if self.ctx.is_automation_rec_active() => self.ctx.send(Cmd::DelayUpdates { area: self.track_processor }),
+            ParameterKind::MasterVolume | ParameterKind::MasterPan if self.ctx.is_automation_rec_active() => self.ctx.send(Cmd::DelayUpdates { area: Processor::Master }),
+            _ => {}
+        }
+        self.ctx.send(cmd);
     }
 
     // ----------------------------------------------------------------------------------------
@@ -557,8 +570,8 @@ impl Send {
     /// Toggle the enabled state of the send.
     pub fn toggle_enabled(&mut self) {
         if let ParameterKind::Send { channel_position } = self.param.kind {
-            let cmd = format!("{}/send/{}/active", channel_position, self.param.position);
-            self.param.ctx.send_double(self.param.track_processor, &cmd, self.param.value);
+            let ch = Chan::Track { bank: self.param.track_processor, p: channel_position };
+            self.param.ctx.send(Cmd::ChannelSendActive { ch, send: self.param.position, value: self.param.value });
         }
     }
 

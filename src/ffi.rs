@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use crate::app::App;
 use crate::backend::Backend;
+use crate::protocol::{Arg, Cmd, Legacy};
 
 /// Adds one MIDI device (ID and name) to a list, see `get_midi_inputs`.
 pub type DbmAddDevice = extern "C" fn(list: *mut c_void, id: c_int, name: *const c_char);
@@ -94,54 +95,55 @@ impl FfiBackend {
 }
 
 impl Backend for FfiBackend {
-    fn process_no_arg(&self, processor: &str, command: &str) {
-        let (p, c) = (c_string(processor), c_string(command));
-        if let Some(f) = self.callbacks.process_no_arg {
-            f(self.callbacks.user, p.as_ptr(), c.as_ptr());
-        }
-    }
-
-    fn process_string_arg(&self, processor: &str, command: &str, value: &str) {
-        let (p, c, v) = (c_string(processor), c_string(command), c_string(value));
-        if let Some(f) = self.callbacks.process_string_arg {
-            f(self.callbacks.user, p.as_ptr(), c.as_ptr(), v.as_ptr());
-        }
-    }
-
-    fn process_string_args(&self, processor: &str, command: &str, values: &[&str]) {
-        let (p, c) = (c_string(processor), c_string(command));
-        let strings: Vec<CString> = values.iter().map(|v| c_string(v)).collect();
-        let pointers: Vec<*const c_char> = strings.iter().map(|s| s.as_ptr()).collect();
-        if let Some(f) = self.callbacks.process_string_args {
-            f(self.callbacks.user, p.as_ptr(), c.as_ptr(), pointers.as_ptr(), pointers.len() as c_int);
-        }
-    }
-
-    fn process_int_arg(&self, processor: &str, command: &str, value: i32) {
-        let (p, c) = (c_string(processor), c_string(command));
-        if let Some(f) = self.callbacks.process_int_arg {
-            f(self.callbacks.user, p.as_ptr(), c.as_ptr(), value);
-        }
-    }
-
-    fn process_double_arg(&self, processor: &str, command: &str, value: f64) {
-        let (p, c) = (c_string(processor), c_string(command));
-        if let Some(f) = self.callbacks.process_double_arg {
-            f(self.callbacks.user, p.as_ptr(), c.as_ptr(), value);
-        }
-    }
-
-    fn delay_updates(&self, processor: &str) {
-        let p = c_string(processor);
-        if let Some(f) = self.callbacks.delay_updates {
-            f(self.callbacks.user, p.as_ptr());
-        }
-    }
-
-    fn enable_updates(&self, processor: &str, enable: bool) {
-        let p = c_string(processor);
-        if let Some(f) = self.callbacks.enable_updates {
-            f(self.callbacks.user, p.as_ptr(), enable as c_int);
+    /// Deliver the legacy form of the command (`process_no_arg`, `process_int_arg`, …), as before
+    /// the command table: the text is byte-identical.
+    fn send_command(&self, cmd: &Cmd) {
+        let Legacy { processor, command, arg } = cmd.legacy();
+        let user = self.callbacks.user;
+        let p = c_string(processor.id());
+        match arg {
+            Arg::None => {
+                let c = c_string(&command);
+                if let Some(f) = self.callbacks.process_no_arg {
+                    f(user, p.as_ptr(), c.as_ptr());
+                }
+            }
+            Arg::Str(value) => {
+                let (c, v) = (c_string(&command), c_string(&value));
+                if let Some(f) = self.callbacks.process_string_arg {
+                    f(user, p.as_ptr(), c.as_ptr(), v.as_ptr());
+                }
+            }
+            Arg::Strs(values) => {
+                let c = c_string(&command);
+                let strings: Vec<CString> = values.iter().map(|v| c_string(v)).collect();
+                let pointers: Vec<*const c_char> = strings.iter().map(|s| s.as_ptr()).collect();
+                if let Some(f) = self.callbacks.process_string_args {
+                    f(user, p.as_ptr(), c.as_ptr(), pointers.as_ptr(), pointers.len() as c_int);
+                }
+            }
+            Arg::Int(value) => {
+                let c = c_string(&command);
+                if let Some(f) = self.callbacks.process_int_arg {
+                    f(user, p.as_ptr(), c.as_ptr(), value);
+                }
+            }
+            Arg::Double(value) => {
+                let c = c_string(&command);
+                if let Some(f) = self.callbacks.process_double_arg {
+                    f(user, p.as_ptr(), c.as_ptr(), value);
+                }
+            }
+            Arg::Delay => {
+                if let Some(f) = self.callbacks.delay_updates {
+                    f(user, p.as_ptr());
+                }
+            }
+            Arg::Enable(enable) => {
+                if let Some(f) = self.callbacks.enable_updates {
+                    f(user, p.as_ptr(), enable as c_int);
+                }
+            }
         }
     }
 

@@ -8,6 +8,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::backend::Processor;
+use crate::protocol::{Cmd, Rgb, SceneAction};
 
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
@@ -77,38 +78,37 @@ impl Scene {
         self.end_position
     }
 
-    fn send(&self, command: &str) {
-        self.ctx.send(Processor::Scene, &format!("{}/{}", self.position, command));
+    fn send(&self, action: SceneAction) {
+        self.ctx.send(Cmd::SceneAction { scene: self.position, action });
     }
 
     /// Rename the scene.
     pub fn set_name(&mut self, name: &str) {
-        self.ctx.send_str(Processor::Scene, &format!("{}/name", self.position), name);
+        self.ctx.send(Cmd::SceneName { scene: self.position, name });
     }
 
     /// Set the color of the scene.
     pub fn set_color(&mut self, color: ColorEx) {
-        let [r, g, b] = color.to_int_rgb255();
-        self.ctx.send_str(Processor::Scene, &format!("{}/color", self.position), &format!("RGB({r},{g},{b})"));
+        self.ctx.send(Cmd::SceneColor { scene: self.position, value: Rgb(color.to_int_rgb255()) });
     }
 
     /// Launch the scene on press and release, normally or alternatively (as `SceneImpl.launch` of
     /// the Java version). Reaper only uses the press.
     pub fn launch(&mut self, is_pressed: bool, is_alternative: bool) {
         self.send(match (is_pressed, is_alternative) {
-            (true, false) => "launch",
-            (true, true) => "launchAlt",
-            (false, false) => "launchRelease",
-            (false, true) => "launchReleaseAlt",
+            (true, false) => SceneAction::Launch,
+            (true, true) => SceneAction::LaunchAlt,
+            (false, false) => SceneAction::LaunchRelease,
+            (false, true) => SceneAction::LaunchReleaseAlt,
         });
     }
 
     pub fn remove(&mut self) {
-        self.send("remove");
+        self.send(SceneAction::Remove);
     }
 
     pub fn duplicate(&mut self) {
-        self.send("duplicate");
+        self.send(SceneAction::Duplicate);
     }
 
     // Internal setters
@@ -165,7 +165,7 @@ impl BankItem for Scene {
     }
 
     fn select(&mut self) {
-        self.send("select");
+        self.send(SceneAction::Select);
     }
 }
 
@@ -192,13 +192,13 @@ impl SceneBank {
             },
             move || Scene::empty(&empty_ctx),
         );
-        bank.set_host_bank("scene");
+        bank.set_host_bank(Processor::Scene);
         bank.set_page_event(ModelEvent::SceneBankPageChanged);
         SceneBank { bank }
     }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.bank.ctx.enable_updates(Processor::Session, enable);
+        self.bank.ctx.send(Cmd::enable_updates(Processor::Session, enable));
     }
 
     /// Scenes scroll by one (SceneBankImpl of the Java version for Reaper). With host paging
@@ -229,7 +229,7 @@ impl SceneBank {
 
     /// Add a new scene (former `IProject.createScene`).
     pub fn create_scene(&self, length_in_beats: i32) {
-        self.bank.ctx.send_int(Processor::Project, "createScene", length_in_beats);
+        self.bank.ctx.send(Cmd::ProjectCreateScene { value: length_in_beats });
     }
 }
 

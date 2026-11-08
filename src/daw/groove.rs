@@ -6,6 +6,8 @@
 //! the shuffle amount are supported by Reaper. Bitwig has six parameters (GrooveImpl of the Java
 //! version for Bitwig), which exist once the host reports them (`/groove/<name>`).
 
+use crate::protocol::GrooveParam;
+
 use super::constants::GrooveParameterId;
 use super::context::DawContext;
 use super::parameter::{Parameter, ParameterKind};
@@ -42,7 +44,7 @@ impl Groove {
             enabled: Parameter::new(ctx.clone(), ParameterKind::Groove(GrooveParameterId::Enabled), 0, 0.0),
             shuffle_amount: Parameter::new(ctx.clone(), ParameterKind::Groove(GrooveParameterId::ShuffleAmount), 1, 0.0),
             empty: Parameter::empty(&ctx),
-            host: HOST_GROOVE_PARAMETERS.iter().enumerate().map(|(i, name)| Parameter::new(ctx.clone(), ParameterKind::HostGroove(name), i as i32, 0.0)).collect(),
+            host: GrooveParam::ALL.iter().enumerate().map(|(i, param)| Parameter::new(ctx.clone(), ParameterKind::HostGroove(*param), i as i32, 0.0)).collect(),
             host_reported: false,
         }
     }

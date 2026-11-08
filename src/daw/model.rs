@@ -24,6 +24,7 @@ use crate::backend::{Processor, Sender};
 use crate::framework::value_changer::ValueChanger;
 use crate::host::Host;
 use crate::scale::Scales;
+use crate::protocol::{Chan, Cmd};
 
 use super::application::{Application, Arranger, Mixer};
 use super::bank::{bank_locator, BankItem};
@@ -483,7 +484,7 @@ impl Model {
         // CursorTrackImpl.togglePinned: isPinned ().toggle () on a host which reports the pinned
         // track (Bitwig)
         if self.host_pins_track {
-            self.ctx.send(Processor::Track, "pinned/toggle");
+            self.ctx.send(Cmd::TrackPinnedToggle {});
             return;
         }
         let pinned = self.pinned_track.is_none();
@@ -514,7 +515,7 @@ impl Model {
     /// `cursorTrack.isPinned ().set (pinned)`; the host reports the pinned track.
     pub fn set_cursor_track_pinned(&mut self, pinned: bool) {
         if self.host_pins_track {
-            self.ctx.send_bool(Processor::Track, "pinned", pinned);
+            self.ctx.send(Cmd::TrackPinned { value: pinned });
             return;
         }
         if pinned {
@@ -535,7 +536,8 @@ impl Model {
         }));
         let pin_position = self.pinned_track.map(|r| self.track_bank.track(r).position()).unwrap_or(-1);
         if let Some(selected) = self.selected_track_ref() {
-            self.track_bank.track(selected).channel().send_int("pin", pin_position);
+            let channel = self.track_bank.track(selected).channel();
+            channel.ctx.send(Cmd::TrackPin { ch: channel.address(), value: pin_position });
         }
         self.after_parse();
     }
@@ -561,7 +563,7 @@ impl Model {
     /// the neighbours of its cursor track (Bitwig).
     pub fn cursor_track_select_previous(&mut self) {
         if self.host_cursor_track_neighbours.is_some() {
-            self.ctx.send(Processor::Track, "selectPrevious");
+            self.ctx.send(Cmd::TrackSelectPrevious {});
             return;
         }
         self.track_bank.select_previous_item();
@@ -570,7 +572,7 @@ impl Model {
     /// CursorTrackImpl.selectNext: `cursorTrack.selectNext ()` (Bitwig).
     pub fn cursor_track_select_next(&mut self) {
         if self.host_cursor_track_neighbours.is_some() {
-            self.ctx.send(Processor::Track, "selectNext");
+            self.ctx.send(Cmd::TrackSelectNext {});
             return;
         }
         self.track_bank.select_next_item();
@@ -581,7 +583,8 @@ impl Model {
         let Some(selected) = self.selected_track_ref() else {
             return;
         };
-        self.track_bank.track(selected).channel().send_cmd("movePrev");
+        let channel = self.track_bank.track(selected).channel();
+        channel.ctx.send(Cmd::TrackMovePrev { ch: channel.address() });
         let index = (self.cursor_track().index() - 1).max(0) as usize;
         self.track_bank.item_mut(index).select();
     }
@@ -591,7 +594,8 @@ impl Model {
         let Some(selected) = self.selected_track_ref() else {
             return;
         };
-        self.track_bank.track(selected).channel().send_cmd("moveNext");
+        let channel = self.track_bank.track(selected).channel();
+        channel.ctx.send(Cmd::TrackMoveNext { ch: channel.address() });
         let max = self.track_bank.page_size().saturating_sub(1) as i32;
         let index = (self.cursor_track().index() + 1).min(max).max(0) as usize;
         self.track_bank.item_mut(index).select();
@@ -828,8 +832,7 @@ impl Model {
             return;
         }
         if let Some(track) = self.track_bank.selected_item() {
-            let cmd = format!("{}/overdub", track.position());
-            self.ctx.send_bool(Processor::Track, &cmd, on);
+            self.ctx.send(Cmd::TrackOverdub { ch: Chan::Track { bank: Processor::Track, p: track.position() }, value: on });
         }
     }
 

@@ -5,7 +5,7 @@
 //! The application (former `IApplication` / `ApplicationImpl`), the arranger (former
 //! `IArranger` / `ArrangerImpl`) and the mixer window (former `IMixer` / `MixerImpl`).
 
-use crate::backend::Processor;
+use crate::protocol::{Cmd, Dir};
 
 use super::color::ColorEx;
 use super::constants::ChannelType;
@@ -39,7 +39,7 @@ impl Application {
     }
 
     pub fn set_engine_active(&mut self, active: bool) {
-        self.ctx.send_bool(Processor::Project, "engine", active);
+        self.ctx.send(Cmd::ProjectEngine { value: active });
     }
 
     pub fn toggle_engine_active(&mut self) {
@@ -53,7 +53,7 @@ impl Application {
             Some(index) => {
                 self.panel_layout = PANEL_LAYOUTS[index];
                 self.window_layout = index as i32;
-                self.ctx.send_int(Processor::Application, "layout", index as i32);
+                self.ctx.send(Cmd::ApplicationLayout { value: index as i32 });
             }
             None => self.ctx.host().println(&format!("Not a supported layout: {panel_layout}")),
         }
@@ -66,7 +66,7 @@ impl Application {
     /// ApplicationImpl.previousPanelLayout: `application.previousPanelLayout ()` on Bitwig.
     pub fn previous_panel_layout(&mut self) {
         if self.ctx.host_supports(HostFeature::LayoutStep) {
-            self.ctx.send(Processor::Application, "layout/-");
+            self.ctx.send(Cmd::ApplicationLayoutStep { dir: Dir::Prev });
             return;
         }
         self.set_panel_layout_index(self.window_layout - 1);
@@ -75,7 +75,7 @@ impl Application {
     /// ApplicationImpl.nextPanelLayout: `application.nextPanelLayout ()` on Bitwig.
     pub fn next_panel_layout(&mut self) {
         if self.ctx.host_supports(HostFeature::LayoutStep) {
-            self.ctx.send(Processor::Application, "layout/+");
+            self.ctx.send(Cmd::ApplicationLayoutStep { dir: Dir::Next });
             return;
         }
         self.set_panel_layout_index(self.window_layout + 1);
@@ -97,7 +97,7 @@ impl Application {
         }
         self.window_layout = index;
         self.panel_layout = PANEL_LAYOUTS[index as usize];
-        self.ctx.send_int(Processor::Application, "layout", index);
+        self.ctx.send(Cmd::ApplicationLayout { value: index });
     }
 
     pub fn is_arrange_layout(&self) -> bool {
@@ -117,43 +117,43 @@ impl Application {
     }
 
     pub fn toggle_note_editor(&mut self) {
-        self.ctx.send(Processor::Application, "toggleNoteEditor");
+        self.ctx.send(Cmd::ApplicationToggleNoteEditor {});
     }
 
     pub fn toggle_automation_editor(&mut self) {
-        self.ctx.send(Processor::Application, "toggleAutomationEditor");
+        self.ctx.send(Cmd::ApplicationToggleAutomationEditor {});
     }
 
     pub fn toggle_devices(&mut self) {
-        self.ctx.send(Processor::Application, "toggleDevices");
+        self.ctx.send(Cmd::ApplicationToggleDevices {});
     }
 
     pub fn toggle_inspector(&mut self) {
-        self.ctx.send(Processor::Application, "toggleInspector");
+        self.ctx.send(Cmd::ApplicationToggleInspector {});
     }
 
     pub fn toggle_mixer(&mut self) {
-        self.ctx.send(Processor::Application, "toggleMixer");
+        self.ctx.send(Cmd::ApplicationToggleMixer {});
     }
 
     pub fn toggle_full_screen(&mut self) {
-        self.ctx.send(Processor::Application, "toggleFullScreen");
+        self.ctx.send(Cmd::ApplicationToggleFullScreen {});
     }
 
     pub fn toggle_browser_visibility(&mut self) {
-        self.ctx.send(Processor::Application, "toggleBrowser");
+        self.ctx.send(Cmd::ApplicationToggleBrowser {});
     }
 
     pub fn duplicate(&mut self) {
-        self.ctx.send(Processor::Application, "duplicate");
+        self.ctx.send(Cmd::ApplicationDuplicate {});
     }
 
     pub fn delete_selection(&mut self) {
-        self.ctx.send(Processor::Application, "deleteSelection");
+        self.ctx.send(Cmd::ApplicationDeleteSelection {});
     }
 
     pub fn undo(&mut self) {
-        self.ctx.send(Processor::Undo, "");
+        self.ctx.send(Cmd::Undo {});
     }
 
     pub fn can_undo(&self) -> bool {
@@ -161,7 +161,7 @@ impl Application {
     }
 
     pub fn redo(&mut self) {
-        self.ctx.send(Processor::Redo, "");
+        self.ctx.send(Cmd::Redo {});
     }
 
     pub fn can_redo(&self) -> bool {
@@ -186,27 +186,27 @@ impl Application {
     }
 
     pub fn arrow_key_left(&mut self) {
-        self.ctx.send(Processor::Application, "arrowLeft");
+        self.ctx.send(Cmd::ApplicationArrowLeft {});
     }
 
     pub fn arrow_key_up(&mut self) {
-        self.ctx.send(Processor::Application, "arrowUp");
+        self.ctx.send(Cmd::ApplicationArrowUp {});
     }
 
     pub fn arrow_key_right(&mut self) {
-        self.ctx.send(Processor::Application, "arrowRight");
+        self.ctx.send(Cmd::ApplicationArrowRight {});
     }
 
     pub fn arrow_key_down(&mut self) {
-        self.ctx.send(Processor::Application, "arrowDown");
+        self.ctx.send(Cmd::ApplicationArrowDown {});
     }
 
     pub fn zoom_out(&mut self) {
-        self.ctx.send(Processor::Application, "zoomOut");
+        self.ctx.send(Cmd::ApplicationZoomOut {});
     }
 
     pub fn zoom_in(&mut self) {
-        self.ctx.send(Processor::Application, "zoomIn");
+        self.ctx.send(Cmd::ApplicationZoomIn {});
     }
 
     /// Change the horizontal zoom with a relative knob value (former zoom parameter).
@@ -219,11 +219,11 @@ impl Application {
     }
 
     pub fn dec_track_height(&mut self) {
-        self.ctx.send(Processor::Application, "decTrackHeight");
+        self.ctx.send(Cmd::ApplicationDecTrackHeight {});
     }
 
     pub fn inc_track_height(&mut self) {
-        self.ctx.send(Processor::Application, "incTrackHeight");
+        self.ctx.send(Cmd::ApplicationIncTrackHeight {});
     }
 
     /// Change the track height with a relative knob value (former track height parameter).
@@ -237,25 +237,25 @@ impl Application {
 
     /// Not supported by the Reaper backend (sending key presses needs a robot).
     pub fn enter(&mut self) {
-        self.ctx.send(Processor::Application, "enter");
+        self.ctx.send(Cmd::ApplicationEnter {});
     }
 
     /// Not supported by the Reaper backend (sending key presses needs a robot).
     pub fn escape(&mut self) {
-        self.ctx.send(Processor::Application, "escape");
+        self.ctx.send(Cmd::ApplicationEscape {});
     }
 
     pub fn slice_to_sampler(&mut self) {
-        self.ctx.send(Processor::Application, "sliceToSampler");
+        self.ctx.send(Cmd::ApplicationSliceToSampler {});
     }
 
     pub fn slice_to_drum_machine(&mut self) {
-        self.ctx.send(Processor::Application, "sliceToDrumMachine");
+        self.ctx.send(Cmd::ApplicationSliceToDrumMachine {});
     }
 
     /// Invoke an action by its (named) ID.
     pub fn invoke_action(&mut self, id: &str) {
-        self.ctx.send_str(Processor::Action, "", id);
+        self.ctx.send(Cmd::Action { id });
     }
 
     /// Not supported.
@@ -317,7 +317,7 @@ impl Arranger {
     }
 
     pub fn toggle_cue_marker_visibility(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleCueMarkers");
+        self.ctx.send(Cmd::ArrangerToggleCueMarkers {});
     }
 
     pub fn is_playback_follow_enabled(&self) -> bool {
@@ -325,7 +325,7 @@ impl Arranger {
     }
 
     pub fn toggle_playback_follow(&mut self) {
-        self.ctx.send(Processor::Arranger, "togglePlaybackFollow");
+        self.ctx.send(Cmd::ArrangerTogglePlaybackFollow {});
     }
 
     pub fn has_double_row_track_height(&self) -> bool {
@@ -333,7 +333,7 @@ impl Arranger {
     }
 
     pub fn toggle_track_row_height(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleTrackRowHeight");
+        self.ctx.send(Cmd::ArrangerToggleTrackRowHeight {});
     }
 
     pub fn is_clip_launcher_visible(&self) -> bool {
@@ -341,7 +341,7 @@ impl Arranger {
     }
 
     pub fn toggle_clip_launcher(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleClipLauncher");
+        self.ctx.send(Cmd::ArrangerToggleClipLauncher {});
     }
 
     pub fn is_timeline_visible(&self) -> bool {
@@ -349,7 +349,7 @@ impl Arranger {
     }
 
     pub fn toggle_time_line(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleTimeLine");
+        self.ctx.send(Cmd::ArrangerToggleTimeLine {});
     }
 
     pub fn is_io_section_visible(&self) -> bool {
@@ -357,7 +357,7 @@ impl Arranger {
     }
 
     pub fn toggle_io_section(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleIoSection");
+        self.ctx.send(Cmd::ArrangerToggleIoSection {});
     }
 
     pub fn are_effect_tracks_visible(&self) -> bool {
@@ -365,7 +365,7 @@ impl Arranger {
     }
 
     pub fn toggle_effect_tracks(&mut self) {
-        self.ctx.send(Processor::Arranger, "toggleEffectTracks");
+        self.ctx.send(Cmd::ArrangerToggleEffectTracks {});
     }
 
     /// Internal setter.
@@ -398,7 +398,7 @@ impl Mixer {
     }
 
     pub fn toggle_clip_launcher_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleClipLauncherSection");
+        self.ctx.send(Cmd::MixerToggleClipLauncherSection {});
     }
 
     pub fn is_cross_fade_section_visible(&self) -> bool {
@@ -406,7 +406,7 @@ impl Mixer {
     }
 
     pub fn toggle_cross_fade_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleCrossFadeSection");
+        self.ctx.send(Cmd::MixerToggleCrossFadeSection {});
     }
 
     pub fn is_device_section_visible(&self) -> bool {
@@ -414,7 +414,7 @@ impl Mixer {
     }
 
     pub fn toggle_device_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleDeviceSection");
+        self.ctx.send(Cmd::MixerToggleDeviceSection {});
     }
 
     pub fn is_io_section_visible(&self) -> bool {
@@ -422,7 +422,7 @@ impl Mixer {
     }
 
     pub fn toggle_io_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleIoSection");
+        self.ctx.send(Cmd::MixerToggleIoSection {});
     }
 
     pub fn is_meter_section_visible(&self) -> bool {
@@ -430,7 +430,7 @@ impl Mixer {
     }
 
     pub fn toggle_meter_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleMeterSection");
+        self.ctx.send(Cmd::MixerToggleMeterSection {});
     }
 
     pub fn is_send_section_visible(&self) -> bool {
@@ -438,6 +438,6 @@ impl Mixer {
     }
 
     pub fn toggle_sends_section_visibility(&mut self) {
-        self.ctx.send(Processor::Mixer, "toggleSendsSection");
+        self.ctx.send(Cmd::MixerToggleSendsSection {});
     }
 }

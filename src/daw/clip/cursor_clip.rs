@@ -12,6 +12,7 @@ use crate::daw::color::ColorEx;
 use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
 use crate::daw::constants::Resolution;
 use crate::daw::context::DawContext;
+use crate::protocol::{Cmd, Dir, GridId, GridNote, Rgb, StepAttr, ValueOp};
 
 use super::note::Note;
 use super::note_occurrence::NoteOccurrenceType;
@@ -19,7 +20,6 @@ use super::note_position::NotePosition;
 use super::step_info::StepInfo;
 use super::step_state::StepState;
 
-const PATH_NOTE: &str = "note/";
 
 /// The number of MIDI channels for which step data is monitored.
 pub const NUM_CHANNELS: usize = 16;
@@ -132,9 +132,9 @@ impl CursorClip {
     // ------------------------------------------------------------------------------------------
     // The step grid of the host (protocol v2)
 
-    /// The ID of the clip in the commands and addresses of the host grid: "<steps>x<rows>".
-    pub fn grid_id(&self) -> String {
-        format!("{}x{}", self.num_steps, self.num_rows)
+    /// The ID of the clip in the commands and addresses of the host grid: `<steps>x<rows>`.
+    pub fn grid_id(&self) -> GridId {
+        GridId { steps: self.num_steps as u16, rows: self.num_rows as u16 }
     }
 
     /// True if the host has a step grid for this clip.
@@ -196,32 +196,13 @@ impl CursorClip {
         self.host_pinned = pinned;
     }
 
-    fn send_grid(&self, command: &str) {
-        self.ctx.send(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()));
-    }
-
-    fn send_grid_int(&self, command: &str, value: i32) {
-        self.ctx.send_int(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
-    }
-
-    fn send_grid_str(&self, command: &str, value: &str) {
-        self.ctx.send_str(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
-    }
-
-    fn send_grid_double(&self, command: &str, value: f64) {
-        self.ctx.send_double(Processor::Clip, &format!("grid/{}/{command}", self.grid_id()), value);
-    }
-
-    fn step_path(position: &NotePosition) -> String {
-        format!("step/{}/{}/{}", position.channel, position.step, position.note)
-    }
 
     // ------------------------------------------------------------------------------------------
     // Observers / pinning
 
     /// Enable or disable the updates of the clip data from Reaper.
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.sender().enable_updates(Processor::Clip, enable);
+        self.ctx.sender().send(&Cmd::enable_updates(Processor::Clip, enable));
     }
 
     /// Is the clip pinned? Only with a host grid, otherwise always false.
@@ -238,7 +219,7 @@ impl CursorClip {
     /// Set the pinned state. Only with a host grid.
     pub fn set_pinned(&mut self, is_pinned: bool) {
         if self.host_grid {
-            self.ctx.send_bool(Processor::Clip, "pinned", is_pinned);
+            self.ctx.send(Cmd::ClipPinned { value: is_pinned });
         }
     }
 
@@ -320,7 +301,7 @@ impl CursorClip {
 
     /// Set the name of the clip.
     pub fn set_name(&self, name: &str) {
-        self.ctx.send_str(Processor::Clip, "name", name);
+        self.ctx.send(Cmd::ClipName { name });
     }
 
     /// Get the color of the clip (gray until a color was received).
@@ -330,9 +311,7 @@ impl CursorClip {
 
     /// Set the color of the clip.
     pub fn set_color(&self, color: ColorEx) {
-        let [r, g, b] = color.to_int_rgb255();
-        self.ctx
-            .send_str(Processor::Clip, "color", &format!("RGB({r},{g},{b})"));
+        self.ctx.send(Cmd::ClipColor { value: Rgb(color.to_int_rgb255()) });
     }
 
     /// Returns the start of the clip in beat time (-1 if unknown).
@@ -343,8 +322,7 @@ impl CursorClip {
     /// Set the start of the clip in beat time.
     pub fn set_play_start(&mut self, start: f64) {
         self.clip_start = start;
-        self.ctx
-            .send_double(Processor::Clip, "start", self.clip_start);
+        self.ctx.send(Cmd::ClipStart { op: ValueOp::Set(self.clip_start) });
         self.update_note_data();
     }
 
@@ -353,7 +331,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.changePlayStart: getPlayStart ().inc (frac)
             let delta = self.time_change(control, slow);
-            self.ctx.send_double(Processor::Clip, "start/inc", delta);
+            self.ctx.send(Cmd::ClipStart { op: ValueOp::Inc(delta) });
             return;
         }
         if self.clip_start == -1.0 {
@@ -381,7 +359,7 @@ impl CursorClip {
     /// Set the end of the clip in beat time.
     pub fn set_play_end(&mut self, end: f64) {
         self.clip_end = end;
-        self.ctx.send_double(Processor::Clip, "end", self.clip_end);
+        self.ctx.send(Cmd::ClipEnd { op: ValueOp::Set(self.clip_end) });
         self.update_note_data();
     }
 
@@ -390,7 +368,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.changePlayEnd: getPlayStop ().inc (frac)
             let delta = self.time_change(control, slow);
-            self.ctx.send_double(Processor::Clip, "end/inc", delta);
+            self.ctx.send(Cmd::ClipEnd { op: ValueOp::Inc(delta) });
             return;
         }
         if self.clip_end == -1.0 {
@@ -443,7 +421,7 @@ impl CursorClip {
     pub fn set_loop_start(&mut self, start: f64) {
         if self.host_grid {
             self.host_loop_start = start;
-            self.ctx.send_double(Processor::Clip, "loopStart", start);
+            self.ctx.send(Cmd::ClipLoopStart { op: ValueOp::Set(start) });
             return;
         }
         self.set_play_start(self.play_start() + start);
@@ -455,7 +433,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.changeLoopStart: getLoopStart ().inc (frac)
             let delta = self.time_change(control, slow);
-            self.ctx.send_double(Processor::Clip, "loopStart/inc", delta);
+            self.ctx.send(Cmd::ClipLoopStart { op: ValueOp::Inc(delta) });
             return;
         }
         self.change_play_start(control, slow);
@@ -474,7 +452,7 @@ impl CursorClip {
     pub fn set_loop_length(&mut self, length: f64) {
         if self.host_grid {
             self.host_loop_length = length;
-            self.ctx.send_double(Processor::Clip, "loopLength", length);
+            self.ctx.send(Cmd::ClipLoopLength { op: ValueOp::Set(length) });
             return;
         }
         self.set_play_end(self.play_start() + length);
@@ -486,7 +464,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.changeLoopLength: getLoopLength ().inc (frac)
             let delta = self.time_change(control, slow);
-            self.ctx.send_double(Processor::Clip, "loopLength/inc", delta);
+            self.ctx.send(Cmd::ClipLoopLength { op: ValueOp::Inc(delta) });
             return;
         }
         self.change_play_end(control, slow);
@@ -509,7 +487,7 @@ impl CursorClip {
 
     /// Set if the loop is enabled.
     pub fn set_loop_enabled(&self, enable: bool) {
-        self.ctx.send_bool(Processor::Clip, "loop", enable);
+        self.ctx.send(Cmd::ClipLoop { value: enable });
     }
 
     /// Is shuffle enabled? Only with a host grid, otherwise always false.
@@ -520,7 +498,7 @@ impl CursorClip {
     /// Set if shuffle is enabled. Only with a host grid.
     pub fn set_shuffle_enabled(&mut self, enable: bool) {
         if self.host_grid {
-            self.ctx.send_bool(Processor::Clip, "shuffle", enable);
+            self.ctx.send(Cmd::ClipShuffle { value: enable });
         }
     }
 
@@ -547,7 +525,7 @@ impl CursorClip {
     /// mode of the host).
     pub fn reset_accent(&mut self) {
         if self.host_grid {
-            self.ctx.send_double(Processor::Clip, "accent/immediately", 0.5);
+            self.ctx.send(Cmd::ClipAccent { op: ValueOp::Immediately(0.5) });
         }
     }
 
@@ -558,7 +536,7 @@ impl CursorClip {
         }
         let offset = if slow { 1.0 } else { 10.0 };
         let value = if self.ctx.value_changer().is_increase(control) { self.accent() + offset } else { self.accent() - offset };
-        self.ctx.send_double(Processor::Clip, "accent", ((value + 100.0) / 200.0).clamp(0.0, 1.0));
+        self.ctx.send(Cmd::ClipAccent { op: ValueOp::Set(((value + 100.0) / 200.0).clamp(0.0, 1.0)) });
     }
 
     /// Get the number of monitored steps (= 1 page).
@@ -568,23 +546,23 @@ impl CursorClip {
 
     /// Duplicate the clip.
     pub fn duplicate(&self) {
-        self.ctx.send(Processor::Clip, "duplicate");
+        self.ctx.send(Cmd::ClipDuplicate {});
     }
 
     /// Duplicate the content of the clip (in the clip).
     pub fn duplicate_content(&self) {
-        self.ctx.send(Processor::Clip, "duplicateContent");
+        self.ctx.send(Cmd::ClipDuplicateContent {});
     }
 
     /// Quantizes the start time of all notes in the clip according to the given amount (0..1).
     /// The lengths remain the same as before.
     pub fn quantize(&self, amount: f64) {
-        self.ctx.send_double(Processor::Quantize, "", amount);
+        self.ctx.send(Cmd::Quantize { value: amount });
     }
 
     /// Transposes the clip by the given semitones.
     pub fn transpose(&self, semitones: i32) {
-        self.ctx.send_int(Processor::Clip, "transpose", semitones);
+        self.ctx.send(Cmd::ClipTranspose { value: semitones });
     }
 
     // ------------------------------------------------------------------------------------------
@@ -616,7 +594,7 @@ impl CursorClip {
     pub fn set_step_length(&mut self, length: f64) {
         self.step_length = length;
         if self.host_grid {
-            self.send_grid_double("stepSize", length);
+            self.ctx.send(Cmd::GridStepSize { grid: self.grid_id(), value: length });
             return;
         }
         self.update_note_data();
@@ -648,41 +626,25 @@ impl CursorClip {
     /// as duration and the given MIDI velocity, otherwise it is removed.
     pub fn toggle_step(&self, position: &NotePosition, velocity: i32) {
         if self.host_grid {
-            self.send_grid_int(&format!("{}/toggle", Self::step_path(position)), velocity);
+            let p = position;
+            self.ctx.send(Cmd::GridStepToggle { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, velocity });
             return;
         }
         let pos = self.beat_position(position.step);
-        self.ctx.send_str(
-            Processor::Clip,
-            &format!("{PATH_NOTE}{}/toggle", position.note),
-            &format!(
-                "{} {} {} {} 0",
-                java_double(pos),
-                java_double(self.step_length),
-                velocity,
-                position.channel
-            ),
-        );
+        let value = format!("{} {} {} {} 0", java_double(pos), java_double(self.step_length), velocity, position.channel);
+        self.ctx.send(Cmd::ClipNoteToggle { note: position.note, value: &value });
     }
 
     /// Set a note at a step with the given MIDI velocity and duration (in beats).
     pub fn set_step(&self, position: &NotePosition, velocity: i32, duration: f64) {
         if self.host_grid {
-            self.send_grid_str(&format!("{}/set", Self::step_path(position)), &format!("{velocity} {duration}"));
+            let p = position;
+            self.ctx.send(Cmd::GridStepSet { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, value: GridNote { velocity, duration } });
             return;
         }
         let pos = self.beat_position(position.step);
-        self.ctx.send_str(
-            Processor::Clip,
-            &format!("{PATH_NOTE}{}/set", position.note),
-            &format!(
-                "{} {} {} {} 0",
-                java_double(pos),
-                java_double(duration),
-                velocity,
-                position.channel
-            ),
-        );
+        let value = format!("{} {} {} {} 0", java_double(pos), java_double(duration), velocity, position.channel);
+        self.ctx.send(Cmd::ClipNoteSet { note: position.note, value: &value });
     }
 
     /// Set a note at a step and copy the velocity and duration from the given step info (former
@@ -691,7 +653,8 @@ impl CursorClip {
         if self.host_grid {
             // The host creates the note and sets the other attributes a bit later, as the Java
             // version does
-            self.send_grid_str(&format!("{}/setFrom", Self::step_path(position)), &step_info.to_wire());
+            let p = position;
+            self.ctx.send(Cmd::GridStepSetFrom { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &step_info.to_wire() });
             return;
         }
         self.set_step(
@@ -714,85 +677,60 @@ impl CursorClip {
             info.set_velocity(velocity as f64 / 127.0);
             info.set_duration(duration);
             info.set_muted(is_muted);
-            self.send_grid_str(&format!("{}/update", Self::step_path(position)), &info.to_wire());
+            let p = position;
+            self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &info.to_wire() });
             return;
         }
         let pos = self.beat_position(position.step);
-        self.ctx.send_str(
-            Processor::Clip,
-            &format!("{PATH_NOTE}{}/update", position.note),
-            &format!(
-                "{} {} {} {} {}",
-                java_double(pos),
-                java_double(duration),
-                velocity,
-                position.channel,
-                if is_muted { "1" } else { "0" }
-            ),
-        );
+        let value = format!("{} {} {} {} {}", java_double(pos), java_double(duration), velocity, position.channel, if is_muted { "1" } else { "0" });
+        self.ctx.send(Cmd::ClipNoteUpdate { note: position.note, value: &value });
     }
 
     /// Clear the note at a step.
     pub fn clear_step(&self, position: &NotePosition) {
         if self.host_grid {
-            self.send_grid(&format!("{}/clear", Self::step_path(position)));
+            let p = position;
+            self.ctx.send(Cmd::GridStepClear { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note });
             return;
         }
-        self.ctx.send_double(
-            Processor::Clip,
-            &format!("{PATH_NOTE}{}/clear/{}", position.note, position.channel),
-            self.beat_position(position.step),
-        );
+        self.ctx.send(Cmd::ClipNoteClear { note: position.note, channel: position.channel, position: self.beat_position(position.step) });
     }
 
     /// Moves the note at the step to a different row.
     pub fn move_step_y(&self, position: &NotePosition, new_row: i32) {
         if self.host_grid {
-            self.send_grid_int(&format!("{}/moveY", Self::step_path(position)), new_row);
+            let p = position;
+            self.ctx.send(Cmd::GridStepMoveY { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, row: new_row });
             return;
         }
-        self.ctx.send_double(
-            Processor::Clip,
-            &format!(
-                "{PATH_NOTE}{}/moveY/{}/{}",
-                position.note, position.channel, new_row
-            ),
-            self.beat_position(position.step),
-        );
+        self.ctx.send(Cmd::ClipNoteMoveY { note: position.note, channel: position.channel, row: new_row, position: self.beat_position(position.step) });
     }
 
     /// Clear all notes on all channels.
     pub fn clear_all(&self) {
         if self.host_grid {
-            self.send_grid("clearAll");
+            self.ctx.send(Cmd::GridClearAll { grid: self.grid_id() });
             return;
         }
-        self.ctx.send(Processor::Clip, "clear");
+        self.ctx.send(Cmd::ClipClear {});
     }
 
     /// Clear a row (all notes with the given pitch) on the given channel.
     pub fn clear_row(&self, channel: i32, row: i32) {
         if self.host_grid {
-            self.send_grid(&format!("clearRow/{channel}/{row}"));
+            self.ctx.send(Cmd::GridClearRow { grid: self.grid_id(), channel, row });
             return;
         }
-        self.ctx.send(
-            Processor::Clip,
-            &format!("{PATH_NOTE}{row}/clear/{channel}"),
-        );
+        self.ctx.send(Cmd::ClipNoteClearRow { note: row, channel });
     }
 
     /// Clear a column (all notes at a step of the edit page) on the given channel.
     pub fn clear_column(&self, channel: i32, column: i32) {
         if self.host_grid {
-            self.send_grid(&format!("clearColumn/{channel}/{column}"));
+            self.ctx.send(Cmd::GridClearColumn { grid: self.grid_id(), channel, column });
             return;
         }
-        self.ctx.send_double(
-            Processor::Clip,
-            &format!("{PATH_NOTE}0/clearPosition/{channel}"),
-            self.beat_position(column),
-        );
+        self.ctx.send(Cmd::ClipNoteClearPosition { channel, position: self.beat_position(column) });
     }
 
     // ------------------------------------------------------------------------------------------
@@ -802,7 +740,7 @@ impl CursorClip {
     pub fn update_step_mute_state(&mut self, position: &NotePosition, is_muted: bool) {
         if self.host_grid {
             // CursorClipImpl.updateStepMuteState: getNoteStep (pos).setIsMuted (isMuted)
-            self.update_host_step(position, "muted", |i| {
+            self.update_host_step(position, StepAttr::Muted, |i| {
                 i.set_muted(is_muted);
                 if is_muted { 1.0 } else { 0.0 }
             });
@@ -833,7 +771,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.updateStepDuration: getNoteStep (pos).setDuration (max (0, d))
             let d = duration.max(0.0);
-            self.update_host_step(position, "duration", |i| {
+            self.update_host_step(position, StepAttr::Duration, |i| {
                 i.set_duration(d);
                 d
             });
@@ -871,7 +809,7 @@ impl CursorClip {
         if self.host_grid {
             // CursorClipImpl.updateStepVelocity: getNoteStep (pos).setVelocity (clamp (v, 0, 1))
             let v = velocity.clamp(0.0, 1.0);
-            self.update_host_step(position, "velocity", |i| {
+            self.update_host_step(position, StepAttr::Velocity, |i| {
                 i.set_velocity(v);
                 v
             });
@@ -908,7 +846,7 @@ impl CursorClip {
     /// As CursorClipImpl.updateStep*: outside of an edit only the changed attribute is written
     /// (`getNoteStep (pos).setVelocity (v)`), as `step/<c>/<x>/<y>/<attribute> <value>`; in an
     /// edit all attributes are written by [`Self::send_clip_data`].
-    fn update_host_step(&mut self, position: &NotePosition, attribute: &str, apply: impl FnOnce(&mut StepInfo) -> f64) {
+    fn update_host_step(&mut self, position: &NotePosition, attr: StepAttr, apply: impl FnOnce(&mut StepInfo) -> f64) {
         if !self.host_grid {
             return;
         }
@@ -918,7 +856,8 @@ impl CursorClip {
         };
         let value = apply(info);
         if send_now {
-            self.send_grid_double(&format!("{}/{attribute}", Self::step_path(position)), value);
+            let p = position;
+            self.ctx.send(Cmd::GridStepAttribute { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, attr, value });
         }
     }
 
@@ -940,7 +879,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the velocity spread of the
     /// note.
     pub fn update_step_velocity_spread(&mut self, position: &NotePosition, velocity_spread: f64) {
-        self.update_host_step(position, "velocitySpread", |i| {
+        self.update_host_step(position, StepAttr::VelocitySpread, |i| {
             let v = velocity_spread.clamp(0.0, 1.0);
             i.set_velocity_spread(v);
             v
@@ -957,7 +896,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the release velocity of the
     /// note.
     pub fn update_step_release_velocity(&mut self, position: &NotePosition, release_velocity: f64) {
-        self.update_host_step(position, "releaseVelocity", |i| {
+        self.update_host_step(position, StepAttr::ReleaseVelocity, |i| {
             let v = release_velocity.clamp(0.0, 1.0);
             i.set_release_velocity(v);
             v
@@ -973,7 +912,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the pressure of the note.
     pub fn update_step_pressure(&mut self, position: &NotePosition, pressure: f64) {
-        self.update_host_step(position, "pressure", |i| {
+        self.update_host_step(position, StepAttr::Pressure, |i| {
             let v = pressure.clamp(0.0, 1.0);
             i.set_pressure(v);
             v
@@ -988,7 +927,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the timbre of the note.
     pub fn update_step_timbre(&mut self, position: &NotePosition, timbre: f64) {
-        self.update_host_step(position, "timbre", |i| {
+        self.update_host_step(position, StepAttr::Timbre, |i| {
             let v = timbre.clamp(-1.0, 1.0);
             i.set_timbre(v);
             v
@@ -1003,7 +942,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the panning of the note.
     pub fn update_step_pan(&mut self, position: &NotePosition, panning: f64) {
-        self.update_host_step(position, "pan", |i| {
+        self.update_host_step(position, StepAttr::Pan, |i| {
             let v = panning.clamp(-1.0, 1.0);
             i.set_pan(v);
             v
@@ -1020,7 +959,7 @@ impl CursorClip {
     /// note.
     pub fn update_step_transpose(&mut self, position: &NotePosition, semitones: f64) {
         let range = self.step_transpose_range();
-        self.update_host_step(position, "transpose", |i| {
+        self.update_host_step(position, StepAttr::Transpose, |i| {
             let v = semitones.clamp(-range, range);
             i.set_transpose(v);
             v
@@ -1042,7 +981,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the gain of the note.
     pub fn update_step_gain(&mut self, position: &NotePosition, gain: f64) {
-        self.update_host_step(position, "gain", |i| {
+        self.update_host_step(position, StepAttr::Gain, |i| {
             let v = gain.clamp(0.0, 1.0);
             i.set_gain(v);
             v
@@ -1058,7 +997,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the on/off state of the
     /// chance of the note.
     pub fn update_step_is_chance_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
-        self.update_host_step(position, "chanceEnabled", |i| {
+        self.update_host_step(position, StepAttr::ChanceEnabled, |i| {
             let v = is_enabled;
             i.set_is_chance_enabled(v);
             if v { 1.0 } else { 0.0 }
@@ -1067,7 +1006,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the chance of the note.
     pub fn update_step_chance(&mut self, position: &NotePosition, chance: f64) {
-        self.update_host_step(position, "chance", |i| {
+        self.update_host_step(position, StepAttr::Chance, |i| {
             let v = chance.clamp(0.0, 1.0);
             i.set_chance(v);
             v
@@ -1083,7 +1022,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the on/off state of the
     /// occurrence of the note.
     pub fn update_step_is_occurrence_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
-        self.update_host_step(position, "occurrenceEnabled", |i| {
+        self.update_host_step(position, StepAttr::OccurrenceEnabled, |i| {
             let v = is_enabled;
             i.set_is_occurrence_enabled(v);
             if v { 1.0 } else { 0.0 }
@@ -1101,7 +1040,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will set the occurrence of the note.
     pub fn set_step_occurrence(&mut self, position: &NotePosition, occurrence: NoteOccurrenceType) {
-        self.update_host_step(position, "occurrence", |i| {
+        self.update_host_step(position, StepAttr::Occurrence, |i| {
             let v = occurrence;
             i.set_occurrence(v);
             NoteOccurrenceType::ALL.iter().position(|t| *t == v).unwrap_or(0) as f64
@@ -1111,7 +1050,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the on/off state of the
     /// recurrence of the note.
     pub fn update_step_is_recurrence_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
-        self.update_host_step(position, "recurrenceEnabled", |i| {
+        self.update_host_step(position, StepAttr::RecurrenceEnabled, |i| {
             let v = is_enabled;
             i.set_is_recurrence_enabled(v);
             if v { 1.0 } else { 0.0 }
@@ -1121,7 +1060,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the recurrence length of the
     /// note (1..8).
     pub fn update_step_recurrence_length(&mut self, position: &NotePosition, recurrence_length: i32) {
-        self.update_host_step(position, "recurrenceLength", |i| {
+        self.update_host_step(position, StepAttr::RecurrenceLength, |i| {
             let v = recurrence_length.clamp(1, 8);
             i.set_recurrence_length(v);
             v as f64
@@ -1131,7 +1070,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the recurrence mask of the
     /// note.
     pub fn update_step_recurrence_mask(&mut self, position: &NotePosition, mask: i32) {
-        self.update_host_step(position, "recurrenceMask", |i| {
+        self.update_host_step(position, StepAttr::RecurrenceMask, |i| {
             let v = mask;
             i.set_recurrence_mask(v);
             v as f64
@@ -1148,7 +1087,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the on/off state of repeat
     /// of the note.
     pub fn update_step_is_repeat_enabled(&mut self, position: &NotePosition, is_enabled: bool) {
-        self.update_host_step(position, "repeatEnabled", |i| {
+        self.update_host_step(position, StepAttr::RepeatEnabled, |i| {
             let v = is_enabled;
             i.set_is_repeat_enabled(v);
             if v { 1.0 } else { 0.0 }
@@ -1157,7 +1096,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the repeat count of the note.
     pub fn update_step_repeat_count(&mut self, position: &NotePosition, value: i32) {
-        self.update_host_step(position, "repeatCount", |i| {
+        self.update_host_step(position, StepAttr::RepeatCount, |i| {
             let v = value.clamp(-127, 127);
             i.set_repeat_count(v);
             v as f64
@@ -1172,7 +1111,7 @@ impl CursorClip {
 
     /// If there is a note started at this position, it will update the repeat curve of the note.
     pub fn update_step_repeat_curve(&mut self, position: &NotePosition, value: f64) {
-        self.update_host_step(position, "repeatCurve", |i| {
+        self.update_host_step(position, StepAttr::RepeatCurve, |i| {
             let v = value.clamp(-1.0, 1.0);
             i.set_repeat_curve(v);
             v
@@ -1188,7 +1127,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the repeat velocity curve of
     /// the note.
     pub fn update_step_repeat_velocity_curve(&mut self, position: &NotePosition, value: f64) {
-        self.update_host_step(position, "repeatVelocityCurve", |i| {
+        self.update_host_step(position, StepAttr::RepeatVelocityCurve, |i| {
             let v = value.clamp(-1.0, 1.0);
             i.set_repeat_velocity_curve(v);
             v
@@ -1205,7 +1144,7 @@ impl CursorClip {
     /// If there is a note started at this position, it will update the repeat velocity end of
     /// the note.
     pub fn update_step_repeat_velocity_end(&mut self, position: &NotePosition, value: f64) {
-        self.update_host_step(position, "repeatVelocityEnd", |i| {
+        self.update_host_step(position, StepAttr::RepeatVelocityEnd, |i| {
             let v = value.clamp(-1.0, 1.0);
             i.set_repeat_velocity_end(v);
             v
@@ -1380,7 +1319,7 @@ impl CursorClip {
     pub fn scroll_to_page(&mut self, page: i32) {
         if self.host_grid {
             self.edit_page = page.max(0);
-            self.send_grid_int("scroll", self.edit_page * self.num_steps as i32);
+            self.ctx.send(Cmd::GridScroll { grid: self.grid_id(), step: self.edit_page * self.num_steps as i32 });
             return;
         }
         self.edit_page = page.clamp(0, (self.max_page - 1).max(0));
@@ -1399,7 +1338,7 @@ impl CursorClip {
             if self.edit_page <= 0 {
                 return;
             }
-            self.send_grid("page/-");
+            self.ctx.send(Cmd::GridPage { grid: self.grid_id(), dir: Dir::Prev });
             self.edit_page -= 1;
             return;
         }
@@ -1409,7 +1348,7 @@ impl CursorClip {
     /// Scroll the steps one page forwards.
     pub fn scroll_steps_page_forward(&mut self) {
         if self.host_grid {
-            self.send_grid("page/+");
+            self.ctx.send(Cmd::GridPage { grid: self.grid_id(), dir: Dir::Next });
             self.edit_page += 1;
             return;
         }
@@ -1487,7 +1426,8 @@ impl CursorClip {
         let info = self.step(position);
         if self.host_grid {
             if info.state() != StepState::Off {
-                self.send_grid_str(&format!("{}/update", Self::step_path(position)), &info.to_wire());
+                let p = position;
+                self.ctx.send(Cmd::GridStepUpdate { grid: self.grid_id(), channel: p.channel, step: p.step, note: p.note, info: &info.to_wire() });
             }
             return;
         }

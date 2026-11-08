@@ -221,9 +221,10 @@ that is formatted on one side and parsed on the other.
 - **Migration:**
   - The hosts move one by one, keeping the text protocol until the last one has moved.
   - The conformance replays must stay valid, recorded or converted.
-- To plan in detail before it is started (BACKEND_PROTOCOL.md describes the current text
-  protocol).
-- The plan: [TYPED_PROTOCOL_PLAN.md](TYPED_PROTOCOL_PLAN.md).
+- The plan: [TYPED_PROTOCOL_PLAN.md](TYPED_PROTOCOL_PLAN.md) (BACKEND_PROTOCOL.md describes the
+  current text protocol).
+- **Status:** step 0a done (the command table in `src/protocol/`, the core sends `Cmd` values,
+  the text on the wire unchanged, plan §6); next step 0b (`Msg` + `apply`).
 
 1. Test the Launchpad with hardware in Reaper, and test the Launch Control XL and the Maschine
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.

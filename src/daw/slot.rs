@@ -13,7 +13,7 @@
 
 use std::ops::Deref;
 
-use crate::backend::Processor;
+use crate::protocol::{Cmd, Rgb, SlotAction, SlotRef};
 
 use super::bank::{BankItem, PagedBank};
 use super::color::ColorEx;
@@ -155,9 +155,9 @@ impl Slot {
         self.track_position
     }
 
-    fn send_track_clip(&self, command: &str) {
+    fn send_track_clip(&self, action: SlotAction) {
         if self.index >= 0 {
-            self.ctx.send(Processor::Track, &format!("{}/clip/{}/{}", self.track_position, self.position, command));
+            self.ctx.send(Cmd::SlotAction { track: self.track_position, slot: self.position, action });
         }
     }
 
@@ -165,8 +165,7 @@ impl Slot {
     pub fn set_color(&mut self, color: ColorEx) {
         self.color = color;
         if self.index >= 0 {
-            let [r, g, b] = color.to_int_rgb255();
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/color", self.track_position, self.position), &format!("RGB({r},{g},{b})"));
+            self.ctx.send(Cmd::SlotColor { track: self.track_position, slot: self.position, value: Rgb(color.to_int_rgb255()) });
         }
     }
 
@@ -174,35 +173,35 @@ impl Slot {
     /// the Java version). Reaper only uses the press.
     pub fn launch(&mut self, is_pressed: bool, is_alternative: bool) {
         self.send_track_clip(match (is_pressed, is_alternative) {
-            (true, false) => "launch",
-            (true, true) => "launchAlt",
-            (false, false) => "launchRelease",
-            (false, true) => "launchReleaseAlt",
+            (true, false) => SlotAction::Launch,
+            (true, true) => SlotAction::LaunchAlt,
+            (false, false) => SlotAction::LaunchRelease,
+            (false, true) => SlotAction::LaunchReleaseAlt,
         });
     }
 
     pub fn start_recording(&mut self) {
-        self.send_track_clip("record");
+        self.send_track_clip(SlotAction::Record);
     }
 
     pub fn remove(&mut self) {
-        self.send_track_clip("remove");
+        self.send_track_clip(SlotAction::Remove);
     }
 
     pub fn duplicate(&mut self) {
-        self.send_track_clip("duplicate");
+        self.send_track_clip(SlotAction::Duplicate);
     }
 
     /// Paste the given slot into this slot (Reaper duplicates the source slot).
     pub fn paste(&mut self, source_track_position: i32, source_position: i32) {
         if self.index >= 0 {
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/paste", self.track_position, self.position), &format!("{source_track_position}/{source_position}"));
+            self.ctx.send(Cmd::SlotPaste { track: self.track_position, slot: self.position, source: SlotRef { track: source_track_position, slot: source_position } });
         }
     }
 
     pub fn insert_file(&mut self, path: &str) {
         if self.index >= 0 {
-            self.ctx.send_str(Processor::Track, &format!("{}/clip/{}/insertFile", self.track_position, self.position), path);
+            self.ctx.send(Cmd::SlotInsertFile { track: self.track_position, slot: self.position, path });
         }
     }
 
@@ -285,7 +284,7 @@ impl BankItem for Slot {
     }
 
     fn select(&mut self) {
-        self.send_track_clip("select");
+        self.send_track_clip(SlotAction::Select);
     }
 }
 

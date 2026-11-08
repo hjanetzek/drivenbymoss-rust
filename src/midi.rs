@@ -7,7 +7,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use crate::backend::{Processor, Sender};
+use crate::backend::Sender;
+use crate::protocol::Cmd;
 use crate::framework::ids::{ButtonId, ContinuousId};
 
 pub const CMD_NOTE_OFF: i32 = 0x80;
@@ -132,7 +133,7 @@ impl NoteRepeat {
     pub fn set_active(&mut self, active: bool) {
         if self.is_active != active {
             self.is_active = active;
-            self.sender.bool_arg(Processor::NoteRepeat, "active", active);
+            self.sender.send(&Cmd::NoteRepeatActive { value: active });
         }
     }
 
@@ -141,24 +142,24 @@ impl NoteRepeat {
     }
 
     pub fn set_period(&mut self, period: f64) {
-        self.sender.double_arg(Processor::NoteRepeat, "rate", 1.0 / period);
+        self.sender.send(&Cmd::NoteRepeatRate { value: 1.0 / period });
     }
 
     pub fn set_note_length(&mut self, length: f64) {
-        self.sender.double_arg(Processor::NoteRepeat, "notelength", length);
+        self.sender.send(&Cmd::NoteRepeatNoteLength { value: length });
     }
 
     pub fn toggle_use_pressure(&mut self) {
-        self.sender.bool_arg(Processor::NoteRepeat, "velocity", !self.use_pressure);
+        self.sender.send(&Cmd::NoteRepeatVelocity { value: !self.use_pressure });
     }
 
     pub fn set_use_pressure(&mut self, use_pressure: bool) {
-        self.sender.bool_arg(Processor::NoteRepeat, "velocity", use_pressure);
+        self.sender.send(&Cmd::NoteRepeatVelocity { value: use_pressure });
     }
 
     pub fn set_mode(&mut self, mode: usize) {
         if mode < ARP_MODES.len() {
-            self.sender.int_arg(Processor::NoteRepeat, "mode", mode as i32);
+            self.sender.send(&Cmd::NoteRepeatMode { value: mode as i32 });
         }
     }
 }

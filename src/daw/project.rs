@@ -6,6 +6,7 @@
 //! the track bank (`TrackBank::has_solo` etc.), scene creation is
 //! [`Project::create_scene`] which takes the new clip length (from the configuration).
 
+use crate::protocol::{Cmd, CueParam};
 use crate::backend::Processor;
 
 use super::context::DawContext;
@@ -30,13 +31,13 @@ impl Project {
     pub fn new(ctx: DawContext, num_params: usize) -> Self {
         let parameter_bank =
             if num_params > 0 { Some(ParameterBank::new(ctx.clone(), ParameterBankId::Project, Processor::Master, num_params, false)) } else { None };
-        let cue_volume = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueVolume"), 0, 0.0);
-        let cue_mix = Parameter::new(ctx.clone(), ParameterKind::ProjectCue("cueMix"), 0, 0.0);
+        let cue_volume = Parameter::new(ctx.clone(), ParameterKind::ProjectCue(CueParam::Volume), 0, 0.0);
+        let cue_mix = Parameter::new(ctx.clone(), ParameterKind::ProjectCue(CueParam::Mix), 0, 0.0);
         Project { ctx, name: "None".into(), is_dirty: false, parameter_bank, cue_volume, cue_mix, num_params }
     }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(Processor::Project, enable);
+        self.ctx.send(Cmd::enable_updates(Processor::Project, enable));
     }
 
     /// The name of the project ("None" if not set).
@@ -50,22 +51,22 @@ impl Project {
 
     /// Switch to the previous project tab.
     pub fn previous(&mut self) {
-        self.ctx.send(Processor::Project, "previous");
+        self.ctx.send(Cmd::ProjectPrevious {});
     }
 
     /// Switch to the next project tab.
     pub fn next(&mut self) {
-        self.ctx.send(Processor::Project, "next");
+        self.ctx.send(Cmd::ProjectNext {});
     }
 
     pub fn create_scene_from_playing_launcher_clips(&mut self) {
-        self.ctx.send(Processor::Project, "createSceneFromPlayingLauncherClips");
+        self.ctx.send(Cmd::ProjectCreateSceneFromPlayingLauncherClips {});
     }
 
     /// Create a new scene with the given length (former `createScene`, the length is
     /// `configuration.getNewClipLenghthInBeats(transport.getQuartersPerMeasure())`).
     pub fn create_scene(&mut self, new_clip_length_in_beats: i32) {
-        self.ctx.send_int(Processor::Project, "createScene", new_clip_length_in_beats);
+        self.ctx.send(Cmd::ProjectCreateScene { value: new_clip_length_in_beats });
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -73,11 +74,11 @@ impl Project {
     }
 
     pub fn save(&mut self) {
-        self.ctx.send(Processor::Project, "save");
+        self.ctx.send(Cmd::ProjectSave {});
     }
 
     pub fn load(&mut self) {
-        self.ctx.send(Processor::Project, "load");
+        self.ctx.send(Cmd::ProjectLoad {});
     }
 
     /// The parameter bank of the project (master FX).

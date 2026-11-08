@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use drivenbymoss::app::App;
 use drivenbymoss::backend::Backend;
+use drivenbymoss::protocol::Cmd;
 
 struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
@@ -71,13 +72,7 @@ struct Null {
     midi_out: Cell<usize>,
 }
 impl Backend for Null {
-    fn process_no_arg(&self, _: &str, _: &str) {}
-    fn process_string_arg(&self, _: &str, _: &str, _: &str) {}
-    fn process_string_args(&self, _: &str, _: &str, _: &[&str]) {}
-    fn process_int_arg(&self, _: &str, _: &str, _: i32) {}
-    fn process_double_arg(&self, _: &str, _: &str, _: f64) {}
-    fn delay_updates(&self, _: &str) {}
-    fn enable_updates(&self, _: &str, _: bool) {}
+    fn send_command(&self, _: &Cmd) {}
     fn process_midi_arg(&self, _: i32, _: i32, _: i32, _: i32) {}
     fn midi_inputs(&self) -> Vec<(i32, String)> {
         Vec::new()

@@ -9,6 +9,7 @@
 //! A host with its own browser (Bitwig, protocol v2) reports `/browser/exists` and the content
 //! types, filter columns and results; then all browser functions are commands to the host.
 
+use crate::protocol::{Cmd, Dir};
 use crate::backend::Processor;
 
 use super::context::DawContext;
@@ -116,12 +117,9 @@ impl Browser {
         self.host_reported
     }
 
-    fn send(&self, command: &str) {
-        self.ctx.send(Processor::Browser, command);
-    }
 
     pub fn enable_observers(&self, enable: bool) {
-        self.ctx.enable_updates(Processor::Browser, enable);
+        self.ctx.send(Cmd::enable_updates(Processor::Browser, enable));
     }
 
     pub fn is_active(&self) -> bool {
@@ -186,13 +184,13 @@ impl Browser {
 
     pub fn previous_content_type(&mut self) {
         if self.host_reported {
-            self.send("contentType/-");
+            self.ctx.send(Cmd::BrowserContentType { dir: Dir::Prev });
         }
     }
 
     pub fn next_content_type(&mut self) {
         if self.host_reported {
-            self.send("contentType/+");
+            self.ctx.send(Cmd::BrowserContentType { dir: Dir::Next });
         }
     }
 
@@ -207,7 +205,7 @@ impl Browser {
 
     pub fn set_preview_enabled(&mut self, enabled: bool) {
         if self.host_reported {
-            self.ctx.send_bool(Processor::Browser, "preview", enabled);
+            self.ctx.send(Cmd::BrowserPreview { value: enabled });
         }
     }
 
@@ -228,31 +226,31 @@ impl Browser {
         self.columns.iter().map(|c| c.name.as_str()).collect()
     }
 
-    fn send_column(&self, column: usize, command: &str) {
+    fn send_column(&self, column: usize, cmd: Cmd) {
         if self.host_reported && column < self.columns.len() {
-            self.send(&format!("column/{column}/{command}"));
+            self.ctx.send(cmd);
         }
     }
 
     pub fn select_previous_filter_item(&mut self, column: usize) {
-        self.send_column(column, "-");
+        self.send_column(column, Cmd::BrowserColumnStep { column, dir: Dir::Prev });
     }
 
     pub fn select_next_filter_item(&mut self, column: usize) {
-        self.send_column(column, "+");
+        self.send_column(column, Cmd::BrowserColumnStep { column, dir: Dir::Next });
     }
 
     pub fn previous_filter_item_page(&mut self, column: usize) {
-        self.send_column(column, "page/-");
+        self.send_column(column, Cmd::BrowserColumnPage { column, dir: Dir::Prev });
     }
 
     pub fn next_filter_item_page(&mut self, column: usize) {
-        self.send_column(column, "page/+");
+        self.send_column(column, Cmd::BrowserColumnPage { column, dir: Dir::Next });
     }
 
     /// Select the wildcard item of the column (former `resetFilterColumn`).
     pub fn reset_filter_column(&mut self, column: usize) {
-        self.send_column(column, "reset");
+        self.send_column(column, Cmd::BrowserColumnReset { column });
     }
 
     /// The index of the cursor item on the page of the column, -1 if not on the page.
@@ -265,7 +263,7 @@ impl Browser {
     pub fn replace_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("Replace: {}", if device_name.is_empty() { "Empty" } else { device_name });
         if self.host_reported {
-            self.send("replace/device");
+            self.ctx.send(Cmd::BrowserReplaceDevice {});
             return;
         }
         self.browse(BrowserContentType::Preset, device_position);
@@ -276,7 +274,7 @@ impl Browser {
     pub fn replace_slot(&mut self, slot_name: &str, track: i32, slot: i32) {
         if self.host_reported {
             self.info_text = format!("Replace: {}", if slot_name.is_empty() { "Empty" } else { slot_name });
-            self.send(&format!("replace/slot/{track}/{slot}"));
+            self.ctx.send(Cmd::BrowserReplaceSlot { track, slot });
         }
     }
 
@@ -286,7 +284,7 @@ impl Browser {
     pub fn replace_drum_pad(&mut self, owner: Processor, pad_name: &str, pad: i32) {
         if self.host_reported {
             self.info_text = format!("Replace: {}", if pad_name.is_empty() { "Empty" } else { pad_name });
-            self.send(&format!("replace/{}/pad/{pad}", owner.id()));
+            self.ctx.send(Cmd::BrowserReplacePad { owner, pad });
         }
     }
 
@@ -294,9 +292,9 @@ impl Browser {
     pub fn add_device(&mut self, channel_name: &str, target: DeviceChainTarget) {
         self.info_text = format!("Add device to: {channel_name}");
         if self.host_reported {
-            self.send(&match target {
-                DeviceChainTarget::Track(position) => format!("add/track/{position}"),
-                DeviceChainTarget::Master => "add/master".to_string(),
+            self.ctx.send(match target {
+                DeviceChainTarget::Track(track) => Cmd::BrowserAddToTrack { track },
+                DeviceChainTarget::Master => Cmd::BrowserAddToMaster {},
             });
             return;
         }
@@ -307,7 +305,7 @@ impl Browser {
     pub fn insert_before_cursor_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("{INSERT_DEVICE_BEFORE}{device_name}");
         if self.host_reported {
-            self.send("insertBefore");
+            self.ctx.send(Cmd::BrowserInsertBefore {});
             return;
         }
         self.browse(BrowserContentType::Device, device_position);
@@ -317,7 +315,7 @@ impl Browser {
     pub fn insert_after_cursor_device(&mut self, device_name: &str, device_position: i32) {
         self.info_text = format!("{INSERT_DEVICE_AFTER}{device_name}");
         if self.host_reported {
-            self.send("insertAfter");
+            self.ctx.send(Cmd::BrowserInsertAfter {});
             return;
         }
         self.browse(BrowserContentType::Device, device_position + 1);
@@ -346,7 +344,7 @@ impl Browser {
     pub fn stop_browsing(&mut self, commit_selection: bool) {
         if self.host_reported {
             // As the Java version: commit or cancel, even if not active
-            self.ctx.send_bool(Processor::Browser, "stop", commit_selection);
+            self.ctx.send(Cmd::BrowserStop { commit: commit_selection });
             return;
         }
         if !self.is_active {
@@ -355,7 +353,7 @@ impl Browser {
         if commit_selection && self.insert_position >= 0 && self.content_type == BrowserContentType::Preset {
             let index = self.selected_result_index();
             if index != -1 {
-                self.ctx.send_int(Processor::Device, "preset", index);
+                self.ctx.send(Cmd::DevicePreset { value: index });
             }
         }
         self.enable_observers(false);
@@ -428,7 +426,7 @@ impl Browser {
 
     pub fn select_previous_result(&mut self) {
         if self.host_reported {
-            self.send("result/-");
+            self.ctx.send(Cmd::BrowserResultStep { dir: Dir::Prev });
             return;
         }
         self.set_selected_result(self.selected_index - 1);
@@ -436,7 +434,7 @@ impl Browser {
 
     pub fn select_next_result(&mut self) {
         if self.host_reported {
-            self.send("result/+");
+            self.ctx.send(Cmd::BrowserResultStep { dir: Dir::Next });
             return;
         }
         self.set_selected_result(self.selected_index + 1);
@@ -444,7 +442,7 @@ impl Browser {
 
     pub fn previous_result_page(&mut self) {
         if self.host_reported {
-            self.send("result/page/-");
+            self.ctx.send(Cmd::BrowserResultPage { dir: Dir::Prev });
             return;
         }
         self.set_selected_result(self.selected_index - self.num_results as i32);
@@ -452,7 +450,7 @@ impl Browser {
 
     pub fn next_result_page(&mut self) {
         if self.host_reported {
-            self.send("result/page/+");
+            self.ctx.send(Cmd::BrowserResultPage { dir: Dir::Next });
             return;
         }
         self.set_selected_result(self.selected_index + self.num_results as i32);

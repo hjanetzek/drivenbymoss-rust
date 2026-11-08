@@ -7,6 +7,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::protocol::{Arg, Cmd, Legacy};
+
 /// The processors in the C++ extension which handle commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Processor {
@@ -96,17 +98,60 @@ impl Processor {
             Processor::FxTrack => "fxtrack",
         }
     }
+
+    /// All processors.
+    pub const ALL: [Processor; 38] = [
+        Processor::Transport,
+        Processor::Project,
+        Processor::Track,
+        Processor::Master,
+        Processor::Device,
+        Processor::Eq,
+        Processor::Browser,
+        Processor::Marker,
+        Processor::Clip,
+        Processor::Session,
+        Processor::Scene,
+        Processor::NoteRepeat,
+        Processor::PlayingNotes,
+        Processor::Groove,
+        Processor::Play,
+        Processor::Stop,
+        Processor::Record,
+        Processor::Repeat,
+        Processor::Time,
+        Processor::Tempo,
+        Processor::Automation,
+        Processor::Action,
+        Processor::Quantize,
+        Processor::MetroVol,
+        Processor::Undo,
+        Processor::Redo,
+        Processor::Cursor,
+        Processor::Refresh,
+        Processor::IniFile,
+        Processor::Application,
+        Processor::Arranger,
+        Processor::Mixer,
+        Processor::Beats,
+        Processor::Bank,
+        Processor::Drum,
+        Processor::Primary,
+        Processor::Navigator,
+        Processor::FxTrack,
+    ];
+
+    /// The processor with the given name (see [`Processor::id`]).
+    pub fn from_id(id: &str) -> Option<Processor> {
+        Processor::ALL.iter().copied().find(|p| p.id() == id)
+    }
 }
 
 /// Functions provided by the C++ extension.
 pub trait Backend {
-    fn process_no_arg(&self, processor: &str, command: &str);
-    fn process_string_arg(&self, processor: &str, command: &str, value: &str);
-    fn process_string_args(&self, processor: &str, command: &str, values: &[&str]);
-    fn process_int_arg(&self, processor: &str, command: &str, value: i32);
-    fn process_double_arg(&self, processor: &str, command: &str, value: f64);
-    fn delay_updates(&self, processor: &str);
-    fn enable_updates(&self, processor: &str, enable: bool);
+    /// A command of the core. The text hosts receive its legacy form ([`Cmd::legacy`]), see
+    /// [`FfiBackend`](crate::ffi::FfiBackend).
+    fn send_command(&self, cmd: &Cmd);
     fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32);
     fn midi_inputs(&self) -> Vec<(i32, String)>;
     fn midi_outputs(&self) -> Vec<(i32, String)>;
@@ -144,42 +189,14 @@ impl Sender {
         &self.backend
     }
 
-    pub fn no_arg(&self, processor: Processor, command: &str) {
-        self.backend.process_no_arg(processor.id(), command);
+    /// Send a command to the backend.
+    pub fn send(&self, cmd: &Cmd) {
+        self.backend.send_command(cmd);
     }
-
-    pub fn string_arg(&self, processor: Processor, command: &str, value: &str) {
-        self.backend.process_string_arg(processor.id(), command, value);
-    }
-
-    pub fn string_args(&self, processor: Processor, command: &str, values: &[&str]) {
-        self.backend.process_string_args(processor.id(), command, values);
-    }
-
-    pub fn int_arg(&self, processor: Processor, command: &str, value: i32) {
-        self.backend.process_int_arg(processor.id(), command, value);
-    }
-
-    pub fn double_arg(&self, processor: Processor, command: &str, value: f64) {
-        self.backend.process_double_arg(processor.id(), command, value);
-    }
-
-    pub fn bool_arg(&self, processor: Processor, command: &str, value: bool) {
-        self.int_arg(processor, command, if value { 1 } else { 0 });
-    }
-
-    pub fn delay_updates(&self, processor: Processor) {
-        self.backend.delay_updates(processor.id());
-    }
-
-    pub fn enable_updates(&self, processor: Processor, enable: bool) {
-        self.backend.enable_updates(processor.id(), enable);
-    }
-
 
     /// Send a refresh command to the backend, which then sends all data again.
     pub fn refresh(&self) {
-        self.no_arg(Processor::Refresh, "");
+        self.send(&Cmd::Refresh {});
     }
 }
 
@@ -229,36 +246,19 @@ impl Backend for RecordingBackend {
         self.logs.borrow_mut().push(message.to_string());
     }
 
-    fn process_no_arg(&self, processor: &str, command: &str) {
-        self.push(BackendCall::NoArg(processor.into(), command.into()));
-    }
-
-    fn process_string_arg(&self, processor: &str, command: &str, value: &str) {
-        self.push(BackendCall::StringArg(processor.into(), command.into(), value.into()));
-    }
-
-    fn process_string_args(&self, processor: &str, command: &str, values: &[&str]) {
-        self.push(BackendCall::StringArgs(
-            processor.into(),
-            command.into(),
-            values.iter().map(|v| v.to_string()).collect(),
-        ));
-    }
-
-    fn process_int_arg(&self, processor: &str, command: &str, value: i32) {
-        self.push(BackendCall::IntArg(processor.into(), command.into(), value));
-    }
-
-    fn process_double_arg(&self, processor: &str, command: &str, value: f64) {
-        self.push(BackendCall::DoubleArg(processor.into(), command.into(), value));
-    }
-
-    fn delay_updates(&self, processor: &str) {
-        self.push(BackendCall::DelayUpdates(processor.into()));
-    }
-
-    fn enable_updates(&self, processor: &str, enable: bool) {
-        self.push(BackendCall::EnableUpdates(processor.into(), enable));
+    /// Records the legacy form of the command, as the text hosts receive it.
+    fn send_command(&self, cmd: &Cmd) {
+        let Legacy { processor, command, arg } = cmd.legacy();
+        let p = processor.id().to_string();
+        self.push(match arg {
+            Arg::None => BackendCall::NoArg(p, command),
+            Arg::Int(v) => BackendCall::IntArg(p, command, v),
+            Arg::Double(v) => BackendCall::DoubleArg(p, command, v),
+            Arg::Str(v) => BackendCall::StringArg(p, command, v.into_owned()),
+            Arg::Strs(v) => BackendCall::StringArgs(p, command, v.iter().map(|v| v.to_string()).collect()),
+            Arg::Delay => BackendCall::DelayUpdates(p),
+            Arg::Enable(v) => BackendCall::EnableUpdates(p, v),
+        });
     }
 
     fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32) {

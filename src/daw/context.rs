@@ -8,9 +8,10 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::backend::{Processor, Sender};
+use crate::backend::Sender;
 use crate::framework::value_changer::ValueChanger;
 use crate::host::{Host, Scheduler};
+use crate::protocol::Cmd;
 
 use super::constants::RecordQuantization;
 use super::model::Model;
@@ -324,54 +325,11 @@ impl DawContext {
         std::mem::take(&mut *self.shared.events.borrow_mut())
     }
 
-
-    pub fn delay_updates(&self, processor: Processor) {
+    /// Send a command to the host (former `BaseImpl.sendOSC`); nothing for the "empty"
+    /// placeholder items ([`DawContext::muted`]).
+    pub fn send(&self, cmd: Cmd) {
         if !self.muted {
-            self.sender.delay_updates(processor);
-        }
-    }
-
-    pub fn enable_updates(&self, processor: Processor, enable: bool) {
-        if !self.muted {
-            self.sender.enable_updates(processor, enable);
-        }
-    }
-
-    pub fn send_strs(&self, processor: Processor, command: &str, values: &[&str]) {
-        if !self.muted {
-            self.sender.string_args(processor, command, values);
-        }
-    }
-
-    // Shortcuts for sending to a processor (former `BaseImpl.sendOSC`).
-
-    pub fn send(&self, processor: Processor, command: &str) {
-        if !self.muted {
-            self.sender.no_arg(processor, command);
-        }
-    }
-
-    pub fn send_int(&self, processor: Processor, command: &str, value: i32) {
-        if !self.muted {
-            self.sender.int_arg(processor, command, value);
-        }
-    }
-
-    pub fn send_double(&self, processor: Processor, command: &str, value: f64) {
-        if !self.muted {
-            self.sender.double_arg(processor, command, value);
-        }
-    }
-
-    pub fn send_bool(&self, processor: Processor, command: &str, value: bool) {
-        if !self.muted {
-            self.sender.bool_arg(processor, command, value);
-        }
-    }
-
-    pub fn send_str(&self, processor: Processor, command: &str, value: &str) {
-        if !self.muted {
-            self.sender.string_arg(processor, command, value);
+            self.sender.send(&cmd);
         }
     }
 }
