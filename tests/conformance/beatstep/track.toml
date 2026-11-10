@@ -1,0 +1,70 @@
+# Conformance scenarios: Arturia Beatstep, Track Mode. Pads: notes 36-51 on MIDI channel 3
+# (manual pads 1-8 = notes 44-51, 9-16 = notes 36-43); knobs 1-8: CC 20-27, knobs 9-16: CC
+# 30-37 on MIDI channel 3 (B2), relative, offset binary (41 = +1, 3F = -1).
+# Fixture: tests/conformance/FIXTURE.md; setup: tests/conformance/beatstep/CONFORMANCE.md.
+
+controller = "Arturia Beatstep"
+manual = "Arturia/Arturia-Beatstep.md#track-mode"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/4/name" = "EQ" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1 | /track/1/mute 0 | /track/1/solo 0" },
+  { midi = "90 07 7F | 92 2C 7F | 82 2C 00 | 90 07 00", note = "Shift + Pad 1: Track Mode" },
+]
+
+[[scenario]]
+id = "bs.track.select"
+bullet = "Pad 1-8: Selects one of the 8 tracks from the currently selected track page."
+before = [{ osc = "/track/1/select 1" }]
+steps = [{ midi = "92 2E 7F | 82 2E 00", note = "Pad 3" }]
+expect.bitwig = { "/track/3/selected" = "1" }
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 72" = "10", "F0 00 20 6B 7F 42 02 00 10 70" = "00" }
+
+[[scenario]]
+id = "bs.track.recarm"
+bullet = "Pad 10: Toggles record arm on the selected track."
+before = [{ osc = "/track/4/select 1 | /track/4/recarm 0" }]
+steps = [{ midi = "92 25 7F | 82 25 00", note = "Pad 10" }]
+expect.bitwig = { "/track/4/recarm" = "1" }
+
+[[scenario]]
+id = "bs.track.mute"
+bullet = "Knob 3: Change the mute state of the selected track."
+before = [{ osc = "/track/4/recarm 0 | /track/1/select 1 | /track/1/mute 0" }]
+steps = [{ midi = "B2 16 41", note = "Knob 3 to the right" }]
+expect.bitwig = { "/track/1/mute" = "1" }
+
+[[scenario]]
+id = "bs.track.unmute"
+bullet = "Knob 3: Change the mute state of the selected track. (to the left)"
+before = [{ osc = "/track/1/mute 1" }]
+steps = [{ midi = "B2 16 3F", note = "Knob 3 to the left" }]
+expect.bitwig = { "/track/1/mute" = "0" }
+
+[[scenario]]
+id = "bs.track.solo"
+bullet = "Knob 4: Change the solo state of the selected track."
+before = [{ osc = "/track/1/mute 0 | /track/1/solo 0" }]
+steps = [{ midi = "B2 17 41", note = "Knob 4 to the right" }]
+expect.bitwig = { "/track/1/solo" = "1" }
+
+[[scenario]]
+id = "bs.track.volume"
+bullet = "Knob 1: Change the volume of the selected track. (no expectation: the value is compared between the versions; with the takeover mode Catch OSC cannot set a start value)"
+before = [{ osc = "/track/1/solo 0" }]
+steps = [{ midi = "B2 14 3F | B2 14 3F | B2 14 42", note = "Knob 1: 2 steps to the left, 2 to the right" }]
+
+[[scenario]]
+id = "bs.track.next-page"
+bullet = "Pad 16: Select the next track page."
+before = [{ osc = "/track/1/select 1" }]
+steps = [{ midi = "92 2B 7F | 82 2B 00", note = "Pad 16", wait_ms = 300 }]
+expect.bitwig = { "/track/selected/name" = "Audio 9" }
+
+[[scenario]]
+id = "bs.track.previous-page"
+bullet = "Pad 15: Select the previous track page."
+steps = [{ midi = "92 2A 7F | 82 2A 00", note = "Pad 15", wait_ms = 300 }]
+expect.bitwig = { "/track/selected/name" = "Synth" }

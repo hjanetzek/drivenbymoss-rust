@@ -239,6 +239,7 @@ SETUPS = {
         Setup("maschine_mk2", "015E4908-C049-4808-A645-A7A44BEFE36B"),
         Setup("maschine_jam", "72F32A83-A697-446B-9016-64AA3F9476E4"),
         Setup("generic_flexi", "1B43F14F-CAAF-468A-9418-417C678653A0", takeover_mode=TAKEOVER_IMMEDIATE),
+        Setup("beatstep", "F7FF1750-7EC3-11E4-B4A9-0800200C9A66"),
     )
 }
 

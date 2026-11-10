@@ -5,6 +5,7 @@
 //! The supported controllers.
 
 pub mod akai;
+pub mod arturia;
 pub mod generic;
 pub mod launchcontrol;
 pub mod launchpad;
@@ -136,6 +137,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(akai::factories());
     factories.extend(mackie::factories());
     factories.extend(generic::factories());
+    factories.extend(arturia::factories());
     // The controllers written in Lua: built in and <ini folder>/DrivenByMoss/controllers
     #[cfg(feature = "lua")]
     factories.extend(crate::script::factories());

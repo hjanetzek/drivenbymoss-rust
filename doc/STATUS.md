@@ -56,6 +56,7 @@ MIDI mode).
 | Akai APC40 | Mk1, Mk2 | `src/controller/akai/apc/` | `akai_apc40.rs` (6) |
 | Akai MPC/Force (ACVS) | MPC Live I/II, One, X, Force | `src/controller/akai/acvs/` | `akai_acvs.rs` (4) |
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
+| Arturia Beatstep | Beatstep (also the Beatstep Pro, same MIDI) | `src/controller/arturia/beatstep/` | `arturia_beatstep.rs` (9) |
 
 There are also 220 unit tests in the sources.
 
@@ -90,6 +91,19 @@ Not tested with hardware yet. Not ported:
 - Fire: the XoX drum view (needs `AbstractDrumXoXView`), pinning the cursor track and the knob
   sensitivity in the browser.
 See the module documentation in `src/controller/akai/` for the details and the Java deviations.
+
+**Arturia Beatstep (2026-11-10):** the Beatstep and the Beatstep Pro (one definition, as in
+Java), with all 8 views of the Java package: track, device, play, drum and note sequencer,
+session, browser and the shift view (mode selection and transport). The pad LEDs are sysex
+messages; the pads play notes through the note input of MIDI channel 3, the hardware sequencer
+has its own note input (MIDI channel 1, the Shift note blocked). The 17 relative knobs (offset
+binary) go to the active view, limited to ±10 steps per message as in Java. Registered in the
+Bitwig extension ("Arturia Beatstep (Rust)"). Not tested with hardware or on Bitwig yet; the
+conformance scenarios (`tests/conformance/beatstep/`, 21 scenarios) need a Bitwig profile
+`beatstep`. Not ported: the Beatstep Pro step buttons (`StepCommand` is ported but, as in Java,
+not registered), the 1 ms pause after each pad sysex (BITWIG_DIVERGENCES.md §9), the crossfade
+mode knob of a track (Reaper has no crossfade parameter per track). See the module documentation
+in `src/controller/arturia/beatstep/` for the details.
 
 Commits:
 

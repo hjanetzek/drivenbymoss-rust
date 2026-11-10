@@ -66,7 +66,7 @@ listed under "Needs".
 | Controller | Java path | Java lines | Reaper instance classes | Needs (beyond what exists) | Suggested order |
 | --- | --- | --- | --- | --- | --- |
 | Akai APC mini Mk1/Mk2 | `akai/apcmini` | 2,747 | `APCminiMk1/Mk2ControllerInstance` | **Ported** (`src/controller/akai/apcmini/`) | — |
-| Arturia Beatstep (+ Pro) | `arturia/beatstep` | 2,264 | `BeatstepControllerInstance` | — | 1 |
+| Arturia Beatstep (+ Pro) | `arturia/beatstep` | 2,264 | `BeatstepControllerInstance` | **Ported** (`src/controller/arturia/beatstep/`) | — |
 | ESI Xjam | `esi/xjam` | 474 | `XjamControllerInstance` | — | 1 |
 | Yaeltex Turn | `yaeltex/turn` | 3,457 | `YaeltexTurnControllerInstance` | — | 1 |
 | Akai APC40 Mk1/Mk2 | `akai/apc` | 3,928 | `APC40mkI/mkIIControllerInstance` | **Ported** (`src/controller/akai/apc/`) | — |

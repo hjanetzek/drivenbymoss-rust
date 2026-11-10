@@ -1,0 +1,80 @@
+# Conformance scenarios: Arturia Beatstep, the Shift mode (mode change and transport). The pads
+# send notes 36-51 on MIDI channel 3 (92/82): the manual's pads 1-8 (upper row) are the notes
+# 44-51, the pads 9-16 (lower row) the notes 36-43. Shift sends note 7 on MIDI channel 1 (90),
+# enabled by the startup sysex. The pad LEDs are sysex messages
+# (F0 00 20 6B 7F 42 02 00 10 <pad 70-7F> <color> F7; 00 off, 01 red, 10 blue, 11 pink).
+# Fixture: tests/conformance/FIXTURE.md; setup: tests/conformance/beatstep/CONFORMANCE.md.
+
+controller = "Arturia Beatstep"
+manual = "Arturia/Arturia-Beatstep.md#shift-mode-when-the-shift-button-is-pressed---mode-change-and-transport"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth" }
+
+setup = [
+  { osc = "/stop | /repeat 0 | /click 0 | /track/bank/page/- | /track/1/select 1" },
+  { midi = "90 07 7F | 92 2C 7F | 82 2C 00 | 90 07 00", note = "Shift + Pad 1: Track Mode" },
+]
+
+[[scenario]]
+id = "bs.shift.play"
+bullet = "Pad 9: Toggles playback."
+before = [{ osc = "/stop" }]
+steps = [
+  { midi = "90 07 7F", note = "hold Shift" },
+  { midi = "92 24 7F | 82 24 00", note = "Pad 9" },
+  { midi = "90 07 00", note = "release Shift" },
+]
+expect.bitwig = { "/play" = "1" }
+
+[[scenario]]
+id = "bs.shift.repeat"
+bullet = "Pad 11: Toggles arranger repeat (loop)."
+before = [{ osc = "/stop | /repeat 0" }]
+steps = [
+  { midi = "90 07 7F", note = "hold Shift" },
+  { midi = "92 26 7F | 82 26 00", note = "Pad 11" },
+  { midi = "90 07 00", note = "release Shift" },
+]
+expect.bitwig = { "/repeat" = "1" }
+
+[[scenario]]
+id = "bs.shift.click"
+bullet = "Pad 12: Toggles the metronome."
+before = [{ osc = "/repeat 0 | /click 0" }]
+steps = [
+  { midi = "90 07 7F", note = "hold Shift" },
+  { midi = "92 27 7F | 82 27 00", note = "Pad 12" },
+  { midi = "90 07 00", note = "release Shift" },
+]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "bs.shift.leds"
+bullet = "Shift-Mode: the pads show the transport state (Pad 9 blue while stopped, Pad 12 pink with the metronome on)."
+before = [{ osc = "/stop | /click 1" }]
+steps = [{ midi = "90 07 7F", note = "hold Shift" }]
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 78" = "10", "F0 00 20 6B 7F 42 02 00 10 7B" = "11", "F0 00 20 6B 7F 42 02 00 10 7F" = "01" }
+
+[[scenario]]
+id = "bs.shift.device-mode"
+bullet = "Pad 2: Activates the Device Mode to control the parameters of a device."
+before = [{ midi = "90 07 00", note = "release Shift" }, { osc = "/click 0 | /track/1/select 1" }]
+steps = [
+  { midi = "90 07 7F", note = "hold Shift" },
+  { midi = "92 2D 7F | 82 2D 00", note = "Pad 2" },
+  { midi = "90 07 00", note = "release Shift" },
+]
+# Device Mode: Pad 9 red (the device is on), Pad 10 and 11 blue
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 78" = "01", "F0 00 20 6B 7F 42 02 00 10 79" = "10", "F0 00 20 6B 7F 42 02 00 10 7A" = "10" }
+
+[[scenario]]
+id = "bs.shift.track-mode"
+bullet = "Pad 1: Activates the Track Mode to control the parameters of a track."
+steps = [
+  { midi = "90 07 7F", note = "hold Shift" },
+  { midi = "92 2C 7F | 82 2C 00", note = "Pad 1" },
+  { midi = "90 07 00", note = "release Shift" },
+]
+# Track Mode: Pad 1 blue (track 1 selected), Pad 12-14 (add tracks) pink
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 70" = "10", "F0 00 20 6B 7F 42 02 00 10 7B" = "11", "F0 00 20 6B 7F 42 02 00 10 7D" = "11" }

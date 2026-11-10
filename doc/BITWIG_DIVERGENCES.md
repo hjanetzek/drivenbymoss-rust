@@ -490,4 +490,11 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   instead of one per event as in Java, which scrolled the preset lists too fast; the main encoder
   (detents) still moves one entry per click. Found on Zynthian (doc/ZYNTHIAN_PLAN.md §7); it
   applies to every host.
-
+- **Arturia Beatstep, pad LEDs:** `BeatstepPadGrid.lightPad` sleeps 1 ms after each pad sysex
+  ("brute force to slow down sending of sysex a bit"); the port sends the messages without a
+  pause, a flush of all 16 pads included. To be checked with the hardware and the first
+  conformance run; if LED messages get lost, the pause belongs in the host's MIDI output, not in
+  the core's tick.
+- **Arturia Beatstep, note input names:** Java names the note inputs "Control/Pads" (the pads on
+  MIDI channel 3) and "Hardware Sequencer" (MIDI channel 1); the Rust extension names them by the
+  hardware and their index ("Beatstep", "Beatstep 2"), as for all controllers.

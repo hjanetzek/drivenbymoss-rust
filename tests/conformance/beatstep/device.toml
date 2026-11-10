@@ -1,0 +1,48 @@
+# Conformance scenarios: Arturia Beatstep, Device Mode (pads and knobs: see track.toml).
+# Fixture: tests/conformance/FIXTURE.md (Synth: a Polysynth with at least 2 remote control
+# pages); setup: tests/conformance/beatstep/CONFORMANCE.md.
+
+controller = "Arturia Beatstep"
+manual = "Arturia/Arturia-Beatstep.md#device-mode"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth" }
+
+setup = [
+  { osc = "/stop | /track/bank/page/- | /track/1/select 1 | /device/page/1/selected" },
+  { midi = "90 07 7F | 92 2D 7F | 82 2D 00 | 90 07 00", note = "Shift + Pad 2: Device Mode" },
+]
+
+[[scenario]]
+id = "bs.device.page"
+bullet = "Pad 1-8: Select the parameter page 1-8"
+before = [{ osc = "/device/page/1/selected" }]
+steps = [{ midi = "92 2D 7F | 82 2D 00", note = "Pad 2" }]
+expect.bitwig = { "/device/page/2/selected" = "1" }
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 71" = "10", "F0 00 20 6B 7F 42 02 00 10 70" = "00" }
+
+[[scenario]]
+id = "bs.device.page-first"
+bullet = "Pad 1-8: Select the parameter page 1-8 (Pad 1)"
+steps = [{ midi = "92 2C 7F | 82 2C 00", note = "Pad 1" }]
+expect.bitwig = { "/device/page/1/selected" = "1" }
+
+[[scenario]]
+id = "bs.device.parameter"
+bullet = "Knob 9-16: Edit the 8 parameters from the currently selected parameter page of the selected plugin device. (no expectation: the value is compared between the versions)"
+before = [{ osc = "/device/page/1/selected" }]
+steps = [{ midi = "B2 1E 3F | B2 1E 3F | B2 1E 42", note = "Knob 9: 2 steps to the left, 2 to the right" }]
+
+[[scenario]]
+id = "bs.device.off"
+bullet = "Pad 9: Turn the device on/off. (off)"
+steps = [{ midi = "92 24 7F | 82 24 00", note = "Pad 9" }]
+expect.bitwig = { "/device/bypass" = "1" }
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 78" = "00" }
+
+[[scenario]]
+id = "bs.device.on"
+bullet = "Pad 9: Turn the device on/off. (on again)"
+steps = [{ midi = "92 24 7F | 82 24 00", note = "Pad 9" }]
+expect.bitwig = { "/device/bypass" = "0" }
+expect.leds = { "F0 00 20 6B 7F 42 02 00 10 78" = "01" }
