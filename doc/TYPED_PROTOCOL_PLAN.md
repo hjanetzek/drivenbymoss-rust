@@ -983,9 +983,10 @@ without `lua`.
   of 0a/0b already have stable discriminants; `Processor`, `ChannelType` and
   `RecordQuantization` use the order of their `ALL` lists, which are append only now (noted at
   the lists). The generator lists them all in the C header.
-- **The binary replay is in-process**: `RecordingBackend::binary` encodes and decodes every
-  command, `App::update_model_bin` takes the converted reports. The C ABI itself (buffering,
-  flush order, callbacks) is tested in `tests/ffi.rs` and by the C++ wrapper test.
+- **The binary replay is in-process**: `RecordingBackend` keeps every command as a record
+  (`CmdBuf`, checked to decode to the same command; the tests match on the typed `Cmd`),
+  `App::update_model_bin` takes the converted reports. The C ABI itself (buffering, flush
+  order, callbacks) is tested in `tests/ffi.rs` and by the C++ wrapper test.
 - **The replay's temp dirs** are per mode (the text and the binary replay run in parallel and
   shared one directory per recording, which made a run flaky).
 - **Colors** are bytes in the binary form: the text form accepts fractional values (none of the

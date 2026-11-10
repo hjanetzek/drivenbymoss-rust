@@ -884,7 +884,7 @@ grid of the note clips; browser; playing notes; markers.
 
 - **Unit tests of the core** (`cargo test`): every address has a parser test in
   `src/parser.rs` (e.g. `host_paging`, `host_automation_switches`), every command a test of the
-  core type that sends it, using `RecordingBackend` (records `BackendCall`s). A new address or
+  core type that sends it, using `RecordingBackend` (records `BackendCall`s, the commands typed as `Cmd`). A new address or
   command for your host should get the same.
 - **Recording.** `ProtocolRecorder` (enabled by `DBM_RECORD_DIR`, or in dev mode) writes
   everything into and out of the core, one event per line: `<ms with 3 decimals>\t<kind>\t

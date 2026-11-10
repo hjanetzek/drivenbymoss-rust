@@ -390,7 +390,22 @@ Every controller needs:
      `app.tick()`. The setup's `startup` runs about 1 s after `init`; wait for it or call it
      explicitly.
   3. Send MIDI with `app.on_midi_event(port, &[status, d1, d2])`.
-  4. Assert the backend calls (`BackendCall::SendMidi`, processor commands).
+  4. Assert the backend calls: MIDI as `BackendCall::SendMidi`, the host commands typed. The
+     `RecordingBackend` records each command as `BackendCall::Command(CmdBuf)` (the owned form
+     of a `Cmd`); match on the `Cmd` itself, never on its legacy text, so a typo or a removed
+     command is a compile error:
+     ```rust
+     use drivenbymoss::backend::RecordedCalls;
+     use drivenbymoss::protocol::{Chan, Cmd, ValueOp};
+     let calls = backend.take_calls();
+     assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { p: 2, .. }, value: true })), "{calls:?}");
+     let volume = calls.last_cmd(|c| matches!(c, Cmd::ChannelVolume { .. }));
+     assert_eq!(backend.take_calls(), [Cmd::TransportPlay {}]); // a call compares equal to a Cmd
+     ```
+     `RecordedCalls` (on `[BackendCall]` and `[CmdBuf]`) has `commands`, `has_cmd`,
+     `count_cmd`, `first_cmd`, `last_cmd` and `legacy_lines`; `take_commands()` drops the MIDI
+     calls. The `Debug` output of a recorded command shows its legacy line too. Only tests of
+     the legacy mapping itself (`src/protocol/`) and the replay (`.rec` text) use the text form.
 - **A "touch everything" test:** activate every registered view and mode of every model, and
   trigger every button and continuous control once (DOWN, LONG, UP), with `tick()` in between.
   No panics. This found real bugs in earlier ports.
