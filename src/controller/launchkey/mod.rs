@@ -14,8 +14,6 @@
 //! The Launchkey Mk4 models are not supported by the Java version, so they are not ported.
 //!
 //! Deviations from Java (see also `doc/BITWIG_DIVERGENCES.md`):
-//! - Shift + Play (Mk3) does not return to the arrangement: the core has no transport command
-//!   for it yet (as on Reaper). Play + pad (return the track to the arrangement) works.
 //! - The display of the parameter mode shows the page name, not `Optional[...]`.
 //! - The display sends the ISO-8859-2 bytes of the characters above 127.
 //! - The state of the Select/RecArm toggle (Mk3) is kept per instance (Java: static).

@@ -362,7 +362,7 @@ class CommandHandler:
            Cmd.AUTOMATION_TOGGLE_ARRANGER, Cmd.AUTOMATION_TOGGLE_LAUNCHER, Cmd.AUTOMATION_RESET_OVERRIDES,
            Cmd.INI_FILE_PREROLL_MEASURES), self._transport_basic)
         r((*TRANSPORT_TOGGLES, *TRANSPORT_SWITCHES, Cmd.TRANSPORT_PLAY, Cmd.TRANSPORT_STOP, Cmd.TRANSPORT_RESTART, Cmd.TRANSPORT_STOP_AND_REWIND,
-           Cmd.TRANSPORT_TAP_TEMPO, Cmd.TRANSPORT_METRONOME_VOLUME), self._transport)
+           Cmd.TRANSPORT_TAP_TEMPO, Cmd.TRANSPORT_METRONOME_VOLUME, Cmd.TRANSPORT_RETURN_TO_ARRANGEMENT), self._transport)
         r((Cmd.ACTION,), lambda view, cmd: True)  # No actions in the simulation; unknown IDs are ignored, as the Java version
         r((Cmd.APPLICATION_LAYOUT,), self._application_layout)
         r((*ARRANGER_COMMANDS, *MIXER_COMMANDS), self._panel_toggle)
@@ -578,6 +578,8 @@ class CommandHandler:
             t.stop_and_rewind()
         elif id_ == Cmd.TRANSPORT_TAP_TEMPO:
             t.tap_tempo(self.clock())
+        elif id_ == Cmd.TRANSPORT_RETURN_TO_ARRANGEMENT:
+            pass  # No arrangement in the simulation (as track returnToArrangement)
         elif id_ == Cmd.TRANSPORT_METRONOME_VOLUME:
             if self.is_touch_or_indicate(cmd):
                 return False

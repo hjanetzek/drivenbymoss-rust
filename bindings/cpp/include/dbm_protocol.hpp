@@ -282,6 +282,7 @@ enum class Cmd : uint16_t
     TransportTogglePunchIn = DBM_CMD_TRANSPORT_TOGGLE_PUNCH_IN,
     TransportTogglePunchOut = DBM_CMD_TRANSPORT_TOGGLE_PUNCH_OUT,
     TransportToggleFill = DBM_CMD_TRANSPORT_TOGGLE_FILL,
+    TransportReturnToArrangement = DBM_CMD_TRANSPORT_RETURN_TO_ARRANGEMENT,
     PlayToggle = DBM_CMD_PLAY_TOGGLE,
     StopToggle = DBM_CMD_STOP_TOGGLE,
     RecordToggle = DBM_CMD_RECORD_TOGGLE,
@@ -1198,6 +1199,13 @@ struct TransportTogglePunchOut
 struct TransportToggleFill
 {
     static constexpr Cmd id = Cmd::TransportToggleFill;
+    Record record;
+};
+
+/** transport returnToArrangement */
+struct TransportReturnToArrangement
+{
+    static constexpr Cmd id = Cmd::TransportReturnToArrangement;
     Record record;
 };
 

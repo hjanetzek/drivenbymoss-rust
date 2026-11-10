@@ -70,6 +70,8 @@ commands! {
     TransportTogglePunchIn = 0x8106 {} @ Transport ["togglePunchIn"], feature = TransportCommands;
     TransportTogglePunchOut = 0x8107 {} @ Transport ["togglePunchOut"], feature = TransportCommands;
     TransportToggleFill = 0x8108 {} @ Transport ["toggleFill"], feature = TransportCommands;
+    /// TransportImpl.returnToArrangement (Bitwig): all tracks play the arrangement again.
+    TransportReturnToArrangement = 0x8109 {} @ Transport ["returnToArrangement"], feature = TransportCommands;
     /// Toggle play (the basic form of [`Cmd::TransportPlay`]).
     PlayToggle = 0x8110 {} @ Play [];
     /// Stop (the basic form of [`Cmd::TransportStop`]).

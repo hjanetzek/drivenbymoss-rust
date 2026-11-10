@@ -542,7 +542,12 @@ impl Transport {
         }
     }
 
-    pub fn return_to_arrangement(&mut self) {}
+    /// All tracks play the arrangement again instead of their launcher clips (Bitwig:
+    /// `transport.returnToArrangement ()`). Only with [`HostFeature::TransportCommands`]; does
+    /// nothing on the other hosts (as the Java version for Reaper).
+    pub fn return_to_arrangement(&mut self) {
+        self.send_host(Cmd::TransportReturnToArrangement {});
+    }
 
     // ----------------------------------------------------------------------------------------
     // Position

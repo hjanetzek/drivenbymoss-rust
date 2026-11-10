@@ -32,7 +32,7 @@ Paths:
 | `set_punch_in/out`, `is_punch_*` | One local `punch_mode`: in and out exclusive, both getters `punch_mode != OFF`; never read from the host. | Independent `isPunchInEnabled ()` / `isPunchOutEnabled ()`. | Report `/punchIn`, `/punchOut` (only marked interested today); two flags in the core. | open, small |
 | `change_loop_start/length` | Fixed step (4 quarters, 1 slow), not rounded. | Step from the zoom (`calcScrollFraction`), rounded: `Math.round (arrangerLoopStart.get () / fraction) * fraction`. | Core only (`/time/hzoom` is reported). | open, small |
 | `select_loop_start/end` | `playStartPosition.set` + jump if playing. | `transport.setPosition (beats)` if `beats >= 0`. | Command for the playhead. | open, small |
-| `return_to_arrangement` | No-op. | `transport.returnToArrangement ()` | Command. | open, small |
+| `return_to_arrangement` | No-op. | `transport.returnToArrangement ()` | Command. | done (`transport returnToArrangement`, `transportCommands`) |
 | `set_tempo_indication` | No-op. | `tempo ().setIndication (isTouched)` | `tempo indicate`. | open, small |
 | `minimum_tempo` / `maximum_tempo` | 2 / 960 | 20 / 666 | Core. | open, trivial |
 | `set_time_signature` | `time signature` n + d·100, unhandled. | `timeSignature ().numerator ().set (n)`, `.denominator ().set (d)` | CH `handleTime` `signature`. | open, small |

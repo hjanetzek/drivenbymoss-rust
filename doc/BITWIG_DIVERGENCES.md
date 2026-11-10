@@ -500,9 +500,6 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   hardware and their index ("Beatstep", "Beatstep 2"), as for all controllers.
 
 - **Launchkey Mk3 / Mini Mk3** (ported 2026-11-10, `src/controller/launchkey/`):
-  - Shift + Play (Mk3) does nothing: Java calls `transport.returnToArrangement ()`, the core has
-    no host command for it yet (`Transport::return_to_arrangement` is empty, as on Reaper). Play +
-    pad returns the track to the arrangement as in Java (`track <p>/returnToArrangement`).
   - The base screen of the parameter mode shows the page name; Java shows `Optional[...]`
     (upstream candidate O).
   - The display sends the ISO-8859-2 bytes of the characters above 127; Java sends their

@@ -172,6 +172,7 @@ public final class CommandHandler
             case TRANSPORT_TOGGLE_PUNCH_IN -> this.model.transport.isPunchInEnabled ().toggle ();
             case TRANSPORT_TOGGLE_PUNCH_OUT -> this.model.transport.isPunchOutEnabled ().toggle ();
             case TRANSPORT_TOGGLE_FILL -> this.model.transport.isFillModeActive ().toggle ();
+            case TRANSPORT_RETURN_TO_ARRANGEMENT -> this.model.transport.returnToArrangement ();
             case PLAY_TOGGLE -> this.model.transport.togglePlay ();
             case RECORD_TOGGLE -> this.model.transport.record ();
             case REPEAT_TOGGLE -> this.model.transport.isArrangerLoopEnabled ().toggle ();

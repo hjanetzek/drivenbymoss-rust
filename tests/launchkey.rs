@@ -366,6 +366,31 @@ fn mk3_buttons() {
     assert_eq!(last_out(&calls, 0xBF, 0x2D), Some(127), "{calls:?}");
 }
 
+/// Shift + Play returns to the arrangement on a host with the transport commands (Bitwig), and
+/// does nothing on the others (Reaper).
+#[test]
+fn mk3_shift_play_returns_to_arrangement() {
+    let (mut app, backend) = start_connected_mk3();
+    backend.take_calls();
+    let shift_play = |app: &mut App| {
+        cc(app, 0, 0x6C, 127);
+        press_cc(app, 0x73);
+        cc(app, 0, 0x6C, 0);
+    };
+    shift_play(&mut app);
+    let calls = backend.take_calls();
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::TransportReturnToArrangement {} | Cmd::PlayToggle {} | Cmd::TransportPlay {})), "{calls:?}");
+
+    app.update_model("/host/features transportCommands\n");
+    shift_play(&mut app);
+    let calls = backend.take_calls();
+    assert_eq!(calls.count_cmd(|c| matches!(c, Cmd::TransportReturnToArrangement {})), 1, "{calls:?}");
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::TransportPlay {} | Cmd::PlayToggle {})), "{calls:?}");
+    // The text form (Reaper's protocol)
+    let legacy = Cmd::TransportReturnToArrangement {}.legacy();
+    assert_eq!((legacy.processor, legacy.command.as_str(), legacy.arg), (Processor::Transport, "returnToArrangement", Arg::None));
+}
+
 #[test]
 fn mk3_track_select_lights() {
     let (_app, backend) = start_connected_mk3();

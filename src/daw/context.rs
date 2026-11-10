@@ -89,7 +89,7 @@ pub enum HostFeature {
     /// `track|master <p>/solo/toggle` (the host's exclusive solo preference).
     SoloToggle,
     /// `transport play|stop|restart|stopAndRewind|togglePunchIn|togglePunchOut|toggleFill|
-    /// toggleMetronomeTicks`, `transport punchIn|punchOut|fill|metronomeTicks <0|1>`,
+    /// toggleMetronomeTicks|returnToArrangement`, `transport punchIn|punchOut|fill|metronomeTicks <0|1>`,
     /// `transport metronomeVolume[/inc]`.
     TransportCommands,
     /// Commands to the device itself instead of `device <index>/…`: `device|primary|drum|eq

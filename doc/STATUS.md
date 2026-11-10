@@ -146,8 +146,7 @@ MIDI input of the definition: a new, opt-in generic part, `ControllerFactory::nu
 (further inputs after the port pairs, configured as `MIDI_INPUT<n>`, detected with the further
 input names of a discovery pair, numbered after the pairs on Bitwig; their MIDI goes to
 `ControllerSetup::handle_extra_input_midi`). The ACVS could use it for its second input. Not
-tested with hardware yet. Not ported: Shift + Play (return to the arrangement, no host command in
-the core yet), the simulator lights and layout. The Launchkey Mk4 has no Java implementation.
+tested with hardware yet. Not ported: the simulator lights and layout. The Launchkey Mk4 has no Java implementation.
 See the module documentation of `src/controller/launchkey/` and BITWIG_DIVERGENCES.md §9.
 
 Commits:

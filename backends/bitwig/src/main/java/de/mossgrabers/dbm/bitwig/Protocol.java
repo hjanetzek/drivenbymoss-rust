@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0xbe1c1dec6f6d674dL;
+    public static final long HASH          = 0x767e94b5c9d1a63cL;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -1223,6 +1223,8 @@ public final class Protocol
         TRANSPORT_TOGGLE_PUNCH_OUT(0x8107, "TransportTogglePunchOut", "transport togglePunchOut", "", 0, "none"),
         /** transport toggleFill */
         TRANSPORT_TOGGLE_FILL(0x8108, "TransportToggleFill", "transport toggleFill", "", 0, "none"),
+        /** transport returnToArrangement */
+        TRANSPORT_RETURN_TO_ARRANGEMENT(0x8109, "TransportReturnToArrangement", "transport returnToArrangement", "", 0, "none"),
         /** play  */
         PLAY_TOGGLE(0x8110, "PlayToggle", "play ", "", 0, "none"),
         /** stop  */

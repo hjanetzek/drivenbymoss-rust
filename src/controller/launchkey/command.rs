@@ -100,8 +100,7 @@ impl TriggerCommand for DeviceLockCommand {
 }
 
 /// The play command of the Mk3: with Shift return to the arrangement (former
-/// `LaunchkeyMk3PlayCommand`). Note: the core has no host command for the transport's return to
-/// the arrangement yet, it does nothing (as on Reaper).
+/// `LaunchkeyMk3PlayCommand`; `transport returnToArrangement`, which only Bitwig has).
 pub struct LaunchkeyMk3PlayCommand {
     play: PlayCommand,
 }

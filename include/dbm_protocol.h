@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0xbe1c1dec6f6d674dULL
+#define DBM_PROTOCOL_HASH 0x767e94b5c9d1a63cULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -777,6 +777,8 @@ enum DbmCmdId
     DBM_CMD_TRANSPORT_TOGGLE_PUNCH_OUT = 0x8107,
     /* transport toggleFill; idx: -; none */
     DBM_CMD_TRANSPORT_TOGGLE_FILL = 0x8108,
+    /* transport returnToArrangement; idx: -; none */
+    DBM_CMD_TRANSPORT_RETURN_TO_ARRANGEMENT = 0x8109,
     /* play ; idx: -; none */
     DBM_CMD_PLAY_TOGGLE = 0x8110,
     /* stop ; idx: -; none */

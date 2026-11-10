@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0xbe1c1dec6f6d674d
+HASH = 0x767e94b5c9d1a63c
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -508,6 +508,7 @@ class Cmd(IntEnum):
     TRANSPORT_TOGGLE_PUNCH_IN = 0x8106
     TRANSPORT_TOGGLE_PUNCH_OUT = 0x8107
     TRANSPORT_TOGGLE_FILL = 0x8108
+    TRANSPORT_RETURN_TO_ARRANGEMENT = 0x8109
     PLAY_TOGGLE = 0x8110
     STOP_TOGGLE = 0x8111
     RECORD_TOGGLE = 0x8112
@@ -983,6 +984,7 @@ CMD_INFO: dict[int, Info] = {
     Cmd.TRANSPORT_TOGGLE_PUNCH_IN: Info("TransportTogglePunchIn", "transport togglePunchIn", (), 0, "none"),
     Cmd.TRANSPORT_TOGGLE_PUNCH_OUT: Info("TransportTogglePunchOut", "transport togglePunchOut", (), 0, "none"),
     Cmd.TRANSPORT_TOGGLE_FILL: Info("TransportToggleFill", "transport toggleFill", (), 0, "none"),
+    Cmd.TRANSPORT_RETURN_TO_ARRANGEMENT: Info("TransportReturnToArrangement", "transport returnToArrangement", (), 0, "none"),
     Cmd.PLAY_TOGGLE: Info("PlayToggle", "play ", (), 0, "none"),
     Cmd.STOP_TOGGLE: Info("StopToggle", "stop ", (), 0, "none"),
     Cmd.RECORD_TOGGLE: Info("RecordToggle", "record ", (), 0, "none"),
@@ -4867,6 +4869,14 @@ class CmdTransportToggleFill(Record):
     value = _value("none")
 
 
+class CmdTransportReturnToArrangement(Record):
+    """transport returnToArrangement"""
+
+    __slots__ = ()
+    KIND = "none"
+    value = _value("none")
+
+
 class CmdPlayToggle(Record):
     """play """
 
@@ -6926,6 +6936,7 @@ CMD_VIEWS: dict[int, type] = {
     0x8106: CmdTransportTogglePunchIn,
     0x8107: CmdTransportTogglePunchOut,
     0x8108: CmdTransportToggleFill,
+    0x8109: CmdTransportReturnToArrangement,
     0x8110: CmdPlayToggle,
     0x8111: CmdStopToggle,
     0x8112: CmdRecordToggle,

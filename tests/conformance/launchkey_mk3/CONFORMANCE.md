@@ -35,8 +35,7 @@ Then run it with the `conformance-run` skill (setup `launchkey_mk3`).
 | `session.toml` | Session Mode | launch, Stop + pad, the Mute, Solo and Track Select sub-modes |
 
 Not covered yet: the display (sysex, compared as LEDs per message type), the drum mode and its
-sequencer, the device select mode, the browser, Shift + Play (known difference: no host command
-in the Rust core, BITWIG_DIVERGENCES.md §9), the custom modes.
+sequencer, the device select mode, the browser, Shift + Play (`transport returnToArrangement`), the custom modes.
 
 ## Expected differences
 
