@@ -77,7 +77,7 @@ listed under "Needs".
 | Novation SL Mk3 | `novation/slmkiii` | 5,201 | `SLMkIIIControllerInstance` | Text display (pixel display via sysex) | 3 |
 | Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
 | Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Ported (`src/controller/mackie/mcu/`) | — |
-| Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | **Ported** (`src/controller/akai/acvs/`; the second MIDI input is not opened) | — |
+| Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | **Ported** (`src/controller/akai/acvs/`; the pads port is a further MIDI input) | — |
 | Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | Sysex/Lua protocol | 3 |
 | Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex): `framework::graphics` exists, the Oxi components are missing | 4 |
 | Akai Fire | `akai/fire` | 6,299 | `FireControllerInstance` | **Ported** (`src/controller/akai/fire/`, OLED with `framework::graphics`; the XoX drum view needs `AbstractDrumXoXView`) | — |
@@ -359,7 +359,7 @@ The complete list, class by class and by upcoming controller, is in
 - `AbstractDrumXoXView` (the XoX drum sequencer). Needed by the Fire (Views.DRUM).
 - ~~A second MIDI input~~: done for one port pair (`ControllerFactory::num_extra_midi_inputs`,
   used by the Launchkey for its keyboard port; their MIDI goes to
-  `ControllerSetup::handle_extra_input_midi`). The ACVS "Pads (Remote MIDI Port)" does not use it yet.
+  `ControllerSetup::handle_extra_input_midi`), and by the ACVS for its "Pads (Remote MIDI Port)".
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
 - ~~OSC~~: done (`framework::osc`, used by `src/controller/osc/`).

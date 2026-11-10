@@ -113,7 +113,6 @@ components of the small displays and a display with notifications) and sent as 1
 Not tested with hardware yet. Not ported:
 - APC40: the track crossfade (Reaper has no crossfade parameter per track) and the simulator
   colors.
-- ACVS: the second MIDI input of the MPC ("Pads (Remote MIDI Port)", one input per port pair).
 - Fire: the XoX drum view (needs `AbstractDrumXoXView`), pinning the cursor track and the knob
   sensitivity in the browser.
 See the module documentation in `src/controller/akai/` for the details and the Java deviations.
@@ -145,7 +144,7 @@ or track parameters on the keyboard port) and program changes. The keyboard port
 MIDI input of the definition: a new, opt-in generic part, `ControllerFactory::num_extra_midi_inputs`
 (further inputs after the port pairs, configured as `MIDI_INPUT<n>`, detected with the further
 input names of a discovery pair, numbered after the pairs on Bitwig; their MIDI goes to
-`ControllerSetup::handle_extra_input_midi`). The ACVS could use it for its second input. Not
+`ControllerSetup::handle_extra_input_midi`), as the ACVS does for its pads port. Not
 tested with hardware yet. Not ported: the simulator lights and layout. The Launchkey Mk4 has no Java implementation.
 See the module documentation of `src/controller/launchkey/` and BITWIG_DIVERGENCES.md §9.
 

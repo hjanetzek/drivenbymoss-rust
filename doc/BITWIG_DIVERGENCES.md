@@ -499,6 +499,11 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   MIDI channel 3) and "Hardware Sequencer" (MIDI channel 1); the Rust extension names them by the
   hardware and their index ("Beatstep", "Beatstep 2"), as for all controllers.
 
+- **Akai MPC/Force (ACVS), pads port:** the second MIDI input of the extension (port 2, "Akai
+  Network - MIDI") passes the notes and the polyphonic aftertouch of the pads to Bitwig as in
+  Java; its note input is named "MPC Live I/II, One, Force - Port 2" (Java: "Pads (Remote MIDI
+  Port)"), as for all controllers.
+
 - **Launchkey Mk3 / Mini Mk3** (ported 2026-11-10, `src/controller/launchkey/`):
   - The base screen of the parameter mode shows the page name; Java shows `Optional[...]`
     (upstream candidate O).

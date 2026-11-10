@@ -6,9 +6,11 @@
 //!
 //! Differences to Java:
 //! - The observers are replaced by [`ControllerSetup::handle_changes`].
-//! - The second MIDI input of the definition ("Pads (Remote MIDI Port)", which forwards the
-//!   notes of the pads to the DAW) is not opened: the Rust instances have one MIDI input. The
-//!   port can be enabled as an ordinary MIDI input in Reaper instead.
+//! - The second MIDI input of the definition ("Pads (Remote MIDI Port)", "Akai Network - MIDI")
+//!   is the further MIDI input of the instance (`ControllerFactory::num_extra_midi_inputs`): its
+//!   note input passes the notes and the polyphonic aftertouch of the pads to the host, the
+//!   core ignores its MIDI (as Java, which binds nothing to it). The instance runs without it if
+//!   the port is not found.
 //! - When the device reports a different device type, the instance requests a restart with
 //!   [`Ctx::restart_requested`] (former `IHost.restart`).
 //! - The display does not show notifications (as in Java, where `notifyOnDisplay` is empty).
@@ -61,8 +63,15 @@ impl LineWriter for NoNotifications {
     fn write_line(&mut self, _output: &MidiOutput, _row: usize, _text: &str, _previous_text: Option<&str>) {}
 }
 
-/// Create an ACVS instance.
-pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Configuration) -> Result<InstanceParts, String> {
+/// The note input filters of the pads port (former "Pads (Remote MIDI Port)" input).
+const PADS_FILTERS: [&str; 3] = [
+    "8?????", // Note off
+    "9?????", // Note on
+    "A?????", // Polyphonic Aftertouch
+];
+
+/// Create an ACVS instance. `pads_input` is the device ID of the pads port, if found.
+pub fn create(host: Host, sender: Sender, ports: MidiPorts, pads_input: Option<i32>, configuration: Configuration) -> Result<InstanceParts, String> {
     let colors = create_color_manager();
     let value_changer = ValueChanger::twos_complement(128, 1);
     let scales = Scales::new(&value_changer, 36, 52, 4, 4);
@@ -77,12 +86,18 @@ pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Confi
     // createSurface (former createInput (null): the default note input filters)
     let output = MidiOutput::new(sender.clone(), Some(ports.output));
     let input = MidiInput::new(sender.clone(), Some(ports.input), &[])?;
+    let pads = match pads_input {
+        Some(id) => Some(MidiInput::new(sender.clone(), Some(id), &PADS_FILTERS)?),
+        None => None,
+    };
     let surface = Surface::new(output.clone(), input, None);
 
     let device = config::active_device(&configuration);
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, colors);
     let track_modes = ctx.add_mode_manager();
-    ctx.ext = Box::new(AcvsState::new(device, track_modes));
+    let mut acvs_state = AcvsState::new(device, track_modes);
+    acvs_state.pads_input = pads;
+    ctx.ext = Box::new(acvs_state);
     ctx.text_display = Some(TextDisplay::new(output, Box::new(NoNotifications), 0, 1, 16));
     ctx.sysex_handler = Some(Rc::new(acvs::handle_sysex));
     // All MIDI is bound to controls

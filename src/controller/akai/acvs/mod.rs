@@ -39,7 +39,24 @@ impl ControllerFactory for AcvsFactory {
     }
 
     fn create(&self, host: Host, sender: Sender, ports: MidiPorts, configuration: Configuration) -> Result<InstanceParts, String> {
-        setup::create(host, sender, ports, configuration)
+        setup::create(host, sender, ports, None, configuration)
+    }
+
+    /// The pads port ("Pads (Remote MIDI Port)", the second input of the definition).
+    fn num_extra_midi_inputs(&self) -> usize {
+        1
+    }
+
+    fn create_with_extra_inputs(
+        &self,
+        host: Host,
+        sender: Sender,
+        ports: &[MidiPorts],
+        extra_inputs: &[Option<i32>],
+        configuration: Configuration,
+    ) -> Result<InstanceParts, String> {
+        let first = ports.first().copied().ok_or_else(|| "No MIDI ports".to_string())?;
+        setup::create(host, sender, first, extra_inputs.first().copied().flatten(), configuration)
     }
 }
 

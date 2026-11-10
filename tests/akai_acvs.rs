@@ -207,3 +207,54 @@ fn every_control_works_on_mpc_mpc_x_and_force() {
         app.shutdown();
     }
 }
+
+/// The pads port ("Pads (Remote MIDI Port)") is the further MIDI input: detected with the second
+/// input name of the discovery pair, opened with a note input for the notes and the polyphonic
+/// aftertouch of the pads, and closed at the exit. Its MIDI is not handled by the core.
+#[test]
+fn pads_port_is_the_further_midi_input() {
+    const PADS: i32 = 4;
+    const PADS_PORT: &str = "Akai Network - MIDI";
+    let dir = std::env::temp_dir().join(format!("dbm-test-acvs-pads-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("DrivenByMoss4Reaper.config"), "CONTROLLER_INSTANCE0=de.mossgrabers.reaper.controller.akai.acvs.ACVSLiveControllerInstance\n").unwrap();
+    let backend = Rc::new(RecordingBackend {
+        inputs: vec![(IN, PORT.into()), (PADS, PADS_PORT.into())],
+        outputs: vec![(OUT, PORT.into())],
+        ..Default::default()
+    });
+    let mut app = App::new(backend.clone(), dir.to_str().unwrap(), 7, 22);
+    app.start_infrastructure();
+    let calls = backend.take_calls();
+    assert!(calls.contains(&BackendCall::OpenInput(PADS)), "{calls:?}");
+    // Note off, note on and polyphonic aftertouch on all channels (8?????, 9?????, A?????)
+    let expected: Vec<String> = (0x8..=0xA).flat_map(|status| (0..16).map(move |ch| format!("{status:X}{ch:X}"))).collect();
+    assert!(calls.contains(&BackendCall::NoteInputFilters(PADS, 0, expected)), "{calls:?}");
+
+    // A pad note on the pads port goes to the host's note input, not to the controls
+    app.on_midi_event(PADS, &[0x99, 37, 100]);
+    let calls = backend.take_calls();
+    assert!(calls.commands().next().is_none(), "{calls:?}");
+
+    app.shutdown();
+    assert!(backend.take_calls().contains(&BackendCall::CloseInput(PADS)));
+    // The detected port is stored as the second input
+    let config = std::fs::read_to_string(dir.join("DrivenByMoss4Reaper-MPC-Live-I-II,-One,-Force.config")).unwrap();
+    assert!(config.contains(&format!("MIDI_INPUT1={PADS_PORT}")), "{config}");
+}
+
+/// On a host with its own ports (Bitwig) the pads port is the second input (port 1).
+#[test]
+fn single_host_pads_port() {
+    let dir = std::env::temp_dir().join(format!("dbm-test-acvs-single-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let backend = Rc::new(RecordingBackend::default());
+    let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), "CE97B67C-FFB7-4309-AFF2-45193C0C87A3", "Bitwig Studio 6.1").expect("ACVS");
+    app.start_infrastructure();
+    let calls = backend.take_calls();
+    assert!(calls.contains(&BackendCall::OpenInput(0)) && calls.contains(&BackendCall::OpenInput(1)), "{calls:?}");
+    assert!(calls.iter().any(|c| matches!(c, BackendCall::NoteInputFilters(1, 0, f) if f.contains(&"AF".to_string()) && !f.iter().any(|x| x.starts_with('B')))), "{calls:?}");
+    app.shutdown();
+}

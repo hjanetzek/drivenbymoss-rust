@@ -13,7 +13,7 @@ use super::screen_item::ScreenItem;
 use crate::config::acvs as config;
 use crate::daw::color::ColorEx;
 use crate::framework::ctx::{Ctx, ModeManagerId};
-use crate::midi::from_hex_str;
+use crate::midi::{from_hex_str, MidiInput};
 
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(5000);
 const PING_INTERVAL: u64 = 3000;
@@ -126,11 +126,15 @@ pub struct AcvsState {
     is_shutdown: bool,
     /// Blocks repeated pad notes of the MPC (former `noteBlocker`).
     pub note_blocker: [bool; 64],
+    /// The second MIDI input "Pads (Remote MIDI Port)", if found: its note input passes the
+    /// notes and the polyphonic aftertouch of the pads to the host (former `createInput (1,
+    /// "Pads (Remote MIDI Port)", ...)`).
+    pub pads_input: Option<MidiInput>,
 }
 
 impl AcvsState {
     pub fn new(device: AcvsDevice, track_modes: ModeManagerId) -> Self {
-        AcvsState { device, display: AcvsDisplay::new(device), track_modes, last_pong: None, is_shutdown: false, note_blocker: [false; 64] }
+        AcvsState { device, display: AcvsDisplay::new(device), track_modes, last_pong: None, is_shutdown: false, note_blocker: [false; 64], pads_input: None }
     }
 }
 
