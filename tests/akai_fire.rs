@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::fire as config;
 use drivenbymoss::controller::akai::fire::surface as fire;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::graphics::Component;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -72,11 +73,9 @@ fn sysex(calls: &[BackendCall], command: u8) -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => p == processor && cmd == command,
-        _ => false,
-    })
+/// Track `p` of the track bank.
+fn track(p: i32) -> Chan {
+    Chan::Track { bank: Processor::Track, p }
 }
 
 /// The components of the display after the next flush.
@@ -134,7 +133,7 @@ fn knobs_and_modes() {
     backend.take_calls();
     // Knob 1 controls the volume of the selected track
     cc(&mut app, 0x10, 1);
-    assert!(has_call(&backend.take_calls(), "track", "0/volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch, op: ValueOp::Set(_) } if *ch == track(0))));
     // Touch knob 2: the panorama is shown
     note(&mut app, 0x11, 127);
     match &display_components(&mut app)[0] {
@@ -153,7 +152,7 @@ fn knobs_and_modes() {
     assert!(backend.take_calls().contains(&BackendCall::SendMidi(OUT, vec![0xB0, 0x1B, 2])));
     cc(&mut app, 0x10, 1);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("param/0/value")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ParamValue { param: 0, .. })), "{calls:?}");
     match &display_components(&mut app)[0] {
         Component::TitleValue { label2, .. } => assert_eq!(label2, "ReaSynth"),
         c => panic!("Unexpected component {c:?}"),
@@ -181,7 +180,7 @@ fn views_notifications_and_shutdown() {
     // Mix view: the upper row (notes 54..69) selects, the lower row (102..117) toggles rec arm
     backend.take_calls();
     press(&mut app, 102);
-    assert!(has_call(&backend.take_calls(), "track", "0/recarm"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TrackRecArm { ch, .. } if *ch == track(0))));
     // STEP: sequencer, then poly sequencer
     press(&mut app, 0x2C);
     assert!(ctx(&mut app).views.is_active(Views::Sequencer));
@@ -203,7 +202,7 @@ fn views_notifications_and_shutdown() {
     note(&mut app, 0x31, 127);
     press(&mut app, 0x1F);
     note(&mut app, 0x31, 0);
-    assert!(has_call(&backend.take_calls(), "redo", ""));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::Redo {})));
     assert_eq!(ctx(&mut app).graphics_display.as_ref().unwrap().notification(), Some("Redo"));
     assert!(ctx(&mut app).host.take_notifications().contains(&"Redo".to_string()));
 

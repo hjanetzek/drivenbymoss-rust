@@ -9,12 +9,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::{SettingId, TransportBehavior};
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::feature::View;
 use drivenbymoss::framework::ids::{ButtonId, Modes, Views};
 use drivenbymoss::midi::BindType;
+use drivenbymoss::protocol::{Cmd};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -98,10 +99,6 @@ fn led(calls: &[BackendCall], control: u8) -> Option<u8> {
     })
 }
 
-fn has_no_arg(calls: &[BackendCall], processor: &str) -> bool {
-    calls.iter().any(|c| matches!(c, BackendCall::NoArg(p, _) if p == processor))
-}
-
 #[test]
 fn startup_activates_the_startup_view_and_the_dummy_mode() {
     let (mut app, _backend) = start_x();
@@ -124,14 +121,14 @@ fn mk2_scene_buttons_use_notes() {
 fn play_button_starts_playback_and_shift_play_does_not() {
     let (mut app, backend) = start_pro_mk3();
     press(&mut app, 20);
-    assert!(has_no_arg(&backend.take_calls(), "play"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
 
     // Shift + Play creates a new clip (PlayAndNewCommand)
     cc(&mut app, 90, 127);
     press(&mut app, 20);
     cc(&mut app, 90, 0);
     let calls = backend.take_calls();
-    assert!(!has_no_arg(&calls, "play"), "{calls:?}");
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
 }
 
 #[test]
@@ -139,11 +136,11 @@ fn double_click_on_play_returns_to_zero() {
     let (mut app, backend) = start_pro_mk3();
     ctx(&mut app).config.set_value(SettingId::BEHAVIOUR_ON_PAUSE, TransportBehavior::Stop.name());
     press(&mut app, 20);
-    assert!(has_no_arg(&backend.take_calls(), "play"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
     press(&mut app, 20);
     let calls = backend.take_calls();
-    assert!(has_no_arg(&calls, "stop"), "{calls:?}");
-    assert!(!has_no_arg(&calls, "play"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::StopToggle {})), "{calls:?}");
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
 }
 
 #[test]
@@ -166,7 +163,7 @@ fn mute_mode_toggles_mute_with_the_track_buttons() {
     // The 1st track selection button mutes the 1st track
     press(&mut app, 101);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("mute")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { .. })), "{calls:?}");
 
     // Pressing Mute again switches back to the dummy mode
     press(&mut app, 2);
@@ -180,7 +177,7 @@ fn shift_with_solo_toggles_the_metronome_on_the_pro() {
     press(&mut app, 3);
     cc(&mut app, 90, 0);
     let calls = backend.take_calls();
-    assert!(calls.contains(&BackendCall::NoArg("transport".into(), "toggleMetronome".into())), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})), "{calls:?}");
     assert!(!ctx(&mut app).modes.is_active(Modes::Solo));
 }
 

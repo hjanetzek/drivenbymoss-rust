@@ -11,13 +11,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::generic_flexi as cfg;
 use drivenbymoss::controller::generic::command::FlexiCommand;
 use drivenbymoss::controller::generic::slot::{KnobMode, TYPE_CC, TYPE_NOTE};
 use drivenbymoss::controller::generic::{editor, mapping};
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::Modes;
+use drivenbymoss::protocol::{Chan, Cmd, Dir, NavigatorTarget, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -136,21 +137,6 @@ impl Flexi {
     }
 }
 
-fn double_arg(calls: &[BackendCall], processor: &str, command: &str) -> Option<f64> {
-    calls.iter().rev().find_map(|c| match c {
-        BackendCall::IntArg(p, cmd, v) if p == processor && cmd == command => Some(*v as f64),
-        BackendCall::DoubleArg(p, cmd, v) if p == processor && cmd == command => Some(*v),
-        _ => None,
-    })
-}
-
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => p == processor && cmd == command,
-        _ => false,
-    })
-}
-
 /// The MIDI messages sent to the device.
 fn midi_out(calls: &[BackendCall]) -> Vec<Vec<u8>> {
     calls
@@ -164,6 +150,16 @@ fn midi_out(calls: &[BackendCall]) -> Vec<Vec<u8>> {
 
 fn state(flexi: &mut Flexi) -> &drivenbymoss::controller::generic::surface::FlexiState {
     drivenbymoss::controller::generic::surface::flexi(flexi.ctx())
+}
+
+/// The value `$v` of the last command which matches the pattern.
+macro_rules! last_value {
+    ($calls:expr, $pat:pat => $v:expr) => {
+        $calls.commands().filter_map(|c| match c {
+            $pat => Some($v),
+            _ => None,
+        }).last()
+    };
 }
 
 #[test]
@@ -221,19 +217,19 @@ fn cc_sets_the_volume() {
     flexi.take_calls();
     flexi.midi(&[0xB0, 7, 127]);
     let calls = flexi.take_calls();
-    assert_eq!(double_arg(&calls, "track", "0/volume"), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), Some(1.0));
 
     // Other MIDI channel
     flexi.midi(&[0xB1, 7, 127]);
-    assert!(!has_call(&flexi.take_calls(), "track", "0/volume"));
+    assert!(!flexi.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })));
 
     // Relative signed bit: 65 = +1
     flexi.midi(&[0xB0, 8, 65]);
-    let volume = double_arg(&flexi.take_calls(), "track", "1/volume").unwrap();
+    let volume = last_value!(flexi.take_calls(), Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(v) } => v).unwrap();
     assert!(volume > 0.25 && volume < 0.26, "{volume}");
     // 1 = -1
     flexi.midi(&[0xB0, 8, 1]);
-    let decreased = double_arg(&flexi.take_calls(), "track", "1/volume").unwrap();
+    let decreased = last_value!(flexi.take_calls(), Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(v) } => v).unwrap();
     assert!(decreased < volume, "{decreased}");
 }
 
@@ -246,7 +242,7 @@ fn high_resolution_cc() {
     flexi.midi(&[0xB0, 7, 64]);
     flexi.midi(&[0xB0, 39, 0]);
     let calls = flexi.take_calls();
-    let volume = double_arg(&calls, "track", "0/volume").unwrap();
+    let volume = last_value!(calls, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v).unwrap();
     assert!((volume - 8192.0 / 16383.0).abs() < 0.0001, "{volume}");
 }
 
@@ -264,18 +260,18 @@ fn trigger_commands_and_program_change() {
     flexi.midi(&[0x90, 60, 127]);
     flexi.midi(&[0x80, 60, 0]);
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "play", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
 
     flexi.midi(&[0xC0, 5, 0]);
-    assert!(has_call(&flexi.take_calls(), "transport", "toggleMetronome"));
+    assert!(flexi.take_calls().has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})));
 
     // MMC play on device 0
     flexi.midi(&[0xF0, 0x7F, 0x00, 0x06, 0x02, 0xF7]);
-    assert!(has_call(&flexi.take_calls(), "repeat", ""));
+    assert!(flexi.take_calls().has_cmd(|c| matches!(c, Cmd::RepeatToggle {})));
 
     flexi.midi(&[0xB0, 20, 127]);
     let calls = flexi.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::StringArg(p, _, v) if p == "action" && v == "40001") || matches!(c, BackendCall::IntArg(p, _, 40001) if p == "action")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::Action { id: "40001" })), "{calls:?}");
 }
 
 #[test]
@@ -289,14 +285,14 @@ fn function_layers() {
     flexi.take_calls();
     flexi.midi(&[0xB0, 70, 127]);
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "track", "0/volume") && !has_call(&calls, "track", "1/volume"));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })) && !calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(_) })));
 
     // Hold the layer button
     flexi.midi(&[0x90, 10, 127]);
     assert_eq!(state(&mut flexi).function_layer, 1);
     flexi.midi(&[0xB0, 70, 127]);
     let calls = flexi.take_calls();
-    assert!(!has_call(&calls, "track", "0/volume") && has_call(&calls, "track", "1/volume"));
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })) && calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(_) })));
 
     // Release returns to the previous layer
     flexi.midi(&[0x80, 10, 0]);
@@ -344,7 +340,7 @@ fn modes_and_selected_mode_setting() {
 
     flexi.midi(&[0xB0, 1, 127]);
     let calls = flexi.take_calls();
-    assert_eq!(double_arg(&calls, "device", "param/0/value"), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ParamValue { dev: Processor::Device, param: 0, op: ValueOp::Set(v) } => v), Some(1.0));
 
     // Next mode after Device is Track
     flexi.midi(&[0x90, 2, 127]);
@@ -431,7 +427,7 @@ fn slot_editor_and_midi_learn() {
     }
     flexi.take_calls();
     flexi.midi(&[0xB1, 74, 127]);
-    assert!(has_call(&flexi.take_calls(), "transport", "toggleMetronome"));
+    assert!(flexi.take_calls().has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})));
 
     // Selecting a command of another category resets the old category
     let groove = drivenbymoss::controller::generic::command::CommandCategory::Groove;
@@ -533,8 +529,8 @@ fn layer_commands_use_the_layers_of_the_cursor_device() {
     flexi.midi(&[0xB0, 71, 127]);
     flexi.advance(100);
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "device", "layer/1/select"), "{calls:?}");
-    assert!(has_call(&calls, "device", "layer/0/mute"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelectInEditor { ch: Chan::Layer { owner: Processor::Device, i: 1 } })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Layer { owner: Processor::Device, i: 0 }, .. })), "{calls:?}");
 }
 
 /// Without a keyboard channel (and MPE) the controller has no note input: an empty filter list,
@@ -565,7 +561,7 @@ fn device_parameters_toggles_the_remote_controls_section() {
     flexi.midi(&[0xB0, 70, 127]);
     flexi.advance(100);
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "device", "parameters/toggle"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::DeviceToggleParameterPageSection { dev: Processor::Device })), "{calls:?}");
 }
 
 /// With the clip launcher navigator of the host (Bitwig), "Track N: Select" scrolls the
@@ -581,9 +577,9 @@ fn track_selection_uses_the_navigator_of_the_host() {
     flexi.midi(&[0xB0, 71, 127]);
     flexi.advance(100);
     let calls = flexi.take_calls();
-    assert_eq!(double_arg(&calls, "navigator", "selectTrack"), Some(1.0), "{calls:?}");
-    assert!(has_call(&calls, "track", "1/select"), "{calls:?}");
-    assert!(has_call(&calls, "navigator", "tracks/+"), "{calls:?}");
+    assert_eq!(last_value!(calls, Cmd::NavigatorSelectTrack { position: v } => v), Some(1), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::NavigatorStep { target: NavigatorTarget::Tracks, dir: Dir::Next })), "{calls:?}");
 }
 
 /// The effect track bank which the host reports (`/fxtrack/…`, Bitwig): the FX Track functions
@@ -601,11 +597,11 @@ fn effect_track_bank() {
 
     flexi.midi(&[0xB0, 70, 127]);
     flexi.advance(100);
-    assert!(has_call(&flexi.take_calls(), "fxtrack", "1/mute"));
+    assert!(flexi.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::FxTrack, p: 1 }, .. })));
 
     flexi.midi(&[0xB0, 73, 0]);
     flexi.advance(100);
-    assert!(double_arg(&flexi.take_calls(), "fxtrack", "0/send/0/volume").is_some());
+    assert!(last_value!(flexi.take_calls(), Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::FxTrack, p: 0 }, send: 0, op: ValueOp::Set(v) } => v).is_some());
 
     flexi.midi(&[0xB0, 71, 127]);
     flexi.advance(100);
@@ -615,7 +611,7 @@ fn effect_track_bank() {
     flexi.advance(100);
     // The solo toggle of the host (a paging host without /host/features supports all forms)
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "fxtrack", "0/solo/toggle"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSoloToggle { ch: Chan::Track { bank: Processor::FxTrack, p: 0 } })), "{calls:?}");
 }
 
 /// The track modes select the tracks with the navigator of the host (DefaultTrackMode), the clip
@@ -630,11 +626,11 @@ fn track_mode_uses_the_navigator_clip_functions_do_not() {
     flexi.midi(&[0xB0, 70, 127]);
     flexi.advance(100);
     let calls = flexi.take_calls();
-    assert!(has_call(&calls, "navigator", "tracks/+"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::NavigatorStep { target: NavigatorTarget::Tracks, dir: Dir::Next })), "{calls:?}");
 
     flexi.midi(&[0xB0, 71, 127]);
     flexi.midi(&[0xB0, 72, 127]);
     flexi.advance(100);
     let calls = flexi.take_calls();
-    assert!(!calls.iter().any(|call| format!("{call:?}").contains("navigator")), "{calls:?}");
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::NavigatorStep { .. } | Cmd::NavigatorSelectTrack { .. })), "{calls:?}");
 }

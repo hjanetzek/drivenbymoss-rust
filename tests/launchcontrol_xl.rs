@@ -9,11 +9,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::controller::launchcontrol::surface::{self as xl, TEMPLATE_CHANGE_HEADER};
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes};
 use drivenbymoss::midi::BindType;
+use drivenbymoss::protocol::{Chan, Cmd, Dir, GridChannel, GridId, GridRow, IntText, StepAttr, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -94,29 +95,22 @@ fn press_note(app: &mut App, channel: u8, n: u8) {
     note(app, channel, n, 0);
 }
 
-fn number_arg(calls: &[BackendCall], processor: &str, command: &str) -> Option<f64> {
-    calls.iter().rev().find_map(|c| match c {
-        BackendCall::IntArg(p, cmd, v) if p == processor && cmd == command => Some(*v as f64),
-        BackendCall::DoubleArg(p, cmd, v) if p == processor && cmd == command => Some(*v),
-        _ => None,
-    })
-}
-
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 /// The last MIDI message sent with the given status and data1.
 fn midi_out(calls: &[BackendCall], status: u8, data1: u8) -> Option<u8> {
     calls.iter().rev().find_map(|c| match c {
         BackendCall::SendMidi(OUT, d) if d.len() == 3 && d[0] == status && d[1] == data1 => Some(d[2]),
         _ => None,
     })
+}
+
+/// The value `$v` of the last command which matches the pattern.
+macro_rules! last_value {
+    ($calls:expr, $pat:pat => $v:expr) => {
+        $calls.commands().filter_map(|c| match c {
+            $pat => Some($v),
+            _ => None,
+        }).last()
+    };
 }
 
 #[test]
@@ -163,26 +157,26 @@ fn knobs_and_faders_change_sends_pan_and_volume() {
     // Send A knob of track 1
     cc(&mut app, 8, 0x0D, 127);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "track", "0/send/0/volume"), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, send: 0, op: ValueOp::Set(v) } => v), Some(1.0));
 
     // Send B knob of track 1
     cc(&mut app, 8, 0x1D, 0);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "track", "0/send/1/volume"), Some(0.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, send: 1, op: ValueOp::Set(v) } => v), Some(0.0));
 
     // Pan knob of track 2
     cc(&mut app, 8, 0x32, 127);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "track", "1/pan"), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(v) } => v), Some(1.0));
 
     // Fader of track 1
     cc(&mut app, 8, 0x4D, 127);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "track", "0/volume"), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), Some(1.0));
 
     // A different MIDI channel is not bound
     cc(&mut app, 9, 0x4D, 0);
-    assert_eq!(number_arg(&backend.take_calls(), "track", "0/volume"), None);
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), None);
 }
 
 #[test]
@@ -193,8 +187,8 @@ fn device_button_switches_the_3rd_knob_row_to_device_parameters() {
 
     cc(&mut app, 8, 0x31, 127);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "device", "param/0/value"), Some(1.0));
-    assert_eq!(number_arg(&calls, "track", "0/pan"), None);
+    assert_eq!(last_value!(calls, Cmd::ParamValue { dev: Processor::Device, param: 0, op: ValueOp::Set(v) } => v), Some(1.0));
+    assert_eq!(last_value!(calls, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), None);
 
     // The device button LED is on
     app.tick();
@@ -204,7 +198,7 @@ fn device_button_switches_the_3rd_knob_row_to_device_parameters() {
     press_note(&mut app, 8, 0x69);
     assert!(!xl::xl(ctx(&mut app)).is_device_active);
     cc(&mut app, 8, 0x31, 0);
-    assert_eq!(number_arg(&backend.take_calls(), "track", "0/pan"), Some(0.0));
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), Some(0.0));
 }
 
 #[test]
@@ -213,17 +207,17 @@ fn track_buttons_select_and_mute() {
 
     // Row 1 selects the track on release
     press_note(&mut app, 8, 0x2A);
-    assert!(has_call(&backend.take_calls(), "track", "1/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })));
 
     // Row 2 mutes in mute mode
     press_note(&mut app, 8, 0x49);
-    assert!(has_call(&backend.take_calls(), "track", "0/mute"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
 
     // Solo mode
     press_note(&mut app, 8, 0x6B);
     assert!(track_mode_active(&mut app, Modes::Solo));
     press_note(&mut app, 8, 0x49);
-    assert!(has_call(&backend.take_calls(), "track", "0/solo"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
 }
 
 #[test]
@@ -238,8 +232,8 @@ fn rec_arm_and_row1_execute_transport_functions() {
     press_note(&mut app, 8, 0x3A);
     note(&mut app, 8, 0x6C, 0);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "play", ""), "{calls:?}");
-    assert!(has_call(&calls, "redo", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::Redo {})), "{calls:?}");
     // The transport mode has been used, therefore rec arm mode is not activated
     let ctx = ctx(&mut app);
     assert!(ctx.mode_manager(xl::track_modes(ctx)).is_active(Modes::Mute));
@@ -252,7 +246,7 @@ fn row1_shows_master_and_fx_volumes_on_the_faders_while_pressed() {
     assert!(fader_mode_active(&mut app, Modes::Master));
     // The last fader controls the master volume
     cc(&mut app, 8, 0x54, 127);
-    assert_eq!(number_arg(&backend.take_calls(), "master", "volume"), Some(1.0));
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Set(v) } => v), Some(1.0));
     note(&mut app, 8, 0x29, 0);
     assert!(fader_mode_active(&mut app, Modes::Volume));
 }
@@ -269,14 +263,14 @@ fn equalizer_template_controls_the_eq() {
     }
     // Fader 1 controls the gain of band 1
     cc(&mut app, 9, 0x4D, 127);
-    assert_eq!(number_arg(&backend.take_calls(), "eq", "param/1/value"), Some(1.0));
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ParamValue { dev: Processor::Eq, param: 1, op: ValueOp::Set(v) } => v), Some(1.0));
     // Send B knob 1 controls Q
     cc(&mut app, 9, 0x1D, 0);
-    assert_eq!(number_arg(&backend.take_calls(), "eq", "param/2/value"), Some(0.0));
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ParamValue { dev: Processor::Eq, param: 2, op: ValueOp::Set(v) } => v), Some(0.0));
     // Send A knob controls the band type (fully right is notch)
     cc(&mut app, 9, 0x0D, 127);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::StringArg(p, cmd, v) if p == "eq" && cmd == "band/0" && v == "6")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::EqBandType { band: 0, value: IntText(6) })), "{calls:?}");
 }
 
 /// Activating the Equalizer adds an equalizer to the selected track if it has none
@@ -286,16 +280,16 @@ fn equalizer_template_adds_a_missing_eq() {
     let (mut app, backend) = start("eq-add", 8);
     select_template(&mut app, 9);
     app.tick();
-    assert!(has_call(&backend.take_calls(), "eq", "add"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::EqAdd {})));
     app.update_model("device/param/count 16\n");
     app.tick();
-    assert!(!has_call(&backend.take_calls(), "eq", "add"));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::EqAdd {})));
     // With an equalizer
     app.update_model("eq/exists 1\n");
     select_template(&mut app, 8);
     select_template(&mut app, 9);
     app.tick();
-    assert!(!has_call(&backend.take_calls(), "eq", "add"));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::EqAdd {})));
 }
 
 #[test]
@@ -314,8 +308,8 @@ fn track_mix_mode_selects_parameter_banks_with_device_and_cursor() {
     app.update_model("track/fx/param/count 8\ntrack/fx/param/0/name P1\n");
     cc(&mut app, 8, 0x31, 127);
     let calls = backend.take_calls();
-    assert_eq!(number_arg(&calls, "device", "param/0/value"), None);
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::DoubleArg(p, _, _) if p == "track")), "{calls:?}");
+    assert_eq!(last_value!(calls, Cmd::ParamValue { dev: Processor::Device, param: 0, op: ValueOp::Set(v) } => v), None);
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TrackParamValue { op: ValueOp::Set(_), .. })), "{calls:?}");
 }
 
 #[test]
@@ -336,7 +330,7 @@ fn drum_sequencer_template() {
     // Toggle a step
     press_note(&mut app, 11, 0x4A);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("clip")), "{calls:?}");
+    assert!(calls.has_cmd(is_clip), "{calls:?}");
 
     // Resolution mode while Mute is pressed
     note(&mut app, 11, 0x6A, 127);
@@ -363,7 +357,7 @@ fn user_templates_do_nothing() {
     }
     // The controls are still bound to the factory template channel of the startup (none)
     cc(&mut app, 0, 0x4D, 127);
-    assert_eq!(number_arg(&backend.take_calls(), "track", "0/volume"), None);
+    assert_eq!(last_value!(backend.take_calls(), Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v), None);
 }
 
 #[test]
@@ -433,8 +427,9 @@ fn all_templates_modes_and_buttons_work() {
 }
 
 
-fn clip_calls(calls: &[BackendCall]) -> Vec<String> {
-    calls.iter().map(|c| format!("{c:?}")).filter(|c| c.contains("clip")).collect()
+/// A command to the cursor clip.
+fn is_clip(c: &Cmd) -> bool {
+    c.legacy().processor == Processor::Clip
 }
 
 #[test]
@@ -452,12 +447,12 @@ fn note_sequencer_template_edits_notes() {
     // Fader 2 changes the velocity of the note on step 2
     cc(&mut app, 12, 0x4E, 64);
     let calls = backend.take_calls();
-    assert!(!clip_calls(&calls).is_empty(), "{calls:?}");
+    assert!(calls.has_cmd(is_clip), "{calls:?}");
 
     // Send A knob 2 changes the pitch
     cc(&mut app, 12, 0x0E, 80);
     let calls = backend.take_calls();
-    assert!(!clip_calls(&calls).is_empty(), "{calls:?}");
+    assert!(calls.has_cmd(is_clip), "{calls:?}");
 
     // The 2nd button of row 1 shows that there is a note (amber) and the 1st not (black)
     app.tick();
@@ -469,7 +464,7 @@ fn note_sequencer_template_edits_notes() {
     // Row 1 button 2 clears the step
     press_note(&mut app, 12, 0x2A);
     let calls = backend.take_calls();
-    assert!(!clip_calls(&calls).is_empty(), "{calls:?}");
+    assert!(calls.has_cmd(is_clip), "{calls:?}");
 }
 
 /// Note Sequencer: while Device is held, the Track Control row shows the parameter pages of the
@@ -500,7 +495,7 @@ primary/exists 1\nprimary/name Polysynth\nprimary/param/count 24\nprimary/page/c
 
     press_note(&mut app, 12, 0x4A);
     app.tick();
-    assert_eq!(number_arg(&backend.take_calls(), "primary", "parameterPage"), Some(1.0));
+    assert_eq!(last_value!(backend.take_calls(), Cmd::DeviceParameterPage { dev: Processor::Primary, page: v } => v), Some(1));
     assert_eq!(rows(&mut app).1[..3], [29, 62, 29]);
 
     note(&mut app, 12, 0x69, 0);
@@ -525,10 +520,10 @@ device/sibling/1/name A\ndevice/sibling/1/position 0\ndevice/sibling/2/name B\nd
     note(&mut app, 12, 0x69, 127);
     cc(&mut app, 12, 0x6B, 127);
     cc(&mut app, 12, 0x6B, 0);
-    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("device".into(), "+".into())]);
+    assert_eq!(show(backend.take_calls()), [Cmd::DeviceStep { dir: Dir::Next }]);
     cc(&mut app, 12, 0x6A, 127);
     cc(&mut app, 12, 0x6A, 0);
-    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("device".into(), "-".into())]);
+    assert_eq!(show(backend.take_calls()), [Cmd::DeviceStep { dir: Dir::Prev }]);
     note(&mut app, 12, 0x69, 0);
     app.tick();
     backend.take_calls();
@@ -538,7 +533,7 @@ device/sibling/1/name A\ndevice/sibling/1/position 0\ndevice/sibling/2/name B\nd
     backend.take_calls();
     cc(&mut app, 12, 0x6B, 127);
     cc(&mut app, 12, 0x6B, 0);
-    assert_eq!(show(backend.take_calls()), vec![BackendCall::NoArg("clip".into(), "grid/8x127/page/+".into())]);
+    assert_eq!(show(backend.take_calls()), [Cmd::GridPage { grid: GridId { steps: 8, rows: 127 }, dir: Dir::Next }]);
 }
 
 /// Note Sequencer with the step grid of Bitwig: the Send B knobs set the repeats (ratchets), the
@@ -553,20 +548,20 @@ clip/grid/8x127/step/0/1/60 1 0 0 0.25 0.8 0 0 0 0 0 0 0.5 0 0 0 0 0 1 0 0 0 0 0
     app.tick();
     backend.take_calls();
     // CursorClipImpl.updateStep*: only the changed attribute is written
-    let attribute = |calls: &[BackendCall], name: &str| {
-        calls.iter().find_map(|c| match c {
-            BackendCall::DoubleArg(p, cmd, v) if p == "clip" && *cmd == format!("grid/8x127/step/0/1/60/{name}") => Some(*v),
+    let attribute = |calls: &[BackendCall], attr: StepAttr| {
+        calls.commands().find_map(|c| match c {
+            Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 127 }, channel: GridChannel(0), step: 1, note: GridRow(60), value } if value.attr == attr => Some(value.value),
             _ => None,
         })
     };
 
     // Send B knob 2: repeat count, the range is limited to -15..15
     cc(&mut app, 12, 0x1E, 127);
-    assert_eq!(attribute(&backend.take_calls(), "repeatCount"), Some(15.0));
+    assert_eq!(attribute(&backend.take_calls(), StepAttr::RepeatCount), Some(15.0));
 
     // Pan knob 2: panning -1..1
     cc(&mut app, 12, 0x32, 0);
-    assert_eq!(attribute(&backend.take_calls(), "pan"), Some(-1.0));
+    assert_eq!(attribute(&backend.take_calls(), StepAttr::Pan), Some(-1.0));
 }
 
 /// Layer Mix: Track Focus selects a layer of the first instrument, or with a Drum Machine a pad
@@ -580,7 +575,7 @@ primary/layer/0/exists 1\nprimary/layer/0/name A\nprimary/layer/1/exists 1\nprim
     backend.take_calls();
     press_note(&mut app, 10, 0x2A);
     app.tick();
-    assert!(has_call(&backend.take_calls(), "primary", "layer/1/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelectInEditor { ch: Chan::Layer { owner: Processor::Primary, i: 1 } })));
 
     // A Drum Machine: Track Focus 3 is the 3rd pad from C1
     let mut lines = String::from("primary/name Drum Machine\nprimary/hasDrumPads 1\nprimary/hasLayers 0\n");
@@ -592,7 +587,7 @@ primary/layer/0/exists 1\nprimary/layer/0/name A\nprimary/layer/1/exists 1\nprim
     backend.take_calls();
     press_note(&mut app, 10, 0x2B);
     app.tick();
-    assert!(has_call(&backend.take_calls(), "primary", "pad/38/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelectInEditor { ch: Chan::Pad { owner: Processor::Primary, i: 38 } })));
 }
 
 /// Track Mix, Track Select previous: with host paging (Bitwig) the first track of the page is
@@ -614,7 +609,7 @@ fn track_select_previous_page_selects_the_first_track_with_host_paging() {
     app.update_model("track/offset 8\n");
     std::thread::sleep(Duration::from_millis(100));
     app.tick();
-    assert!(has_call(&backend.take_calls(), "track", "8/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })));
     // Previous page: track 0, not track 7
     cc(&mut app, 8, 0x6A, 127);
     cc(&mut app, 8, 0x6A, 0);
@@ -622,8 +617,8 @@ fn track_select_previous_page_selects_the_first_track_with_host_paging() {
     std::thread::sleep(Duration::from_millis(100));
     app.tick();
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "0/select"), "{calls:?}");
-    assert!(!has_call(&calls, "track", "7/select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{calls:?}");
+    assert!(!calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 7 }, .. } | Cmd::ChannelSelectInEditor { ch: Chan::Track { bank: Processor::Track, p: 7 } })), "{calls:?}");
 }
 
 /// Track Mix: a change of the device parameters (the app activates the mode again to rebind the

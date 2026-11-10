@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::controller::launchpad::colors::*;
 use drivenbymoss::controller::launchpad::surface::translate_to_controller;
 use drivenbymoss::controller::launchpad::view::chords_view::ChordsView;
@@ -28,6 +28,7 @@ use drivenbymoss::controller::launchpad::view::user_view::UserView;
 use drivenbymoss::controller::launchpad::view::volume_view::VolumeView;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, Views};
+use drivenbymoss::protocol::{Chan, Cmd, SlotAction, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -115,17 +116,14 @@ fn grid_color(app: &mut App, grid_note: i32) -> i32 {
     ctx(app).surface.grid_ref().light_info(grid_note).color
 }
 
-fn has_no_arg(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| matches!(c, BackendCall::NoArg(p, cmd) if p == processor && cmd == command))
-}
-
-/// Find a call with a numeric value for the given processor and command.
-fn number_arg(calls: &[BackendCall], processor: &str, command: &str) -> Option<f64> {
-    calls.iter().rev().find_map(|c| match c {
-        BackendCall::IntArg(p, cmd, v) if p == processor && cmd == command => Some(*v as f64),
-        BackendCall::DoubleArg(p, cmd, v) if p == processor && cmd == command => Some(*v),
-        _ => None,
-    })
+/// The value `$v` of the last command which matches the pattern.
+macro_rules! last_value {
+    ($calls:expr, $pat:pat => $v:expr) => {
+        $calls.commands().filter_map(|c| match c {
+            $pat => Some($v),
+            _ => None,
+        }).last()
+    };
 }
 
 #[test]
@@ -144,7 +142,7 @@ fn session_view_draws_and_launches_clips() {
     pad(&mut app, 92, 127);
     pad(&mut app, 92, 0);
     let calls = backend.take_calls();
-    assert!(has_no_arg(&calls, "track", "0/clip/0/launch"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::SlotAction { track: 0, slot: 0, action: SlotAction::Launch })), "{calls:?}");
 
     // Releasing the pad requests the temporary mode of the session command
     assert!(drivenbymoss::controller::launchpad::surface::ext(ctx(&mut app)).session_temporary);
@@ -181,7 +179,7 @@ fn volume_view_moves_the_fader() {
     pad(&mut app, 92, 127);
     pad(&mut app, 92, 0);
     let calls = backend.take_calls();
-    let volume = number_arg(&calls, "track", "0/volume").expect("volume is sent");
+    let volume = last_value!(calls, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v).expect("volume is sent");
     assert!(volume > 0.5, "{volume}");
 
     // The fader continues moving in steps by scheduled tasks
@@ -214,7 +212,7 @@ fn mix_view_toggles_mute() {
     pad(&mut app, 52 + 1, 127);
     pad(&mut app, 52 + 1, 0);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, 1) if p == "track" && cmd == "1/mute")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 1 }, value: true })), "{calls:?}");
 }
 
 #[test]
@@ -311,5 +309,5 @@ fn project_view_toggles_the_mixer() {
     backend.take_calls();
     pad(&mut app, 97, 127);
     let calls = backend.take_calls();
-    assert!(calls.contains(&BackendCall::NoArg("project".into(), "next".into())), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ProjectNext {})), "{calls:?}");
 }

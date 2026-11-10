@@ -9,7 +9,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::app::App;
-use crate::backend::{BackendCall, RecordingBackend};
+use crate::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
+use crate::protocol::{Chan, Cmd, ValueOp};
 use crate::controller::find_factory;
 use crate::framework::ids::Modes;
 
@@ -235,7 +236,7 @@ fn views_and_modes() {
     app.update_model("track/count 1\ntrack/0/exists 1\n");
     app.tick();
     app.on_midi_event(IN, &[0xB0, 1, 127]);
-    assert!(backend.take_calls().iter().any(|c| matches!(c, BackendCall::DoubleArg(p, cmd, v) if p == "track" && cmd == "0/volume" && *v == 1.0)));
+    assert!(backend.take_calls().has_cmd(|c| *c == Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(1.0) }));
     let ctx = app.instance_ctx(0).unwrap();
     assert_eq!(ctx.mode_button_color(crate::framework::ids::ButtonId::Row11), 5);
     assert_eq!(ctx.active_view().unwrap().borrow().name(), "Lua Play");

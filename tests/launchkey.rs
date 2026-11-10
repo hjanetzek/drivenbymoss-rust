@@ -10,11 +10,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::controller::launchkey::surface as lk;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Arg, Chan, Cmd, SceneAction, SlotAction};
 
 /// The DAW port.
 const IN: i32 = 3;
@@ -110,15 +111,6 @@ fn cc(app: &mut App, channel: u8, control: u8, value: u8) {
     app.on_midi_event(IN, &[0xB0 + channel, control, value]);
 }
 
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 /// All short MIDI messages sent to the device.
 fn midi_out(calls: &[BackendCall]) -> Vec<Vec<u8>> {
     calls
@@ -152,16 +144,6 @@ fn display_rows(calls: &[BackendCall]) -> Vec<(usize, String)> {
             (row, String::from_utf8_lossy(&d[8..d.len() - 1]).to_string())
         })
         .collect()
-}
-
-/// True if a command of the processor starts with the prefix.
-fn has_command(calls: &[BackendCall], processor: &str, prefix: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd.starts_with(prefix)
-        }
-        _ => false,
-    })
 }
 
 fn row_text(calls: &[BackendCall], row: usize) -> Option<String> {
@@ -286,13 +268,13 @@ fn mk3_session_pads() {
     note(&mut app, 0, 96, 127);
     note(&mut app, 0, 96, 0);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "track", "0/clip/0/launch") || has_command(&calls, "track", "0/slot/0/launch"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::SlotAction { track: 0, slot: 0, action: SlotAction::Launch | SlotAction::LaunchAlt | SlotAction::LaunchRelease | SlotAction::LaunchReleaseAlt })), "{calls:?}");
 
     // Stop + pad stops the track
     cc(&mut app, 15, 0x74, 127);
     note(&mut app, 0, 97, 127);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "1/stop"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TrackStop { ch: Chan::Track { bank: Processor::Track, p: 1 } })), "{calls:?}");
     note(&mut app, 0, 97, 0);
     cc(&mut app, 15, 0x74, 0);
 
@@ -312,7 +294,7 @@ fn mk3_session_pads() {
     // Releasing the scene button restores the session view and does not launch the scene
     cc(&mut app, 0, 0x69, 0);
     assert!(ctx(&mut app).views.is_active(Views::Session));
-    assert!(!has_command(&backend.take_calls(), "scene", "1/launch"));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::SceneAction { scene: 1, action: SceneAction::Launch | SceneAction::LaunchAlt | SceneAction::LaunchRelease | SceneAction::LaunchReleaseAlt })));
 
     // The lower row now arms the tracks
     advance(&mut app, &mut t, 50);
@@ -322,7 +304,7 @@ fn mk3_session_pads() {
     assert_eq!(last_out(&calls, 0xB0, 0x69), Some(5));
     note(&mut app, 0, 112, 127);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "track", "0/recarm"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TrackRecArm { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{calls:?}");
 }
 
 #[test]
@@ -330,14 +312,14 @@ fn mk3_scene_buttons() {
     let (mut app, backend) = start_connected_mk3();
     backend.take_calls();
     cc(&mut app, 0, 0x68, 127);
-    assert!(!has_command(&backend.take_calls(), "scene", "0/launch"));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::SceneAction { scene: 0, action: SceneAction::Launch | SceneAction::LaunchAlt | SceneAction::LaunchRelease | SceneAction::LaunchReleaseAlt })));
     cc(&mut app, 0, 0x68, 0);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "scene", "0/"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::SceneAction { scene: 0, .. } | Cmd::SceneName { scene: 0, .. } | Cmd::SceneColor { scene: 0, .. })), "{calls:?}");
     // The redundant messages of the arrow buttons on channel 16 are ignored
     cc(&mut app, 15, 0x68, 127);
     cc(&mut app, 15, 0x68, 0);
-    assert!(!has_command(&backend.take_calls(), "scene", "0/"));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::SceneAction { scene: 0, .. } | Cmd::SceneName { scene: 0, .. } | Cmd::SceneColor { scene: 0, .. })));
 }
 
 #[test]
@@ -346,37 +328,37 @@ fn mk3_buttons() {
     backend.take_calls();
     // Play
     press_cc(&mut app, 0x73);
-    assert!(has_call(&backend.take_calls(), "play", ""));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
     // Metronome
     press_cc(&mut app, 0x4C);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "transport", "toggleMetronome"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {} | Cmd::TransportToggleMetronomeTicks {})), "{calls:?}");
     // Device lock: pin the device, with Shift open its window
     press_cc(&mut app, 0x34);
     assert!(ctx(&mut app).model.cursor_device().is_pinned());
     // Previous / next track
     press_cc(&mut app, 0x66);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "track", "1/select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
 
     // The buttons below the faders select tracks; with Undo they delete them
     cc(&mut app, 15, 0x26, 127);
     cc(&mut app, 15, 0x26, 0);
-    assert!(has_command(&backend.take_calls(), "track", "1/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })));
     cc(&mut app, 15, 0x4D, 127);
     cc(&mut app, 15, 0x25, 127);
     cc(&mut app, 15, 0x25, 0);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "track", "0/remove"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelRemove { ch: Chan::Track { bank: Processor::Track, p: 0 } })), "{calls:?}");
     cc(&mut app, 15, 0x4D, 0);
-    assert!(!has_command(&backend.take_calls(), "undo", ""), "Undo is consumed");
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c, Cmd::Undo {})), "Undo is consumed");
 
     // Toggle to rec arm
     press_cc(&mut app, 0x2D);
     assert!(!lk::state(ctx(&mut app)).is_select);
     cc(&mut app, 15, 0x25, 127);
     cc(&mut app, 15, 0x25, 0);
-    assert!(has_command(&backend.take_calls(), "track", "0/recarm"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TrackRecArm { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
     let mut t = 2100;
     advance(&mut app, &mut t, 50);
     let calls = backend.take_calls();
@@ -424,7 +406,7 @@ fn mk3_view_selection() {
     backend.take_calls();
     note(&mut app, 0, 64, 127);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "device", "page/") || has_command(&calls, "device", "param"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::DevicePageStep { .. } | Cmd::ParamValue { dev: Processor::Device, .. } | Cmd::ParamTouch { dev: Processor::Device, .. } | Cmd::ParamIndicate { dev: Processor::Device, .. } | Cmd::DeviceParameterPage { dev: Processor::Device, .. } | Cmd::DeviceToggleParameterPageSection { dev: Processor::Device })), "{calls:?}");
 
     // A custom pad mode
     cc(&mut app, 15, 0x03, 5);
@@ -436,7 +418,7 @@ fn mk3_view_selection() {
     cc(&mut app, 15, 0x03, 10);
     assert!(ctx(&mut app).views.is_active(Views::Browser));
     let calls = backend.take_calls();
-    assert!(calls.contains(&BackendCall::EnableUpdates("browser".into(), true)), "{calls:?}");
+    assert!(calls.has_cmd(|c| *c == Cmd::enable_updates(Processor::Browser, true)), "{calls:?}");
     // Back to session: the pad mode is sent to the device
     cc(&mut app, 15, 0x03, 2);
     let calls = backend.take_calls();
@@ -449,13 +431,13 @@ fn mk3_master_fader() {
     let (mut app, backend) = start_connected_mk3();
     backend.take_calls();
     cc(&mut app, 15, 0x3D, 100);
-    assert!(has_command(&backend.take_calls(), "master", "volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, .. })));
     // The faders are bound to the track volumes
     cc(&mut app, 15, 0x35, 100);
-    assert!(has_command(&backend.take_calls(), "track", "0/volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
     // The knobs to the panorama
     cc(&mut app, 15, 0x15, 100);
-    assert!(has_command(&backend.take_calls(), "track", "0/pan"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
 }
 
 #[test]
@@ -471,7 +453,7 @@ fn mini_startup_and_modes() {
 
     // The knobs control the volume
     cc(&mut app, 15, 0x15, 100);
-    assert!(has_command(&backend.take_calls(), "track", "0/volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
 
     // Program change selects the next page of tracks
     app.on_midi_event(IN, &[0xC0, 5, 0]);
@@ -485,11 +467,11 @@ fn mini_startup_and_modes() {
     backend.take_calls();
     app.on_midi_event(KEYS, &[0xB0, 0x15, 64]);
     let calls = backend.take_calls();
-    assert!(has_command(&calls, "project", "param/0/value"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ParamValue { dev: Processor::Project, param: 0, .. })), "{calls:?}");
     // The same CC on the DAW port is a knob of the active mode, on another channel of the
     // keyboard port it is ignored
     app.on_midi_event(KEYS, &[0xB1, 0x15, 64]);
-    assert!(backend.take_calls().iter().all(|c| !matches!(c, BackendCall::DoubleArg(..) | BackendCall::IntArg(..))));
+    assert!(!backend.take_calls().has_cmd(|c| matches!(c.legacy().arg, Arg::Int(_) | Arg::Double(_))));
 }
 
 #[test]
@@ -514,7 +496,7 @@ fn mini_session_and_pad_mode_select() {
     // Undo
     note(&mut app, 0, 98, 127);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "undo", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::Undo {})), "{calls:?}");
     cc(&mut app, 0, 0x69, 0);
     assert!(ctx(&mut app).views.is_active(Views::Session));
 
@@ -615,7 +597,7 @@ fn single_host_keyboard_port() {
             app.instance_ctx(0).unwrap().set_active_mode(Modes::User);
             backend.take_calls();
             app.on_midi_event(1, &[0xB0 + channel, 0x15, 100]);
-            assert!(has_command(&backend.take_calls(), "project", "param/0/value"));
+            assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ParamValue { dev: Processor::Project, param: 0, .. })));
         }
         app.shutdown();
     }

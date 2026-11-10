@@ -9,13 +9,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::maschine_jam::MaschineJamConfiguration;
 use drivenbymoss::controller::maschine::core::encoder_mode_manager::EncoderMode;
 use drivenbymoss::controller::maschine::jam::surface as jam;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -81,10 +82,6 @@ fn sysex(calls: &[BackendCall]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn contains(calls: &[BackendCall], text: &str) -> bool {
-    calls.iter().any(|c| format!("{c:?}").contains(text))
-}
-
 #[test]
 fn startup_activates_the_startup_view_and_mode() {
     let (mut app, _backend) = start();
@@ -104,7 +101,7 @@ fn sysex_shift_and_play_restarts() {
     assert!(!ctx(&mut app).surface.is_shift_pressed());
     let calls = backend.take_calls();
     // Shift + Play restarts the playback
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::NoArg(p, _) if p == "play")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
     // The shift view is not shown since Shift was used
     assert_ne!(ctx(&mut app).views.active_id(), Some(Views::Shift));
 
@@ -134,7 +131,7 @@ fn fader_changes_the_volume() {
     let (mut app, backend) = start();
     cc(&mut app, jam::FADER1 as u8, 100);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "0/volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { p: 0, .. }, .. })), "{calls:?}");
 }
 
 #[test]
@@ -158,7 +155,7 @@ fn encoder_modes() {
     assert_eq!(manager.borrow().active_encoder_mode(), Some(EncoderMode::MasterVolume));
     cc(&mut app, jam::KNOB_TURN as u8, 1);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "master") && contains(&calls, "volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, .. })), "{calls:?}");
 
     press(&mut app, jam::IN as u8);
     assert_eq!(manager.borrow().active_encoder_mode(), Some(EncoderMode::MetronomeVolume));
@@ -168,7 +165,7 @@ fn encoder_modes() {
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Tempo));
     backend.take_calls();
     cc(&mut app, jam::KNOB_TURN as u8, 1);
-    assert!(contains(&backend.take_calls(), "tempo"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TempoSet { .. } | Cmd::TempoStep { .. })));
     cc(&mut app, jam::TEMPO as u8, 0);
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
 }
@@ -215,7 +212,7 @@ fn group_buttons_select_tracks() {
     let (mut app, backend) = start();
     press(&mut app, (jam::GROUP_A + 1) as u8);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "track") && contains(&calls, "select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { .. }, .. })), "{calls:?}");
 }
 
 #[test]
@@ -285,7 +282,7 @@ fn slow_fader_change_increments_the_volume() {
     cc(&mut app, jam::FADER1 as u8, 10);
     cc(&mut app, jam::FADER1 as u8, 11);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "0/volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { p: 0, .. }, .. })), "{calls:?}");
     let new_volume = ctx(&mut app).model.current_track_bank().item(0).volume();
     assert_eq!(new_volume, volume + 2);
 }

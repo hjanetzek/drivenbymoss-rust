@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::acvs as config;
 use drivenbymoss::controller::akai::acvs::definition::AcvsDevice;
 use drivenbymoss::controller::akai::acvs::surface as acvs;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd, SceneAction, SlotAction, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -68,15 +69,6 @@ fn cc(app: &mut App, channel: u8, control: u8, value: u8) {
     app.on_midi_event(IN, &[0xB0 + channel, control, value]);
 }
 
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 /// The texts sent to the device (item ID, text).
 fn texts(calls: &[BackendCall]) -> Vec<(usize, String)> {
     calls
@@ -125,7 +117,7 @@ fn startup_ping_and_pong() {
     tempo.extend_from_slice(b"125");
     tempo.push(0xF7);
     app.on_midi_event(IN, &tempo);
-    assert!(backend.take_calls().iter().any(|c| matches!(c, BackendCall::DoubleArg(p, _, v) if p == "tempo" && (*v - 125.0).abs() < 0.001)));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TempoSet { value } if (*value - 125.0).abs() < 0.001)));
     app.shutdown();
 }
 
@@ -147,27 +139,27 @@ fn buttons_and_knobs() {
     backend.take_calls();
     // Track select 2
     press(&mut app, 0, 1);
-    assert!(has_call(&backend.take_calls(), "track", "1/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })));
     // Solo track 1 (channel 2)
     press(&mut app, 1, 0);
-    assert!(has_call(&backend.take_calls(), "track", "0/solo"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
     // Clip launch
     press(&mut app, 0, 24);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("clip/0/launch") || format!("{c:?}").contains("launch")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::SlotAction { action: SlotAction::Launch, .. } | Cmd::SceneAction { action: SceneAction::Launch, .. })), "{calls:?}");
     // Volume fader of track 1
     cc(&mut app, 1, 0, 100);
-    assert!(has_call(&backend.take_calls(), "track", "0/volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })));
     // Device knob
     cc(&mut app, 9, 0, 100);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("param/0/value")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ParamValue { param: 0, .. })), "{calls:?}");
     // MPC: 16 Level toggles launching clips/scenes
     press(&mut app, 0x0C, 70);
     assert!(!config::is_launch_clips(&ctx(&mut app).config));
     // Metronome on the touch display
     press(&mut app, 0x0A, 0);
-    assert!(has_call(&backend.take_calls(), "transport", "toggleMetronome"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})));
     app.shutdown();
 }
 

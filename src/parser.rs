@@ -764,7 +764,9 @@ mod tests {
     use super::*;
     use crate::daw::clip::Note;
     use crate::daw::constants::RecordQuantization;
-    use crate::backend::{BackendCall, RecordingBackend, Sender};
+    use crate::backend::{BackendCall, Processor, RecordingBackend, Sender};
+    use crate::protocol::{Chan, Cmd, CueParam, DeviceAction, Dir, GridChannel, GridId, GridRow, MarkerAction, Pos1, Rgb, SceneAction, SlotAction, SlotRef, StepAttr, StepValue, ValueOp};
+    use crate::protocol::GrooveParam;
     use crate::daw::bank::BankItem;
     use crate::daw::clip::{NotePosition, StepState};
     use crate::daw::constants::transport_constants::{INC_FRACTION_TIME, INC_FRACTION_TIME_SLOW};
@@ -845,7 +847,7 @@ mod tests {
         model.track_bank_mut().item_mut(5).toggle_solo();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::DoubleArg("track".into(), "9/volume".into(), 1.0), BackendCall::IntArg("track".into(), "9/solo".into(), 1)]
+            vec![Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 9 }, op: ValueOp::Set(1.0) }, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 9 }, value: true }]
         );
     }
 
@@ -866,11 +868,11 @@ mod tests {
         tb.select_next_page();
         assert_eq!(tb.scroll_position(), 8);
         // The previously selected track is no longer on the new page, therefore no deselect
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "8/select".into(), 1)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 8 }, value: true }]);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "8/select".into(), 1)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 8 }, value: true }]);
         model.track_bank_mut().scroll_to(17, true);
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("track".into(), "16/scrollto".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::TrackScrollTo { ch: Chan::Track { bank: Processor::Track, p: 16 } }]);
         model.track_bank_mut().select_next_page();
         model.track_bank_mut().select_next_page();
         assert_eq!(model.track_bank().scroll_position(), 16);
@@ -907,10 +909,10 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("track".into(), "10/clip/2/launch".into()),
-                BackendCall::StringArg("track".into(), "10/clip/2/color".into(), "RGB(255,0,0)".into()),
-                BackendCall::StringArg("track".into(), "10/clip/2/paste".into(), "9/3".into()),
-                BackendCall::StringArg("track".into(), "10/clip/2/insertFile".into(), "a.wav".into()),
+                Cmd::SlotAction { track: 10, slot: 2, action: SlotAction::Launch },
+                Cmd::SlotColor { track: 10, slot: 2, value: Rgb([255, 0, 0]) },
+                Cmd::SlotPaste { track: 10, slot: 2, source: SlotRef { track: 9, slot: 3 } },
+                Cmd::SlotInsertFile { track: 10, slot: 2, path: "a.wav" },
             ]
         );
     }
@@ -1009,9 +1011,9 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("track".into(), "0/clip/1/launch".into()),
-                BackendCall::DoubleArg("track".into(), "0/send/1/volume".into(), 1.0),
-                BackendCall::NoArg("scene".into(), "0/launch".into()),
+                Cmd::SlotAction { track: 0, slot: 1, action: SlotAction::Launch },
+                Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, send: 1, op: ValueOp::Set(1.0) },
+                Cmd::SceneAction { scene: 0, action: SceneAction::Launch },
             ]
         );
 
@@ -1064,7 +1066,7 @@ mod tests {
         assert_eq!(bank.item(1).displayed_value(), "0 dB");
         backend.take_calls();
         bank.item_mut(1).set_value(127);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("device".into(), "param/9/value".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ParamValue { dev: Processor::Device, param: 9, op: ValueOp::Set(1.0) }]);
         assert!(model.take_events().contains(&ModelEvent::ParameterPageChanged { bank: crate::daw::events::ParameterBankId::CursorDevice }));
     }
 
@@ -1172,7 +1174,7 @@ mod tests {
         model.toggle_launcher_overdub();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::IntArg("transport".into(), "overdub/arranger".into(), 0), BackendCall::IntArg("transport".into(), "overdub/launcher".into(), 1)]
+            vec![Cmd::TransportOverdubArranger { value: false }, Cmd::TransportOverdubLauncher { value: true }]
         );
         let t = model.transport();
         assert!(!t.is_writing_arranger_automation());
@@ -1185,7 +1187,7 @@ mod tests {
         t.toggle_write_clip_launcher_automation();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::NoArg("automation".into(), "toggleArranger".into()), BackendCall::NoArg("automation".into(), "toggleLauncher".into())]
+            vec![Cmd::AutomationToggleArranger {}, Cmd::AutomationToggleLauncher {}]
         );
     }
 
@@ -1218,18 +1220,18 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("transport".into(), "play".into()),
-                BackendCall::NoArg("transport".into(), "stop".into()),
-                BackendCall::NoArg("transport".into(), "restart".into()),
-                BackendCall::NoArg("transport".into(), "stopAndRewind".into()),
-                BackendCall::NoArg("transport".into(), "togglePunchIn".into()),
-                BackendCall::IntArg("transport".into(), "punchOut".into(), 0),
-                BackendCall::NoArg("transport".into(), "toggleFill".into()),
-                BackendCall::IntArg("transport".into(), "fill".into(), 1),
-                BackendCall::NoArg("transport".into(), "toggleMetronomeTicks".into()),
-                BackendCall::IntArg("transport".into(), "metronomeTicks".into(), 0),
-                BackendCall::DoubleArg("transport".into(), "metronomeVolume/inc".into(), change),
-                BackendCall::DoubleArg("transport".into(), "metronomeVolume".into(), 0.8),
+                Cmd::TransportPlay {},
+                Cmd::TransportStop {},
+                Cmd::TransportRestart {},
+                Cmd::TransportStopAndRewind {},
+                Cmd::TransportTogglePunchIn {},
+                Cmd::TransportPunchOut { value: false },
+                Cmd::TransportToggleFill {},
+                Cmd::TransportFill { value: true },
+                Cmd::TransportToggleMetronomeTicks {},
+                Cmd::TransportMetronomeTicks { value: false },
+                Cmd::TransportMetronomeVolume { op: ValueOp::Inc(change) },
+                Cmd::TransportMetronomeVolume { op: ValueOp::Set(0.8) },
             ]
         );
         // The host's switches are not changed locally
@@ -1284,14 +1286,14 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::IntArg("project".into(), "engine".into(), 1),
-                BackendCall::NoArg("application".into(), "layout/+".into()),
-                BackendCall::NoArg("application".into(), "layout/-".into()),
-                BackendCall::NoArg("project".into(), "unsoloAll".into()),
-                BackendCall::NoArg("project".into(), "unmuteAll".into()),
-                BackendCall::DoubleArg("project".into(), "cueVolume/inc".into(), change),
-                BackendCall::NoArg("project".into(), "cueMix/reset".into()),
-                BackendCall::IntArg("project".into(), "cueMix/touch".into(), 1),
+                Cmd::ProjectEngine { value: true },
+                Cmd::ApplicationLayoutStep { dir: Dir::Next },
+                Cmd::ApplicationLayoutStep { dir: Dir::Prev },
+                Cmd::ProjectUnsoloAll {},
+                Cmd::ProjectUnmuteAll {},
+                Cmd::ProjectCue { param: CueParam::Volume, op: ValueOp::Inc(change) },
+                Cmd::ProjectCue { param: CueParam::Mix, op: ValueOp::Reset },
+                Cmd::ProjectCue { param: CueParam::Mix, op: ValueOp::Touch(true) },
             ]
         );
     }
@@ -1341,12 +1343,12 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("track".into(), "1/solo/toggle".into()),
-                BackendCall::IntArg("track".into(), "1/volume/indicate".into(), 1),
-                BackendCall::IntArg("track".into(), "1/pan/indicate".into(), 0),
-                BackendCall::IntArg("track".into(), "0/send/0/volume/indicate".into(), 1),
-                BackendCall::IntArg("master".into(), "active".into(), 1),
-                BackendCall::IntArg("track".into(), "indicate".into(), 1),
+                Cmd::ChannelSoloToggle { ch: Chan::Track { bank: Processor::Track, p: 1 } },
+                Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Indicate(true) },
+                Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Indicate(false) },
+                Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, send: 0, op: ValueOp::Indicate(true) },
+                Cmd::ChannelActive { ch: Chan::Master, value: true },
+                Cmd::BankIndicate { bank: Processor::Track, value: true },
             ]
         );
     }
@@ -1393,11 +1395,11 @@ mod tests {
         assert_eq!(
             calls[..5],
             [
-                BackendCall::DoubleArg("groove".into(), "shuffleAmount/inc".into(), 2.0 / 128.0),
-                BackendCall::DoubleArg("groove".into(), "accentRate".into(), 1.0),
-                BackendCall::NoArg("groove".into(), "shuffleRate/reset".into()),
-                BackendCall::IntArg("groove".into(), "enabled/touch".into(), 1),
-                BackendCall::IntArg("groove".into(), "enabled/indicate".into(), 1),
+                Cmd::GrooveParam { param: GrooveParam::ShuffleAmount, op: ValueOp::Inc(2.0 / 128.0) },
+                Cmd::GrooveParam { param: GrooveParam::AccentRate, op: ValueOp::Set(1.0) },
+                Cmd::GrooveParam { param: GrooveParam::ShuffleRate, op: ValueOp::Reset },
+                Cmd::GrooveParam { param: GrooveParam::Enabled, op: ValueOp::Touch(true) },
+                Cmd::GrooveParam { param: GrooveParam::Enabled, op: ValueOp::Indicate(true) },
             ]
         );
         assert_eq!(calls.len(), 10);
@@ -1414,7 +1416,7 @@ mod tests {
         assert_eq!(model.track_bank().edit_send_name(1), "Reverb");
         backend.take_calls();
         model.note_clip(8, 128).reset_accent();
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("clip".into(), "accent/immediately".into(), 0.5)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ClipAccent { op: ValueOp::Immediately(0.5) }]);
     }
 
     /// Bitwig: scene scrolling as AbstractItemBank (selected scene and pages), the generic
@@ -1438,7 +1440,7 @@ mod tests {
         pads.item_mut(index).select();
         device.layer_bank_mut().scroll_to(5, true);
         assert_eq!(device.layer_bank().scroll_position(), 5);
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("primary".into(), "pad/37/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ChannelSelectInEditor { ch: Chan::Pad { owner: Processor::Primary, i: 37 } }]);
     }
 
     /// CursorDeviceImpl.selectPrevious/Next: the sibling page moves at its edges and its first
@@ -1452,10 +1454,10 @@ mod tests {
         model.cursor_device_mut().select_previous();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::NoArg("device".into(), "+".into()), BackendCall::NoArg("device".into(), "page/+".into()), BackendCall::NoArg("device".into(), "-".into())]
+            vec![Cmd::DeviceStep { dir: Dir::Next }, Cmd::DevicePageStep { dir: Dir::Next }, Cmd::DeviceStep { dir: Dir::Prev }]
         );
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("device".into(), "sibling/1/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::DeviceSibling { sibling: Pos1(0), action: DeviceAction::Select }]);
     }
 
     /// ApplicationImpl: the record quantization is global on Bitwig (TrackImpl delegates).
@@ -1474,8 +1476,8 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::StringArg("application".into(), "recordQuantization".into(), "1/8".into()),
-                BackendCall::NoArg("application".into(), "recordQuantization/noteLength/toggle".into()),
+                Cmd::ApplicationRecordQuantization { value: "1/8" },
+                Cmd::ApplicationToggleRecordQuantizationNoteLength {},
             ]
         );
     }
@@ -1490,8 +1492,8 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["INSTRUMENT".into(), "".into(), "".into()]),
-                BackendCall::StringArgs("track".into(), "addTrack".into(), vec!["EFFECT".into(), "FX".into(), "RGB(255,0,0)".into(), "ReaEQ".into()]),
+                Cmd::TrackAdd { params: vec!["INSTRUMENT", "", ""] },
+                Cmd::TrackAdd { params: vec!["EFFECT", "FX", "RGB(255,0,0)", "ReaEQ"] },
             ]
         );
     }
@@ -1518,7 +1520,7 @@ mod tests {
         let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 128.0;
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::DoubleArg("project".into(), "param/9/value/inc".into(), change), BackendCall::IntArg("project".into(), "parameterPage".into(), 0)]
+            vec![Cmd::ParamValue { dev: Processor::Project, param: 9, op: ValueOp::Inc(change) }, Cmd::DeviceParameterPage { dev: Processor::Project, page: 0 }]
         );
     }
 
@@ -1576,9 +1578,9 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("track".into(), "0/clip/1/launchAlt".into()),
-                BackendCall::NoArg("track".into(), "0/clip/1/launchReleaseAlt".into()),
-                BackendCall::NoArg("track".into(), "0/stop".into()),
+                Cmd::SlotAction { track: 0, slot: 1, action: SlotAction::LaunchAlt },
+                Cmd::SlotAction { track: 0, slot: 1, action: SlotAction::LaunchReleaseAlt },
+                Cmd::TrackStop { ch: Chan::Track { bank: Processor::Track, p: 0 } },
             ]
         );
     }
@@ -1588,7 +1590,7 @@ mod tests {
         let (mut model, mut parser, backend, _) = create(ModelSetup::default());
         feed(&mut model, &mut parser, &["/track/count 20", "/scene/count 20"]);
         backend.take_calls();
-        let bank_calls = |calls: Vec<BackendCall>| calls.into_iter().filter(|c| matches!(c, BackendCall::IntArg(p, _, _) if p == "bank")).collect::<Vec<_>>();
+        let bank_calls = |calls: Vec<BackendCall>| calls.into_iter().filter(|c| matches!(c.cmd(), Some(Cmd::BankScroll { .. }))).collect::<Vec<_>>();
         // Without a reported offset (Reaper) the core pages alone
         model.track_bank_mut().select_next_page();
         assert!(bank_calls(backend.take_calls()).is_empty());
@@ -1596,13 +1598,13 @@ mod tests {
         feed(&mut model, &mut parser, &["/track/offset 0", "/scene/offset 0"]);
         assert_eq!(
             bank_calls(backend.take_calls()),
-            vec![BackendCall::IntArg("bank".into(), "track".into(), 8), BackendCall::IntArg("bank".into(), "scene".into(), 0)]
+            vec![Cmd::BankScroll { bank: Processor::Track, offset: 8 }, Cmd::BankScroll { bank: Processor::Scene, offset: 0 }]
         );
         model.track_bank_mut().select_previous_page();
         model.track_bank_mut().scene_bank_mut().scroll_page_forwards();
         assert_eq!(
             bank_calls(backend.take_calls()),
-            vec![BackendCall::IntArg("bank".into(), "track".into(), 0), BackendCall::IntArg("bank".into(), "scene".into(), 8)]
+            vec![Cmd::BankScroll { bank: Processor::Track, offset: 0 }, Cmd::BankScroll { bank: Processor::Scene, offset: 8 }]
         );
     }
 
@@ -1623,13 +1625,13 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::IntArg("track".into(), "0/createClip/2".into(), 4),
-                BackendCall::NoArg("track".into(), "0/clip/2/select".into()),
-                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
-                BackendCall::IntArg("transport".into(), "overdub/launcher".into(), 1),
-                BackendCall::NoArg("track".into(), "0/clip/2/record".into()),
-                BackendCall::NoArg("track".into(), "0/clip/2/launch".into()),
-                BackendCall::NoArg("track".into(), "0/clip/3/launch".into()),
+                Cmd::TrackCreateClip { ch: Chan::Track { bank: Processor::Track, p: 0 }, slot: 2, length: 4 },
+                Cmd::SlotAction { track: 0, slot: 2, action: SlotAction::Select },
+                Cmd::SlotAction { track: 0, slot: 2, action: SlotAction::Launch },
+                Cmd::TransportOverdubLauncher { value: true },
+                Cmd::SlotAction { track: 0, slot: 2, action: SlotAction::Record },
+                Cmd::SlotAction { track: 0, slot: 2, action: SlotAction::Launch },
+                Cmd::SlotAction { track: 0, slot: 3, action: SlotAction::Launch },
             ]
         );
     }
@@ -1655,33 +1657,33 @@ mod tests {
         backend.take_calls();
 
         model.scene_bank_mut().select_previous_item();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Scene, offset: 0 }]);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "7/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::SceneAction { scene: 7, action: SceneAction::Select }]);
 
         model.scene_bank_mut().select_next_page();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Scene, offset: 8 }]);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "8/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::SceneAction { scene: 8, action: SceneAction::Select }]);
 
         model.scene_bank_mut().select_previous_page();
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 0), BackendCall::NoArg("scene".into(), "0/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Scene, offset: 0 }, Cmd::SceneAction { scene: 0, action: SceneAction::Select }]);
 
         model.scene_bank_mut().select_item_at_position(13);
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "scene".into(), 8)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Scene, offset: 8 }]);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::NoArg("scene".into(), "13/select".into())]);
+        assert_eq!(backend.take_calls(), vec![Cmd::SceneAction { scene: 13, action: SceneAction::Select }]);
 
         model.track_bank_mut().select_previous_item();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Track, offset: 0 }]);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "7/select".into(), 1)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 7 }, value: true }]);
 
         // AbstractItemBankImpl.scrollTo: exactly to the position, without a selection
         model.track_bank_mut().scroll_to(13, true);
         model.run_all_tasks();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("bank".into(), "track".into(), 13)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::BankScroll { bank: Processor::Track, offset: 13 }]);
         assert_eq!(model.track_bank().scroll_position(), 13);
     }
 
@@ -1746,7 +1748,7 @@ mod tests {
         bank.clear_solo();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::IntArg("drum".into(), "pad/36/mute".into(), 0), BackendCall::NoArg("drum".into(), "clearSolo".into())]
+            vec![Cmd::ChannelMute { ch: Chan::Pad { owner: Processor::Drum, i: 36 }, value: false }, Cmd::DrumClearSolo { dev: Processor::Drum }]
         );
     }
 
@@ -1802,12 +1804,12 @@ mod tests {
         clip.scroll_steps_page_forward();
         clip.clear_row(0, 36);
         let calls = backend.take_calls();
-        assert_eq!(calls[0], BackendCall::IntArg("clip".into(), "grid/8x128/step/0/4/38/toggle".into(), 100));
+        assert_eq!(calls[0], Cmd::GridStepToggle { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(38), step: 4, velocity: 100 });
         // CursorClipImpl.updateStepChance: only the changed attribute outside of an edit
-        assert_eq!(calls[1], BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/chance".into(), 0.25));
-        assert_eq!(calls[2], BackendCall::DoubleArg("clip".into(), "grid/8x128/stepSize".into(), 0.5));
-        assert_eq!(calls[3], BackendCall::NoArg("clip".into(), "grid/8x128/page/+".into()));
-        assert_eq!(calls[4], BackendCall::NoArg("clip".into(), "grid/8x128/clearRow/0/36".into()));
+        assert_eq!(calls[1], Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::Chance, value: 0.25 } });
+        assert_eq!(calls[2], Cmd::GridStepSize { grid: GridId { steps: 8, rows: 128 }, value: 0.5 });
+        assert_eq!(calls[3], Cmd::GridPage { grid: GridId { steps: 8, rows: 128 }, dir: Dir::Next });
+        assert_eq!(calls[4], Cmd::GridClearRow { grid: GridId { steps: 8, rows: 128 }, channel: 0, row: 36 });
 
         let clip = model.note_clip(8, 128);
         clip.update_step_velocity(&position, 0.5);
@@ -1818,11 +1820,11 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/velocity".into(), 0.5),
-                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/muted".into(), 1.0),
-                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/duration".into(), 0.75),
-                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/repeatEnabled".into(), 1.0),
-                BackendCall::DoubleArg("clip".into(), "grid/8x128/step/0/2/36/recurrenceLength".into(), 3.0),
+                Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::Velocity, value: 0.5 } },
+                Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::Muted, value: 1.0 } },
+                Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::Duration, value: 0.75 } },
+                Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::RepeatEnabled, value: 1.0 } },
+                Cmd::GridStepAttribute { grid: GridId { steps: 8, rows: 128 }, channel: GridChannel(0), note: GridRow(36), step: 2, value: StepValue { attr: StepAttr::RecurrenceLength, value: 3.0 } },
             ]
         );
         // In an edit (startEdit/stopEdit) all attributes are written
@@ -1832,7 +1834,11 @@ mod tests {
         assert!(backend.take_calls().is_empty());
         clip.stop_edit();
         let calls = backend.take_calls();
-        assert!(matches!(&calls[..], [BackendCall::StringArg(p, c, v)] if p == "clip" && c == "grid/8x128/step/0/2/36/update" && v.split(' ').nth(11) == Some("0.25")), "{calls:?}");
+        let grid = GridId { steps: 8, rows: 128 };
+        assert!(
+            matches!(&calls[..], [c] if matches!(c.cmd(), Some(Cmd::GridStepUpdate { grid: g, channel: GridChannel(0), note: GridRow(36), step: 2, info }) if g == grid && info.split(' ').nth(11) == Some("0.25"))),
+            "{calls:?}"
+        );
 
         // CursorClipImpl.changeStepVelocity etc.: the knob change keeps its fraction (1.09 for
         // one step at the default sensitivity, the cast cut it to 1)
@@ -1842,8 +1848,8 @@ mod tests {
         let change = ValueChanger::twos_complement(128, 1).calc_knob_change(1) / 127.0;
         assert!(change > 1.0 / 127.0);
         let calls = backend.take_calls();
-        let value = |i: usize| match &calls[i] {
-            BackendCall::DoubleArg(_, _, v) => *v,
+        let value = |i: usize| match calls[i].cmd() {
+            Some(Cmd::GridStepAttribute { value: StepValue { value, .. }, .. }) => value,
             other => panic!("{other:?}"),
         };
         assert!((value(0) - (0.5 + change)).abs() < 1e-9, "{calls:?}");
@@ -1865,10 +1871,10 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::DoubleArg("clip".into(), "start/inc".into(), INC_FRACTION_TIME),
-                BackendCall::DoubleArg("clip".into(), "end/inc".into(), -INC_FRACTION_TIME_SLOW),
-                BackendCall::DoubleArg("clip".into(), "loopStart/inc".into(), INC_FRACTION_TIME_SLOW),
-                BackendCall::DoubleArg("clip".into(), "loopLength/inc".into(), -INC_FRACTION_TIME),
+                Cmd::ClipStart { op: ValueOp::Inc(INC_FRACTION_TIME) },
+                Cmd::ClipEnd { op: ValueOp::Inc(-INC_FRACTION_TIME_SLOW) },
+                Cmd::ClipLoopStart { op: ValueOp::Inc(INC_FRACTION_TIME_SLOW) },
+                Cmd::ClipLoopLength { op: ValueOp::Inc(-INC_FRACTION_TIME) },
             ]
         );
         assert_eq!(clip.loop_length(), 4.0);
@@ -1924,13 +1930,13 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("browser".into(), "column/2/+".into()),
-                BackendCall::NoArg("browser".into(), "result/-".into()),
-                BackendCall::NoArg("browser".into(), "contentType/+".into()),
-                BackendCall::NoArg("browser".into(), "replace/slot/3/5".into()),
-                BackendCall::NoArg("browser".into(), "replace/drum/pad/36".into()),
-                BackendCall::NoArg("browser".into(), "add/track/2".into()),
-                BackendCall::IntArg("browser".into(), "stop".into(), 1),
+                Cmd::BrowserColumnStep { column: 2, dir: Dir::Next },
+                Cmd::BrowserResultStep { dir: Dir::Prev },
+                Cmd::BrowserContentType { dir: Dir::Next },
+                Cmd::BrowserReplaceSlot { track: 3, slot: 5 },
+                Cmd::BrowserReplacePad { owner: Processor::Drum, pad: 36 },
+                Cmd::BrowserAddToTrack { track: 2 },
+                Cmd::BrowserStop { commit: true },
             ]
         );
     }
@@ -1970,9 +1976,9 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::IntArg("primary".into(), "layer/1/mute".into(), 1),
-                BackendCall::NoArg("primary".into(), "clearMute".into()),
-                BackendCall::DoubleArg("primary".into(), "param/0/value".into(), 0.5),
+                Cmd::ChannelMute { ch: Chan::Layer { owner: Processor::Primary, i: 1 }, value: true },
+                Cmd::DrumClearMute { dev: Processor::Primary },
+                Cmd::ParamValue { dev: Processor::Primary, param: 0, op: ValueOp::Set(0.5) },
             ]
         );
 
@@ -1980,7 +1986,7 @@ mod tests {
         feed(&mut model, &mut parser, &["/primary/param/count 16", "/primary/page/count 2"]);
         backend.take_calls();
         model.specific_device_mut(DeviceId::FirstInstrument).unwrap().parameter_bank_mut().unwrap().select_page(1);
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("primary".into(), "parameterPage".into(), 1)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::DeviceParameterPage { dev: Processor::Primary, page: 1 }]);
     }
 
     #[test]
@@ -1989,7 +1995,7 @@ mod tests {
         feed(&mut model, &mut parser, &["/track/count 3", "/track/0/exists 1", "/track/1/exists 1", "/track/1/select 1"]);
         backend.take_calls();
         model.set_cursor_track_pinned(true);
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "1/pin".into(), 1)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::TrackPin { ch: Chan::Track { bank: Processor::Track, p: 1 }, value: 1 }]);
         feed(&mut model, &mut parser, &["/track/1/select 0", "/track/0/select 1"]);
         assert_eq!(model.cursor_track().position(), 1);
         assert!(model.track_bank().item(1).is_selected());
@@ -2017,10 +2023,10 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::IntArg("track".into(), "pinned".into(), 1),
-                BackendCall::NoArg("track".into(), "pinned/toggle".into()),
-                BackendCall::NoArg("track".into(), "selectNext".into()),
-                BackendCall::NoArg("track".into(), "selectPrevious".into()),
+                Cmd::TrackPinned { value: true },
+                Cmd::TrackPinnedToggle {},
+                Cmd::TrackSelectNext {},
+                Cmd::TrackSelectPrevious {},
             ]
         );
         // Not pinned until the host reports it
@@ -2106,16 +2112,17 @@ mod tests {
         track.toggle_solo();
         let calls = backend.take_calls();
         assert_eq!(calls.len(), 3, "{calls:?}");
-        assert!(matches!(&calls[0], BackendCall::DoubleArg(p, c, v) if p == "track" && c == "0/volume" && *v > 0.5), "{calls:?}");
-        assert!(matches!(&calls[1], BackendCall::DoubleArg(p, c, v) if p == "track" && c == "0/volume" && (*v - 0.716).abs() < 0.01), "{calls:?}");
-        assert_eq!(calls[2], BackendCall::IntArg("track".into(), "0/solo".into(), 1));
+        let track0 = Chan::Track { bank: Processor::Track, p: 0 };
+        assert!(matches!(calls[0].cmd(), Some(Cmd::ChannelVolume { ch, op: ValueOp::Set(v) }) if ch == track0 && v > 0.5), "{calls:?}");
+        assert!(matches!(calls[1].cmd(), Some(Cmd::ChannelVolume { ch, op: ValueOp::Set(v) }) if ch == track0 && (v - 0.716).abs() < 0.01), "{calls:?}");
+        assert_eq!(calls[2], Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 0 }, value: true });
 
         // The same host with valueInc
         feed(&mut model, &mut parser, &["/host/features valueInc"]);
         backend.take_calls();
         model.track_bank_mut().item_mut(0).change_volume(1);
         let calls = backend.take_calls();
-        assert!(matches!(&calls[..], [BackendCall::DoubleArg(p, c, _)] if p == "track" && c == "0/volume/inc"), "{calls:?}");
+        assert!(matches!(&calls[..], [c] if matches!(c.cmd(), Some(Cmd::ChannelVolume { ch, op: ValueOp::Inc(_) }) if ch == track0)), "{calls:?}");
     }
 
     #[test]
@@ -2153,11 +2160,11 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::DoubleArg("transport".into(), "crossfade".into(), 1.0),
-                BackendCall::DoubleArg("transport".into(), "crossfade/inc".into(), 1.0 / 128.0),
-                BackendCall::NoArg("transport".into(), "crossfade/reset".into()),
-                BackendCall::IntArg("transport".into(), "crossfade/touch".into(), 1),
-                BackendCall::IntArg("transport".into(), "crossfade/indicate".into(), 1),
+                Cmd::TransportCrossfade { op: ValueOp::Set(1.0) },
+                Cmd::TransportCrossfade { op: ValueOp::Inc(1.0 / 128.0) },
+                Cmd::TransportCrossfade { op: ValueOp::Reset },
+                Cmd::TransportCrossfade { op: ValueOp::Touch(true) },
+                Cmd::TransportCrossfade { op: ValueOp::Indicate(true) },
             ]
         );
 
@@ -2166,7 +2173,7 @@ mod tests {
         feed(&mut model, &mut parser, &["/master/fx/param/count 1", "/master/fx/param/0/name Crossfade", "/master/fx/param/0/value 0.5"]);
         backend.take_calls();
         model.crossfade_parameter_mut().unwrap().set_value(127);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("master".into(), "user/param/0/value".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::MasterCrossfader { op: ValueOp::Set(1.0) }]);
     }
 
     /// CursorTrackImpl.getParameterBank of the Java version for Bitwig: a host which pins its
@@ -2204,7 +2211,7 @@ mod tests {
         assert!(!model.track_bank().item(0).parameter_bank().unwrap().item(0).does_exist());
         backend.take_calls();
         model.cursor_track_parameter_bank_mut().unwrap().item_mut(0).set_value(127);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/param/0/value".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::TrackParamValue { track: 2, param: 0, op: ValueOp::Set(1.0) }]);
 
         // The page names and the page selected in Bitwig, the page is sent back
         assert_eq!(model.cursor_track_parameter_bank().unwrap().page_bank().selected_item(), "Mix");
@@ -2214,7 +2221,7 @@ mod tests {
         assert_eq!(bank.page_bank().selected_item(), "Sends");
         backend.take_calls();
         model.cursor_track_parameter_bank_mut().unwrap().select_previous_item();
-        assert_eq!(backend.take_calls(), vec![BackendCall::IntArg("track".into(), "parameterPage".into(), 0)]);
+        assert_eq!(backend.take_calls(), vec![Cmd::DeviceParameterPage { dev: Processor::Track, page: 0 }]);
 
         // Reaper: the selected track
         let (mut model, mut parser, _, _) = create(ModelSetup::default());
@@ -2260,10 +2267,10 @@ mod tests {
         assert_eq!(
             backend.take_calls(),
             vec![
-                BackendCall::NoArg("marker".into(), "1/launch".into()),
-                BackendCall::NoArg("marker".into(), "1/select".into()),
-                BackendCall::NoArg("marker".into(), "0/remove".into()),
-                BackendCall::NoArg("marker".into(), "add".into()),
+                Cmd::MarkerAction { marker: 1, action: MarkerAction::Launch },
+                Cmd::MarkerAction { marker: 1, action: MarkerAction::Select },
+                Cmd::MarkerAction { marker: 0, action: MarkerAction::Remove },
+                Cmd::MarkerAdd {},
             ]
         );
     }

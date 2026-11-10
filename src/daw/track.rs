@@ -484,8 +484,8 @@ impl BankItem for Track {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::BackendCall;
     use crate::daw::bank::tests::test_ctx;
+    use crate::protocol::{Chan, Rgb, ValueOp};
 
     #[test]
     fn commands() {
@@ -498,20 +498,21 @@ mod tests {
         track.toggle_mute();
         track.set_rec_arm(true);
         track.set_color(crate::daw::color::ColorEx::RED);
+        let ch10 = Chan::Track { bank: Processor::Track, p: 10 };
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::IntArg("track".into(), "10/select".into(), 1),
-                BackendCall::IntArg("track".into(), "10/mute".into(), 1),
-                BackendCall::IntArg("track".into(), "10/recarm".into(), 1),
-                BackendCall::StringArg("track".into(), "10/color".into(), "RGB(255,0,0)".into()),
+            [
+                Cmd::ChannelSelect { ch: ch10, value: true },
+                Cmd::ChannelMute { ch: ch10, value: true },
+                Cmd::TrackRecArm { ch: ch10, value: true },
+                Cmd::ChannelColor { ch: ch10, value: Rgb([255, 0, 0]) },
             ]
         );
         assert!(track.is_mute());
         let mut master = Track::new_master(ctx.clone(), 0, 8);
         master.set_volume(127);
         master.set_rec_arm(true);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("master".into(), "volume".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Set(1.0) }]);
         let mut empty = Track::empty(&ctx, 8);
         empty.toggle_mute();
         empty.set_volume(3);

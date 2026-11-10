@@ -621,8 +621,11 @@ impl BankItem for Send {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::BackendCall;
     use crate::daw::bank::tests::test_ctx;
+
+    fn track(p: i32) -> Chan {
+        Chan::Track { bank: Processor::Track, p }
+    }
 
     #[test]
     fn volume_and_touch() {
@@ -632,7 +635,7 @@ mod tests {
         assert!(backend.take_calls().is_empty(), "Must not send if it does not exist");
         p.set_exists(true);
         p.set_value(127);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelVolume { ch: track(3), op: ValueOp::Set(1.0) }]);
         p.touch_value(true);
         p.set_internal_value(0.5);
         assert_eq!(p.value(), 127);
@@ -640,13 +643,10 @@ mod tests {
         assert_eq!(p.value(), 64);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::IntArg("track".into(), "3/volume/touch".into(), 1),
-                BackendCall::IntArg("track".into(), "3/volume/touch".into(), 0)
-            ]
+            [Cmd::ChannelVolume { ch: track(3), op: ValueOp::Touch(true) }, Cmd::ChannelVolume { ch: track(3), op: ValueOp::Touch(false) }]
         );
         p.reset_value();
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 91.0 / 127.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelVolume { ch: track(3), op: ValueOp::Set(91.0 / 127.0) }]);
     }
 
     #[test]
@@ -655,15 +655,15 @@ mod tests {
         let mut p = Parameter::new(ctx.clone(), ParameterKind::Send { channel_position: 2 }, 0, 0.0);
         p.set_exists(true);
         p.set_value_immediatly(127);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/send/0/volume".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelSendVolume { ch: track(2), send: 0, op: ValueOp::Set(1.0) }]);
         ctx.set_host_paging();
         p.set_value_immediatly(0);
         p.set_value(127);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::DoubleArg("track".into(), "2/send/0/volume/immediately".into(), 0.0),
-                BackendCall::DoubleArg("track".into(), "2/send/0/volume".into(), 1.0)
+            [
+                Cmd::ChannelSendVolume { ch: track(2), send: 0, op: ValueOp::Immediately(0.0) },
+                Cmd::ChannelSendVolume { ch: track(2), send: 0, op: ValueOp::Set(1.0) }
             ]
         );
     }
@@ -677,10 +677,10 @@ mod tests {
         volume.set_exists(true);
         volume.set_internal_value(0.5);
         volume.inc(1.0);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume".into(), 65.0 / 127.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelVolume { ch: track(3), op: ValueOp::Set(65.0 / 127.0) }]);
         ctx.set_host_paging();
         volume.inc(1.5);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "3/volume/inc".into(), 1.5 / 128.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::ChannelVolume { ch: track(3), op: ValueOp::Inc(1.5 / 128.0) }]);
         let mut param = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Device), 0, 0.0);
         param.set_exists(true);
         param.set_position(9);
@@ -694,10 +694,10 @@ mod tests {
         pad.inc(4.0);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::DoubleArg("device".into(), "param/9/value/inc".into(), delta / 128.0),
-                BackendCall::DoubleArg("track".into(), "2/send/1/volume/inc".into(), -2.0 / 128.0),
-                BackendCall::DoubleArg("drum".into(), "pad/36/pan/inc".into(), 4.0 / 128.0),
+            [
+                Cmd::ParamValue { dev: Processor::Device, param: 9, op: ValueOp::Inc(delta / 128.0) },
+                Cmd::ChannelSendVolume { ch: track(2), send: 1, op: ValueOp::Inc(-2.0 / 128.0) },
+                Cmd::ChannelPan { ch: Chan::Pad { owner: Processor::Drum, i: 36 }, op: ValueOp::Inc(4.0 / 128.0) },
             ]
         );
         // Not changed locally (the value of the Reaper change): Bitwig reports the result
@@ -721,11 +721,11 @@ mod tests {
         master.reset_value();
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::NoArg("track".into(), "3/volume/reset".into()),
-                BackendCall::NoArg("eq".into(), "param/4/value/reset".into()),
-                BackendCall::NoArg("track".into(), "2/send/1/volume/reset".into()),
-                BackendCall::NoArg("master".into(), "pan/reset".into()),
+            [
+                Cmd::ChannelVolume { ch: track(3), op: ValueOp::Reset },
+                Cmd::ParamValue { dev: Processor::Eq, param: 4, op: ValueOp::Reset },
+                Cmd::ChannelSendVolume { ch: track(2), send: 1, op: ValueOp::Reset },
+                Cmd::ChannelPan { ch: Chan::Master, op: ValueOp::Reset },
             ]
         );
     }
@@ -737,12 +737,12 @@ mod tests {
         p.set_internal_value(0.0);
         assert_eq!(p.displayed_value(), "0.0 %");
         p.set_normalized_value(1.0);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("groove".into(), "amount".into(), 1.0)]);
+        assert_eq!(backend.take_calls(), [Cmd::GrooveAmount { op: ValueOp::Set(1.0) }]);
         let mut d = Parameter::new(ctx.clone(), ParameterKind::Device(Processor::Track), 0, 0.0);
         d.set_exists(true);
         d.set_position(5);
         ctx.set_cursor_track_position(2);
         d.set_normalized_value(0.25);
-        assert_eq!(backend.take_calls(), vec![BackendCall::DoubleArg("track".into(), "2/param/5/value".into(), 0.25)]);
+        assert_eq!(backend.take_calls(), [Cmd::TrackParamValue { track: 2, param: 5, op: ValueOp::Set(0.25) }]);
     }
 }

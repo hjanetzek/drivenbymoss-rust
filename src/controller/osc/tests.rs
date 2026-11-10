@@ -9,12 +9,13 @@
 use std::rc::Rc;
 
 use super::setup::{create, OscSetup};
-use crate::backend::{BackendCall, RecordingBackend, Sender};
+use crate::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend, Sender};
 use crate::controller::{ControllerSetup, MidiPorts};
 use crate::framework::ctx::Ctx;
 use crate::framework::osc::{OscArg, OscMessage};
 use crate::host::{Host, MemoryLog};
 use crate::parser::Parser;
+use crate::protocol::{Chan, Cmd, Rgb, ValueOp};
 
 pub(super) struct T {
     pub ctx: Ctx,
@@ -91,6 +92,10 @@ track/0/send/count 2\ntrack/0/send/0/name FX1\ntrack/0/send/1/name FX2\ntrack/0/
 const DEVICE: &str = "device/exists 1\ndevice/name Polysynth\ndevice/param/count 16\ndevice/param/0/name Cutoff\ndevice/param/0/value 0.5\ndevice/param/1/name Res\n\
 device/sibling/0/name Polysynth\ndevice/count 2\n";
 
+fn track(p: i32) -> Chan {
+    Chan::Track { bank: Processor::Track, p }
+}
+
 fn contains(calls: &str, part: &str) {
     assert!(calls.to_lowercase().contains(&part.to_lowercase()), "{part} in {calls}");
 }
@@ -98,16 +103,16 @@ fn contains(calls: &str, part: &str) {
 #[test]
 fn transport_commands() {
     let mut t = T::new();
-    assert_eq!(t.calls("/play", vec![]), r#"[NoArg("play", "")]"#, "starts when stopped");
+    assert_eq!(t.send("/play", vec![]), [Cmd::PlayToggle {}], "starts when stopped");
     assert_eq!(t.calls("/play", vec![i(0)]), "[]", "already stopped");
     t.model("play 1\n");
     assert_eq!(t.calls("/play", vec![i(1)]), "[]", "already playing");
-    assert_eq!(t.calls("/play", vec![i(0)]), r#"[NoArg("play", "")]"#);
+    assert_eq!(t.send("/play", vec![i(0)]), [Cmd::PlayToggle {}]);
     contains(&t.calls("/stop", vec![]), "stop");
-    assert_eq!(t.calls("/repeat", vec![i(1)]), r#"[IntArg("repeat", "", 1)]"#);
-    contains(&t.calls("/click/volume", vec![i(64)]), r#"IntArg("metro_vol", "", 64)"#);
-    contains(&t.calls("/tempo/raw", vec![OscArg::Double(99.5)]), r#"DoubleArg("tempo", "", 99.5)"#);
-    contains(&t.calls("/tempo/-", vec![i(10)]), r#"DoubleArg("tempo", "", 110.0)"#);
+    assert_eq!(t.send("/repeat", vec![i(1)]), [Cmd::RepeatToggle {}]);
+    assert!(t.send("/click/volume", vec![i(64)]).has_cmd(|c| *c == Cmd::MetroVolSet { value: 64 }));
+    assert!(t.send("/tempo/raw", vec![OscArg::Double(99.5)]).has_cmd(|c| *c == Cmd::TempoSet { value: 99.5 }));
+    assert!(t.send("/tempo/-", vec![i(10)]).has_cmd(|c| *c == Cmd::TempoSet { value: 110.0 }));
     contains(&t.calls("/automationWriteMode", vec![s("latch")]), "automation");
     assert_eq!(t.calls("/automationWriteMode", vec![s("nonsense")]), "[]");
     assert!(t.logs().iter().any(|l| l.contains("No enum constant AutomationMode.NONSENSE")), "{:?}", t.logs());
@@ -117,7 +122,7 @@ fn transport_commands() {
     // playbutton executes the play command with DOWN, which it ignores (as in Java)
     assert_eq!(t.calls("/playbutton", vec![i(1)]), "[]");
     assert_eq!(t.calls("/restart", vec![i(0)]), "[]", "not a trigger");
-    contains(&t.calls("/click", vec![OscArg::Bool(true)]), r#"IntArg("transport", "metronome", 0)"#);
+    assert!(t.send("/click", vec![OscArg::Bool(true)]).has_cmd(|c| *c == Cmd::TransportMetronome { value: false }));
 }
 
 #[test]
@@ -139,21 +144,21 @@ fn transport_updates() {
 fn track_commands() {
     let mut t = T::new();
     t.model(TRACKS);
-    contains(&t.calls("/track/2/select", vec![i(1)]), r#"IntArg("track", "1/select", 1)"#);
-    contains(&t.calls("/track/1/volume", vec![i(127)]), r#"DoubleArg("track", "0/volume", 1.0)"#);
+    assert!(t.send("/track/2/select", vec![i(1)]).has_cmd(|c| *c == Cmd::ChannelSelect { ch: track(1), value: true }));
+    assert!(t.send("/track/1/volume", vec![i(127)]).has_cmd(|c| *c == Cmd::ChannelVolume { ch: track(0), op: ValueOp::Set(1.0) }));
     contains(&t.calls("/track/1/volume/reset", vec![]), "volume");
-    contains(&t.calls("/track/3/pan", vec![i(0)]), r#"DoubleArg("track", "2/pan", 0.0)"#);
-    contains(&t.calls("/track/1/mute", vec![]), r#"IntArg("track", "0/mute", 1)"#);
+    assert!(t.send("/track/3/pan", vec![i(0)]).has_cmd(|c| *c == Cmd::ChannelPan { ch: track(2), op: ValueOp::Set(0.0) }));
+    assert!(t.send("/track/1/mute", vec![]).has_cmd(|c| *c == Cmd::ChannelMute { ch: track(0), value: true }));
     contains(&t.calls("/track/1/solo", vec![i(1)]), "0/solo");
     contains(&t.calls("/track/1/recarm", vec![i(1)]), "0/recarm");
     contains(&t.calls("/master/volume", vec![i(10)]), "master");
     contains(&t.calls("/track/selected/mute", vec![]), "0/mute", );
     contains(&t.calls("/track/1/send/2/volume", vec![i(127)]), "0/send/1/volume");
     contains(&t.calls("/track/1/clip/3/launch", vec![i(1)]), "launch");
-    contains(&t.calls("/track/1/color", vec![s("rgb(255,0,0)")]), r#"StringArg("track", "0/color", "RGB(255,0,0)")"#);
+    assert!(t.send("/track/1/color", vec![s("rgb(255,0,0)")]).has_cmd(|c| *c == Cmd::ChannelColor { ch: track(0), value: Rgb([255, 0, 0]) }));
     assert_eq!(t.calls("/track/1/color", vec![s("red")]), "[]");
     contains(&t.calls("/track/1/name", vec![s("Beats")]), "Beats");
-    contains(&t.calls("/track/+", vec![]), r#"IntArg("track", "1/select", 1)"#);
+    assert!(t.send("/track/+", vec![]).has_cmd(|c| *c == Cmd::ChannelSelect { ch: track(1), value: true }));
     contains(&t.calls("/track/add/audio", vec![]), "add");
     assert_eq!(t.calls("/track/9/volume", vec![i(1)]), "[]", "no track");
     // Errors as in Java
@@ -246,13 +251,13 @@ fn scenes_markers_and_more() {
     contains(&t.calls("/scene/1/name", vec![s("Chorus")]), "Chorus");
     contains(&t.calls("/scene/add", vec![]), "createScene");
     contains(&t.calls("/marker/1/launch", vec![]), "marker");
-    contains(&t.calls("/layout", vec![s("mix")]), r#"IntArg("application", "layout", 1)"#);
+    assert!(t.send("/layout", vec![s("mix")]).has_cmd(|c| *c == Cmd::ApplicationLayout { value: 1 }));
     contains(&t.calls("/panel/mixer", vec![]), "mixer");
     contains(&t.calls("/arranger/playbackFollow", vec![]), "arranger");
     contains(&t.calls("/project/engine", vec![i(0)]), "engine");
     contains(&t.calls("/undo", vec![]), "undo");
     contains(&t.calls("/redo", vec![]), "redo");
-    assert_eq!(t.calls("/clip/stopall", vec![]), r#"[NoArg("scene", "stop")]"#);
+    assert_eq!(t.send("/clip/stopall", vec![]), [Cmd::SceneStopAll {}]);
     contains(&t.calls("/clip/stop", vec![]), "stop");
     // No action is assigned
     assert_eq!(t.calls("/action/1", vec![]), "[]");
@@ -297,7 +302,7 @@ fn value_resolution_and_settings() {
     t.model("track/0/volume 0.5\n");
     let updates = t.updates();
     assert!(updates.contains(&"/track/1/volume [ 8192 ]".to_string()), "high resolution: {updates:?}");
-    contains(&t.calls("/track/1/volume", vec![i(16383)]), r#"DoubleArg("track", "0/volume", 1.0)"#);
+    assert!(t.send("/track/1/volume", vec![i(16383)]).has_cmd(|c| *c == Cmd::ChannelVolume { ch: track(0), op: ValueOp::Set(1.0) }));
     // Another resolution restarts the controller
     assert!(!t.ctx.restart_requested);
     t.ctx.config.set_value(crate::config::osc::VALUE_RESOLUTION, crate::config::osc::VALUE_RESOLUTION_OPTIONS[0]);

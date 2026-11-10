@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::controller::arturia::beatstep::definition::light_pad_message;
 use drivenbymoss::controller::arturia::beatstep::view::{DeviceView, DrumView, SequencerView};
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd, DeviceAction, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -69,15 +70,6 @@ fn knob(app: &mut App, index: u8, change: i32) {
     app.on_midi_event(IN, &[0xB2, cc, (64 + change) as u8]);
 }
 
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 fn sysex(calls: &[BackendCall]) -> Vec<Vec<u8>> {
     calls
         .iter()
@@ -124,7 +116,7 @@ fn released_pads_get_their_color_again() {
     // Pad 2 (note 45) selects the second track
     press_pad(&mut app, 45);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "1/select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
     // The release sends the stored color (off, the selection is not reported yet)
     assert_eq!(sysex(&calls), vec![light_pad_message(45, 0).to_vec()]);
     app.update_model("track/0/select 0\ntrack/1/select 1\n");
@@ -140,20 +132,20 @@ fn track_knobs_change_the_selected_track() {
     backend.take_calls();
     knob(&mut app, 0, 1);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) if p == "track" && cmd == "0/volume")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })), "{calls:?}");
     knob(&mut app, 2, 1);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "0/mute"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{calls:?}");
     knob(&mut app, 7, -3);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "master", "volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Set(_) })), "{calls:?}");
     // No change: nothing is sent
     knob(&mut app, 0, 0);
     assert!(backend.take_calls().is_empty());
     // Sends 1 and 5
     knob(&mut app, 8, 2);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) if p == "track" && cmd == "0/send/0/volume")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSendVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, send: 0, op: ValueOp::Set(_) })), "{calls:?}");
     // The main knob changes the play position
     app.on_midi_event(IN, &[0xB2, 40, 65]);
     let calls = backend.take_calls();
@@ -170,7 +162,7 @@ fn device_view_controls_the_parameters() {
     // Knob 9: the first parameter
     knob(&mut app, 8, 1);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) if p == "device" && cmd.starts_with("param/0/"))), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ParamValue { dev: Processor::Device, param: 0, op } if *op != ValueOp::Reset)), "{calls:?}");
     // The device is on: pad 1 is red
     assert_eq!(pad_color(&mut app, 36), 1);
     assert_eq!(pad_color(&mut app, 44), 16);
@@ -181,7 +173,7 @@ fn device_view_controls_the_parameters() {
     // Pad 1: toggle the device
     press_pad(&mut app, 36);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, _) | BackendCall::NoArg(p, cmd) if p == "device" && cmd.contains("bypass"))), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::DeviceAction { dev: Processor::Device, action: DeviceAction::Bypass } | Cmd::DeviceSibling { action: DeviceAction::Bypass, .. } | Cmd::DeviceIndexBypass { dev: Processor::Device, .. })), "{calls:?}");
     // No layers: enter layer does nothing
     press_pad(&mut app, 39);
     let view = ctx(&mut app).views.get(Views::Device).unwrap();
@@ -231,10 +223,10 @@ fn shift_view_selects_views_and_controls_the_transport() {
     assert_eq!(pad_color(&mut app, 37), 1);
     press_pad(&mut app, 39);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "transport", "toggleMetronome") || has_call(&calls, "click", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})), "{calls:?}");
     press_pad(&mut app, 36);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "play", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
     // Pad 11: the play view is selected on release of Shift
     press_pad(&mut app, 46);
     shift(&mut app, false);
@@ -255,7 +247,7 @@ fn session_view_launches_scenes() {
     backend.take_calls();
     pad(&mut app, 44, 127);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::IntArg(p, cmd, _) | BackendCall::NoArg(p, cmd) if p == "scene" && cmd.starts_with("0/"))), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::SceneAction { scene: 0, .. })), "{calls:?}");
     pad(&mut app, 44, 0);
     app.shutdown();
 }

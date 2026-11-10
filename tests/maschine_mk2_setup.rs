@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::maschine::MaschineConfiguration;
 use drivenbymoss::daw::clip::NotePosition;
 use drivenbymoss::controller::maschine::core::ribbon_mode::RibbonMode;
@@ -19,6 +19,7 @@ use drivenbymoss::controller::maschine::mk::surface as mk;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Cmd, GridChannel, GridId, GridRow, StepAttr, StepValue};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -77,6 +78,21 @@ fn led(calls: &[BackendCall], control: i32) -> Option<u8> {
     })
 }
 
+/// A command which stops the transport (or anything else).
+fn stops(c: &Cmd) -> bool {
+    matches!(
+        c,
+        Cmd::StopToggle {}
+            | Cmd::TransportStop {}
+            | Cmd::TransportStopAndRewind {}
+            | Cmd::TrackStop { .. }
+            | Cmd::TrackStopAlt { .. }
+            | Cmd::SceneStopAll {}
+            | Cmd::SceneStopAllAlt {}
+            | Cmd::BrowserStop { .. }
+    )
+}
+
 /// The texts of the lines sent to the display (row index, text).
 fn display_lines(calls: &[BackendCall]) -> Vec<(usize, String)> {
     calls
@@ -87,10 +103,6 @@ fn display_lines(calls: &[BackendCall]) -> Vec<(usize, String)> {
             _ => None,
         })
         .collect()
-}
-
-fn contains(calls: &[BackendCall], text: &str) -> bool {
-    calls.iter().any(|c| format!("{c:?}").contains(text))
 }
 
 #[test]
@@ -183,7 +195,7 @@ fn play_and_stop_leds() {
     let (mut app, backend) = start();
     backend.take_calls();
     press(&mut app, mk::PLAY);
-    assert!(contains(&backend.take_calls(), "play"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
     app.update_model("play 1\n");
     app.tick();
     let calls = backend.take_calls();
@@ -202,16 +214,16 @@ fn stop_emulates_shift() {
     // The lower left pad is Undo
     pad(&mut app, 36, 127);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "undo"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::Undo {})), "{calls:?}");
     // Stop up restores the view and does not stop since a function was used
     cc(&mut app, mk::STOP, 0);
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
     let calls = backend.take_calls();
-    assert!(!contains(&calls, "stop"), "{calls:?}");
+    assert!(!calls.has_cmd(stops), "{calls:?}");
 
     // Stop without a function stops
     press(&mut app, mk::STOP);
-    assert!(contains(&backend.take_calls(), "stop"));
+    assert!(backend.take_calls().has_cmd(stops));
 }
 
 /// The startup asks dbm-nihost whether it sends the Shift button (not in the Java version).
@@ -238,7 +250,7 @@ fn shift_stays_emulated_without_the_announcement() {
     backend.take_calls();
     cc(&mut app, mk::STOP, 0);
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
-    assert!(contains(&backend.take_calls(), "stop"));
+    assert!(backend.take_calls().has_cmd(stops));
 }
 
 /// After the announcement of dbm-nihost, its Shift sysex is Shift and STEP LEFT only stops, as on
@@ -254,7 +266,7 @@ fn shift_from_dbm_nihost() {
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Shift));
     backend.take_calls();
     pad(&mut app, 36, 127);
-    assert!(contains(&backend.take_calls(), "undo"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::Undo {})));
     app.on_midi_event(IN, &shift_sysex(false));
     assert!(!ctx(&mut app).surface.is_shift_pressed());
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
@@ -264,9 +276,9 @@ fn shift_from_dbm_nihost() {
     cc(&mut app, mk::STOP, 127);
     assert!(!ctx(&mut app).surface.is_shift_pressed());
     assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
-    assert!(!contains(&backend.take_calls(), "stop"));
+    assert!(!backend.take_calls().has_cmd(stops));
     cc(&mut app, mk::STOP, 0);
-    assert!(contains(&backend.take_calls(), "stop"));
+    assert!(backend.take_calls().has_cmd(stops));
 
     // The reply to the query (the same message) changes nothing
     app.on_midi_event(IN, &HOST_SENDS_SHIFT);
@@ -355,11 +367,11 @@ fn knobs_and_encoder_change_the_volume() {
     // The first mode knob is bound to the volume of the first track
     cc(&mut app, mk::MODE_KNOB_1, 1);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { .. })), "{calls:?}");
     // The encoder changes the volume of the selected track
     cc(&mut app, mk::ENCODER, 127);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { .. })), "{calls:?}");
 }
 
 #[test]
@@ -421,7 +433,7 @@ fn group_buttons_select_tracks() {
     cc(&mut app, mk::BANK_1 + 1, 127);
     cc(&mut app, mk::BANK_1 + 1, 0);
     let calls = backend.take_calls();
-    assert!(contains(&calls, "select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { .. })), "{calls:?}");
     // The selected track is lit white
     app.update_model("track/0/color 217 46 36\n");
     app.tick();
@@ -672,7 +684,7 @@ fn edit_note_mode_has_3_pages_with_the_host_grid() {
     assert_eq!(note_mode_pages(&mut app), (true, true));
     // STEP LEFT is consumed by the page selection, its release does not stop (the Java version
     // stops, UPSTREAM_CANDIDATES.md L)
-    assert!(!contains(&backend.take_calls(), "stop"));
+    assert!(!backend.take_calls().has_cmd(stops));
     // The encoder up/down CCs (registered for the Mk2 as in the Java version) select the pages
     // as well
     press(&mut app, mk::CURSOR_UP);
@@ -684,8 +696,8 @@ fn edit_note_mode_has_3_pages_with_the_host_grid() {
     backend.take_calls();
     cc(&mut app, mk::MODE_KNOB_1 + 3, 1);
     let calls = backend.take_calls();
-    let gain = calls.iter().find_map(|c| match c {
-        BackendCall::DoubleArg(p, c, v) if p == "clip" && c == "grid/16x128/step/0/2/36/gain" => Some(*v),
+    let gain = calls.commands().find_map(|c| match c {
+        Cmd::GridStepAttribute { grid: GridId { steps: 16, rows: 128 }, channel: GridChannel(0), step: 2, note: GridRow(36), value: StepValue { attr: StepAttr::Gain, value } } => Some(value),
         _ => None,
     });
     assert!(gain.is_some_and(|v| v > 0.5 && v < 0.6), "{calls:?}");

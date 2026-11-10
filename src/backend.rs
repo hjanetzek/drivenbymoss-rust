@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::protocol::{Arg, Cmd, Legacy};
+use crate::protocol::{Cmd, CmdBuf};
 
 /// The processors in the C++ extension which handle commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -210,15 +210,15 @@ impl Sender {
 }
 
 /// A call to the backend, recorded by the [`RecordingBackend`].
+///
+/// The commands of the core are recorded typed ([`BackendCall::Command`]); the tests match on
+/// them with [`BackendCall::cmd`] or the helpers of [`RecordedCalls`], e.g.
+/// `calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { value: true, .. }))`. A call compares equal
+/// to a [`Cmd`], so `assert_eq!(backend.take_calls(), [Cmd::Undo {}])` works.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendCall {
-    NoArg(String, String),
-    StringArg(String, String, String),
-    StringArgs(String, String, Vec<String>),
-    IntArg(String, String, i32),
-    DoubleArg(String, String, f64),
-    DelayUpdates(String),
-    EnableUpdates(String, bool),
+    /// A command of the core ([`Backend::send_command`]).
+    Command(CmdBuf),
     Midi(i32, i32, i32, i32),
     OpenInput(i32),
     OpenOutput(i32),
@@ -230,7 +230,68 @@ pub enum BackendCall {
     VelocityTranslation(i32, i32, Vec<i32>),
 }
 
-/// A backend which records all calls. Used for tests and when running without Reaper.
+impl BackendCall {
+    /// The command of the call, None for the other calls.
+    pub fn cmd(&self) -> Option<Cmd<'_>> {
+        match self {
+            BackendCall::Command(cmd) => Some(cmd.cmd()),
+            _ => None,
+        }
+    }
+}
+
+impl PartialEq<Cmd<'_>> for BackendCall {
+    fn eq(&self, other: &Cmd<'_>) -> bool {
+        self.cmd().as_ref() == Some(other)
+    }
+}
+
+/// Helpers of the tests to find commands among recorded calls (implemented for slices of
+/// [`BackendCall`] and [`CmdBuf`]).
+pub trait RecordedCalls {
+    /// The commands among the calls, in their order.
+    fn commands(&self) -> impl Iterator<Item = Cmd<'_>>;
+
+    /// True if a command matches.
+    fn has_cmd(&self, f: impl Fn(&Cmd<'_>) -> bool) -> bool {
+        self.commands().any(|c| f(&c))
+    }
+
+    /// The number of the matching commands.
+    fn count_cmd(&self, f: impl Fn(&Cmd<'_>) -> bool) -> usize {
+        self.commands().filter(|c| f(c)).count()
+    }
+
+    /// The first matching command.
+    fn first_cmd(&self, f: impl Fn(&Cmd<'_>) -> bool) -> Option<Cmd<'_>> {
+        self.commands().find(|c| f(c))
+    }
+
+    /// The last matching command.
+    fn last_cmd(&self, f: impl Fn(&Cmd<'_>) -> bool) -> Option<Cmd<'_>> {
+        self.commands().filter(|c| f(c)).last()
+    }
+
+    /// The legacy lines of the commands ([`crate::protocol::bin::command_line`]), e.g. to
+    /// compare with a text dump.
+    fn legacy_lines(&self) -> Vec<String> {
+        self.commands().map(|c| crate::protocol::bin::command_line(&c)).collect()
+    }
+}
+
+impl RecordedCalls for [BackendCall] {
+    fn commands(&self) -> impl Iterator<Item = Cmd<'_>> {
+        self.iter().filter_map(BackendCall::cmd)
+    }
+}
+
+impl RecordedCalls for [CmdBuf] {
+    fn commands(&self) -> impl Iterator<Item = Cmd<'_>> {
+        self.iter().map(CmdBuf::cmd)
+    }
+}
+
+/// A backend which records all calls. Used for tests.
 #[derive(Default)]
 pub struct RecordingBackend {
     pub calls: RefCell<Vec<BackendCall>>,
@@ -238,9 +299,6 @@ pub struct RecordingBackend {
     pub outputs: Vec<(i32, String)>,
     /// The log messages of the library (see [`Backend::log`]).
     pub logs: RefCell<Vec<String>>,
-    /// Send the commands through their binary form: each command is encoded as a record and
-    /// decoded again before its legacy form is recorded (the binary mode of the replay).
-    pub binary: std::cell::Cell<bool>,
     /// The handled commands of a binary host (word i bit j = ID 0x8000 + 64*i + j, empty: all;
     /// the `handled` event of a recording): the command features come from them
     /// ([`Backend::command_features`]). None: a text host.
@@ -252,22 +310,25 @@ impl RecordingBackend {
         std::mem::take(&mut *self.calls.borrow_mut())
     }
 
-    fn push(&self, call: BackendCall) {
-        self.calls.borrow_mut().push(call);
+    /// Take the calls and return their commands (the other calls are dropped).
+    pub fn take_commands(&self) -> Vec<CmdBuf> {
+        let calls = self.take_calls();
+        calls.into_iter().filter_map(|call| match call {
+            BackendCall::Command(cmd) => Some(cmd),
+            _ => None,
+        }).collect()
     }
 
-    fn record_legacy(&self, legacy: Legacy<'_>) {
-        let Legacy { processor, command, arg } = legacy;
-        let p = processor.id().to_string();
-        self.push(match arg {
-            Arg::None => BackendCall::NoArg(p, command),
-            Arg::Int(v) => BackendCall::IntArg(p, command, v),
-            Arg::Double(v) => BackendCall::DoubleArg(p, command, v),
-            Arg::Str(v) => BackendCall::StringArg(p, command, v.into_owned()),
-            Arg::Strs(v) => BackendCall::StringArgs(p, command, v.iter().map(|v| v.to_string()).collect()),
-            Arg::Delay => BackendCall::DelayUpdates(p),
-            Arg::Enable(v) => BackendCall::EnableUpdates(p, v),
-        });
+    /// The commands recorded so far (not taken).
+    pub fn commands(&self) -> Vec<CmdBuf> {
+        self.calls.borrow().iter().filter_map(|call| match call {
+            BackendCall::Command(cmd) => Some(cmd.clone()),
+            _ => None,
+        }).collect()
+    }
+
+    fn push(&self, call: BackendCall) {
+        self.calls.borrow_mut().push(call);
     }
 }
 
@@ -280,19 +341,10 @@ impl Backend for RecordingBackend {
         self.handled.borrow().as_deref().map(crate::daw::context::command_features)
     }
 
-    /// Records the legacy form of the command, as the text hosts receive it.
+    /// Records the command in its owned form; this checks that it survives its binary form
+    /// ([`CmdBuf::new`]).
     fn send_command(&self, cmd: &Cmd) {
-        if self.binary.get() {
-            let mut w = crate::protocol::bin::Writer::new();
-            cmd.encode(&mut w);
-            let record = crate::protocol::bin::records(w.as_bytes()).ok().and_then(|mut r| r.next()).and_then(Result::ok);
-            let decoded = record.map(|record| Cmd::decode_record(&record));
-            match decoded {
-                Some(Ok(decoded)) => return self.record_legacy(decoded.legacy()),
-                other => panic!("the command {cmd:?} does not survive its binary form: {other:?}"),
-            }
-        }
-        self.record_legacy(cmd.legacy());
+        self.push(BackendCall::Command(CmdBuf::new(cmd)));
     }
 
     fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32) {

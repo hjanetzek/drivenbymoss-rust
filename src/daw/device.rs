@@ -1144,7 +1144,6 @@ impl SpecificDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::BackendCall;
     use crate::daw::bank::tests::test_ctx;
 
     #[test]
@@ -1162,7 +1161,7 @@ mod tests {
         device.toggle_enabled_state();
         assert_eq!(
             backend.take_calls(),
-            vec![BackendCall::NoArg("device".into(), "+".into()), BackendCall::IntArg("device".into(), "2/bypass".into(), 0)]
+            [Cmd::DeviceStep { dir: Dir::Next }, Cmd::DeviceIndexBypass { dev: Processor::Device, device: Pos1(1), value: false }]
         );
         let pads = device.drum_pad_bank();
         assert_eq!(pads.scroll_position(), 32);
@@ -1197,20 +1196,20 @@ mod tests {
         sibling.select();
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::NoArg("primary".into(), "window/toggle".into()),
-                BackendCall::NoArg("primary".into(), "expand/toggle".into()),
-                BackendCall::NoArg("primary".into(), "bypass".into()),
-                BackendCall::NoArg("primary".into(), "remove".into()),
-                BackendCall::NoArg("primary".into(), "duplicate".into()),
-                BackendCall::NoArg("primary".into(), "select".into()),
-                BackendCall::NoArg("eq".into(), "window/toggle".into()),
-                BackendCall::NoArg("drum".into(), "bypass".into()),
-                BackendCall::NoArg("device".into(), "duplicate".into()),
-                BackendCall::NoArg("device".into(), "sibling/3/bypass".into()),
-                BackendCall::NoArg("device".into(), "sibling/3/remove".into()),
-                BackendCall::NoArg("device".into(), "sibling/3/duplicate".into()),
-                BackendCall::NoArg("device".into(), "sibling/3/select".into()),
+            [
+                Cmd::DeviceToggleWindow { dev: Processor::Primary },
+                Cmd::DeviceToggleExpanded { dev: Processor::Primary },
+                Cmd::DeviceAction { dev: Processor::Primary, action: DeviceAction::Bypass },
+                Cmd::DeviceAction { dev: Processor::Primary, action: DeviceAction::Remove },
+                Cmd::DeviceAction { dev: Processor::Primary, action: DeviceAction::Duplicate },
+                Cmd::DeviceAction { dev: Processor::Primary, action: DeviceAction::Select },
+                Cmd::DeviceToggleWindow { dev: Processor::Eq },
+                Cmd::DeviceAction { dev: Processor::Drum, action: DeviceAction::Bypass },
+                Cmd::DeviceAction { dev: Processor::Device, action: DeviceAction::Duplicate },
+                Cmd::DeviceSibling { sibling: Pos1(2), action: DeviceAction::Bypass },
+                Cmd::DeviceSibling { sibling: Pos1(2), action: DeviceAction::Remove },
+                Cmd::DeviceSibling { sibling: Pos1(2), action: DeviceAction::Duplicate },
+                Cmd::DeviceSibling { sibling: Pos1(2), action: DeviceAction::Select },
             ]
         );
     }

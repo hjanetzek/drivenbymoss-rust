@@ -1530,7 +1530,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::backend::{BackendCall, RecordingBackend, Sender};
+    use crate::backend::{RecordingBackend, Sender};
     use crate::framework::value_changer::ValueChanger;
     use crate::host::{Host, MemoryLog};
 
@@ -1540,14 +1540,6 @@ mod tests {
         let host = Host::new(Rc::new(MemoryLog::default()));
         let ctx = DawContext::new(host, sender, ValueChanger::twos_complement(1024, 1));
         (CursorClip::new(ctx, num_steps, num_rows), backend)
-    }
-
-    fn str_call(command: &str, value: &str) -> BackendCall {
-        BackendCall::StringArg("clip".into(), command.into(), value.into())
-    }
-
-    fn double_call(command: &str, value: f64) -> BackendCall {
-        BackendCall::DoubleArg("clip".into(), command.into(), value)
     }
 
     fn state(clip: &CursorClip, channel: i32, step: i32, note: i32) -> StepState {
@@ -1701,16 +1693,16 @@ mod tests {
         // Step 2 on page 1 with 8 steps of 0.25 -> 2.5 beats
         assert_eq!(
             backend.take_calls(),
-            vec![
-                str_call("note/60/toggle", "2.5 0.25 100 3 0"),
-                str_call("note/60/set", "2.5 0.5 90 3 0"),
-                str_call("note/60/update", "2.5 0.75 80 3 1"),
-                double_call("note/60/clear/3", 2.5),
-                double_call("note/60/moveY/3/62", 2.5),
-                BackendCall::NoArg("clip".into(), "note/60/clear/3".into()),
-                double_call("note/0/clearPosition/3", 2.25),
-                BackendCall::NoArg("clip".into(), "clear".into()),
-                str_call("note/60/set", "2.5 0.25 63 3 0"),
+            [
+                Cmd::ClipNoteToggle { note: 60, value: "2.5 0.25 100 3 0" },
+                Cmd::ClipNoteSet { note: 60, value: "2.5 0.5 90 3 0" },
+                Cmd::ClipNoteUpdate { note: 60, value: "2.5 0.75 80 3 1" },
+                Cmd::ClipNoteClear { note: 60, channel: 3, position: 2.5 },
+                Cmd::ClipNoteMoveY { note: 60, channel: 3, row: 62, position: 2.5 },
+                Cmd::ClipNoteClearRow { note: 60, channel: 3 },
+                Cmd::ClipNoteClearPosition { channel: 3, position: 2.25 },
+                Cmd::ClipClear {},
+                Cmd::ClipNoteSet { note: 60, value: "2.5 0.25 63 3 0" },
             ]
         );
     }
@@ -1734,19 +1726,19 @@ mod tests {
         clip.set_play_range(1.0, 2.0);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::EnableUpdates("clip".into(), true),
-                str_call("name", "Foo"),
-                str_call("color", "RGB(255,0,128)"),
-                BackendCall::IntArg("clip".into(), "loop".into(), 1),
-                BackendCall::NoArg("clip".into(), "duplicate".into()),
-                BackendCall::NoArg("clip".into(), "duplicateContent".into()),
-                BackendCall::DoubleArg("quantize".into(), "".into(), 0.5),
-                BackendCall::IntArg("clip".into(), "transpose".into(), -12),
-                double_call("start", 6.0),
-                double_call("end", 5.0),
-                double_call("start", 7.0),
-                double_call("end", 8.0),
+            [
+                Cmd::enable_updates(Processor::Clip, true),
+                Cmd::ClipName { name: "Foo" },
+                Cmd::ClipColor { value: Rgb([255, 0, 128]) },
+                Cmd::ClipLoop { value: true },
+                Cmd::ClipDuplicate {},
+                Cmd::ClipDuplicateContent {},
+                Cmd::Quantize { value: 0.5 },
+                Cmd::ClipTranspose { value: -12 },
+                Cmd::ClipStart { op: ValueOp::Set(6.0) },
+                Cmd::ClipEnd { op: ValueOp::Set(5.0) },
+                Cmd::ClipStart { op: ValueOp::Set(7.0) },
+                Cmd::ClipEnd { op: ValueOp::Set(8.0) },
             ]
         );
         assert_eq!(clip.play_start(), 7.0);
@@ -1773,11 +1765,11 @@ mod tests {
         clip.change_step_duration(&pos, 1);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                str_call("note/60/update", "0.0 0.75 127 0 0"),
-                str_call("note/60/update", "0.0 0.75 63 0 0"),
-                str_call("note/60/update", "0.0 0.75 63 0 1"),
-                str_call("note/60/update", "0.0 0.875 63 0 1"),
+            [
+                Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.75 127 0 0" },
+                Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.75 63 0 0" },
+                Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.75 63 0 1" },
+                Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.875 63 0 1" },
             ]
         );
         let info = clip.step(&pos);
@@ -1803,7 +1795,7 @@ mod tests {
         assert!(clip.is_editing());
         assert_eq!(
             backend.take_calls(),
-            vec![str_call("note/60/update", "0.0 0.25 127 0 0")]
+            [Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.25 127 0 0" }]
         );
 
         // While editing only the local data changes
@@ -1820,7 +1812,7 @@ mod tests {
         clip.run_due_tasks(Instant::now() + Duration::from_millis(150));
         assert_eq!(
             backend.take_calls(),
-            vec![str_call("note/60/update", "0.0 0.5 127 0 0")]
+            [Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.5 127 0 0" }]
         );
         assert!(clip.has_pending_tasks());
 
@@ -1829,7 +1821,7 @@ mod tests {
         assert!(!clip.has_pending_tasks());
         assert_eq!(
             backend.take_calls(),
-            vec![str_call("note/60/update", "0.0 0.5 127 0 0")]
+            [Cmd::ClipNoteUpdate { note: 60, value: "0.0 0.5 127 0 0" }]
         );
         // The stored notes are applied again
         assert_eq!(clip.step(&pos).state(), StepState::Off);

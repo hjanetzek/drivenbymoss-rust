@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::apcmini as config;
 use drivenbymoss::controller::akai::apcmini::surface as apc;
 use drivenbymoss::controller::akai::apcmini::view::SequencerView;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -112,29 +113,22 @@ fn cc(app: &mut App, control: u8, value: u8) {
     app.on_midi_event(IN, &[0xB0, control, value]);
 }
 
-fn number_arg(calls: &[BackendCall], processor: &str, command: &str) -> Option<f64> {
-    calls.iter().rev().find_map(|c| match c {
-        BackendCall::IntArg(p, cmd, v) if p == processor && cmd == command => Some(*v as f64),
-        BackendCall::DoubleArg(p, cmd, v) if p == processor && cmd == command => Some(*v),
-        _ => None,
-    })
-}
-
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 /// The last MIDI message sent with the given status and data1.
 fn midi_out(calls: &[BackendCall], status: u8, data1: u8) -> Option<u8> {
     calls.iter().rev().find_map(|c| match c {
         BackendCall::SendMidi(OUT, d) if d.len() == 3 && d[0] == status && d[1] == data1 => Some(d[2]),
         _ => None,
     })
+}
+
+/// The value `$v` of the last command which matches the pattern.
+macro_rules! last_value {
+    ($calls:expr, $pat:pat => $v:expr) => {
+        $calls.commands().filter_map(|c| match c {
+            $pat => Some($v),
+            _ => None,
+        }).last()
+    };
 }
 
 #[test]
@@ -191,10 +185,10 @@ fn faders_control_volume_and_master() {
     backend.take_calls();
     cc(&mut app, 48, 127);
     let calls = backend.take_calls();
-    assert!(number_arg(&calls, "track", "0/volume").is_some(), "{calls:?}");
+    assert!(last_value!(calls, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(v) } => v).is_some(), "{calls:?}");
     cc(&mut app, 56, 64);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "master", "volume"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Set(_) })), "{calls:?}");
 
     // Fader control setting switches the fader mode
     config::set_fader_ctrl(&mut ctx(&mut app).config, "Pan");
@@ -202,7 +196,7 @@ fn faders_control_volume_and_master() {
     assert!(ctx(&mut app).modes.is_active(Modes::Pan));
     cc(&mut app, 49, 100);
     let calls = backend.take_calls();
-    assert!(number_arg(&calls, "track", "1/pan").is_some(), "{calls:?}");
+    assert!(last_value!(calls, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 1 }, op: ValueOp::Set(v) } => v).is_some(), "{calls:?}");
     app.shutdown();
 }
 
@@ -254,7 +248,7 @@ fn soft_keys_change_the_track_button_function() {
     // Default: clip stop
     press(&mut app, Model::Mk2.track(0));
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "0/stop"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TrackStop { ch: Chan::Track { bank: Processor::Track, p: 0 } })), "{calls:?}");
 
     // Shift (a tap opens the shift view in the session view) + Scene 2: solo
     press(&mut app, Model::Mk2.shift());
@@ -266,7 +260,7 @@ fn soft_keys_change_the_track_button_function() {
     assert_eq!(config::soft_keys(&ctx(&mut app).config), "Solo");
     press(&mut app, Model::Mk2.track(1));
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "1/solo"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
 
     // Mk2: Scene 3 is mute (switched with rec arm)
     press(&mut app, Model::Mk2.shift());
@@ -280,7 +274,7 @@ fn soft_keys_change_the_track_button_function() {
     assert_eq!(apc::track_state(ctx(&mut app)), apc::TRACK_STATE_SELECT);
     press(&mut app, Model::Mk2.track(1));
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "1/select"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
     app.shutdown();
 }
 
@@ -306,11 +300,11 @@ fn shift_view_selects_views_and_transport() {
     note(&mut app, Model::Mk1.shift(), 127);
     press(&mut app, 63);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "play", ""), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {})), "{calls:?}");
     // Pad 39: metronome
     press(&mut app, 39);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "transport", "toggleMetronome"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TransportToggleMetronome {})), "{calls:?}");
     // Pad 1 (G): scale base
     press(&mut app, 4);
     assert_eq!(ctx(&mut app).config.scale_base(), "G");

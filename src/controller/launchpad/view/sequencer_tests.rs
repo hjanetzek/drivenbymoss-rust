@@ -12,7 +12,7 @@ use super::drum_view::DrumView;
 use super::note_edit_view::NoteEditView;
 use super::poly_sequencer_view::PolySequencerView;
 use super::sequencer_view::SequencerView;
-use crate::backend::{BackendCall, RecordingBackend, Sender};
+use crate::backend::{Processor, RecordingBackend, Sender};
 use crate::controller::launchpad::colors::{LAUNCHPAD_COLOR_GREEN, LAUNCHPAD_COLOR_YELLOW};
 use crate::controller::launchpad::definition::LaunchpadModel;
 use crate::controller::launchpad::LaunchpadFactory;
@@ -25,6 +25,7 @@ use crate::framework::view::sequencer::clip_length_view::ClipLengthView;
 use crate::host::{Host, MemoryLog};
 use crate::midi::ButtonEvent;
 use crate::parser::Parser;
+use crate::protocol::{Arg, Cmd, CmdBuf, ValueOp};
 
 fn create_ctx() -> (Ctx, Rc<RecordingBackend>) {
     let backend = Rc::new(RecordingBackend::default());
@@ -53,16 +54,25 @@ fn feed_clip(ctx: &mut Ctx, notes: &str) {
     feed(ctx, &["/clip/exists 1", "/clip/start 0", "/clip/end 4", "/clip/loop 1", &notes]);
 }
 
-fn clip_commands(backend: &RecordingBackend) -> Vec<(String, String)> {
+/// The commands of the cursor clip with a string or double value.
+fn clip_commands(backend: &RecordingBackend) -> Vec<CmdBuf> {
     backend
-        .take_calls()
+        .take_commands()
         .into_iter()
-        .filter_map(|c| match c {
-            BackendCall::StringArg(p, command, value) if p == "clip" => Some((command, value)),
-            BackendCall::DoubleArg(p, command, value) if p == "clip" => Some((command, value.to_string())),
-            _ => None,
+        .filter(|c| {
+            let cmd = c.cmd();
+            let legacy = cmd.legacy();
+            legacy.processor == Processor::Clip && matches!(legacy.arg, Arg::Str(_) | Arg::Double(_))
         })
         .collect()
+}
+
+/// The note and the value of a toggled note (Reaper's `clip note/<note>/toggle`).
+fn note_toggle(c: &CmdBuf) -> (i32, String) {
+    match c.cmd() {
+        Cmd::ClipNoteToggle { note, value } => (note, value.to_string()),
+        other => panic!("not a note toggle: {other:?}"),
+    }
 }
 
 /// Press and release a pad (x, y from the bottom left).
@@ -97,8 +107,8 @@ fn sequencer_toggles_step_and_selects_resolution() {
     tap(&mut view, &mut ctx, 2, 0);
     let commands = clip_commands(&backend);
     assert_eq!(commands.len(), 1, "{commands:?}");
-    assert_eq!(commands[0].0, format!("note/{note}/toggle"));
-    assert!(commands[0].1.starts_with("0.5 0.25 100 0"), "{commands:?}");
+    assert_eq!(note_toggle(&commands[0]).0, note);
+    assert!(note_toggle(&commands[0]).1.starts_with("0.5 0.25 100 0"), "{commands:?}");
 
     // Resolution: scene 1 is 1/32t (index 7), the default is 1/16 (index 4 -> scene 4)
     assert_eq!(view.button_color(&ctx, ButtonId::Scene4), LAUNCHPAD_COLOR_YELLOW);
@@ -164,8 +174,8 @@ fn drum_view_plays_pads_and_toggles_steps() {
     let drum_offset = ctx.model.scales().drum_offset();
     let commands = clip_commands(&backend);
     assert_eq!(commands.len(), 1, "{commands:?}");
-    assert_eq!(commands[0].0, format!("note/{}/toggle", drum_offset + 1));
-    assert!(commands[0].1.starts_with("0.0 0.25 100 0"), "{commands:?}");
+    assert_eq!(note_toggle(&commands[0]).0, drum_offset + 1);
+    assert!(note_toggle(&commands[0]).1.starts_with("0.0 0.25 100 0"), "{commands:?}");
 
     // The upper right pad of the loop area toggles the extra buttons
     view.draw_grid(&mut ctx);
@@ -196,15 +206,15 @@ fn drum4_toggles_lanes() {
     let drum_offset = ctx.model.scales().drum_offset();
     let commands = clip_commands(&backend);
     assert_eq!(commands.len(), 1, "{commands:?}");
-    assert_eq!(commands[0].0, format!("note/{drum_offset}/toggle"));
+    assert_eq!(note_toggle(&commands[0]).0, drum_offset);
     // Step 8 + 3 = 11
-    assert!(commands[0].1.starts_with("2.75 0.25"), "{commands:?}");
+    assert!(note_toggle(&commands[0]).1.starts_with("2.75 0.25"), "{commands:?}");
 
     // The top row is the 4th sound, first half of the steps
     tap(&mut view, &mut ctx, 0, 7);
     let commands = clip_commands(&backend);
-    assert_eq!(commands[0].0, format!("note/{}/toggle", drum_offset + 3));
-    assert!(commands[0].1.starts_with("0.0 0.25"), "{commands:?}");
+    assert_eq!(note_toggle(&commands[0]).0, drum_offset + 3);
+    assert!(note_toggle(&commands[0]).1.starts_with("0.0 0.25"), "{commands:?}");
 }
 
 #[test]
@@ -226,8 +236,7 @@ fn poly_sequencer_records_played_notes() {
     tap(&mut view, &mut ctx, 0, 7);
     let commands = clip_commands(&backend);
     assert_eq!(commands.len(), 1, "{commands:?}");
-    assert!(commands[0].0.ends_with("/toggle"), "{commands:?}");
-    assert!(commands[0].1.starts_with("0.0 0.25 90 0"), "{commands:?}");
+    assert!(note_toggle(&commands[0]).1.starts_with("0.0 0.25 90 0"), "{commands:?}");
 }
 
 #[test]
@@ -247,7 +256,7 @@ fn clip_length_sets_the_loop() {
     let clip = ctx.model.note_clip(0, 0);
     assert_eq!(clip.play_start(), 0.0);
     assert_eq!(clip.loop_length(), 12.0);
-    assert!(backend.take_calls().contains(&BackendCall::DoubleArg("clip".into(), "end".into(), 12.0)));
+    assert!(backend.take_calls().iter().any(|c| *c == Cmd::ClipEnd { op: ValueOp::Set(12.0) }));
 
     view.on_button(&mut ctx, ButtonId::Scene2, ButtonEvent::Down, 127);
     let selected = ctx.colors.color_index(crate::framework::color_ids::abstract_sequencer_view::COLOR_RESOLUTION_SELECTED);

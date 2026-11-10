@@ -12,11 +12,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::osc as osc_config;
 use drivenbymoss::config::SettingId;
 use drivenbymoss::controller::osc::OSC_UUID;
 use drivenbymoss::framework::osc::{OscArg, OscMessage, OscPacket};
+use drivenbymoss::protocol::Cmd;
 
 /// A free UDP port (bound and released again).
 fn free_port() -> u16 {
@@ -174,12 +175,11 @@ fn full_update_changes_and_commands() {
     h.send("/tempo/raw", vec![OscArg::Float(133.0)]);
     h.deliver();
     let calls = h.backend.take_calls();
-    let text = format!("{calls:?}");
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::Midi(0, 0x90, 60, 100))), "{text}");
-    assert!(text.contains("volume"), "{text}");
-    assert!(text.contains("mute"), "{text}");
-    assert!(text.contains("tempo"), "{text}");
-    assert!(text.contains("play"), "{text}");
+    assert!(calls.iter().any(|c| matches!(c, BackendCall::Midi(0, 0x90, 60, 100))), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TempoSet { .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::PlayToggle {} | Cmd::TransportPlay {})), "{calls:?}");
 
     // The played note is marked on the virtual keyboard
     h.receive();

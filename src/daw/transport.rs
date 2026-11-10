@@ -1067,7 +1067,6 @@ fn reformat_time(time_str: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::BackendCall;
     use crate::daw::bank::tests::test_ctx;
 
     #[test]
@@ -1093,12 +1092,12 @@ mod tests {
         t.select_loop_end();
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::DoubleArg("beats".into(), "position/nosnap".into(), 6.0),
-                BackendCall::DoubleArg("beats".into(), "position".into(), 0.0),
-                BackendCall::DoubleArg("beats".into(), "loop/start".into(), 12.0),
-                BackendCall::DoubleArg("beats".into(), "loop/length".into(), 3.0),
-                BackendCall::DoubleArg("beats".into(), "position".into(), 15.0),
+            [
+                Cmd::BeatsPositionNoSnap { value: 6.0 },
+                Cmd::BeatsPosition { value: 0.0 },
+                Cmd::BeatsLoopStart { value: 12.0 },
+                Cmd::BeatsLoopLength { value: 3.0 },
+                Cmd::BeatsPosition { value: 15.0 },
             ]
         );
     }
@@ -1114,12 +1113,7 @@ mod tests {
         t.set_automation_write_mode(AutomationMode::Latch);
         assert_eq!(
             backend.take_calls(),
-            vec![
-                BackendCall::NoArg("record".into(), "".into()),
-                BackendCall::NoArg("stop".into(), "".into()),
-                BackendCall::NoArg("transport".into(), "toggleMetronome".into()),
-                BackendCall::IntArg("automation".into(), "".into(), 4),
-            ]
+            [Cmd::RecordToggle {}, Cmd::StopToggle {}, Cmd::TransportToggleMetronome {}, Cmd::AutomationMode { value: 4 }]
         );
         t.set_automation_write_mode_state(AutomationMode::Write);
         assert!(ctx.is_automation_rec_active());

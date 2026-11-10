@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::protocol::{Arg, Legacy};
 
 /// The first line of a LED file of the runner: how system exclusive messages are keyed.
 const SYSEX_KEY_BYTES: &str = "#sysex_key_bytes";
@@ -107,13 +108,20 @@ fn normalize_call(call: &BackendCall) -> Option<String> {
 
 fn format_call(call: &BackendCall) -> Option<String> {
     Some(match call {
-        BackendCall::NoArg(p, c) => format!("noArg {p} {c}"),
-        BackendCall::StringArg(p, c, v) => format!("string {p} {c} {v}"),
-        BackendCall::StringArgs(p, c, v) => format!("strings {p} {c} {}", v.join(" ")),
-        BackendCall::IntArg(p, c, v) => format!("int {p} {c} {v}"),
-        BackendCall::DoubleArg(p, c, v) => format!("double {p} {c} {v:.6}"),
-        BackendCall::DelayUpdates(p) => format!("delay {p}"),
-        BackendCall::EnableUpdates(p, e) => format!("enable {p} {}", if *e { 1 } else { 0 }),
+        BackendCall::Command(cmd) => {
+            let cmd = cmd.cmd();
+            let Legacy { processor, command: c, arg } = cmd.legacy();
+            let p = processor.id();
+            match arg {
+                Arg::None => format!("noArg {p} {c}"),
+                Arg::Str(v) => format!("string {p} {c} {v}"),
+                Arg::Strs(v) => format!("strings {p} {c} {}", v.join(" ")),
+                Arg::Int(v) => format!("int {p} {c} {v}"),
+                Arg::Double(v) => format!("double {p} {c} {v:.6}"),
+                Arg::Delay => format!("delay {p}"),
+                Arg::Enable(e) => format!("enable {p} {}", if e { 1 } else { 0 }),
+            }
+        }
         BackendCall::SendMidi(0, data) if !data.is_empty() => format!("out {}", hex(data)),
         BackendCall::SendMidi(port, data) if !data.is_empty() => format!("out{port} {}", hex(data)),
         // A MIDI event as if played on the device (e.g. the notes of a chord)
@@ -163,8 +171,9 @@ fn read_pairs(path: &Path) -> Vec<(String, String)> {
 }
 
 /// Replay one recording; returns the problems. `binary`: the binary form of the protocol (the
-/// model lines converted to records and fed through `update_model_bin`, every command encoded
-/// as a record and decoded again before it is compared).
+/// model lines converted to records and fed through `update_model_bin`). The recording backend
+/// keeps every command as a record in both modes (`CmdBuf`), so each one survives its binary
+/// form.
 fn replay(path: &Path, binary: bool) -> Vec<String> {
     let events = parse_recording(path);
     let init = events.iter().find(|e| e.kind == "init").expect("init event");
@@ -193,7 +202,6 @@ fn replay(path: &Path, binary: bool) -> Vec<String> {
     }
 
     let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
-    backend.binary.set(binary);
     let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), &core_id, &app_version).expect("controller of the recording");
     // How the runner keyed the system exclusive messages (first line of the Java LED file)
     let stem = path.file_stem().unwrap().to_string_lossy().to_string();

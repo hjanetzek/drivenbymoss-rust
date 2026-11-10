@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::reaper::ControllerConfigFile;
 use drivenbymoss::controller::mackie::mcu::surface::McuSurfaceState;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, Modes};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd};
 
 const MODELS: [&str; 4] =
     ["MCU - Control Universal", "MCU - Control Universal + 1 Extender", "MCU - Control Universal + 2 Extenders", "MCU - Control Universal + 3 Extenders"];
@@ -109,24 +110,6 @@ impl Mcu {
     }
 }
 
-/// The commands sent to the host as "processor command" strings.
-fn commands(calls: &[BackendCall]) -> Vec<String> {
-    calls
-        .iter()
-        .filter_map(|c| match c {
-            BackendCall::NoArg(p, cmd) => Some(format!("{p} {cmd}")),
-            BackendCall::StringArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            BackendCall::IntArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            BackendCall::DoubleArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            _ => None,
-        })
-        .collect()
-}
-
-fn has_command(calls: &[BackendCall], prefix: &str) -> bool {
-    commands(calls).iter().any(|c| c.starts_with(prefix))
-}
-
 /// The MIDI messages sent to a port.
 fn midi_to(calls: &[BackendCall], port: i32) -> Vec<Vec<u8>> {
     calls.iter().filter_map(|c| if let BackendCall::SendMidi(p, d) = c { (*p == port).then(|| d.clone()) } else { None }).collect()
@@ -159,7 +142,7 @@ fn transport_and_mode_buttons() {
     let mut mcu = Mcu::start("transport", 0, &[]);
     mcu.calls();
     mcu.press(0, 0x5E);
-    assert!(has_command(&mcu.calls(), "play "));
+    assert!(mcu.calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
 
     // Track button: Volume, then Track mode
     mcu.press(0, 0x28);
@@ -191,7 +174,7 @@ fn faders_and_knobs_control_the_tracks() {
     mcu.calls();
     mcu.app.on_midi_event(port_in(0), &[0xE1, 0x7F, 0x7F]);
     let calls = mcu.calls();
-    assert!(has_command(&calls, "track 1/volume"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
 
     // Knob 1 in pan mode (relative, signed bit 2)
     mcu.press(0, 0x2A);
@@ -199,7 +182,7 @@ fn faders_and_knobs_control_the_tracks() {
     mcu.calls();
     mcu.app.on_midi_event(port_in(0), &[0xB0, 0x10, 0x01]);
     let calls = mcu.calls();
-    assert!(has_command(&calls, "track 0/pan"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{calls:?}");
 
     // The motor faders follow the volume
     mcu.advance(30);
@@ -235,9 +218,9 @@ fn extenders_are_separate_surfaces() {
     // Play on the extender port does nothing, on the main port it plays
     mcu.calls();
     mcu.press(0, 0x5E);
-    assert!(!has_command(&mcu.calls(), "play "));
+    assert!(!mcu.calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
     mcu.press(1, 0x5E);
-    assert!(has_command(&mcu.calls(), "play "));
+    assert!(mcu.calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
 
     // A mode selected on the main device is active on the extender as well
     mcu.press(1, 0x28);
@@ -248,21 +231,21 @@ fn extenders_are_separate_surfaces() {
     // The faders of the extender control tracks 1-8, the ones of the main device 9-16
     mcu.calls();
     mcu.app.on_midi_event(port_in(0), &[0xE0, 0x00, 0x40]);
-    assert!(has_command(&mcu.calls(), "track 0/volume"));
+    assert!(mcu.calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })));
     mcu.app.on_midi_event(port_in(1), &[0xE0, 0x00, 0x40]);
-    assert!(has_command(&mcu.calls(), "track 8/volume"));
+    assert!(mcu.calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })));
 
     // Shift on the main device counts on the extender: Solo + Shift toggles the auto monitor
     mcu.calls();
     mcu.note(1, 0x46, 127);
     mcu.press(0, 0x08);
-    let shifted = commands(&mcu.calls());
+    let shifted = mcu.calls();
     mcu.note(1, 0x46, 0);
     mcu.press(0, 0x08);
-    let normal = commands(&mcu.calls());
-    assert!(normal.iter().any(|c| c.starts_with("track 0/solo")), "{normal:?}");
-    assert!(!shifted.iter().any(|c| c.starts_with("track 0/solo")), "{shifted:?}");
-    assert!(shifted.iter().any(|c| c.starts_with("track 0/")), "{shifted:?}");
+    let normal = mcu.calls();
+    assert!(normal.has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. } | Cmd::ChannelSoloToggle { ch: Chan::Track { bank: Processor::Track, p: 0 } })), "{normal:?}");
+    assert!(!shifted.has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. } | Cmd::ChannelSoloToggle { ch: Chan::Track { bank: Processor::Track, p: 0 } })), "{shifted:?}");
+    assert!(shifted.has_cmd(|c| matches!(c, Cmd::TrackAutoMonitor { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{shifted:?}");
 
     // The displays and LEDs of each device go to its own port
     mcu.advance(30);
@@ -283,7 +266,7 @@ fn select_buttons_of_the_extenders_select_their_tracks() {
     // Select 1 of the second device (center): track 9
     mcu.press(1, 0x18);
     let calls = mcu.calls();
-    assert!(has_command(&calls, "track 8/select"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })), "{calls:?}");
     // Long press of a button runs with its surface (scheduled task)
     mcu.note(2, 0x18, 127);
     mcu.advance(600);

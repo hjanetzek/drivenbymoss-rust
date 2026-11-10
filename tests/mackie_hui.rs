@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::config::reaper::ControllerConfigFile;
 use drivenbymoss::controller::mackie::hui::definition::*;
 use drivenbymoss::controller::mackie::hui::surface::HuiSurfaceState;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, Modes};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd};
 
 const MODELS: [&str; 3] = ["HUI - Human User Interface", "HUI - Human User Interface + 1 Extender", "HUI - Human User Interface + 2 Extenders"];
 
@@ -107,23 +108,6 @@ impl Hui {
     }
 }
 
-fn commands(calls: &[BackendCall]) -> Vec<String> {
-    calls
-        .iter()
-        .filter_map(|c| match c {
-            BackendCall::NoArg(p, cmd) => Some(format!("{p} {cmd}")),
-            BackendCall::StringArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            BackendCall::IntArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            BackendCall::DoubleArg(p, cmd, v) => Some(format!("{p} {cmd} {v}")),
-            _ => None,
-        })
-        .collect()
-}
-
-fn has_command(calls: &[BackendCall], prefix: &str) -> bool {
-    commands(calls).iter().any(|c| c.starts_with(prefix))
-}
-
 fn midi_to(calls: &[BackendCall], port: i32) -> Vec<Vec<u8>> {
     calls.iter().filter_map(|c| if let BackendCall::SendMidi(p, d) = c { (*p == port).then(|| d.clone()) } else { None }).collect()
 }
@@ -154,18 +138,18 @@ fn buttons_faders_and_knobs() {
     let mut hui = Hui::start("buttons", 0, &[]);
     hui.calls();
     hui.press(0, HUI_TRANSPORT_PLAY);
-    assert!(has_command(&hui.calls(), "play "));
+    assert!(hui.calls().has_cmd(|c| matches!(c, Cmd::PlayToggle {})));
 
     // A fader with the high and low byte
     hui.cc(0, 0x01, 0x40);
     hui.cc(0, 0x21, 0x00);
     let calls = hui.calls();
-    assert!(has_command(&calls, "track 1/volume"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
 
     // A knob in the pan mode
     hui.cc(0, 0x40, 0x41);
     let calls = hui.calls();
-    assert!(has_command(&calls, "track 0/pan"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, .. })), "{calls:?}");
 
     // Mode selection
     hui.press(0, HUI_ASSIGN2_BYPASS);
@@ -198,7 +182,7 @@ fn extenders_are_separate_surfaces() {
     hui.cc(1, 0x00, 0x40);
     hui.cc(1, 0x20, 0x00);
     let calls = hui.calls();
-    assert!(has_command(&calls, "track 8/volume"), "{:?}", commands(&calls));
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })), "{calls:?}");
 
     // A mode selected on one device is active on all
     hui.press(1, HUI_ASSIGN1_INPUT);
@@ -209,12 +193,12 @@ fn extenders_are_separate_surfaces() {
     hui.calls();
     hui.button(0, HUI_KEY_SHIFT_AD, true);
     hui.press(1, HUI_MUTE1);
-    let shifted = commands(&hui.calls());
+    let shifted = hui.calls();
     hui.button(0, HUI_KEY_SHIFT_AD, false);
     hui.press(1, HUI_MUTE1);
-    let normal = commands(&hui.calls());
-    assert!(normal.iter().any(|c| c.starts_with("track 8/mute")), "{normal:?}");
-    assert!(!shifted.iter().any(|c| c.starts_with("track 8/mute")), "{shifted:?}");
+    let normal = hui.calls();
+    assert!(normal.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })), "{normal:?}");
+    assert!(!shifted.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 8 }, .. })), "{shifted:?}");
 
     // The VU meters and the motor faders of each device go to its own port
     hui.app.update_model("track/8/vuleft 0.5\ntrack/8/vuright 0.4\ntrack/8/volume 0.25\n");

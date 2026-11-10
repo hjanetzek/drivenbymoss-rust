@@ -10,10 +10,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use drivenbymoss::app::App;
-use drivenbymoss::backend::{BackendCall, RecordingBackend};
+use drivenbymoss::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend};
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::midi::ButtonEvent;
+use drivenbymoss::protocol::{Chan, Cmd, ValueOp};
 
 const IN: i32 = 3;
 const OUT: i32 = 5;
@@ -79,15 +80,6 @@ fn cc(app: &mut App, channel: u8, control: u8, value: u8) {
     app.on_midi_event(IN, &[0xB0 + channel, control, value]);
 }
 
-fn has_call(calls: &[BackendCall], processor: &str, command: &str) -> bool {
-    calls.iter().any(|c| match c {
-        BackendCall::NoArg(p, cmd) | BackendCall::IntArg(p, cmd, _) | BackendCall::DoubleArg(p, cmd, _) | BackendCall::StringArg(p, cmd, _) => {
-            p == processor && cmd == command
-        }
-        _ => false,
-    })
-}
-
 #[test]
 fn startup_sets_mode_2_and_draws_the_pads() {
     for model in [Model::Mk1, Model::Mk2] {
@@ -118,17 +110,17 @@ fn faders_and_knobs() {
     backend.take_calls();
     // Track faders: CC 7 on the channel of the track
     cc(&mut app, 2, 0x07, 100);
-    assert!(has_call(&backend.take_calls(), "track", "2/volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p: 2 }, op: ValueOp::Set(_) })));
     // Master
     cc(&mut app, 0, 0x0E, 100);
-    assert!(has_call(&backend.take_calls(), "master", "volume"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Set(_) })));
     // Device knobs
     cc(&mut app, 0, 0x10, 100);
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| format!("{c:?}").contains("param/0/value")), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ParamValue { param: 0, .. })), "{calls:?}");
     // Track knobs in the pan mode
     cc(&mut app, 0, 0x30, 100);
-    assert!(has_call(&backend.take_calls(), "track", "0/pan"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelPan { ch: Chan::Track { bank: Processor::Track, p: 0 }, op: ValueOp::Set(_) })));
     // The knob LEDs are sent 100ms after a flush
     app.tick();
     std::thread::sleep(Duration::from_millis(120));
@@ -149,15 +141,15 @@ fn track_buttons() {
     press(&mut app, 1, 0x32);
     press(&mut app, 1, 0x30);
     let calls = backend.take_calls();
-    assert!(has_call(&calls, "track", "1/solo"), "{calls:?}");
-    assert!(has_call(&calls, "track", "1/mute"), "{calls:?}");
-    assert!(has_call(&calls, "track", "1/recarm"), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSolo { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
+    assert!(calls.has_cmd(|c| matches!(c, Cmd::TrackRecArm { ch: Chan::Track { bank: Processor::Track, p: 1 }, .. })), "{calls:?}");
     // Select
     press(&mut app, 2, 0x33);
-    assert!(has_call(&backend.take_calls(), "track", "2/select"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::ChannelSelect { ch: Chan::Track { bank: Processor::Track, p: 2 }, .. })));
     // Stop clip
     press(&mut app, 0, 0x34);
-    assert!(has_call(&backend.take_calls(), "track", "0/stop"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TrackStop { ch: Chan::Track { bank: Processor::Track, p: 0 } })));
     app.shutdown();
 }
 
@@ -219,7 +211,7 @@ fn shift_selects_the_views_and_tap_tempo_shows_the_tempo() {
     backend.take_calls();
     press(&mut app, 0, 0x63);
     assert!(ctx(&mut app).views.is_active(Views::Tempo));
-    assert!(has_call(&backend.take_calls(), "transport", "tapTempo"));
+    assert!(backend.take_calls().has_cmd(|c| matches!(c, Cmd::TransportTapTempo {})));
     app.tick();
     std::thread::sleep(Duration::from_millis(550));
     app.tick();

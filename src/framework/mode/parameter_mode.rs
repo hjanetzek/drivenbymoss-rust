@@ -733,7 +733,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::backend::{BackendCall, RecordingBackend, Sender};
+    use crate::backend::{BackendCall, Processor, RecordedCalls, RecordingBackend, Sender};
     use crate::controller::launchpad::definition::LaunchpadModel;
     use crate::controller::launchpad::LaunchpadFactory;
     use crate::controller::{ControllerFactory, MidiPorts};
@@ -749,6 +749,7 @@ mod tests {
     use crate::host::{Host, MemoryLog};
     use crate::midi::BindType;
     use crate::parser::Parser;
+    use crate::protocol::{Chan, Cmd, ValueOp};
 
     fn create_ctx() -> (Ctx, Rc<RecordingBackend>) {
         let backend = Rc::new(RecordingBackend::default());
@@ -771,10 +772,10 @@ mod tests {
     }
 
     fn volume_of(calls: &[BackendCall], track: usize) -> Option<f64> {
-        calls.iter().rev().find_map(|c| match c {
-            BackendCall::DoubleArg(p, cmd, v) if p == "track" && *cmd == format!("{track}/volume") => Some(*v),
+        calls.commands().filter_map(|c| match c {
+            Cmd::ChannelVolume { ch: Chan::Track { bank: Processor::Track, p }, op: ValueOp::Set(v) } if p == track as i32 => Some(v),
             _ => None,
-        })
+        }).last()
     }
 
     #[test]

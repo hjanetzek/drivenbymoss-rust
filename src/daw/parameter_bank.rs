@@ -366,7 +366,7 @@ mod tests {
         assert!(backend.take_calls().is_empty());
         // The core selects a page: the host is told
         bank.select_previous_item();
-        assert_eq!(backend.take_calls(), vec![crate::backend::BackendCall::IntArg("device".into(), "parameterPage".into(), 1)]);
+        assert_eq!(backend.take_calls(), [Cmd::DeviceParameterPage { dev: Processor::Device, page: 1 }]);
     }
 
     /// Bitwig: the page remembered by Bitwig after a device change, ParameterPageBankImpl
