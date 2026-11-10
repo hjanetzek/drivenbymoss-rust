@@ -4,9 +4,9 @@
 
 //! Track and device commands for buttons per track channel (former `SoloCommand`, `MuteCommand`,
 //! `RecArmCommand`, `CrossfadeModeCommand`, `MasterCommand`, `StopClipCommand`,
-//! `StopAllClipsCommand` of `framework.command.trigger.track` and `.clip`), and some small
-//! commands without their own module (former `RedoCommand`, `DeviceOnOffCommand`,
-//! `PlayPositionCommand`, `Timeout`).
+//! `StopAllClipsCommand`, `SelectPrevNextTrackCommand` of `framework.command.trigger.track` and
+//! `.clip`), and some small commands without their own module (former `RedoCommand`,
+//! `DeviceOnOffCommand`, `PlayPositionCommand`, `Timeout`).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -231,6 +231,46 @@ impl TriggerCommand for StopAllClipsCommand {
         if velocity == 0 {
             let is_shift = ctx.surface.is_shift_pressed();
             ctx.model.current_track_bank_mut().stop(is_shift);
+        }
+    }
+}
+
+/// Select the previous/next track of the current track bank, with Shift the previous/next page
+/// of tracks (former `SelectPrevNextTrackCommand`).
+#[derive(Debug, Clone, Copy)]
+pub struct SelectPrevNextTrackCommand {
+    is_left: bool,
+}
+
+impl SelectPrevNextTrackCommand {
+    /// `is_left`: select the previous track (page), otherwise the next.
+    pub fn new(is_left: bool) -> Self {
+        SelectPrevNextTrackCommand { is_left }
+    }
+}
+
+impl TriggerCommand for SelectPrevNextTrackCommand {
+    fn execute_normal(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
+        if event != ButtonEvent::Down {
+            return;
+        }
+        let tb = ctx.model.current_track_bank_mut();
+        if self.is_left {
+            tb.select_previous_item();
+        } else {
+            tb.select_next_item();
+        }
+    }
+
+    fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
+        if event != ButtonEvent::Down {
+            return;
+        }
+        let tb = ctx.model.current_track_bank_mut();
+        if self.is_left {
+            tb.select_previous_page();
+        } else {
+            tb.select_next_page();
         }
     }
 }

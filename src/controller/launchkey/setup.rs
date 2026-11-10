@@ -21,13 +21,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::colors::create_color_manager;
-use super::command::{ButtonAreaCommand, DeviceLockCommand, LaunchkeyMk3PlayCommand, SelectPrevNextTrackCommand, SELECTED_FLAG};
+use super::command::{ButtonAreaCommand, DeviceLockCommand, LaunchkeyMk3PlayCommand, SELECTED_FLAG};
 use super::definition::*;
 use super::display::LaunchkeyMk3Display;
 use super::mode::{CustomMode, MiniProjectParamsMode, MiniTrackMode, Mk3Mode};
 use super::surface::{self as lk, state, state_mut, LaunchkeyState};
 use super::view::drum::{DrumConfigView, DrumView};
-use super::view::misc::{BrowserView, DeviceConfigView, DummyView, UserPadView};
+use super::view::misc::{BrowserView, DeviceConfigView, UserPadView};
+use crate::framework::commands::channel::SelectPrevNextTrackCommand;
+use crate::framework::view::dummy_view::DummyView;
 use super::view::pad_mode_select::PadModeSelectView;
 use super::view::session::SessionView;
 use crate::backend::Sender;

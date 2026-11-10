@@ -2,14 +2,14 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The further views of the Launchkey (former `DeviceConfigView`, `BrowserView`, `UserPadView`
-//! and the framework's `DummyView`).
+//! The further views of the Launchkey (former `DeviceConfigView`, `BrowserView` and
+//! `UserPadView`). The pad modes which the device handles itself use the framework's
+//! [`crate::framework::view::dummy_view::DummyView`].
 
 use super::super::colors::*;
 use super::super::definition::*;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::View;
-use crate::framework::grid::GRID_OFF;
 use crate::framework::ids::{ButtonId, Views};
 use crate::midi::ButtonEvent;
 
@@ -242,38 +242,6 @@ impl View for UserPadView {
 
     fn button_color(&self, _ctx: &Ctx, _button: ButtonId) -> i32 {
         LAUNCHKEY_COLOR_BLACK
-    }
-
-    crate::impl_as_any!();
-}
-
-/// A view which does nothing (former `DummyView`), for the pad modes of the Mk3 which the device
-/// handles itself.
-pub struct DummyView {
-    name: String,
-}
-
-impl DummyView {
-    pub fn new(name: &str) -> Self {
-        DummyView { name: name.to_string() }
-    }
-}
-
-impl View for DummyView {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn draw_grid(&mut self, _ctx: &mut Ctx) {
-        // Intentionally empty
-    }
-
-    fn on_grid_note(&mut self, _ctx: &mut Ctx, _note: i32, _velocity: i32) {
-        // Intentionally empty
-    }
-
-    fn button_color(&self, ctx: &Ctx, _button: ButtonId) -> i32 {
-        ctx.colors.color_index(GRID_OFF)
     }
 
     crate::impl_as_any!();

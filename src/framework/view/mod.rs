@@ -18,3 +18,4 @@ pub mod shift_view;
 pub mod drum64_view;
 pub mod deferred;
 pub mod control_only_view;
+pub mod dummy_view;

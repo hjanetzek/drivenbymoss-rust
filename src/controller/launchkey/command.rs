@@ -2,8 +2,8 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The commands of the Launchkey (former `ButtonAreaCommand`, `DeviceLockCommand`,
-//! `LaunchkeyMk3PlayCommand` and the framework's `SelectPrevNextTrackCommand`).
+//! The commands of the Launchkey (former `ButtonAreaCommand`, `DeviceLockCommand` and
+//! `LaunchkeyMk3PlayCommand`).
 
 use super::colors::{LAUNCHKEY_COLOR_BLACK, LAUNCHKEY_COLOR_GREY_LO, LAUNCHKEY_COLOR_RED};
 use super::surface::{state, state_mut};
@@ -125,44 +125,6 @@ impl TriggerCommand for LaunchkeyMk3PlayCommand {
     fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
         if event == ButtonEvent::Down {
             ctx.model.transport_mut().return_to_arrangement();
-        }
-    }
-}
-
-/// Select the previous/next track, with Shift the previous/next page of tracks (former
-/// `SelectPrevNextTrackCommand`).
-pub struct SelectPrevNextTrackCommand {
-    is_left: bool,
-}
-
-impl SelectPrevNextTrackCommand {
-    pub fn new(is_left: bool) -> Self {
-        SelectPrevNextTrackCommand { is_left }
-    }
-}
-
-impl TriggerCommand for SelectPrevNextTrackCommand {
-    fn execute_normal(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        if event != ButtonEvent::Down {
-            return;
-        }
-        let tb = ctx.model.current_track_bank_mut();
-        if self.is_left {
-            tb.select_previous_item();
-        } else {
-            tb.select_next_item();
-        }
-    }
-
-    fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        if event != ButtonEvent::Down {
-            return;
-        }
-        let tb = ctx.model.current_track_bank_mut();
-        if self.is_left {
-            tb.select_previous_page();
-        } else {
-            tb.select_next_page();
         }
     }
 }
