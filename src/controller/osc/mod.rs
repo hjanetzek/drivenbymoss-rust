@@ -8,7 +8,7 @@
 //!
 //! The controller has one MIDI input (the virtual keyboard inserts its notes there) and no MIDI
 //! output; it talks to its clients over UDP (see [`setup`] for the networking and the
-//! differences to Java, the modules in [`module`]).
+//! differences to Java, the table of the addresses in [`address`], the modules in [`module`]).
 //!
 //! Manual test on Linux (receive port 8000, send port 9000 by default): run the controller in a
 //! host (Bitwig, or the Python reference host), then
@@ -20,6 +20,7 @@
 //! oscdump 9000
 //! ```
 
+pub mod address;
 pub mod colors;
 pub mod module;
 pub mod setup;
