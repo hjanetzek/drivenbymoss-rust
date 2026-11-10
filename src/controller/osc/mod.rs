@@ -69,3 +69,5 @@ pub fn factories() -> Vec<Box<dyn ControllerFactory>> {
 }
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod golden;
