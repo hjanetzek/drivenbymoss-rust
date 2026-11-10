@@ -12,6 +12,7 @@ pub mod launchkey;
 pub mod launchpad;
 pub mod maschine;
 pub mod mackie;
+pub mod osc;
 
 use crate::framework::ctx::Ctx;
 
@@ -169,6 +170,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(mackie::factories());
     factories.extend(generic::factories());
     factories.extend(arturia::factories());
+    factories.extend(osc::factories());
     // The controllers written in Lua: built in and <ini folder>/DrivenByMoss/controllers
     #[cfg(feature = "lua")]
     factories.extend(crate::script::factories());

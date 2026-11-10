@@ -58,6 +58,7 @@ MIDI mode).
 | Akai MPC/Force (ACVS) | MPC Live I/II, One, X, Force | `src/controller/akai/acvs/` | `akai_acvs.rs` (4) |
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 | Arturia Beatstep | Beatstep (also the Beatstep Pro, same MIDI) | `src/controller/arturia/beatstep/` | `arturia_beatstep.rs` (9) |
+| Open Sound Control | OSC (`OSCControllerInstance`) | `src/controller/osc/` | `osc_controller.rs` (1, over localhost UDP), Python `test_osc.py` |
 
 There are also 220 unit tests in the sources.
 
@@ -80,6 +81,24 @@ settings UI (Bitwig) can edit the mapping. Not ported: the file dialogs and the 
 ("Set", "Save", "Load"; `editor::learn_set`, `mapping::save_file` and `mapping::load_file` are
 their functions) and the FX track commands (no effect track bank, as in the Java Reaper version).
 See the module documentation of `src/controller/generic/` for the deviations.
+
+**OSC (2026-11-10):** the Open Sound Control controller with all 12 Java modules (transport,
+global, layout/panels/arranger/mixer, markers, project, tracks, scenes, devices with the
+equalizer, layers and drum pads, browser, virtual keyboard and note repeat, actions, cursor clip)
+and its settings (receive port, send host and port, value resolution, bank page size, the 20
+actions, logging). The new `src/framework/osc/` has the OSC 1.0 encoding (messages and bundles,
+argument types i f s S b h d t c r m T F N I), Java's number formatting, the writer which sends
+only changed values (framed by `/update`) and the UDP server and client on `std::net`. The
+controller polls its non-blocking socket at every tick of the core and sends from there, so it
+needs no thread and no new C function; its commands run under the lock of the instance like MIDI.
+It has one MIDI input (the virtual keyboard plays into its note input) and no MIDI output: the app
+opens no output for a controller without outputs. Tested over localhost with the Rust tests and
+the Python reference host, not with Bitwig or a real client (TouchOSC, Open Stage Control) yet;
+`backends/bitwig/tools/osc_monitor.py` (stdlib) prints what it sends and sends single commands.
+Not ported (no command in the core): the crossfade mode of tracks, renaming and entering layers,
+`/browser/insertClap`; and the Java `ConformanceModule`. The Bitwig extension definition is not
+generated yet (`backends/bitwig/tools/gen_definitions.py`). Divergences: BITWIG_DIVERGENCES.md
+§9, bugs kept: UPSTREAM_CANDIDATES.md Q.
 
 **Akai (2026-11-02):** APC mini Mk1/Mk2, APC40 Mk1/Mk2, MPC/Force over ACVS and the Fire.
 The Fire's 128x64 OLED is drawn with the new dependency-free graphics module
@@ -154,7 +173,7 @@ The Linux guard of the Maschine factories is removed.
 **Not ported:**
 
 - The Swing/JavaFX UI and the simulator windows.
-- USB, HID, OSC and the gamepad. Graphics displays: only the Akai Fire OLED (MIDI system
+- USB, HID and the gamepad. Graphics displays: only the Akai Fire OLED (MIDI system
   exclusive); the USB displays (Push 2/3) are not ported.
 - All controllers not listed above. See [PORTING_GUIDE.md](PORTING_GUIDE.md) for the
   remaining ones.

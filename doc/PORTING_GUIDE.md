@@ -86,7 +86,7 @@ listed under "Needs".
 | NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
 | Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | **Ported** (`src/controller/generic/`, see STATUS.md) | — |
 | Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | Push 1: text display. Push 2/3: graphics rendering (`framework/graphics`, 3,939 lines + 1,618 Reaper side) and USB bulk transfer of the display | 5 |
-| OSC | `osc/**` | 3,801 | `OSCControllerInstance` | UDP networking, OSC encoding (`framework/osc`) | 4 |
+| OSC | `osc/**` | 3,801 | `OSCControllerInstance` | **Ported** (`src/controller/osc/`, with `framework::osc`: OSC 1.0 codec, writer, UDP polled at the tick) | — |
 | Gamepad | `gamepad` | 291 | `GamepadControllerInstance` | Gamepad input (jamepad in Java): needs a native library | 5 |
 | Utilities: Auto color, MIDI monitor | `utilities/**` | 793 | `AutoColorInstance`, `MidiMonitorInstance` | Auto color: track name → color rules; MIDI monitor: log only | 1 |
 
@@ -270,6 +270,7 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 | `framework::ids` | `ButtonId`, `ContinuousId`, `OutputId`, `Views`, `Modes`, generated from the Java enums |
 | `framework::color` | `ColorManager`, `BUTTON_STATE_*` |
 | `framework::color_ids` | Color ID constants of the generic views |
+| `framework::osc` | OSC 1.0 messages and bundles (`OscMessage`, `OscPacket`, types i f s S b h d t c r m T F N I), Java number formatting, `OscWriter` (only changed values, `/update` framing), non-blocking UDP `OscServer`/`OscClient` (polled at the tick, no thread) |
 
 `Ctx` provides:
 
@@ -361,7 +362,7 @@ The complete list, class by class and by upcoming controller, is in
   `ControllerSetup::handle_extra_input_midi`). The ACVS "Pads (Remote MIDI Port)" does not use it yet.
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
-- OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.
+- ~~OSC~~: done (`framework::osc`, used by `src/controller/osc/`).
 - ~~Multiple surfaces per controller instance~~: done (`framework::multi_surface`, see
   [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md)). A factory declares `num_port_pairs()` and
   implements `create_with_ports`; the context swaps the current surface in.

@@ -381,7 +381,9 @@ impl App {
         self.host.println(&format!("{name}: Starting..."));
 
         let backend = self.sender.backend().clone();
-        if !ports.iter().all(|p| backend.open_midi_input(p.input) && backend.open_midi_output(p.output)) {
+        // A controller without MIDI outputs (OSC) opens only its inputs
+        let has_outputs = self.instances[index].factory.info().num_midi_out_ports > 0;
+        if !ports.iter().all(|p| backend.open_midi_input(p.input) && (!has_outputs || backend.open_midi_output(p.output))) {
             self.host.error(&format!("{name}: Could not open the MIDI ports."));
             return;
         }
@@ -422,7 +424,9 @@ impl App {
                 self.host.error(&format!("{name}: Could not start controller: {error}"));
                 for port in &ports {
                     backend.close_midi_input(port.input);
-                    backend.close_midi_output(port.output);
+                    if has_outputs {
+                        backend.close_midi_output(port.output);
+                    }
                 }
                 for input in extra_inputs.iter().flatten() {
                     backend.close_midi_input(*input);
@@ -443,9 +447,12 @@ impl App {
         running.setup.exit(&mut running.ctx);
         running.ctx.model.cleanup();
         let backend = self.sender.backend().clone();
+        let has_outputs = instance.factory.info().num_midi_out_ports > 0;
         for port in &running.ports {
             backend.close_midi_input(port.input);
-            backend.close_midi_output(port.output);
+            if has_outputs {
+                backend.close_midi_output(port.output);
+            }
         }
         for input in running.extra_inputs.iter().flatten() {
             backend.close_midi_input(*input);

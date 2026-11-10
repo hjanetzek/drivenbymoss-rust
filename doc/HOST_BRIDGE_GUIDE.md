@@ -65,7 +65,9 @@ value the reference bridge reads or calls.
 - **Tick.** Pass `DBM_FLAG_HOST_TICK` and call `dbm_tick` every 30 ms from the DAW's thread
   (both bridges do). Without the flag the core starts its own timer thread, and callbacks then
   also arrive on that thread. `dbm_tick` runs the due scheduled tasks, the delayed controller
-  startup, `handle_changes` and `flush` (all LED/display output).
+  startup, `handle_changes` and `flush` (all LED/display output). The OSC controller also
+  reads its UDP socket (non-blocking) and sends its OSC bundles in `dbm_tick`: OSC commands are
+  executed at the next tick, nothing in the host is needed for the network.
 - **Time base.** At every entry (`tick`, `update_model`, `on_midi_event`, the settings calls,
   `start_infrastructure`) the core takes `Instant::now()` as `Host::now`. All core timing uses
   this time: scheduled tasks such as the 75 ms selection after a page change, the 1 s startup
@@ -88,7 +90,8 @@ value the reference bridge reads or calls.
    text (Bitwig: `getHostProduct() + " " + getHostVersion()`).
 2. Install the MIDI input callbacks (short messages and sysex → `dbm_on_midi_event(app, 0, …)`).
 3. `dbm_start_infrastructure`. During this call the core opens the ports
-   (`open_midi_input(0)`, `open_midi_output(0)`, must return non-zero), creates its note inputs
+   (`open_midi_input(0)`, `open_midi_output(0)`, must return non-zero; no `open_midi_output`
+   for a controller with `numMidiOutPorts` 0, e.g. OSC), creates its note inputs
    (`set_note_input_filters`, then key/velocity tables) and sends `refresh`. Bitwig can only
    create note inputs during `init`, so this call must happen there. The controller's `startup`
    (initial LEDs etc.) runs in the first `tick` 1 s later (`STARTUP_DELAY_MS`).

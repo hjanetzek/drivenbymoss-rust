@@ -512,3 +512,24 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   - The keyboard port is the second MIDI input of the extension (port 2). Its note input is named
     "Launchkey Mk3 - Port 2" (Java: "Keyboard"); the DAW port's note input has the extension's
     name (Java: "Pads").
+
+- **OSC controller** (`src/controller/osc/`, 2026-11-10): the protocol of the Java OSC modules,
+  with these differences:
+  - **Network and timing:** the core polls its non-blocking UDP socket at every tick (30 ms) and
+    flushes the modules at every tick; Java gets the messages on Bitwig's control thread and
+    flushes when Bitwig calls `flush`. Both send only changed values, framed by `/update 1` …
+    `/update 0`.
+  - **Large updates** (the complete update 1 s after the startup, `/refresh`): bundles of 101
+    messages as in Java, but one bundle per tick instead of a 10 ms sleep between them.
+  - **Value resolution:** a changed setting restarts the controller (the model keeps copies of the
+    value changer) instead of changing the value changer at runtime.
+  - **Not supported by the core** (no host command or model value): the crossfade mode of a track
+    (`/track/{n}/crossfadeMode/{A,B,AB}`: reported as AB, setting it does nothing), renaming a
+    layer and entering its device chain (`/device/layer/{n}/name|enter`), the layer parent,
+    `/browser/insertClap` (logged). `/device/lastparam` is the last touched parameter of the
+    cursor device, not Bitwig's focused (hovered/clicked) parameter. `/clip/+` and `/clip/-`
+    stay in the page of the slot bank (`clip_launcher_navigator::select_clip`).
+  - **The ConformanceModule** of the Java branch `conformance-osc` is not ported (it reads Bitwig's
+    state for the conformance runner).
+  - Java runtime exceptions of the modules (e.g. a non-numeric send index) are logged as errors
+    instead of reaching Bitwig as exceptions; an index outside a page addresses an empty item.

@@ -26,3 +26,4 @@ pub mod string_utils;
 pub mod multi_surface;
 pub mod clip_launcher_navigator;
 pub mod graphics;
+pub mod osc;

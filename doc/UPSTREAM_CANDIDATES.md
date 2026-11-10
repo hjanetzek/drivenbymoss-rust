@@ -450,6 +450,20 @@ Notes:
 - **Confidence:** high, a bug.
 - **Ready:** yes. Verifying the port names needs the hardware; the fix itself is mechanical.
 
+#### Q. OSC: three small bugs of the modules
+
+Found while porting the OSC controller; the port keeps them.
+
+- **`/playbutton` does nothing.** `TransportModule.java` executes `playCommand.execute
+  (ButtonEvent.DOWN, 127)`, but `PlayCommand` is an `AbstractDoubleTriggerCommand`, whose
+  `executeNormal` acts only on `UP`. Fix: execute it with `ButtonEvent.UP` (or DOWN and UP).
+- **`/scene/{n}/launchAlt` is not alternative.** `SceneModule.java` calls `scene.launch
+  (isTrigger (value), false)` for `launchAlt` too; it should pass `true`.
+- **`/clip/name` and `/clip/color` log "Unknown OSC command".** `ClipModule.java` leaves the
+  first switch with `break` and continues with the slot commands; with a selected slot it ends in
+  `default: throw new UnknownCommandException`. Fix: `return` after setting the name or color.
+- **Confidence:** high. **Ready:** yes, checkable with OSC only.
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |
@@ -711,6 +725,7 @@ Options:
 | N | MCU + 1 extender: the QCon Pro X + XS1 pair is dropped | `MCUControllerDefinition.java:69-79` | bug | high | ready |
 | O | Launchkey Mk3: "Optional[...]" on the display, non-Latin-1 letters break the sysex | `LaunchkeyMk3ParameterMode.java:59`, `LaunchkeyMk3Display.java:108` | bug | high | ready |
 | P | Launchkey Mini: swapped octave pad lights, startup mode ignored, "Missing mode name" | `mini/view/DrumConfigView.java:105`, `LaunchkeyMiniMk3ControllerSetup.java:381` | bug (small) | high | device check |
+| Q | OSC: `/playbutton` does nothing, `/scene/{n}/launchAlt` not alternative, `/clip/name` and `/clip/color` unknown | `TransportModule.java`, `SceneModule.java`, `ClipModule.java` | bug (small) | high | ready |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |

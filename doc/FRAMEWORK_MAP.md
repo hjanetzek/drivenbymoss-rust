@@ -40,7 +40,7 @@ class.
 | Yaeltex Turn | `AbstractMonophonicSequencerView` |
 | Faderfox EC4 | mute/solo/crossfade as parameters (+ providers), `DummyView` |
 | Electra One | `MasterVolumeMode` (only inside the MCU port), `DummyView` |
-| OSC | all of framework/osc |
+| OSC | - (ported: `framework::osc`) |
 
 Used by several controllers, but ported only inside one, so move them to the framework first:
 - `DeleteCommand` (Launchpad).
@@ -206,7 +206,7 @@ Model gaps which affect behaviour on Bitwig:
 | IDisplay, ITextDisplay, AbstractTextDisplay | `framework::display::{TextDisplay, LineWriter}`, `Ctx::text_display`, `Ctx::notify` | full | Only ASCII is sent; lines are sent synchronously |
 | Format | `framework::display::Format` | full | |
 | IGraphicDisplay, AbstractGraphicDisplay | `framework::graphics::GraphicDisplay` | partial | No anti-aliasing, bitmap font; few components (no Push/Oxi components) |
-| DummyDisplay | - | missing | Java user: OSC only |
+| DummyDisplay | - | n/a | OSC: `Ctx::notify` without a text display shows the host notification, as DummyDisplay |
 
 ### framework/controller/grid
 
@@ -590,9 +590,12 @@ Rust paths in this part are relative to `src/framework/`.
 
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
-| IOpenSoundControlCallback, -Client, -Message, -Server, -Writer | - | missing | No OSC transport. Reaper impl: reaper/framework/osc/*Impl. Bitwig: host API |
-| AbstractOpenSoundControlConfiguration | - | missing | |
-| AbstractOpenSoundControlParser, AbstractOpenSoundControlWriter | - | missing | Needed by controller/osc (the OSC protocol and its modules) |
+| IOpenSoundControlMessage | `framework::osc::message::{OscMessage, OscArg, OscPacket}` | full | Own OSC 1.0 codec (Java uses the host's); bundles are flattened, time tags ignored |
+| IOpenSoundControlServer, -Client; Bitwig OpenSoundControlServer/ClientImpl | `framework::osc::udp::{OscServer, OscClient}` | full | `std::net::UdpSocket`, non-blocking, polled at the tick of the core; the bundles of a large update are sent one per tick (Java: 10 ms sleep) |
+| IOpenSoundControlCallback | `controller::osc::setup::OscSetup::handle_message` | full | Called for each received message at the tick |
+| IOpenSoundControlWriter, AbstractOpenSoundControlWriter | `framework::osc::writer::OscWriter` | full | Caches the sent value (not the Java object) |
+| AbstractOpenSoundControlConfiguration | `config::osc` (logging settings) | full | |
+| AbstractOpenSoundControlParser | `controller::osc::setup` | full | |
 
 The `osc` in src/parser.rs is unrelated: it is Reaper's own path protocol.
 
