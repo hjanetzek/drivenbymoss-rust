@@ -21,7 +21,7 @@ pub mod legacy;
 pub mod msg;
 pub mod text;
 
-pub use cmd::{Cmd, CmdId, CmdInfo, ProcSpec, COMMANDS};
+pub use cmd::{Cmd, CmdBuf, CmdId, CmdInfo, ProcSpec, COMMANDS};
 pub use legacy::{Arg, Enable, Legacy};
 pub use msg::{BrowserItem, Ch, Dev, HostParam, Msg, MsgId, MsgInfo, PadRef, PageOwner, ParamOwner, MESSAGES};
 pub use text::Miss;

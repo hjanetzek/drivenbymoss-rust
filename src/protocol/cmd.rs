@@ -422,6 +422,95 @@ impl Cmd<'_> {
     }
 }
 
+/// An owned command (a [`Cmd`] borrows its texts): the command in its binary form
+/// ([`Cmd::encode`]), decoded again by [`CmdBuf::cmd`]. The recorded commands of the tests
+/// ([`RecordingBackend`](crate::backend::RecordingBackend)) are kept in this form, so that the
+/// tests match on the typed command.
+///
+/// `Debug` shows the command and its legacy line, `Display` the legacy line
+/// ([`super::bin::command_line`]).
+#[derive(Clone)]
+pub struct CmdBuf {
+    /// A buffer of one record.
+    bytes: Vec<u8>,
+}
+
+impl CmdBuf {
+    /// The owned form of a command. Panics if the command does not survive its binary form
+    /// (e.g. an index out of the range of its slot).
+    pub fn new(cmd: &Cmd<'_>) -> CmdBuf {
+        let mut w = Writer::new();
+        cmd.encode(&mut w);
+        let buf = CmdBuf { bytes: w.as_bytes().to_vec() };
+        match buf.decode() {
+            Ok(decoded) if decoded == *cmd => {}
+            other => panic!("the command {cmd:?} does not survive its binary form: {other:?}"),
+        }
+        buf
+    }
+
+    fn decode(&self) -> Result<Cmd<'_>, BinError> {
+        let record = super::bin::records(&self.bytes)?.next().ok_or(BinError::Truncated)??;
+        Cmd::decode_record(&record)
+    }
+
+    /// The command.
+    pub fn cmd(&self) -> Cmd<'_> {
+        self.decode().expect("checked by CmdBuf::new")
+    }
+
+    pub fn id(&self) -> CmdId {
+        self.cmd().id()
+    }
+
+    /// The legacy line of the command ([`super::bin::command_line`]).
+    pub fn legacy_line(&self) -> String {
+        super::bin::command_line(&self.cmd())
+    }
+}
+
+impl From<&Cmd<'_>> for CmdBuf {
+    fn from(cmd: &Cmd<'_>) -> Self {
+        CmdBuf::new(cmd)
+    }
+}
+
+impl From<Cmd<'_>> for CmdBuf {
+    fn from(cmd: Cmd<'_>) -> Self {
+        CmdBuf::new(&cmd)
+    }
+}
+
+impl std::fmt::Debug for CmdBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} `{}`", self.cmd(), self.legacy_line().replace('\t', " "))
+    }
+}
+
+impl std::fmt::Display for CmdBuf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.legacy_line())
+    }
+}
+
+impl PartialEq for CmdBuf {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmd() == other.cmd()
+    }
+}
+
+impl PartialEq<Cmd<'_>> for CmdBuf {
+    fn eq(&self, other: &Cmd<'_>) -> bool {
+        self.cmd() == *other
+    }
+}
+
+impl PartialEq<CmdBuf> for Cmd<'_> {
+    fn eq(&self, other: &CmdBuf) -> bool {
+        *self == other.cmd()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,6 +529,31 @@ mod tests {
                 assert_eq!(back.as_ref(), Some(&cmd), "{id:?} sample {k}: {legacy:?}");
             }
         }
+    }
+
+    #[test]
+    fn cmd_buf_owns_the_command() {
+        for &id in CmdId::ALL {
+            for k in 0..SAMPLES {
+                let cmd = id.sample(k);
+                let buf = CmdBuf::new(&cmd);
+                assert_eq!(buf.cmd(), cmd);
+                assert_eq!(buf, cmd);
+                assert_eq!(buf.id(), id);
+                assert_eq!(buf.to_string(), super::super::bin::command_line(&cmd));
+            }
+        }
+        let name = String::from("Synth");
+        let buf = CmdBuf::from(Cmd::TrackName { ch: Chan::Master, name: &name });
+        drop(name);
+        assert!(matches!(buf.cmd(), Cmd::TrackName { ch: Chan::Master, name: "Synth" }));
+        assert_eq!(format!("{buf:?}"), "TrackName { ch: Master, name: \"Synth\" } `string master name Synth`");
+    }
+
+    #[test]
+    #[should_panic(expected = "does not survive its binary form")]
+    fn cmd_buf_checks_the_binary_form() {
+        CmdBuf::new(&Cmd::ChannelMute { ch: Chan::Track { bank: Processor::Track, p: 70_000 }, value: true });
     }
 
     #[test]
