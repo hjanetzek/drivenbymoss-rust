@@ -4,23 +4,19 @@
 
 //! Undo and redo (former `GlobalModule`).
 
-use super::{OscError, OscModule, OscResult, OscShared, Path, Value};
+use super::super::address::GlobalIn;
+use super::OscResult;
 use crate::framework::ctx::Ctx;
 
 /// Former `GlobalModule`.
 #[derive(Default)]
 pub struct GlobalModule;
 
-impl OscModule for GlobalModule {
-    fn supported_commands(&self) -> &'static [&'static str] {
-        &["undo", "redo"]
-    }
-
-    fn execute(&mut self, ctx: &mut Ctx, _shared: &mut OscShared, command: &str, _path: &mut Path, _value: Value) -> OscResult {
+impl GlobalModule {
+    pub fn execute(&mut self, ctx: &mut Ctx, command: GlobalIn) -> OscResult {
         match command {
-            "undo" => ctx.model.application_mut().undo(),
-            "redo" => ctx.model.application_mut().redo(),
-            _ => return Err(OscError::UnknownCommand(command.to_string())),
+            GlobalIn::Undo {} => ctx.model.application_mut().undo(),
+            GlobalIn::Redo {} => ctx.model.application_mut().redo(),
         }
         Ok(())
     }

@@ -270,7 +270,7 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 | `framework::ids` | `ButtonId`, `ContinuousId`, `OutputId`, `Views`, `Modes`, generated from the Java enums |
 | `framework::color` | `ColorManager`, `BUTTON_STATE_*` |
 | `framework::color_ids` | Color ID constants of the generic views |
-| `framework::osc` | OSC 1.0 messages and bundles (`OscMessage`, `OscPacket`, types i f s S b h d t c r m T F N I), Java number formatting, `OscWriter` (only changed values, `/update` framing), non-blocking UDP `OscServer`/`OscClient` (polled at the tick, no thread) |
+| `framework::osc` | OSC 1.0 messages and bundles (`OscMessage`, `OscPacket`, types i f s S b h d t c r m T F N I), Java number formatting, `OscWriter` (only changed values compared by typed keys, `/update` framing), non-blocking UDP `OscServer`/`OscClient` (polled at the tick, no thread) |
 
 `Ctx` provides:
 

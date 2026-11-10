@@ -5,140 +5,135 @@
 //! The project: switching, saving, the audio engine and the project parameters (former
 //! `ProjectModule`).
 
-use super::{
-    flush_parameter_data, flush_parameter_pages, index_of, is_trigger, parse_fx_param_value, parse_int, sub_command, to_integer, OscError, OscModule, OscResult,
-    OscShared, Path, Value, TAG_PAGE,
-};
+use super::super::address::{Dir, PageArg, ParamBank, ParamBankKeys, ParamIn, ParamOp, ProjectIn};
+use super::{flush_parameter_data, is_trigger, to_integer, toggle_or_set, OscResult, OscShared, Value};
 use crate::daw::events::ParameterBankId;
+use crate::daw::model::Model;
+use crate::daw::parameter::Parameter;
+use crate::daw::parameter_bank::ParameterBank;
 use crate::framework::ctx::Ctx;
+use crate::framework::osc::writer::{Key, KeyGroup, OscWriter};
 use crate::framework::parameterprovider::parameter_bank_mut;
 
 /// Former `ProjectModule`.
 pub struct ProjectModule {
     /// The size of a page of the parameter banks, for the empty pages if there is no bank.
     page_size: usize,
+    name: Key<str>,
+    engine: Key<bool>,
+    params: ParamBankKeys,
 }
 
 impl ProjectModule {
-    pub fn new(page_size: usize) -> Self {
-        ProjectModule { page_size }
-    }
-}
-
-impl OscModule for ProjectModule {
-    fn supported_commands(&self) -> &'static [&'static str] {
-        &["project"]
+    pub fn new(w: &mut OscWriter, page_size: usize) -> Self {
+        ProjectModule { page_size, name: w.key("/project/name"), engine: w.key("/project/engine"), params: ParamBankKeys::new(w, "/project/") }
     }
 
-    fn execute(&mut self, ctx: &mut Ctx, _shared: &mut OscShared, command: &str, path: &mut Path, value: Value) -> OscResult {
-        if command != "project" {
-            return Err(OscError::UnknownCommand(command.to_string()));
-        }
-        let sub = sub_command(path)?;
-        match sub.as_str() {
-            "+" => ctx.model.project_mut().next(),
-            "-" => ctx.model.project_mut().previous(),
-            "engine" => {
-                let application = ctx.model.application_mut();
-                if value.is_null() {
-                    application.toggle_engine_active();
-                } else {
-                    application.set_engine_active(is_trigger(value));
-                }
-            }
-            "save" => ctx.model.project_mut().save(),
-            "param" => parse_param_value(ctx, ParameterBankId::Project, path, value)?,
-            "page" => parse_page_value(ctx, ParameterBankId::Project, path, value)?,
-            _ => return Err(OscError::UnknownCommand(sub)),
+    pub fn execute(&mut self, ctx: &mut Ctx, command: ProjectIn, value: Value) -> OscResult {
+        match command {
+            ProjectIn::Switch { dir: Dir::Next } => ctx.model.project_mut().next(),
+            ProjectIn::Switch { dir: Dir::Previous } => ctx.model.project_mut().previous(),
+            ProjectIn::Engine {} => toggle_or_set(ctx.model.application_mut(), value, |a| a.toggle_engine_active(), |a, on| a.set_engine_active(on)),
+            ProjectIn::Save {} => ctx.model.project_mut().save(),
         }
         Ok(())
     }
 
-    fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
+    pub fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
         let w = &mut shared.writer;
-        w.send_str("/project/name", ctx.model.project().name(), dump);
-        w.send_bool("/project/engine", ctx.model.application().is_engine_active(), dump);
-        flush_parameter_bank(w, "/project/", ctx.model.project().parameter_bank(), self.page_size, &ctx.model, dump);
+        w.put(self.name, ctx.model.project().name(), dump);
+        w.put(self.engine, ctx.model.application().is_engine_active(), dump);
+        flush_parameter_bank(w, &mut self.params, ctx.model.project().parameter_bank(), self.page_size, &ctx.model, dump);
     }
 }
 
 /// Send the parameters and pages of a parameter bank (the common part of the flush methods of
-/// the project, track and device modules): `<address>param/<n>/...` and `<address>page/...`.
-pub fn flush_parameter_bank(
-    writer: &mut crate::framework::osc::OscWriter,
-    address: &str,
-    bank: Option<&crate::daw::parameter_bank::ParameterBank>,
-    page_size: usize,
-    model: &crate::daw::model::Model,
-    dump: bool,
-) {
-    let empty = crate::daw::parameter::Parameter::empty(model.ctx());
+/// the project, track and device modules): `<prefix>param/<n>/...` and `<prefix>page/...`.
+/// Without a bank (e.g. no project parameters on the host) `page_size` empty parameters and
+/// pages are sent.
+pub fn flush_parameter_bank(w: &mut OscWriter, keys: &mut ParamBankKeys, bank: Option<&ParameterBank>, page_size: usize, model: &Model, dump: bool) {
+    let empty = Parameter::empty(model.ctx());
     let size = bank.map(|b| b.page_size()).unwrap_or(page_size);
     for i in 0..size {
         let parameter = bank.map(|b| b.item(i)).unwrap_or(&empty);
-        flush_parameter_data(writer, &format!("{address}param/{}/", i + 1), parameter, dump);
+        let k = keys.params.at(w, i);
+        flush_parameter_data(w, k, parameter, dump);
     }
-    flush_parameter_pages(writer, address, bank, page_size, dump);
+
+    // The pages
+    let page_bank = bank.map(|b| b.page_bank());
+    let selected = page_bank.as_ref().map(|p| p.selected_item_index());
+    let page_size = page_bank.as_ref().map(|p| p.page_size()).unwrap_or(page_size);
+    for i in 0..page_size {
+        let page_name = page_bank.as_ref().map(|p| p.item(i)).unwrap_or_default();
+        let k = keys.pages.at(w, i);
+        w.put(k.exists, !page_name.trim().is_empty(), dump);
+        w.put(k.page, &page_name, dump);
+        w.put(k.name, &page_name, dump);
+        w.put(k.selected, selected == Some(i), dump);
+    }
+    let selected_name = page_bank.as_ref().map(|p| p.selected_item()).unwrap_or_default();
+    w.put(keys.selected_page_name, &selected_name, dump);
 }
 
-/// The parameter commands of a bank (former `parseParamValue` of the project and track modules):
-/// `param/{1-8}/value|indicate|reset|touched`, `param/+`, `param/-`, `param/bank/page/{+,-}`.
-pub fn parse_param_value(ctx: &mut Ctx, bank_id: ParameterBankId, path: &mut Path, value: Value) -> OscResult {
-    let sub = sub_command(path)?;
-    if let Some(number) = parse_int(&sub) {
-        let index = index_of(number)?;
-        return match parameter_bank_mut(&mut ctx.model, bank_id) {
-            Some(bank) => parse_fx_param_value(bank.item_mut(index), path, value),
-            None => Ok(()),
-        };
-    }
-    match sub.as_str() {
-        "+" => {
-            if is_trigger(value) {
-                if let Some(bank) = parameter_bank_mut(&mut ctx.model, bank_id) {
-                    bank.select_next_item();
-                }
-            }
-        }
-        "-" => {
-            if is_trigger(value) {
-                if let Some(bank) = parameter_bank_mut(&mut ctx.model, bank_id) {
-                    bank.select_previous_item();
-                }
-            }
-        }
-        "bank" => {
-            let sub2 = sub_command(path)?;
-            if sub2 != TAG_PAGE {
-                return Err(OscError::UnknownCommand(sub2));
-            }
-            let direction = sub_command(path)?;
-            if let Some(bank) = parameter_bank_mut(&mut ctx.model, bank_id) {
-                if direction == "+" {
-                    bank.page_bank_select_next_page();
-                } else {
-                    bank.page_bank_select_previous_page();
-                }
-            }
-        }
-        _ => return Err(OscError::UnknownCommand(sub)),
+/// Execute a parameter command (former `parseFXParamValue` of the modules).
+pub fn execute_param_op(parameter: &mut Parameter, op: ParamOp, value: Value) -> OscResult {
+    match op {
+        ParamOp::Value => parameter.set_value(to_integer(value)?),
+        ParamOp::Indicate => parameter.set_indication(is_trigger(value)),
+        ParamOp::Reset => parameter.reset_value(),
+        ParamOp::Touched => parameter.touch_value(is_trigger(value)),
     }
     Ok(())
 }
 
-/// The page commands of a bank (former `parsePageValue` of the project and track modules):
-/// `page/select|selected {1-8}`, `page/{1-8}`.
-pub fn parse_page_value(ctx: &mut Ctx, bank_id: ParameterBankId, path: &mut Path, value: Value) -> OscResult {
-    let sub = sub_command(path)?;
-    let index = if sub == "select" || sub == "selected" {
-        to_integer(value)? - 1
-    } else {
-        match parse_int(&sub) {
-            Some(number) => number - 1,
-            None => return Err(OscError::UnknownCommand(sub)),
+fn bank(ctx: &mut Ctx, bank: ParamBank) -> Option<&mut ParameterBank> {
+    parameter_bank_mut(&mut ctx.model, bank.id())
+}
+
+/// The commands of the parameter banks (former `parseParamValue` and `parsePageValue` of the
+/// project and track modules and the parameter part of `parseDeviceValue`).
+pub fn execute_param(ctx: &mut Ctx, command: ParamIn, value: Value) -> OscResult {
+    match command {
+        ParamIn::Value { bank: id, param, op } => {
+            if let Some(bank) = bank(ctx, id) {
+                execute_param_op(bank.item_mut(param), op, value)?;
+            }
         }
-    };
-    select_page(ctx, bank_id, index);
+        ParamIn::SelectItem { bank: id, dir } => {
+            if is_trigger(value) {
+                if let Some(bank) = bank(ctx, id) {
+                    match dir {
+                        Dir::Next => bank.select_next_item(),
+                        Dir::Previous => bank.select_previous_item(),
+                    }
+                }
+            }
+        }
+        ParamIn::ScrollPages { bank: id, dir } => {
+            if let Some(bank) = bank(ctx, id) {
+                match dir {
+                    Dir::Next => bank.page_bank_scroll_forwards(),
+                    Dir::Previous => bank.page_bank_scroll_backwards(),
+                }
+            }
+        }
+        ParamIn::PageBank { bank: id, dir } => {
+            if let Some(bank) = bank(ctx, id) {
+                match dir {
+                    Dir::Next => bank.page_bank_select_next_page(),
+                    Dir::Previous => bank.page_bank_select_previous_page(),
+                }
+            }
+        }
+        ParamIn::SelectPage { bank: id, page } => {
+            let index = match page {
+                PageArg::FromValue => to_integer(value)? - 1,
+                PageArg::Index(index) => index,
+            };
+            select_page(ctx, id.id(), index);
+        }
+    }
     Ok(())
 }
 

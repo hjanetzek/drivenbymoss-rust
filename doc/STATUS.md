@@ -95,6 +95,12 @@ It has one MIDI input (the virtual keyboard plays into its note input) and no MI
 opens no output for a controller without outputs. Tested over localhost with the Rust tests and
 the Python reference host, not with Bitwig or a real client (TouchOSC, Open Stage Control) yet;
 `backends/bitwig/tools/osc_monitor.py` (stdlib) prints what it sends and sends single commands.
+The addresses are a typed table (`src/controller/osc/address.rs`, `macro_rules!`): the incoming
+commands are an enum per module, parsed segment by segment with the errors of the Java parser
+(guards for the parts Java only reads in a certain state), and the outgoing values are typed keys
+whose addresses are formatted once; a tick without changes costs about 30 µs (release, 3 tracks,
+1 device; 530 µs with the former string matching and `format!` per value). Golden files of the
+former implementation (`src/controller/osc/golden/`) keep the behaviour byte-identical.
 Not ported (no command in the core): the crossfade mode of tracks, renaming and entering layers,
 `/browser/insertClap`; and the Java `ConformanceModule`. The Bitwig extension definition is not
 generated yet (`backends/bitwig/tools/gen_definitions.py`). Divergences: BITWIG_DIVERGENCES.md

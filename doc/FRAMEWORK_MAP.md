@@ -593,7 +593,7 @@ Rust paths in this part are relative to `src/framework/`.
 | IOpenSoundControlMessage | `framework::osc::message::{OscMessage, OscArg, OscPacket}` | full | Own OSC 1.0 codec (Java uses the host's); bundles are flattened, time tags ignored |
 | IOpenSoundControlServer, -Client; Bitwig OpenSoundControlServer/ClientImpl | `framework::osc::udp::{OscServer, OscClient}` | full | `std::net::UdpSocket`, non-blocking, polled at the tick of the core; the bundles of a large update are sent one per tick (Java: 10 ms sleep) |
 | IOpenSoundControlCallback | `controller::osc::setup::OscSetup::handle_message` | full | Called for each received message at the tick |
-| IOpenSoundControlWriter, AbstractOpenSoundControlWriter | `framework::osc::writer::OscWriter` | full | Caches the sent value (not the Java object) |
+| IOpenSoundControlWriter, AbstractOpenSoundControlWriter | `framework::osc::writer::OscWriter` | full | Caches the sent value (not the Java object); typed keys (`Key<T>`, `osc_keys!` groups, `KeyList`) intern the addresses once, the values are compared by key |
 | AbstractOpenSoundControlConfiguration | `config::osc` (logging settings) | full | |
 | AbstractOpenSoundControlParser | `controller::osc::setup` | full | |
 

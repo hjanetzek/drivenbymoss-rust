@@ -4,34 +4,34 @@
 
 //! The cursor clip and the clip slots of the cursor track (former `ClipModule`).
 
-use super::{is_trigger, match_color, send_color, sub_command, to_integer, to_string, OscError, OscModule, OscResult, OscShared, Path, Value};
-use super::{TAG_COLOR, TAG_INSERT_FILE, TAG_NAME};
+use super::super::address::{ClipIn, Dir};
+use super::{is_trigger, match_color, to_integer, to_string, OscError, OscResult, OscShared, Value};
 use crate::daw::bank::BankItem;
 use crate::daw::color::ColorEx;
 use crate::framework::ctx::Ctx;
+use crate::framework::osc::writer::{Key, OscWriter};
 
 /// Former `ClipModule`.
-#[derive(Default)]
-pub struct ClipModule;
+pub struct ClipModule {
+    exists: Key<bool>,
+    pinned: Key<bool>,
+    color: Key<ColorEx>,
+}
 
-impl OscModule for ClipModule {
-    fn supported_commands(&self) -> &'static [&'static str] {
-        &["clip"]
+/// The selected slot of the cursor track (the address table checks that there is one).
+fn selected_slot(ctx: &Ctx) -> Option<usize> {
+    ctx.model.cursor_track().slot_bank().selected_item().and_then(|s| usize::try_from(s.index()).ok())
+}
+
+impl ClipModule {
+    pub fn new(w: &mut OscWriter) -> Self {
+        ClipModule { exists: w.key("/clip/exists"), pinned: w.key("/clip/pinned"), color: w.key("/clip/color") }
     }
 
-    fn execute(&mut self, ctx: &mut Ctx, _shared: &mut OscShared, command: &str, path: &mut Path, value: Value) -> OscResult {
-        if command != "clip" {
-            return Err(OscError::UnknownCommand(command.to_string()));
-        }
-        let sub = sub_command(path)?;
-        if sub == "stopall" || sub == "stopallAlt" {
-            ctx.model.track_bank_mut().stop(sub == "stopallAlt");
-            return Ok(());
-        }
-
-        // Cursor clip related commands
-        match sub.as_str() {
-            "pinned" => {
+    pub fn execute(&mut self, ctx: &mut Ctx, command: ClipIn, value: Value) -> OscResult {
+        match command {
+            ClipIn::StopAll { alt } => ctx.model.track_bank_mut().stop(alt),
+            ClipIn::Pinned {} => {
                 if let Some(clip) = ctx.model.cursor_clip_mut() {
                     if value.is_null() {
                         clip.toggle_pinned();
@@ -39,93 +39,72 @@ impl OscModule for ClipModule {
                         clip.set_pinned(is_trigger(value));
                     }
                 }
-                return Ok(());
             }
-            "quantize" => {
+            ClipIn::Quantize {} => {
                 if let Some(clip) = ctx.model.cursor_clip().filter(|c| c.does_exist()) {
                     clip.quantize(1.0);
                 }
-                return Ok(());
             }
-            // Java continues with the slot commands after the name and the color (and ends with
-            // an unknown command if a slot is selected)
-            TAG_NAME => {
+            ClipIn::Name {} => {
                 if let Some(name) = value.text() {
                     if let Some(clip) = ctx.model.cursor_clip().filter(|c| c.does_exist()) {
                         clip.set_name(&name);
                     }
                 }
+                return slot_commands_after_cursor_clip(ctx);
             }
-            TAG_COLOR => {
+            ClipIn::Color {} => {
                 if let Some(color) = match_color(&to_string(value)?) {
                     if let Some(clip) = ctx.model.cursor_clip().filter(|c| c.does_exist()) {
                         clip.set_color(color);
                     }
                 }
+                return slot_commands_after_cursor_clip(ctx);
             }
-            _ => {}
-        }
-
-        // Slot bank related commands
-        if !ctx.model.cursor_track().does_exist() {
-            return Ok(());
-        }
-        if sub == "stop" || sub == "stopAlt" {
-            ctx.model.cursor_track_mut().stop(sub == "stopAlt");
-            return Ok(());
-        }
-        match sub.as_str() {
-            "+" => {
-                // The selection stays in the current page (see clip_launcher_navigator::select_clip)
-                crate::framework::clip_launcher_navigator::select_clip(ctx, false);
-                return Ok(());
-            }
-            "-" => {
-                crate::framework::clip_launcher_navigator::select_clip(ctx, true);
-                return Ok(());
-            }
-            _ => {}
-        }
-        let Some(slot_index) = ctx.model.cursor_track().slot_bank().selected_item().map(|s| s.index()) else {
-            return Ok(());
-        };
-        let Ok(slot_index) = usize::try_from(slot_index) else {
-            return Ok(());
-        };
-        let track_ref = ctx.model.cursor_track_ref();
-        match sub.as_str() {
-            "launch" => {
+            ClipIn::Stop { alt } => ctx.model.cursor_track_mut().stop(alt),
+            // The selection stays in the current page (see clip_launcher_navigator::select_clip)
+            ClipIn::SelectAdjacent { dir } => crate::framework::clip_launcher_navigator::select_clip(ctx, dir == Dir::Previous),
+            ClipIn::Launch { alt } => {
                 let pressed = to_integer(value)? > 0;
-                ctx.model.cursor_track_mut().slot_bank_mut().item_mut(slot_index).launch(pressed, false);
-            }
-            "launchAlt" => {
-                let pressed = to_integer(value)? > 0;
-                ctx.model.cursor_track_mut().slot_bank_mut().item_mut(slot_index).launch(pressed, true);
-            }
-            "record" => {
-                if let Some(track) = track_ref {
-                    ctx.model.record_note_clip(track, slot_index);
+                if let Some(slot) = selected_slot(ctx) {
+                    ctx.model.cursor_track_mut().slot_bank_mut().item_mut(slot).launch(pressed, alt);
                 }
             }
-            "create" => {
+            ClipIn::Record {} => {
+                if let (Some(slot), Some(track)) = (selected_slot(ctx), ctx.model.cursor_track_ref()) {
+                    ctx.model.record_note_clip(track, slot);
+                }
+            }
+            ClipIn::Create {} => {
                 let length = to_integer(value)?;
-                if let Some(track) = track_ref {
-                    ctx.model.create_note_clip(track, slot_index, length, true);
+                if let (Some(slot), Some(track)) = (selected_slot(ctx), ctx.model.cursor_track_ref()) {
+                    ctx.model.create_note_clip(track, slot, length, true);
                 }
             }
-            TAG_INSERT_FILE => {
+            ClipIn::InsertFile {} => {
                 let file = to_string(value)?;
-                ctx.model.cursor_track_mut().slot_bank_mut().item_mut(slot_index).insert_file(&file);
+                if let Some(slot) = selected_slot(ctx) {
+                    ctx.model.cursor_track_mut().slot_bank_mut().item_mut(slot).insert_file(&file);
+                }
             }
-            _ => return Err(OscError::UnknownCommand(command.to_string())),
         }
         Ok(())
     }
 
-    fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
+    pub fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
+        let w = &mut shared.writer;
         let clip = ctx.model.cursor_clip();
-        shared.writer.send_bool("/clip/exists", clip.is_some_and(|c| c.does_exist()), dump);
-        shared.writer.send_bool("/clip/pinned", clip.is_some_and(|c| c.is_pinned()), dump);
-        send_color(&mut shared.writer, "/clip/color", clip.map(|c| c.color()).unwrap_or(ColorEx::BLACK), dump);
+        w.put(self.exists, clip.is_some_and(|c| c.does_exist()), dump);
+        w.put(self.pinned, clip.is_some_and(|c| c.is_pinned()), dump);
+        w.put(self.color, clip.map(|c| c.color()).unwrap_or(ColorEx::BLACK), dump);
     }
+}
+
+/// Java continues with the slot commands after the name and the color of the cursor clip, and
+/// ends with an unknown command if the cursor track has a selected slot.
+fn slot_commands_after_cursor_clip(ctx: &Ctx) -> OscResult {
+    if ctx.model.cursor_track().does_exist() && selected_slot(ctx).is_some() {
+        return Err(OscError::UnknownCommand("clip".into()));
+    }
+    Ok(())
 }

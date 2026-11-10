@@ -23,9 +23,9 @@
 //!   conformance tests of the Rust port) is not ported: it reads Bitwig's state for the test
 //!   runner, independent of the port.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use super::address::{self, OscIn, Parsed, SetupIn};
 use super::colors::create_color_manager;
 use super::module::action::ActionModule;
 use super::module::browser::BrowserModule;
@@ -39,7 +39,7 @@ use super::module::project::ProjectModule;
 use super::module::scene::SceneModule;
 use super::module::track::TrackModule;
 use super::module::transport::TransportModule;
-use super::module::{OscError, OscModule, OscShared, Path, Value};
+use super::module::{check_guard, OscError, OscResult, OscShared, Value};
 use crate::backend::Sender;
 use crate::config::osc::{self as config, ValueResolution};
 use crate::config::{Configuration, SettingId};
@@ -115,12 +115,26 @@ pub fn model_setup(bank_page_size: usize, flat_track_list: bool) -> ModelSetup {
     ms
 }
 
+/// The modules (former `OSCParser.modules`), flushed in this order.
+struct Modules {
+    transport: TransportModule,
+    global: GlobalModule,
+    layout: LayoutModule,
+    marker: MarkerModule,
+    project: ProjectModule,
+    track: TrackModule,
+    scene: SceneModule,
+    device: DeviceModule,
+    browser: BrowserModule,
+    midi: MidiModule,
+    action: ActionModule,
+    clip: ClipModule,
+}
+
 /// The OSC controller setup.
 pub struct OscSetup {
     shared: OscShared,
-    modules: Vec<Box<dyn OscModule>>,
-    /// The module of each top level address (former `OSCParser.modules`).
-    commands: HashMap<&'static str, usize>,
+    modules: Modules,
     server: OscServer,
     client: Option<OscClient>,
     /// The value resolution the controller was created with.
@@ -133,27 +147,23 @@ pub struct OscSetup {
 
 impl OscSetup {
     pub fn new(bank_page_size: usize) -> Self {
-        let modules: Vec<Box<dyn OscModule>> = vec![
-            Box::new(TransportModule::default()),
-            Box::new(GlobalModule),
-            Box::new(LayoutModule),
-            Box::new(MarkerModule),
-            Box::new(ProjectModule::new(bank_page_size)),
-            Box::new(TrackModule::new(bank_page_size)),
-            Box::new(SceneModule),
-            Box::new(DeviceModule::new(bank_page_size)),
-            Box::new(BrowserModule),
-            Box::new(MidiModule),
-            Box::new(ActionModule),
-            Box::new(ClipModule),
-        ];
-        let mut commands = HashMap::new();
-        for (index, module) in modules.iter().enumerate() {
-            for command in module.supported_commands() {
-                commands.insert(*command, index);
-            }
-        }
-        OscSetup { shared: OscShared::new(), modules, commands, server: OscServer::new(), client: None, resolution: None, dump_due: None, last_send_error: None }
+        let mut shared = OscShared::new();
+        let w = &mut shared.writer;
+        let modules = Modules {
+            transport: TransportModule::new(w),
+            global: GlobalModule,
+            layout: LayoutModule::new(w),
+            marker: MarkerModule::new(),
+            project: ProjectModule::new(w, bank_page_size),
+            track: TrackModule::new(w, bank_page_size),
+            scene: SceneModule::new(),
+            device: DeviceModule::new(w, bank_page_size),
+            browser: BrowserModule::new(w),
+            midi: MidiModule::new(w),
+            action: ActionModule,
+            clip: ClipModule::new(w),
+        };
+        OscSetup { shared, modules, server: OscServer::new(), client: None, resolution: None, dump_due: None, last_send_error: None }
     }
 
     /// The port the server listens on (None if it is not running).
@@ -186,20 +196,11 @@ impl OscSetup {
             ctx.host.println(&format!("Receiving: {}", message.log_text()));
         }
 
-        let mut path = parse_address(&message.address);
-        let Some(command) = path.pop_front() else {
+        let Some(parsed) = address::parse(&message.address) else {
             return;
         };
-        if command == "refresh" {
-            self.flush_modules(ctx, true);
-            return;
-        }
-
         let value = Value::from_args(&message.args);
-        let result = match self.commands.get(command.as_str()) {
-            Some(&index) => self.modules[index].execute(ctx, &mut self.shared, &command, &mut path, value),
-            None => Err(OscError::UnknownCommand(command.clone())),
-        };
+        let result = self.execute(ctx, parsed, value);
         let address = &message.address;
         match result {
             Ok(()) => {}
@@ -207,6 +208,36 @@ impl OscSetup {
             Err(OscError::UnknownCommand(message)) => ctx.host.println(&format!("Unknown OSC command: {address} {message}")),
             Err(OscError::MissingCommand) => ctx.host.println(&format!("Missing command: {address}")),
             Err(OscError::Runtime(message)) => ctx.host.error(&format!("OSC command {address} failed: {message}")),
+        }
+    }
+
+    /// Check the guards of a parsed address and execute its command.
+    fn execute(&mut self, ctx: &mut Ctx, parsed: Parsed, value: Value) -> OscResult {
+        for guard in &parsed.guards {
+            if !check_guard(ctx, guard, value)? {
+                return Ok(());
+            }
+        }
+        let m = &mut self.modules;
+        let shared = &mut self.shared;
+        match parsed.result? {
+            OscIn::Setup(SetupIn::Refresh {}) => {
+                self.flush_modules(ctx, true);
+                Ok(())
+            }
+            OscIn::Transport(command) => m.transport.execute(ctx, command, value),
+            OscIn::Global(command) => m.global.execute(ctx, command),
+            OscIn::Layout(command) => m.layout.execute(ctx, command, value),
+            OscIn::Marker(command) => m.marker.execute(ctx, command),
+            OscIn::Project(command) => m.project.execute(ctx, command, value),
+            OscIn::Param(command) => super::module::project::execute_param(ctx, command, value),
+            OscIn::Track(command) => m.track.execute(ctx, command, value),
+            OscIn::Scene(command) => m.scene.execute(ctx, command, value),
+            OscIn::Device(command) => m.device.execute(ctx, command, value),
+            OscIn::Browser(command) => m.browser.execute(ctx, command, value),
+            OscIn::Midi(command) => m.midi.execute(ctx, shared, command, value),
+            OscIn::Action(command) => m.action.execute(ctx, command),
+            OscIn::Clip(command) => m.clip.execute(ctx, command, value),
         }
     }
 
@@ -234,9 +265,18 @@ impl OscSetup {
     /// Flush all modules: the messages of the changed values (all values if `dump` is set),
     /// framed by `/update` (former `OSCWriter.flush (dump)` without sending them).
     pub fn collect_updates(&mut self, ctx: &Ctx, dump: bool) -> Vec<OscMessage> {
-        for module in &mut self.modules {
-            module.flush(ctx, &mut self.shared, dump);
-        }
+        let m = &mut self.modules;
+        let w = &mut self.shared;
+        m.transport.flush(ctx, w, dump);
+        m.layout.flush(ctx, w, dump);
+        m.marker.flush(ctx, w, dump);
+        m.project.flush(ctx, w, dump);
+        m.track.flush(ctx, w, dump);
+        m.scene.flush(ctx, w, dump);
+        m.device.flush(ctx, w, dump);
+        m.browser.flush(ctx, w, dump);
+        m.midi.flush(ctx, w, dump);
+        m.clip.flush(ctx, w, dump);
         self.shared.writer.take_messages(Some(UPDATE_ADDRESS))
     }
 
@@ -304,18 +344,6 @@ impl OscSetup {
     }
 }
 
-/// Split the address into its parts without the leading empty one (former `parseAddress`, Java
-/// `String.split ("/")`, which drops the trailing empty parts).
-pub fn parse_address(address: &str) -> Path {
-    let mut parts: Path = address.split('/').map(str::to_string).collect();
-    while parts.back().is_some_and(String::is_empty) {
-        parts.pop_back();
-    }
-    // Remove first empty element
-    parts.pop_front();
-    parts
-}
-
 impl ControllerSetup for OscSetup {
     fn init(&mut self, ctx: &mut Ctx) {
         self.init_model(ctx);
@@ -379,17 +407,6 @@ impl ControllerSetup for OscSetup {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn addresses() {
-        let parts = |address: &str| parse_address(address).into_iter().collect::<Vec<_>>();
-        assert_eq!(parts("/track/1/volume"), ["track", "1", "volume"]);
-        assert_eq!(parts("/track/1/"), ["track", "1"]);
-        assert_eq!(parts("/refresh"), ["refresh"]);
-        assert_eq!(parts("//a"), ["", "a"]);
-        assert!(parts("/").is_empty());
-        assert!(parts("").is_empty());
-    }
 
     #[test]
     fn model_setup_follows_the_page_size() {

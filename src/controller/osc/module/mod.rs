@@ -2,9 +2,10 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The OSC address modules (former `controller.osc.module`): each one handles the commands of
-//! some top level addresses (`/track/...`, `/device/...`) and sends the values of its part of
-//! the model (`flush`).
+//! The OSC address modules (former `controller.osc.module`): each one executes the commands of
+//! its part of the address table ([`super::address`]; the setup parses the address and
+//! dispatches the typed command to the module, which `match`es its commands exhaustively) and
+//! sends the values of its part of the model (`flush`) by the keys of its addresses.
 //!
 //! Differences to Java:
 //! - The exceptions (`IllegalParameterException`, `UnknownCommandException`,
@@ -26,17 +27,17 @@ pub mod scene;
 pub mod track;
 pub mod transport;
 
-use std::collections::VecDeque;
 use std::fmt;
 
+use super::address::{Guard, LayerIndex};
+use crate::daw::bank::BankItem;
 use crate::daw::color::ColorEx;
 use crate::daw::parameter::{Parameter, Send};
+use crate::framework::commands::general::focused_parameter;
 use crate::framework::ctx::Ctx;
 use crate::framework::osc::{OscArg, OscWriter};
+use crate::framework::parameterprovider::{parameter_bank, resolve};
 use crate::scale::KeyManager;
-
-/// The remaining parts of the address (former `LinkedList<String> path`).
-pub type Path = VecDeque<String>;
 
 /// The result of executing a command.
 pub type OscResult = Result<(), OscError>;
@@ -122,40 +123,8 @@ impl Default for OscShared {
     }
 }
 
-/// An OSC address module (former `IModule`).
-pub trait OscModule {
-    /// The top level addresses the module handles (former `getSupportedCommands`).
-    fn supported_commands(&self) -> &'static [&'static str];
-
-    /// Execute a command (former `execute`).
-    fn execute(&mut self, ctx: &mut Ctx, shared: &mut OscShared, command: &str, path: &mut Path, value: Value) -> OscResult;
-
-    /// Send the values of the module, all of them if `dump` is set, otherwise only the changed
-    /// ones (former `flush`).
-    fn flush(&mut self, _ctx: &Ctx, _shared: &mut OscShared, _dump: bool) {}
-}
-
 // ---------------------------------------------------------------------------------------------
 // Helpers (former static methods of AbstractModule)
-
-pub const TAG_EXISTS: &str = "exists";
-pub const TAG_ACTIVATED: &str = "activated";
-pub const TAG_NAME: &str = "name";
-pub const TAG_SELECTED: &str = "selected";
-pub const TAG_SELECT: &str = "select";
-pub const TAG_DUPLICATE: &str = "duplicate";
-pub const TAG_INSERT_FILE: &str = "insertFile";
-pub const TAG_REMOVE: &str = "remove";
-pub const TAG_VOLUME: &str = "volume";
-pub const TAG_PAGE: &str = "page";
-pub const TAG_INDICATE: &str = "indicate";
-pub const TAG_TOUCHED: &str = "touched";
-pub const TAG_COLOR: &str = "color";
-pub const TAG_BYPASS: &str = "bypass";
-pub const TAG_PARAM: &str = "param";
-pub const TAG_MIXER: &str = "mixer";
-pub const TAG_PREROLL: &str = "preroll";
-pub const TAG_RESET: &str = "reset";
 
 /// True for no value or a number larger than 0 (former `isTrigger`). Booleans and strings are
 /// no triggers.
@@ -189,30 +158,9 @@ pub fn to_string(value: Value) -> Result<String, OscError> {
     value.text().ok_or_else(|| OscError::IllegalParameter("String parameter missing".into()))
 }
 
-/// Former `getSubCommand`: remove the next part of the address.
-pub fn sub_command(path: &mut Path) -> Result<String, OscError> {
-    path.pop_front().ok_or(OscError::MissingCommand)
-}
-
-/// Former `path.get (0)`, which throws if the path is empty.
-pub fn first(path: &Path) -> Result<&str, OscError> {
-    path.front().map(String::as_str).ok_or_else(|| OscError::Runtime("Index 0 out of bounds for length 0".into()))
-}
-
-/// Former `Integer.parseInt`.
-pub fn parse_int(text: &str) -> Option<i32> {
-    text.parse::<i32>().ok()
-}
-
-/// Former `Integer.parseInt` where the `NumberFormatException` is not caught.
-pub fn parse_int_or_throw(text: &str) -> Result<i32, OscError> {
-    parse_int(text).ok_or_else(|| OscError::Runtime(format!("For input string: \"{text}\"")))
-}
-
-/// A 1-based index of the address as a 0-based index of a page, None if it is negative (Java
-/// throws an `IndexOutOfBoundsException` for it).
-pub fn index_of(one_based: i32) -> Result<usize, OscError> {
-    usize::try_from(i64::from(one_based) - 1).map_err(|_| OscError::Runtime(format!("Index {} out of bounds", i64::from(one_based) - 1)))
+/// Java `value.toString ()`, which throws for no value.
+pub fn text_or_throw(value: Value) -> Result<String, OscError> {
+    value.text().ok_or_else(|| OscError::Runtime("Cannot invoke \"Object.toString()\" because \"value\" is null".into()))
 }
 
 /// Parse a color in the format `rgb(r,g,b)` with r, g, b in the range of [0..255] (former
@@ -237,61 +185,80 @@ pub fn match_color(value: &str) -> Option<ColorEx> {
     Some(ColorEx::new(component(parts[0]), component(parts[1]), component(parts[2])))
 }
 
-/// Send the color of a model item.
-pub fn send_color(writer: &mut OscWriter, address: &str, color: ColorEx, dump: bool) {
-    writer.send_color(address, color.red(), color.green(), color.blue(), dump);
+/// Toggle a value without a value, set it to the trigger state otherwise (the common pattern
+/// `value == null ? toggle () : set (isTrigger (value))`).
+pub fn toggle_or_set<T: ?Sized>(target: &mut T, value: Value, toggle: impl FnOnce(&mut T), set: impl FnOnce(&mut T, bool)) {
+    if value.is_null() {
+        toggle(target);
+    } else {
+        set(target, is_trigger(value));
+    }
 }
 
 /// Send the data of a parameter (former `flushParameterData` for a non-send parameter).
-pub fn flush_parameter_data(writer: &mut OscWriter, address: &str, parameter: &Parameter, dump: bool) {
-    writer.send_bool(&format!("{address}{TAG_EXISTS}"), parameter.does_exist(), dump);
-    writer.send_str(&format!("{address}{TAG_NAME}"), parameter.name(), dump);
-    writer.send_str(&format!("{address}valueStr"), &parameter.displayed_value(), dump);
-    writer.send_int(&format!("{address}value"), parameter.value(), dump);
-    writer.send_int(&format!("{address}modulatedValue"), parameter.modulated_value(), dump);
+pub fn flush_parameter_data(w: &mut OscWriter, keys: &super::address::ParamKeys, parameter: &Parameter, dump: bool) {
+    w.put(keys.exists, parameter.does_exist(), dump);
+    w.put(keys.name, parameter.name(), dump);
+    w.put(keys.value_str, &parameter.displayed_value(), dump);
+    w.put(keys.value, parameter.value(), dump);
+    w.put(keys.modulated_value, parameter.modulated_value(), dump);
 }
 
 /// Send the data of a send (former `flushParameterData` for an `ISend`).
-pub fn flush_send_data(writer: &mut OscWriter, address: &str, send: &Send, dump: bool) {
-    writer.send_bool(&format!("{address}{TAG_ACTIVATED}"), send.is_enabled(), dump);
-    writer.send_bool(&format!("{address}{TAG_EXISTS}"), send.does_exist(), dump);
-    writer.send_str(&format!("{address}{TAG_NAME}"), send.name(), dump);
-    writer.send_str(&format!("{address}volumeStr"), &send.displayed_value(), dump);
-    writer.send_int(&format!("{address}{TAG_VOLUME}"), send.value(), dump);
-    writer.send_int(&format!("{address}modulatedValue"), send.modulated_value(), dump);
+pub fn flush_send_data(w: &mut OscWriter, keys: &super::address::SendKeys, send: &Send, dump: bool) {
+    w.put(keys.activated, send.is_enabled(), dump);
+    w.put(keys.exists, send.does_exist(), dump);
+    w.put(keys.name, send.name(), dump);
+    w.put(keys.volume_str, &send.displayed_value(), dump);
+    w.put(keys.volume, send.value(), dump);
+    w.put(keys.modulated_value, send.modulated_value(), dump);
 }
 
-/// Execute a parameter command (former `parseFXParamValue` of the modules).
-pub fn parse_fx_param_value(parameter: &mut Parameter, path: &mut Path, value: Value) -> OscResult {
-    let command = sub_command(path)?;
-    match command.as_str() {
-        "value" => parameter.set_value(to_integer(value)?),
-        TAG_INDICATE => parameter.set_indication(is_trigger(value)),
-        TAG_RESET => parameter.reset_value(),
-        TAG_TOUCHED => parameter.touch_value(is_trigger(value)),
-        _ => return Err(OscError::UnknownCommand(command)),
+// ---------------------------------------------------------------------------------------------
+// The guards of the address table
+
+/// The index of a layer or drum pad of a device: the selected one (-1 for none) or the number
+/// of the address.
+pub fn layer_index(ctx: &Ctx, device: super::address::DeviceRef, layer: LayerIndex) -> i32 {
+    match layer {
+        LayerIndex::Selected => device::device(ctx, device).and_then(|d| d.layer_bank().selected_item()).map_or(-1, |l| l.index()),
+        LayerIndex::Number(index) => index,
     }
-    Ok(())
 }
 
-/// Send the pages of a parameter bank (the common part of the Java modules' flush methods):
-/// `<address>page/<n>/exists|name|selected`, `<address>page/<n>/` (the name) and
-/// `<address>page/selected/name`. Without a bank (e.g. no project parameters on the host)
-/// `page_size` empty pages are sent.
-pub fn flush_parameter_pages(writer: &mut OscWriter, address: &str, bank: Option<&crate::daw::parameter_bank::ParameterBank>, page_size: usize, dump: bool) {
-    let page_bank = bank.map(|b| b.page_bank());
-    let selected = page_bank.as_ref().map(|p| p.selected_item_index());
-    let page_size = page_bank.as_ref().map(|p| p.page_size()).unwrap_or(page_size);
-    for i in 0..page_size {
-        let page_name = page_bank.as_ref().map(|p| p.item(i)).unwrap_or_default();
-        let page_address = format!("{address}page/{}/", i + 1);
-        writer.send_bool(&format!("{page_address}{TAG_EXISTS}"), !page_name.trim().is_empty(), dump);
-        writer.send_str(&page_address, &page_name, dump);
-        writer.send_str(&format!("{page_address}{TAG_NAME}"), &page_name, dump);
-        writer.send_bool(&format!("{page_address}{TAG_SELECTED}"), selected == Some(i), dump);
-    }
-    let selected_name = page_bank.as_ref().map(|p| p.selected_item()).unwrap_or_default();
-    writer.send_str(&format!("{address}page/selected/{TAG_NAME}"), &selected_name, dump);
+/// Check a guard of a command (see [`super::address`]): false if the command does nothing; an
+/// error if Java fails there.
+pub fn check_guard(ctx: &mut Ctx, guard: &Guard, value: Value) -> Result<bool, OscError> {
+    Ok(match guard {
+        Guard::CursorTrackExists => ctx.model.cursor_track().does_exist(),
+        Guard::HasDrumPads(which) => device::device(ctx, *which).is_some_and(|d| d.has_drum_pads()),
+        Guard::DeviceExists(which) => device::device(ctx, *which).is_some(),
+        Guard::LayerInRange(which, layer) => {
+            let layer_index = layer_index(ctx, *which, *layer);
+            let page_size = device::device(ctx, *which).map_or(0, |d| d.layer_bank().page_size());
+            if layer_index >= page_size as i32 {
+                ctx.host.println(&format!("Layer or drumpad index larger than page size: {layer_index}"));
+                return Ok(false);
+            }
+            if layer_index < 0 {
+                return Err(OscError::Runtime(format!("Index {layer_index} out of bounds for length {page_size}")));
+            }
+            device::device(ctx, *which).is_some()
+        }
+        Guard::Trigger => is_trigger(value),
+        Guard::ParamBankExists(bank) => parameter_bank(&ctx.model, bank.id()).is_some(),
+        Guard::FocusedParamExists => {
+            let focused = focused_parameter(ctx);
+            focused.does_exist(ctx) && resolve(&ctx.model, &focused).is_some()
+        }
+        Guard::BrowserActive => ctx.model.browser().is_some_and(|b| b.is_active()),
+        Guard::BrowserFilterColumn(column) => (1..=6).contains(column) && ctx.model.browser().is_some_and(|b| b.is_active()),
+        Guard::CursorSlotSelected => ctx.model.cursor_track().slot_bank().selected_item().is_some_and(|s| s.index() >= 0),
+        Guard::IntValue => {
+            to_integer(value)?;
+            true
+        }
+    })
 }
 
 #[cfg(test)]
@@ -324,22 +291,6 @@ mod tests {
         assert_eq!(to_number_or(Value::Null, 1.0), Ok(1.0));
         assert_eq!(to_string(Value::One(&OscArg::Float(2.0))), Ok("2.0".into()));
         assert!(to_string(Value::Null).is_err());
-    }
-
-    #[test]
-    fn paths_and_numbers() {
-        let mut path: Path = ["a".to_string(), "b".to_string()].into();
-        assert_eq!(first(&path), Ok("a"));
-        assert_eq!(sub_command(&mut path), Ok("a".into()));
-        assert_eq!(sub_command(&mut path), Ok("b".into()));
-        assert_eq!(sub_command(&mut path), Err(OscError::MissingCommand));
-        assert!(first(&path).is_err());
-        assert_eq!(parse_int("12"), Some(12));
-        assert_eq!(parse_int("-3"), Some(-3));
-        assert_eq!(parse_int("+"), None);
-        assert_eq!(parse_int("1.5"), None);
-        assert_eq!(index_of(1), Ok(0));
-        assert!(index_of(0).is_err());
     }
 
     #[test]

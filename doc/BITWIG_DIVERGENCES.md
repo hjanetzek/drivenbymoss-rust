@@ -518,7 +518,8 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   - **Network and timing:** the core polls its non-blocking UDP socket at every tick (30 ms) and
     flushes the modules at every tick; Java gets the messages on Bitwig's control thread and
     flushes when Bitwig calls `flush`. Both send only changed values, framed by `/update 1` …
-    `/update 0`.
+    `/update 0`. The values are compared by typed keys (no address is formatted at a flush): a
+    tick without changes costs about 30 µs (release build, 3 tracks, 1 device).
   - **Large updates** (the complete update 1 s after the startup, `/refresh`): bundles of 101
     messages as in Java, but one bundle per tick instead of a 10 ms sleep between them.
   - **Value resolution:** a changed setting restarts the controller (the model keeps copies of the

@@ -4,88 +4,100 @@
 
 //! The layout, the panels, the arranger and the mixer (former `LayoutModule`).
 
-use super::{sub_command, to_string, OscError, OscModule, OscResult, OscShared, Path, Value, TAG_MIXER};
+use super::super::address::{ArrangerToggle, LayoutIn, MixerToggle, Panel};
+use super::{to_string, OscResult, OscShared, Value};
 use crate::framework::ctx::Ctx;
+use crate::framework::osc::writer::{Key, OscWriter};
 
 /// Former `LayoutModule`.
-#[derive(Default)]
-pub struct LayoutModule;
+pub struct LayoutModule {
+    layout: Key<str>,
+    arranger: Vec<(ArrangerToggle, Key<bool>)>,
+    mixer: Vec<(MixerToggle, Key<bool>)>,
+}
 
-impl OscModule for LayoutModule {
-    fn supported_commands(&self) -> &'static [&'static str] {
-        &["layout", "panel", "arranger", TAG_MIXER]
+impl LayoutModule {
+    pub fn new(w: &mut OscWriter) -> Self {
+        LayoutModule {
+            layout: w.key("/layout"),
+            arranger: ArrangerToggle::ALL.iter().map(|&t| (t, w.key(&format!("/arranger/{}", t.text())))).collect(),
+            mixer: MixerToggle::ALL.iter().map(|&t| (t, w.key(&format!("/mixer/{}", t.text())))).collect(),
+        }
     }
 
-    fn execute(&mut self, ctx: &mut Ctx, _shared: &mut OscShared, command: &str, path: &mut Path, value: Value) -> OscResult {
+    pub fn execute(&mut self, ctx: &mut Ctx, command: LayoutIn, value: Value) -> OscResult {
         match command {
-            "layout" => {
+            LayoutIn::Layout {} => {
                 let layout = to_string(value)?.to_uppercase();
                 ctx.model.application_mut().set_panel_layout(&layout);
             }
-            "panel" => {
-                let sub = sub_command(path)?;
+            LayoutIn::Panel { panel } => {
                 let app = ctx.model.application_mut();
-                match sub.as_str() {
-                    "noteEditor" => app.toggle_note_editor(),
-                    "automationEditor" => app.toggle_automation_editor(),
-                    "devices" => app.toggle_devices(),
-                    TAG_MIXER => app.toggle_mixer(),
-                    "fullscreen" => app.toggle_full_screen(),
-                    _ => return Err(OscError::UnknownCommand(sub)),
+                match panel {
+                    Panel::NoteEditor => app.toggle_note_editor(),
+                    Panel::AutomationEditor => app.toggle_automation_editor(),
+                    Panel::Devices => app.toggle_devices(),
+                    Panel::Mixer => app.toggle_mixer(),
+                    Panel::Fullscreen => app.toggle_full_screen(),
                 }
             }
-            "arranger" => {
-                let sub = sub_command(path)?;
+            LayoutIn::Arranger { toggle } => {
                 let arranger = ctx.model.arranger_mut();
-                match sub.as_str() {
-                    "cueMarkerVisibility" => arranger.toggle_cue_marker_visibility(),
-                    "playbackFollow" => arranger.toggle_playback_follow(),
-                    "trackRowHeight" => arranger.toggle_track_row_height(),
-                    "clipLauncherSectionVisibility" => arranger.toggle_clip_launcher(),
-                    "timeLineVisibility" => arranger.toggle_time_line(),
-                    "ioSectionVisibility" => arranger.toggle_io_section(),
-                    "effectTracksVisibility" => arranger.toggle_effect_tracks(),
-                    _ => return Err(OscError::UnknownCommand(sub)),
+                match toggle {
+                    ArrangerToggle::CueMarkerVisibility => arranger.toggle_cue_marker_visibility(),
+                    ArrangerToggle::PlaybackFollow => arranger.toggle_playback_follow(),
+                    ArrangerToggle::TrackRowHeight => arranger.toggle_track_row_height(),
+                    ArrangerToggle::ClipLauncherSectionVisibility => arranger.toggle_clip_launcher(),
+                    ArrangerToggle::TimeLineVisibility => arranger.toggle_time_line(),
+                    ArrangerToggle::IoSectionVisibility => arranger.toggle_io_section(),
+                    ArrangerToggle::EffectTracksVisibility => arranger.toggle_effect_tracks(),
                 }
             }
-            TAG_MIXER => {
-                let sub = sub_command(path)?;
+            LayoutIn::Mixer { toggle } => {
                 let mixer = ctx.model.mixer_mut();
-                match sub.as_str() {
-                    "clipLauncherSectionVisibility" => mixer.toggle_clip_launcher_section_visibility(),
-                    "crossFadeSectionVisibility" => mixer.toggle_cross_fade_section_visibility(),
-                    "deviceSectionVisibility" => mixer.toggle_device_section_visibility(),
-                    "sendsSectionVisibility" => mixer.toggle_sends_section_visibility(),
-                    "ioSectionVisibility" => mixer.toggle_io_section_visibility(),
-                    "meterSectionVisibility" => mixer.toggle_meter_section_visibility(),
-                    _ => return Err(OscError::UnknownCommand(sub)),
+                match toggle {
+                    MixerToggle::ClipLauncherSectionVisibility => mixer.toggle_clip_launcher_section_visibility(),
+                    MixerToggle::CrossFadeSectionVisibility => mixer.toggle_cross_fade_section_visibility(),
+                    MixerToggle::DeviceSectionVisibility => mixer.toggle_device_section_visibility(),
+                    MixerToggle::SendsSectionVisibility => mixer.toggle_sends_section_visibility(),
+                    MixerToggle::IoSectionVisibility => mixer.toggle_io_section_visibility(),
+                    MixerToggle::MeterSectionVisibility => mixer.toggle_meter_section_visibility(),
                 }
             }
-            _ => return Err(OscError::UnknownCommand(command.to_string())),
         }
         Ok(())
     }
 
-    fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
+    pub fn flush(&mut self, ctx: &Ctx, shared: &mut OscShared, dump: bool) {
         let w = &mut shared.writer;
         let app = ctx.model.application();
-        w.send_str("/layout", &app.panel_layout().to_lowercase(), dump);
+        w.put(self.layout, &app.panel_layout().to_lowercase(), dump);
 
         let arranger = ctx.model.arranger();
-        w.send_bool("/arranger/cueMarkerVisibility", arranger.are_cue_markers_visible(), dump);
-        w.send_bool("/arranger/playbackFollow", arranger.is_playback_follow_enabled(), dump);
-        w.send_bool("/arranger/trackRowHeight", arranger.has_double_row_track_height(), dump);
-        w.send_bool("/arranger/clipLauncherSectionVisibility", arranger.is_clip_launcher_visible(), dump);
-        w.send_bool("/arranger/timeLineVisibility", arranger.is_timeline_visible(), dump);
-        w.send_bool("/arranger/ioSectionVisibility", arranger.is_io_section_visible(), dump);
-        w.send_bool("/arranger/effectTracksVisibility", arranger.are_effect_tracks_visible(), dump);
+        for &(toggle, key) in &self.arranger {
+            let value = match toggle {
+                ArrangerToggle::CueMarkerVisibility => arranger.are_cue_markers_visible(),
+                ArrangerToggle::PlaybackFollow => arranger.is_playback_follow_enabled(),
+                ArrangerToggle::TrackRowHeight => arranger.has_double_row_track_height(),
+                ArrangerToggle::ClipLauncherSectionVisibility => arranger.is_clip_launcher_visible(),
+                ArrangerToggle::TimeLineVisibility => arranger.is_timeline_visible(),
+                ArrangerToggle::IoSectionVisibility => arranger.is_io_section_visible(),
+                ArrangerToggle::EffectTracksVisibility => arranger.are_effect_tracks_visible(),
+            };
+            w.put(key, value, dump);
+        }
 
         let mixer = ctx.model.mixer();
-        w.send_bool("/mixer/clipLauncherSectionVisibility", mixer.is_clip_launcher_section_visible(), dump);
-        w.send_bool("/mixer/crossFadeSectionVisibility", mixer.is_cross_fade_section_visible(), dump);
-        w.send_bool("/mixer/deviceSectionVisibility", mixer.is_device_section_visible(), dump);
-        w.send_bool("/mixer/sendsSectionVisibility", mixer.is_send_section_visible(), dump);
-        w.send_bool("/mixer/ioSectionVisibility", mixer.is_io_section_visible(), dump);
-        w.send_bool("/mixer/meterSectionVisibility", mixer.is_meter_section_visible(), dump);
+        for &(toggle, key) in &self.mixer {
+            let value = match toggle {
+                MixerToggle::ClipLauncherSectionVisibility => mixer.is_clip_launcher_section_visible(),
+                MixerToggle::CrossFadeSectionVisibility => mixer.is_cross_fade_section_visible(),
+                MixerToggle::DeviceSectionVisibility => mixer.is_device_section_visible(),
+                MixerToggle::SendsSectionVisibility => mixer.is_send_section_visible(),
+                MixerToggle::IoSectionVisibility => mixer.is_io_section_visible(),
+                MixerToggle::MeterSectionVisibility => mixer.is_meter_section_visible(),
+            };
+            w.put(key, value, dump);
+        }
     }
 }
