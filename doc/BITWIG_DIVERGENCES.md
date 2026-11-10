@@ -498,3 +498,17 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
 - **Arturia Beatstep, note input names:** Java names the note inputs "Control/Pads" (the pads on
   MIDI channel 3) and "Hardware Sequencer" (MIDI channel 1); the Rust extension names them by the
   hardware and their index ("Beatstep", "Beatstep 2"), as for all controllers.
+
+- **Launchkey Mk3 / Mini Mk3** (ported 2026-11-10, `src/controller/launchkey/`):
+  - Shift + Play (Mk3) does nothing: Java calls `transport.returnToArrangement ()`, the core has
+    no host command for it yet (`Transport::return_to_arrangement` is empty, as on Reaper). Play +
+    pad returns the track to the arrangement as in Java (`track <p>/returnToArrangement`).
+  - The base screen of the parameter mode shows the page name; Java shows `Optional[...]`
+    (upstream candidate O).
+  - The display sends the ISO-8859-2 bytes of the characters above 127; Java sends their
+    Unicode value minus 0x80, which differs for the letters outside Latin-1 (candidate O).
+  - The Select/RecArm toggle of the buttons below the faders is kept per instance; Java keeps it
+    in a static field (shared by all Launchkey Mk3 instances).
+  - The keyboard port is the second MIDI input of the extension (port 2). Its note input is named
+    "Launchkey Mk3 - Port 2" (Java: "Keyboard"); the DAW port's note input has the extension's
+    name (Java: "Pads").

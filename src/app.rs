@@ -51,6 +51,8 @@ struct Running {
     parser: Parser,
     /// The MIDI ports, one pair per surface (index 0 is the first surface).
     ports: Vec<MidiPorts>,
+    /// The further MIDI inputs (`ControllerFactory::num_extra_midi_inputs`), `None` if not found.
+    extra_inputs: Vec<Option<i32>>,
     /// When `startup` of the setup is called (delayed like in the Java version).
     startup_due: Option<Instant>,
 }
@@ -319,6 +321,51 @@ impl App {
         None
     }
 
+    /// Get the further MIDI inputs of an instance (see
+    /// [`ControllerFactory::num_extra_midi_inputs`]): configured as `MIDI_INPUT<n>` after the
+    /// inputs of the port pairs, otherwise detected with the further input names of the discovery
+    /// pair whose first input is the one of the first port pair. `None` for an input which is not
+    /// found; the instance runs without it.
+    fn resolve_extra_inputs(&mut self, index: usize, ports: &[MidiPorts]) -> Vec<Option<i32>> {
+        let extra = self.instances[index].factory.num_extra_midi_inputs();
+        if extra == 0 {
+            return Vec::new();
+        }
+        let count = self.instances[index].factory.num_port_pairs().max(1);
+        if self.single {
+            // The host's inputs are numbered 0..count for the pairs, the further ones follow
+            return (0..extra).map(|i| Some((count + i) as i32)).collect();
+        }
+        let inputs = self.sender.backend().midi_inputs();
+        let first_input = ports.first().map(|p| p.input);
+        let instance = &mut self.instances[index];
+        let name = instance.factory.info().to_string();
+        let pairs = instance.factory.midi_discovery_pairs(OperatingSystem::current());
+        let mut result = Vec::with_capacity(extra);
+        for i in 0..extra {
+            let key = count + i;
+            let mut id = instance.config_file.midi_input(key).and_then(|input| Self::find_port(&inputs, input));
+            if id.is_none() {
+                for (input_names, _) in &pairs {
+                    if input_names.len() <= key || Self::find_port(&inputs, &input_names[0]) != first_input {
+                        continue;
+                    }
+                    if let Some(found) = Self::find_port(&inputs, &input_names[key]) {
+                        self.host.println(&format!("{name}: Detected MIDI input {}", input_names[key]));
+                        instance.config_file.set_midi_input(key, &input_names[key]);
+                        id = Some(found);
+                        break;
+                    }
+                }
+            }
+            if id.is_none() {
+                self.host.println(&format!("{name}: MIDI input {} not configured.", key + 1));
+            }
+            result.push(id);
+        }
+        result
+    }
+
     fn start_instance(&mut self, index: usize) {
         if self.instances[index].running.is_some() {
             return;
@@ -338,6 +385,13 @@ impl App {
             self.host.error(&format!("{name}: Could not open the MIDI ports."));
             return;
         }
+        let mut extra_inputs = self.resolve_extra_inputs(index, &ports);
+        for input in &mut extra_inputs {
+            if input.is_some_and(|id| !backend.open_midi_input(id)) {
+                self.host.println(&format!("{name}: Could not open the further MIDI input {id}.", id = input.unwrap_or(-1)));
+                *input = None;
+            }
+        }
 
         let instance = &mut self.instances[index];
         let mut configuration = instance.factory.create_configuration();
@@ -349,7 +403,7 @@ impl App {
         // The note clips which the views request while they are created (former
         // model.getNoteClip in the constructors), so that the host can create them during init
         crate::daw::clip::take_requested_note_clips();
-        match instance.factory.create_with_ports(self.host.clone(), self.sender.clone(), &ports, configuration) {
+        match instance.factory.create_with_extra_inputs(self.host.clone(), self.sender.clone(), &ports, &extra_inputs, configuration) {
             Ok(mut parts) => {
                 parts.setup.init(&mut parts.ctx);
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
@@ -361,7 +415,7 @@ impl App {
                 parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
-                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, startup_due });
+                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, startup_due });
                 self.host.println(&format!("{name}: Running."));
             }
             Err(error) => {
@@ -369,6 +423,9 @@ impl App {
                 for port in &ports {
                     backend.close_midi_input(port.input);
                     backend.close_midi_output(port.output);
+                }
+                for input in extra_inputs.iter().flatten() {
+                    backend.close_midi_input(*input);
                 }
             }
         }
@@ -389,6 +446,9 @@ impl App {
         for port in &running.ports {
             backend.close_midi_input(port.input);
             backend.close_midi_output(port.output);
+        }
+        for input in running.extra_inputs.iter().flatten() {
+            backend.close_midi_input(*input);
         }
         self.host.println(&format!("{}: Exited.", instance.factory.info()));
     }
@@ -466,6 +526,11 @@ impl App {
             };
             // The surface whose input received the message (several with MCU extenders)
             let Some(surface) = running.ports.iter().position(|p| p.input == device_id) else {
+                // A further MIDI input of the instance (e.g. the keyboard port of a Launchkey)
+                if let Some(input) = running.extra_inputs.iter().position(|id| *id == Some(device_id)) {
+                    running.setup.handle_extra_input_midi(&mut running.ctx, input, data);
+                    return;
+                }
                 continue;
             };
             if status == 0xF0 {

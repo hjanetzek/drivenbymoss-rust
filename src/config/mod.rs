@@ -12,6 +12,7 @@ pub mod beatstep;
 pub mod fire;
 pub mod configuration;
 pub mod hui;
+pub mod launchkey;
 pub mod launchcontrol;
 pub mod launchpad;
 pub mod maschine;

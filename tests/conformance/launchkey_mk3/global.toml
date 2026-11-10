@@ -1,0 +1,116 @@
+# Conformance scenarios: Novation Launchkey Mk3, global features and the fader section (DAW port:
+# buttons are CCs on channel 16, the scene buttons CCs on channel 1). Fixture:
+# tests/conformance/FIXTURE.md. The scenarios need a model with faders (49 or 61 keys): the
+# device inquiry stub answers as a Launchkey 49.
+#
+# Not run yet: the Bitwig profile of this setup does not exist (CONFORMANCE.md).
+
+controller = "Novation Launchkey Mk3"
+manual = "Novation/Novation-LaunchkeyMk3.md#global-features"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/2/name" = "Drums" }
+
+setup = [
+  { midi = "9F 0C 7F", note = "the device confirms the DAW mode (the restart of the controller runs without the stub)" },
+  { wait_ms = 600, note = "the modes are synchronized, the controller is ready after 200 ms" },
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+]
+
+# The device: echoes the DAW mode, answers the device inquiry as a Launchkey 49
+[[stub]]
+match = "9F 0C ??"
+reply = "echo"
+
+[[stub]]
+match = "F0 7E 7F 06 01 F7"
+reply = "F0 7E 00 06 02 00 20 29 36 01 00 00 00 01 02 03 F7"
+
+[[scenario]]
+id = "lk3.global.click"
+bullet = "Click - Toggle the metronome."
+before = [{ osc = "/click 0" }]
+steps = [{ midi = "BF 4C 7F | BF 4C 00", note = "Click" }]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "lk3.global.repeat"
+bullet = "Repeat - Toggle repeat."
+before = [{ osc = "/click 0 | /repeat 0" }]
+steps = [{ midi = "BF 76 7F | BF 76 00", note = "Repeat (Loop)" }]
+expect.bitwig = { "/repeat" = "1" }
+
+[[scenario]]
+id = "lk3.global.play"
+bullet = "Play - Start or pause the playback."
+before = [{ osc = "/repeat 0 | /stop" }]
+steps = [{ midi = "BF 73 7F | BF 73 00", note = "Play" }]
+expect.bitwig = { "/play" = "1" }
+
+[[scenario]]
+id = "lk3.global.stop"
+bullet = "Stop - Stops playback. If already stopped it moves the play cursor to the start of the song."
+steps = [{ midi = "BF 74 7F | BF 74 00", note = "Stop" }]
+expect.bitwig = { "/play" = "0" }
+
+[[scenario]]
+id = "lk3.global.track-right"
+bullet = "Track Left/Right: Select the previous/next track."
+before = [{ osc = "/track/1/select 1" }]
+steps = [{ midi = "BF 66 7F | BF 66 00", note = "Track right" }]
+expect.bitwig = { "/track/2/selected" = "1" }
+
+[[scenario]]
+id = "lk3.global.track-left"
+bullet = "Track Left/Right: Select the previous/next track."
+steps = [{ midi = "BF 67 7F | BF 67 00", note = "Track left" }]
+expect.bitwig = { "/track/1/selected" = "1" }
+
+[[scenario]]
+id = "lk3.fader.volume"
+bullet = "The faders control the values selected by their mode: Device parameters, volume, send 1/2 and the 4 custom modes."
+before = [{ osc = "/track/3/volume 0" }]
+steps = [
+  { midi = "BF 0A 01", note = "fader mode Volume (the device sends it on Shift + fader button 2)" },
+  { midi = "BF 37 7F", note = "fader 3 to the maximum" },
+]
+expect.bitwig = { "/track/3/volume" = "127" }
+
+[[scenario]]
+id = "lk3.fader.select"
+bullet = "The buttons below the faders selects or arms record of a track depending on the Arm/Select button state."
+before = [{ osc = "/track/3/volume 0 | /track/1/select 1" }]
+steps = [{ midi = "BF 27 7F | BF 27 00", note = "button below fader 3" }]
+expect.bitwig = { "/track/3/selected" = "1" }
+
+[[scenario]]
+id = "lk3.fader.arm"
+bullet = "The buttons below the faders selects or arms record of a track depending on the Arm/Select button state."
+before = [{ osc = "/track/1/select 1 | /track/4/recarm 0" }]
+steps = [
+  { midi = "BF 2D 7F | BF 2D 00", note = "Arm/Select: arm" },
+  { midi = "BF 28 7F | BF 28 00", note = "button below fader 4" },
+  { midi = "BF 2D 7F | BF 2D 00", note = "Arm/Select: back to select" },
+]
+expect.bitwig = { "/track/4/recarm" = "1" }
+
+[[scenario]]
+id = "lk3.knob.pan"
+bullet = "Pan Mode - Knob 1-8: Changes the panorama of the 8 tracks on the current track bank page."
+before = [{ osc = "/track/4/recarm 0 | /track/2/pan 64" }]
+steps = [
+  { midi = "BF 09 03", note = "knob mode Pan" },
+  { midi = "BF 16 00", note = "knob 2 to the left" },
+]
+expect.bitwig = { "/track/2/pan" = "0" }
+
+[[scenario]]
+id = "lk3.knob.volume"
+bullet = "Volume Mode - Knob 1-8: Changes the volume of the 8 tracks on the current track bank page."
+before = [{ osc = "/track/2/pan 64 | /track/1/volume 64" }]
+steps = [
+  { midi = "BF 09 01", note = "knob mode Volume" },
+  { midi = "BF 15 00", note = "knob 1 to the minimum" },
+  { midi = "BF 09 03", note = "back to Pan" },
+]
+expect.bitwig = { "/track/1/volume" = "0" }

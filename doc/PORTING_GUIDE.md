@@ -72,7 +72,7 @@ listed under "Needs".
 | Akai APC40 Mk1/Mk2 | `akai/apc` | 3,928 | `APC40mkI/mkIIControllerInstance` | **Ported** (`src/controller/akai/apc/`) | — |
 | Intuitive Instruments Exquis | `intuitiveinstruments/exquis` | 2,568 | `ExquisControllerInstance` | — | 2 |
 | Faderfox EC4 | `faderfox/ec4` | 1,743 | `EC4ControllerInstance` | Text display | 2 |
-| Novation Launchkey Mk3 / Mini Mk3 | `novation/launchkey` | 5,674 | `LaunchkeyMk3`, `LaunchkeyMiniMk3ControllerInstance` | Text display | 2 |
+| Novation Launchkey Mk3 / Mini Mk3 | `novation/launchkey` | 5,674 | `LaunchkeyMk3`, `LaunchkeyMiniMk3ControllerInstance` | **Ported** (`src/controller/launchkey/`; the keyboard port is a further MIDI input) | — |
 | Novation SL Mk1/Mk2 | `novation/sl` | 3,754 | `SLMkI/SLMkIIControllerInstance` | Text display | 3 |
 | Novation SL Mk3 | `novation/slmkiii` | 5,201 | `SLMkIIIControllerInstance` | Text display (pixel display via sysex) | 3 |
 | Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
@@ -356,7 +356,9 @@ The complete list, class by class and by upcoming controller, is in
   MidiClip, GraphOverlay, ChannelSelect), icons (SVG images), anti-aliased drawing, rounded
   rectangles and vector fonts. Needed by Push 2/3 and Oxi One.
 - `AbstractDrumXoXView` (the XoX drum sequencer). Needed by the Fire (Views.DRUM).
-- A second MIDI input per port pair (the ACVS "Pads (Remote MIDI Port)").
+- ~~A second MIDI input~~: done for one port pair (`ControllerFactory::num_extra_midi_inputs`,
+  used by the Launchkey for its keyboard port; their MIDI goes to
+  `ControllerSetup::handle_extra_input_midi`). The ACVS "Pads (Remote MIDI Port)" does not use it yet.
 - USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
   Kontrol Mk1.
 - OSC: `framework/osc` and `reaper/framework/osc`. Needed by the OSC controller.

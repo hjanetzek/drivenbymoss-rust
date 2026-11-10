@@ -36,7 +36,6 @@ class.
 | Kontrol Mk1 | HID (`IHidDevice`, `UsbMatcher`) + backend; `ILightGuide` (key LEDs); `MasterVolumeCommand`; `IMemoryBlock` |
 | Kontrol Mk2/Mk3 | `CreateSceneCommand`, `StartClipCommand`, `WriteArranger/ClipLauncherAutomationCommand` |
 | ESI Xjam | `SelectPrevious/NextDeviceCommand`, `SelectParamPageCommand`, `ToggleDeviceWindowCommand`, `EnableCommand` |
-| Launchkey Mk3 | `SelectPrevNextTrackCommand`, `FeatureGroupButtonColorSupplier`, `DummyView` |
 | SL MkIII | `MonitorCommand`, `ColorView`, `FeatureGroupButtonColorSupplier` |
 | Yaeltex Turn | `AbstractMonophonicSequencerView` |
 | Faderfox EC4 | mute/solo/crossfade as parameters (+ providers), `DummyView` |
@@ -159,7 +158,7 @@ Model gaps which affect behaviour on Bitwig:
 | (TrackState helper) | `framework::commands::general::TrackStateCommand` | n/a | Rust-only: combined rec arm/solo/mute (MCU/HUI) |
 | EnableCommand | - | missing | `Channel::toggle_is_activated` exists; Java user: Xjam |
 | MonitorCommand | - | missing | `Track::toggle_monitor` exists; Java user: SL MkIII |
-| SelectPrevNextTrackCommand | - | missing | Java user: Launchkey Mk3 |
+| SelectPrevNextTrackCommand | ctrl launchkey (`command::SelectPrevNextTrackCommand`) | full | Only in the Launchkey port; move to the framework when a second controller needs it |
 | ToggleVUCommand | - | missing | Toggles config VU meters; no Java users in controllers |
 
 ### framework/command/trigger/transport
@@ -179,7 +178,7 @@ Model gaps which affect behaviour on Bitwig:
 | Java | Rust | Status | Divergences |
 |---|---|---|---|
 | ViewButtonCommand, ViewMultiSelectCommand, SelectPlayViewCommand, ToggleShiftViewCommand | `framework::commands::view::{ViewButtonCommand, ViewMultiSelectCommand, SelectPlayViewCommand, ToggleShiftViewCommand}` | full | |
-| FeatureGroupButtonColorSupplier | - (closures of type `framework::surface::LightSupplier`) | missing | No generic supplier; Java users: APC, Launchkey, SL MkIII |
+| FeatureGroupButtonColorSupplier | - (closures of type `framework::surface::LightSupplier` with `Ctx::button_color_from_active_view`) | missing | No generic supplier; Java users: APC, Launchkey (ported with the closure), SL MkIII |
 
 ### framework/controller
 
@@ -393,12 +392,12 @@ Model gaps which affect behaviour on Bitwig:
 
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
-| IMidiAccess, IMidiInput, MidiShortCallback, MidiSysExCallback | `midi::{MidiInput, MidiDispatch}` | full | Callbacks replaced by dispatch enum |
+| IMidiAccess, IMidiInput, MidiShortCallback, MidiSysExCallback | `midi::{MidiInput, MidiDispatch}` | full | Callbacks replaced by dispatch enum. `createInput (index > 0, ...)` of one port pair: `ControllerFactory::num_extra_midi_inputs` (Launchkey), their MIDI goes to `ControllerSetup::handle_extra_input_midi` |
 | IMidiOutput, AbstractMidiOutput | `midi::MidiOutput` | partial | MPE config is in `controller::generic::setup::configure_mpe` |
 | INoteInput, AbstractNoteInput | `midi::NoteInput` | full | Key/velocity translation tables; filters as hex masks |
 | INoteRepeat | `midi::NoteRepeat` | partial | No octaves, latch, shuffle, free-running (BD §5) |
 | ArpeggiatorMode | `config::*` (per-controller) | partial | Reaper mode list only |
-| DeviceInquiry | `midi::DeviceInquiry` | full | |
+| DeviceInquiry | `midi::DeviceInquiry` | full | `device_family_code` added for the Launchkey |
 | MidiConstants | — | missing | Use literals |
 
 ### framework/daw/resource
@@ -525,7 +524,7 @@ Rust paths in this part are relative to `src/framework/`.
 | ScenePlayView | view::scene_play_view::ScenePlayView | full | |
 | TransposeView | view::transpose_view::TransposeView (trait) | full | |
 | ColorView, ColorSelectMode | - | missing | Needed by Push and SL MkIII (the DAW color palette on the grid) |
-| DummyView | - | missing | Trivial (Electra One, EC4, Launchkey). Use an empty View impl |
+| DummyView | ctrl launchkey (`view::misc::DummyView`) | full | Only in the Launchkey port (also needed by Electra One, EC4) |
 | Views (IDs + helpers) | ids::Views | partial | Only the enum. isSequencerView/isSessionView/isNoteView and the names are missing |
 | (none) | view::deferred::{activate_preferred_view_later, restore_view_later} | n/a | Rust only: a view switch requested by the view itself runs after the current event |
 

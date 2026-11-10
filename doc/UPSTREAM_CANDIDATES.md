@@ -496,6 +496,36 @@ not contain test scaffolding.
 | 10. Maschine Mk2: Shift + arrows does not also stop the transport | L | ready (`conformance-osc`) |
 | 11. Generic Flexi: operator precedence of the 14-bit check in `handleCC` | M | ready after a Flexi check |
 | 12. MCU: discovery pair of the QCon Pro X with the XS1 extender | N | ready |
+| 13. Launchkey Mk3: page name and ISO-8859-2 bytes on the display | O | ready |
+| 14. Launchkey Mini: octave pad lights, startup mode | P | after a device check |
+
+#### O. Launchkey Mk3: the parameter mode shows "Optional[...]" and the display breaks non-Latin-1 letters
+
+- **Where:** `src/main/java/de/mossgrabers/controller/novation/launchkey/maxi/mode/LaunchkeyMk3ParameterMode.java:59`
+  and `.../maxi/controller/LaunchkeyMk3Display.java:108`.
+- **What is wrong:**
+  - `getPageBank ().getSelectedItem ()` returns an `Optional<String>`, which `StringBuilder.append`
+    turns into `Optional[Page 1]`: the base screen shows "ReaSynth Optiona" instead of the page.
+  - The display encodes ISO-8859-2 but sends `character - 0x80`, the Unicode value of the
+    character. That is only right for the letters ISO-8859-2 shares with Latin-1 (ä, é, ...);
+    for the others (Ł, ś, Č, ...) the value is above 0x7F (`toHexStr` even gives 3 digits for
+    e.g. '˙'), which breaks the sysex message.
+- **Evidence:** found while porting the Launchkey (2026-11-10). The Rust port shows the page name
+  and sends the ISO-8859-2 byte (`src/controller/launchkey/mode.rs`, `display.rs`).
+- **Fix:** `.append (...getSelectedItem ().orElse (""))`; encode with `this.isoEncoder.encode`
+  and send `byte & 0xFF - 0x80`.
+
+#### P. Launchkey Mini Mk3: small inconsistencies
+
+- **Where:** `src/main/java/de/mossgrabers/controller/novation/launchkey/mini/view/DrumConfigView.java:105-106`,
+  `.../mini/LaunchkeyMiniMk3ControllerSetup.java:381`, `.../mini/LaunchkeyMiniMk3Configuration.java`.
+- **What is wrong:**
+  - The drum configuration view lights pad 6 (octave down) with `canScrollDrumOctaveUp` and pad 7
+    (octave up) with `canScrollDrumOctaveDown`.
+  - The "Startup mode" setting is activated but `startup` always activates the volume mode.
+  - The startup modes contain `Modes.USER`, which has no name in `Modes.MODE_NAMES`: the setting
+    shows "Missing mode name".
+- **Evidence:** found while porting the Launchkey (2026-11-10); the Rust port keeps all three.
 
 ## Part 2: dbm-nihost as its own repository
 
@@ -679,6 +709,8 @@ Options:
 | L | Shift (STEP LEFT) + arrows also runs Stop on release | `MaschineCursorCommand.java:61, 82` | bug | high | ready |
 | M | Flexi: a 7-bit "All layers" slot on CC 0-31 is handled as 14 bit | `GenericFlexiControlSurface.java:278` | bug (small effect) | high | Flexi check |
 | N | MCU + 1 extender: the QCon Pro X + XS1 pair is dropped | `MCUControllerDefinition.java:69-79` | bug | high | ready |
+| O | Launchkey Mk3: "Optional[...]" on the display, non-Latin-1 letters break the sysex | `LaunchkeyMk3ParameterMode.java:59`, `LaunchkeyMk3Display.java:108` | bug | high | ready |
+| P | Launchkey Mini: swapped octave pad lights, startup mode ignored, "Missing mode name" | `mini/view/DrumConfigView.java:105`, `LaunchkeyMiniMk3ControllerSetup.java:381` | bug (small) | high | device check |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |

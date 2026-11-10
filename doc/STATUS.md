@@ -48,6 +48,7 @@ MIDI mode).
 | --- | --- | --- | --- |
 | Novation Launchpad | MkII, Pro, Pro Mk3, X, Mini MkIII | `src/controller/launchpad/` | `launchpad_smoke.rs` (2), `launchpad_setup.rs` (10), `launchpad_views.rs` (11) |
 | Novation Launch Control XL | XL | `src/controller/launchcontrol/` | `launchcontrol_xl.rs` (12) |
+| Novation Launchkey | Mk3 (25-88), Mini Mk3 | `src/controller/launchkey/` | `launchkey.rs` (13) |
 | NI Maschine | Mk2, Jam (Mk3, Mikro Mk3, Plus, Studio prepared, not registered) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_jam_setup.rs` (12) |
 | Mackie MCU | MCU with 0-3 extenders (`MCU1..4ControllerInstance`) | `src/controller/mackie/mcu/` | `mackie_mcu.rs` (9) |
 | Mackie HUI | HUI with 0-2 extenders (`HUI1..3ControllerInstance`) | `src/controller/mackie/hui/` | `mackie_hui.rs` (5) |
@@ -104,6 +105,25 @@ conformance scenarios (`tests/conformance/beatstep/`, 21 scenarios) need a Bitwi
 not registered), the 1 ms pause after each pad sysex (BITWIG_DIVERGENCES.md §9), the crossfade
 mode knob of a track (Reaper has no crossfade parameter per track). See the module documentation
 in `src/controller/arturia/beatstep/` for the details.
+
+**Novation Launchkey (2026-11-10):** the Launchkey Mk3 (25, 37, 49, 61 and 88 keys, one
+definition as in Java) and the Launchkey Mini Mk3, as one setup with the model as a parameter
+(the Java `maxi` and `mini` packages are mostly copies). Ported: the DAW mode handshake (the Mk3
+waits for the device to confirm, then synchronizes the knob, fader and pad modes), the device
+inquiry (the Mk3 detects the 88 key model, whose display has another device ID, and the models
+without faders), the 36 row display of the Mk3 (base, knob and fader screens, ISO-8859-2), the
+three pad mappings (session, drum, device select), the session view with the pad modes of the
+lower row, the pad mode select view, the drum view with its step sequencer and configuration,
+the device select and browser views of the Mk3, the knob and fader modes, the custom modes, the
+buttons below the faders (select / rec arm, with Undo delete) and the Mini's user knobs (project
+or track parameters on the keyboard port) and program changes. The keyboard port is the second
+MIDI input of the definition: a new, opt-in generic part, `ControllerFactory::num_extra_midi_inputs`
+(further inputs after the port pairs, configured as `MIDI_INPUT<n>`, detected with the further
+input names of a discovery pair, numbered after the pairs on Bitwig; their MIDI goes to
+`ControllerSetup::handle_extra_input_midi`). The ACVS could use it for its second input. Not
+tested with hardware yet. Not ported: Shift + Play (return to the arrangement, no host command in
+the core yet), the simulator lights and layout. The Launchkey Mk4 has no Java implementation.
+See the module documentation of `src/controller/launchkey/` and BITWIG_DIVERGENCES.md §9.
 
 Commits:
 

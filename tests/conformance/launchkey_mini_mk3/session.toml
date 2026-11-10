@@ -1,0 +1,72 @@
+# Conformance scenarios: Novation Launchkey Mini Mk3, session mode and the knobs (DAW port: the
+# upper pad row sends notes 96-103, the lower row 112-119 on channel 1, the scene buttons CC
+# 104/105 on channel 1, the other buttons and the knobs CCs on channel 16). Fixture:
+# tests/conformance/FIXTURE.md.
+#
+# Not run yet: the Bitwig profile of this setup does not exist (CONFORMANCE.md).
+
+controller = "Novation Launchkey Mini Mk3"
+manual = "Novation/Novation-LaunchkeyMiniMk3.md#session-mode"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/1/clip/1/hasContent" = "1" }
+
+setup = [
+  { midi = "9F 0C 7F", note = "the device confirms the DAW mode" },
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "BF 03 02", note = "pad mode Session" },
+  { midi = "BF 09 01", note = "knob mode Volume" },
+]
+
+[[stub]]
+match = "9F 0C ??"
+reply = "echo"
+
+[[scenario]]
+id = "lkmini.session.launch"
+bullet = "The pads start playback or recording of the respective clip."
+steps = [
+  { midi = "90 61 7F", note = "upper pad 2 (track Drums, scene 1)" },
+  { midi = "90 61 00" },
+]
+expect.bitwig = { "/track/2/clip/1/isSelected" = "1" }
+
+[[scenario]]
+id = "lkmini.session.sub-mode-arm"
+bullet = "Record Arm: Toggle the recording armed state of the 8 tracks on the selected track bank page."
+before = [{ osc = "/track/4/recarm 0" }]
+steps = [
+  { midi = "B0 69 7F", note = "Scene 2 down: the pad mode select view" },
+  { midi = "90 71 7F | 90 71 00", note = "lower pad 2: Record Arm" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+  { midi = "90 73 7F | 90 73 00", note = "lower pad 4: arm EQ" },
+  { midi = "B0 69 7F", note = "Scene 2 down" },
+  { midi = "90 70 7F | 90 70 00", note = "lower pad 1: Clips" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+]
+expect.bitwig = { "/track/4/recarm" = "1" }
+
+[[scenario]]
+id = "lkmini.global.metronome"
+bullet = "The upper part of the mode selection view provides additional functions: 1) Toggle the metronome"
+before = [{ osc = "/track/4/recarm 0 | /click 0" }]
+steps = [
+  { midi = "B0 69 7F", note = "Scene 2 down" },
+  { midi = "90 60 7F | 90 60 00", note = "upper pad 1: metronome" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+]
+expect.bitwig = { "/click" = "1" }
+
+[[scenario]]
+id = "lkmini.knob.volume"
+bullet = "Volume Mode - Knob 1-8: Changes the volume of the 8 tracks on the current track bank page."
+before = [{ osc = "/click 0 | /track/2/volume 64" }]
+steps = [{ midi = "BF 16 00", note = "knob 2 to the minimum" }]
+expect.bitwig = { "/track/2/volume" = "0" }
+
+[[scenario]]
+id = "lkmini.track-right"
+bullet = "Track Left/Right: Select the previous/next track (in the track modes)."
+before = [{ osc = "/track/2/volume 64 | /track/1/select 1" }]
+steps = [{ midi = "BF 66 7F | BF 66 00", note = "Track right" }]
+expect.bitwig = { "/track/2/selected" = "1" }

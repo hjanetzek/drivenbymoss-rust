@@ -558,6 +558,15 @@ impl DeviceInquiry {
         }
     }
 
+    /// The device family code (2 bytes, former `getDeviceFamilyCode`); empty if not valid.
+    pub fn device_family_code(&self) -> Vec<u8> {
+        if !self.is_valid() {
+            return Vec::new();
+        }
+        let start = self.content_start();
+        self.data.get(start..start + 2).map(|s| s.to_vec()).unwrap_or_default()
+    }
+
     pub fn revision_level(&self) -> Vec<u8> {
         if !self.is_valid() {
             return Vec::new();

@@ -8,6 +8,7 @@ pub mod akai;
 pub mod arturia;
 pub mod generic;
 pub mod launchcontrol;
+pub mod launchkey;
 pub mod launchpad;
 pub mod maschine;
 pub mod mackie;
@@ -70,6 +71,11 @@ pub trait ControllerSetup {
 
     /// Shutdown the controller.
     fn exit(&mut self, ctx: &mut Ctx);
+
+    /// Handle a MIDI message (short or system exclusive) from one of the further MIDI inputs
+    /// ([`ControllerFactory::num_extra_midi_inputs`]); `input` is its index. The default ignores
+    /// it (the notes of a keyboard port reach the host through its note input).
+    fn handle_extra_input_midi(&mut self, _ctx: &mut Ctx, _input: usize, _data: &[u8]) {}
 }
 
 /// The parts of a running controller instance created by a [`ControllerFactory`].
@@ -127,6 +133,30 @@ pub trait ControllerFactory {
         let first = ports.first().copied().ok_or_else(|| "No MIDI ports".to_string())?;
         self.create(host, sender, first, configuration)
     }
+
+    /// The number of further MIDI inputs of an instance, after the inputs of the port pairs (e.g.
+    /// the keyboard port of the Novation Launchkey, Java `createInput (1, ...)`). The default is
+    /// 0. They are configured as `MIDI_INPUT<n>` after the inputs of the pairs (as the Java Reaper
+    /// version stores all inputs of a definition), detected with the further input names of a
+    /// discovery pair, and numbered after the pairs on a host with its own ports (Bitwig). Their
+    /// MIDI goes to [`ControllerSetup::handle_extra_input_midi`].
+    fn num_extra_midi_inputs(&self) -> usize {
+        0
+    }
+
+    /// Create a controller instance with all its port pairs and the device IDs of the further
+    /// MIDI inputs ([`Self::num_extra_midi_inputs`] many, `None` if one was not found). The
+    /// default ignores them and calls [`Self::create_with_ports`].
+    fn create_with_extra_inputs(
+        &self,
+        host: crate::host::Host,
+        sender: crate::backend::Sender,
+        ports: &[MidiPorts],
+        _extra_inputs: &[Option<i32>],
+        configuration: crate::config::Configuration,
+    ) -> Result<InstanceParts, String> {
+        self.create_with_ports(host, sender, ports, configuration)
+    }
 }
 
 /// All supported controllers.
@@ -134,6 +164,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     let mut factories = launchpad::factories();
     factories.extend(maschine::factories());
     factories.extend(launchcontrol::factories());
+    factories.extend(launchkey::factories());
     factories.extend(akai::factories());
     factories.extend(mackie::factories());
     factories.extend(generic::factories());

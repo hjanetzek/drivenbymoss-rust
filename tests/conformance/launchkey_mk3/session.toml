@@ -1,0 +1,92 @@
+# Conformance scenarios: Novation Launchkey Mk3, session mode (DAW port: the upper pad row sends
+# notes 96-103, the lower row 112-119 on channel 1; the scene buttons are CC 104/105 on channel
+# 1). Fixture: tests/conformance/FIXTURE.md (tracks Synth and Drums with an empty clip in slot 1).
+#
+# Not run yet: the Bitwig profile of this setup does not exist (CONFORMANCE.md).
+
+controller = "Novation Launchkey Mk3"
+manual = "Novation/Novation-LaunchkeyMk3.md#session-mode"
+settle_ms = 400
+
+require = { "/track/1/name" = "Synth", "/track/1/clip/1/hasContent" = "1" }
+
+setup = [
+  { midi = "9F 0C 7F", note = "the device confirms the DAW mode (the restart of the controller runs without the stub)" },
+  { wait_ms = 600, note = "the modes are synchronized, the controller is ready after 200 ms" },
+  { osc = "/track/bank/page/- | /track/1/select 1", note = "first track page, track Synth" },
+  { midi = "BF 03 02", note = "pad mode Session" },
+]
+
+[[stub]]
+match = "9F 0C ??"
+reply = "echo"
+
+[[stub]]
+match = "F0 7E 7F 06 01 F7"
+reply = "F0 7E 00 06 02 00 20 29 36 01 00 00 00 01 02 03 F7"
+
+[[scenario]]
+id = "lk3.session.launch"
+bullet = "The pads start playback or recording of the respective clip."
+steps = [
+  { midi = "90 61 7F", note = "upper pad 2 (track Drums, scene 1)" },
+  { midi = "90 61 00" },
+]
+# The clip is selected ("Select clip/scene on launch")
+expect.bitwig = { "/track/2/clip/1/isSelected" = "1" }
+
+[[scenario]]
+id = "lk3.session.stop"
+bullet = "Press Stop + Pad In Session Mode to stop the clip."
+steps = [
+  { midi = "BF 74 7F", note = "Stop down" },
+  { midi = "90 61 7F", note = "upper pad 2 (track Drums)" },
+  { midi = "90 61 00" },
+  { midi = "BF 74 00", note = "Stop up" },
+]
+expect.bitwig = { "/track/2/clip/1/isPlaying" = "0", "/track/2/clip/1/isPlayingQueued" = "0" }
+
+[[scenario]]
+id = "lk3.session.sub-mode-mute"
+bullet = "Mute: Toggle the mute state of the 8 tracks on the selected track bank page."
+before = [{ osc = "/track/2/mute 0" }]
+steps = [
+  { midi = "B0 69 7F", note = "Scene 2 (SSM) down: the pad mode select view" },
+  { midi = "90 73 7F | 90 73 00", note = "lower pad 4: Mute" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+  { midi = "90 71 7F | 90 71 00", note = "lower pad 2: mute Drums" },
+  { midi = "B0 69 7F", note = "Scene 2 down" },
+  { midi = "90 70 7F | 90 70 00", note = "lower pad 1: Clips" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+]
+expect.bitwig = { "/track/2/mute" = "1" }
+
+[[scenario]]
+id = "lk3.session.sub-mode-solo"
+bullet = "Solo: Toggle the solo of the 8 tracks on the selected track bank page."
+before = [{ osc = "/track/2/mute 0 | /track/3/solo 0" }]
+steps = [
+  { midi = "B0 69 7F", note = "Scene 2 (SSM) down" },
+  { midi = "90 74 7F | 90 74 00", note = "lower pad 5: Solo" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+  { midi = "90 72 7F | 90 72 00", note = "lower pad 3: solo Layers" },
+  { midi = "B0 69 7F", note = "Scene 2 down" },
+  { midi = "90 70 7F | 90 70 00", note = "lower pad 1: Clips" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+]
+expect.bitwig = { "/track/3/solo" = "1" }
+
+[[scenario]]
+id = "lk3.session.track-select"
+bullet = "Track select: Select one of the 8 tracks on the selected track bank page."
+before = [{ osc = "/track/3/solo 0 | /track/1/select 1" }]
+steps = [
+  { midi = "B0 69 7F", note = "Scene 2 (SSM) down" },
+  { midi = "90 72 7F | 90 72 00", note = "lower pad 3: Track Select" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+  { midi = "90 73 7F | 90 73 00", note = "lower pad 4: select EQ" },
+  { midi = "B0 69 7F", note = "Scene 2 down" },
+  { midi = "90 70 7F | 90 70 00", note = "lower pad 1: Clips" },
+  { midi = "B0 69 00", note = "Scene 2 up" },
+]
+expect.bitwig = { "/track/4/selected" = "1" }
