@@ -180,7 +180,10 @@ ApplicationWindow {
                     color: "#e0e0e4"
                     x: (parent.width - width) / 2
                     y: parent.height / 2 - height
-                    transform: Rotation { origin.x: width / 2; origin.y: height; angle: enc.angle }
+                    // Its own rotation around its bottom end, the center of the encoder (in a
+                    // Rotation transform, width and height would be those of the encoder item)
+                    transformOrigin: Item.Bottom
+                    rotation: enc.angle
                 }
             }
             Text {
