@@ -536,3 +536,32 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
     state for the conformance runner).
   - Java runtime exceptions of the modules (e.g. a non-numeric send index) are logged as errors
     instead of reaching Bitwig as exceptions; an index outside a page addresses an empty item.
+- **Ableton Push 1/2/3** (ported 2026-11-19, `src/controller/push/`):
+  - **Display transport:** Java renders on changes and sends the image at every flush, as two
+    bulk writes (header, image). The port renders on changes, hands a changed frame to the host at
+    most every 33 ms and resends an unchanged one every second (keep-alive; the Push 2 display
+    blanks without frames); the frame is one byte stream (16-byte header + 327,680 masked bytes),
+    which the Bitwig extension and the usbdevfs writer split into header and image again.
+  - **Drawing:** own dependency-free rasterizer and the DejaVu Sans outlines instead of Cairo and
+    the system font: lines are 1 px, no hinting or kerning, icons at whole pixels (pre-rendered
+    SVG masks). The clip list and MIDI clip components hold copies of the data and re-render only
+    when it changes (Java compares model references).
+  - **Display colors** are text settings (`#RRGGBB`), the settings have no color type.
+  - **Pad curve of the Push 3:** Java's `sendPadSensitivityPush3` builds the message with the
+    command byte 0x43 but sends only the curve; the port sends the command byte (candidate R).
+  - **Not ported / host gaps:** the device favorites of "Add Track" (no device metadata in the
+    core: columns 2-8 are empty), the track crossfade (crossfade mode without effect, knob 3 of
+    the track mode empty), slot chains, `ILayer.enter`/`IDrumPad.enter`, layer edit send names,
+    switching the host's note input to MPE (the device is switched as in Java), the debug window,
+    note repeat latch/octaves/free running/shuffle (hidden as without the capability), the note
+    attributes the framework lacks are kept in the Push note mode. Host capabilities are derived
+    from `HostFeature::DeviceCommands` (Bitwig) as long as the host does not report them.
+  - **Mode switches** requested by a mode from its own handler are deferred to the next tick
+    (`ctx.schedule(0, ..)`), since the mode is borrowed while it runs; a button triggered that
+    way (Java `button.trigger (DOWN)`) is not released, as in Java.
+  - **Touchstrip:** the 14 bit pitch bend is taken in the MIDI handler (a continuous control has
+    7 bits); the note repeat period/length are read and written through the configuration.
+  - **Shutdown text:** "Please start the DAW to play..." (Java: the host name).
+  - **Pads** stay bound to MIDI channel 1 in MPE mode (Java's `PushPadGrid` returns channel -1,
+    which its pad grid sends on channel 1 as well).
+

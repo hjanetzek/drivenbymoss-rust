@@ -127,6 +127,12 @@ pub trait View: Any {
         false
     }
 
+    /// Former `instanceof IExpressionView`: true if the view plays notes with expressions (MPE),
+    /// e.g. the play and drum views of the Push 3.
+    fn is_expression_view(&self) -> bool {
+        false
+    }
+
     /// Former `AbstractSessionView.isBirdsEyeActive`.
     fn is_birds_eye_active(&self) -> bool {
         false
@@ -139,6 +145,20 @@ pub trait View: Any {
     fn was_shift_view_used(&self) -> bool {
         false
     }
+
+    /// Set the item which gets the selected color (former `ColorView.setMode`). Only color
+    /// views implement it.
+    fn set_color_select_mode(&mut self, _mode: super::view::color_select_mode::ColorSelectMode) {}
+
+    /// The clip (columns, rows of the note clip) of a sequencer view (former `instanceof
+    /// AbstractSequencerView` + `getClip`), `None` for other views.
+    fn sequencer_clip_key(&self) -> Option<super::mode::note_editor::ClipKey> {
+        None
+    }
+
+    /// Edit the note at the position (former `AbstractSequencerView.editNote`). Only sequencer
+    /// views implement it.
+    fn sequencer_edit_note(&mut self, _ctx: &mut Ctx, _note_position: &crate::daw::clip::NotePosition, _add_note: bool) {}
 
     /// The session alternative interface of the view, if it implements it (former
     /// `instanceof ISessionAlternative`).

@@ -85,7 +85,7 @@ listed under "Needs".
 | NI Kontrol Mk2/Mk3 (protocol V1–V3) | `ni/kontrol/mkii` | part of 7,390 | `KontrolProtocolV1/V2/V3ControllerInstance` | — (NI Kontrol MIDI protocol, track/parameter names via sysex) | 2 |
 | NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
 | Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | **Ported** (`src/controller/generic/`, see STATUS.md) | — |
-| Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | Push 1: text display. Push 2/3: graphics rendering (`framework/graphics`, 3,939 lines + 1,618 Reaper side) and USB bulk transfer of the display | 5 |
+| Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | **Ported** (`src/controller/push/`; Push 2/3 display with `framework::graphics`, frames to the host with `Backend::usb_bulk_out`) | — |
 | OSC | `osc/**` | 3,801 | `OSCControllerInstance` | **Ported** (`src/controller/osc/`, with `framework::osc`: OSC 1.0 codec, writer, UDP polled at the tick) | — |
 | Gamepad | `gamepad` | 291 | `GamepadControllerInstance` | Gamepad input (jamepad in Java): needs a native library | 5 |
 | Utilities: Auto color, MIDI monitor | `utilities/**` | 793 | `AutoColorInstance`, `MidiMonitorInstance` | Auto color: track name → color rules; MIDI monitor: log only | 1 |
@@ -260,7 +260,7 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 | `framework::surface` | `Surface`, `HwButton`, `HwLight`, `HwContinuous`, `ButtonAction`, `TriggerSender` |
 | `framework::grid` | `PadGrid`, `LightInfo`, `BlinkMode::{Channels, Collect, Emulated}` |
 | `framework::display` | `TextDisplay`, `LineWriter`, `McuDisplay`, `Format` |
-| `framework::graphics` | Graphics displays without dependencies: `Bitmap` (RGB, `encode_bgra`, `to_ascii_art`), `GraphicsContext` (fill/stroke rectangle, line, text in bounds/height; no anti-aliasing), the embedded 5x8 bitmap `font` (integer scaling), `GraphicsConfiguration::chromatic`, `GraphicsDimensions`, `Component` (Label, List, TitleValue, TitleValueMenu, TitleChannels) and `GraphicDisplay` (renders only on changes, notifications); `Ctx::graphics_display` shows the notifications |
+| `framework::graphics` | Graphics displays without dependencies: `Bitmap` (RGB, `encode_bgra`, `to_ascii_art`, `to_ppm`, `fnv1a_hash`), `GraphicsContext` (rectangles, rounded/gradient rectangles, lines, triangles, circles, icons, text; anti-aliased with `GraphicsConfiguration::is_antialias_enabled`), the 5x8 bitmap `font` and the DejaVu `vector_font`, `GraphicsConfiguration::{chromatic, push_default}`, `GraphicsDimensions`, `Component` (the small components and the Push large-display ones in `canvas`) and `GraphicDisplay` (all `IGraphicDisplay` methods, renders only on changes, `has_changed`, notifications); `Ctx::graphics_display` shows the notifications |
 | `framework::setup_helpers` | Scale, deactivated items and note repeat settings, `BrowserObserver`, track change handling |
 | `framework::string_utils` | `format_percentage`, `format_measures`, `pad` |
 | `framework::virtual_fader` | Virtual faders on pad columns |
@@ -352,16 +352,15 @@ Events are drained with `take_events()`. The Reaper message parser is in `src/pa
 The complete list, class by class and by upcoming controller, is in
 [FRAMEWORK_MAP.md](FRAMEWORK_MAP.md). The larger items, to port when a controller needs them:
 
-- Graphics: the base exists (`framework::graphics`, used by the Fire). Missing: the components
-  of the large displays (Channel, Parameter, Sends, Options, Menu, ClipList, SceneList,
-  MidiClip, GraphOverlay, ChannelSelect), icons (SVG images), anti-aliased drawing, rounded
-  rectangles and vector fonts. Needed by Push 2/3 and Oxi One.
-- `AbstractDrumXoXView` (the XoX drum sequencer). Needed by the Fire (Views.DRUM).
+- ~~Graphics~~: done (`framework::graphics`: the large-display components, icons, anti-aliasing,
+  rounded rectangles, a vector font; used by the Push 2/3). The Oxi One components are missing.
+- ~~`AbstractDrumXoXView`~~: done (`DrumXoXBase`, used by the Push); the Fire still needs
+  `adjustPage`/`blockSelectKnob` for its DRUM view.
 - ~~A second MIDI input~~: done for one port pair (`ControllerFactory::num_extra_midi_inputs`,
   used by the Launchkey for its keyboard port; their MIDI goes to
   `ControllerSetup::handle_extra_input_midi`), and by the ACVS for its "Pads (Remote MIDI Port)".
-- USB/HID: `framework/usb` and `reaper/framework/usb`. Needed by Push 2/3 (display) and
-  Kontrol Mk1.
+- USB: bulk OUT is done (`ControllerFactory::usb_devices`, `Backend::usb_bulk_out`, C ABI
+  `dbm_set_usb_callback`; HOST_BRIDGE_GUIDE §5a). HID (Kontrol Mk1) is missing.
 - ~~OSC~~: done (`framework::osc`, used by `src/controller/osc/`).
 - ~~Multiple surfaces per controller instance~~: done (`framework::multi_surface`, see
   [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md)). A factory declares `num_port_pairs()` and

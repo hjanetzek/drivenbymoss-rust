@@ -1,4 +1,7 @@
 de.mossgrabers.dbm.bitwig.ProbeExtensionDefinition
+de.mossgrabers.dbm.bitwig.definitions.AbletonPush1Definition
+de.mossgrabers.dbm.bitwig.definitions.AbletonPush2Definition
+de.mossgrabers.dbm.bitwig.definitions.AbletonPush3Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPC40Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPC40MkIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk1Definition
@@ -25,3 +28,4 @@ de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadMkIIDefinition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadProDefinition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadProMk3Definition
 de.mossgrabers.dbm.bitwig.definitions.NovationLaunchpadXDefinition
+de.mossgrabers.dbm.bitwig.definitions.OpenSoundControlOSCDefinition

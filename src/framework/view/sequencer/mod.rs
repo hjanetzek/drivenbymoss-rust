@@ -10,3 +10,4 @@ pub mod abstract_raindrops_view;
 pub mod abstract_drum_view;
 pub mod abstract_drum_lane_view;
 pub mod clip_length_view;
+pub mod abstract_drum_xox_view;

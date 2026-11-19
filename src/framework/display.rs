@@ -65,6 +65,13 @@ pub trait LineWriter {
         pad_into(out, value, characters_of_cell);
     }
 
+    /// The number of characters of a cell (former overrides of `clearCell`, `setCell` and
+    /// `setBlock` with cells of different widths, e.g. the Push 1 with alternating cells of 9
+    /// and 8 characters). The default is the same width for all cells.
+    fn cell_width(&self, _column: usize, characters_of_cell: usize) -> usize {
+        characters_of_cell
+    }
+
     /// Modify the text of a line before it is written (former override of `updateLine`).
     fn transform_line(&self, _row: usize, text: &str) -> String {
         text.to_string()
@@ -94,6 +101,9 @@ pub struct TextDisplay {
     cells: Vec<String>,
 
     is_shutdown: bool,
+    /// Short notifications are shown in the last block of this length of the first two rows
+    /// (former override of `updateNotification` of the Push 1).
+    short_notification_block: Option<usize>,
 }
 
 impl TextDisplay {
@@ -120,6 +130,7 @@ impl TextDisplay {
             full_rows: Vec::new(),
             cells: Vec::new(),
             is_shutdown: false,
+            short_notification_block: None,
         };
         display.set_number_of_cells(no_of_lines, no_of_cells, no_of_characters);
         display
@@ -230,9 +241,14 @@ impl TextDisplay {
 
     pub fn clear_cell(&mut self, row: usize, column: usize) -> &mut Self {
         if let Some(cell) = self.cell_index(row, column) {
+            let width = self.writer.cell_width(column, self.characters_of_cell);
             let cell = &mut self.cells[cell];
             cell.clear();
-            cell.push_str(&self.empty_cell);
+            if width == self.characters_of_cell {
+                cell.push_str(&self.empty_cell);
+            } else {
+                cell.extend(std::iter::repeat_n(' ', width));
+            }
         }
         self
     }
@@ -244,7 +260,7 @@ impl TextDisplay {
 
     pub fn set_cell(&mut self, row: usize, column: usize, value: &str) -> &mut Self {
         match self.cell_index(row, column) {
-            Some(cell) => self.writer.format_cell(value, self.characters_of_cell, &mut self.cells[cell]),
+            Some(cell) => self.writer.format_cell(value, self.writer.cell_width(column, self.characters_of_cell), &mut self.cells[cell]),
             None => debug_assert!(false, "Display array index out of bounds."),
         }
         self
@@ -253,14 +269,14 @@ impl TextDisplay {
     /// Set a block (2 cells).
     pub fn set_block(&mut self, row: usize, block: usize, value: &str) -> &mut Self {
         let cell = 2 * block;
-        let chars = self.characters_of_cell;
+        let chars = self.writer.cell_width(cell, self.characters_of_cell);
         if value.chars().count() >= chars {
             let (Some(first), Some(second)) = (self.cell_index(row, cell), self.cell_index(row, cell + 1)) else {
                 return self;
             };
             let split = value.char_indices().nth(chars).map_or(value.len(), |(i, _)| i);
             pad_into(&mut self.cells[first], &value[..split], chars);
-            pad_into(&mut self.cells[second], &value[split..], chars);
+            pad_into(&mut self.cells[second], &value[split..], self.writer.cell_width(cell + 1, self.characters_of_cell));
         } else {
             self.set_cell(row, cell, value);
             self.clear_cell(row, cell + 1);
@@ -346,8 +362,28 @@ impl TextDisplay {
         }
     }
 
+    /// Show notifications which fit into a block of the given length only in the last block of
+    /// the first two rows (former override of `updateNotification` of the Push 1).
+    pub fn set_short_notification_block(&mut self, block_length: Option<usize>) {
+        self.short_notification_block = block_length;
+    }
+
     /// Updates the display with the notification.
     fn update_notification(&mut self) {
+        if let Some(block_length) = self.short_notification_block {
+            let trimmed = self.notification_message.trim().to_string();
+            if trimmed.chars().count() <= block_length && self.no_of_lines >= 2 {
+                let keep = self.no_of_characters.saturating_sub(block_length);
+                for (row, text) in [(0, trimmed.as_str()), (1, "")] {
+                    let current = self.current_message[row].clone().unwrap_or_default();
+                    let mut line: String = current.chars().take(keep).collect();
+                    line.extend(std::iter::repeat_n(' ', keep.saturating_sub(line.chars().count())));
+                    line.push_str(&pad(text, block_length));
+                    self.update_line(row, &line, Some(&current));
+                }
+                return;
+            }
+        }
         let chars: Vec<char> = self.notification_message.chars().collect();
         for row in 0..self.no_of_lines {
             let pos = row * self.no_of_characters;

@@ -30,3 +30,4 @@ pub use setting::{Scope, SettingDescriptor, SettingId, SettingKind};
 pub use values::{ArpeggiatorMode, RecordFunction, Resolution, TransportBehavior};
 pub mod generic_flexi;
 pub mod osc;
+pub mod push;

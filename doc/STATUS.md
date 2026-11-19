@@ -59,6 +59,7 @@ MIDI mode).
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 | Arturia Beatstep | Beatstep (also the Beatstep Pro, same MIDI) | `src/controller/arturia/beatstep/` | `arturia_beatstep.rs` (9) |
 | Open Sound Control | OSC (`OSCControllerInstance`) | `src/controller/osc/` | `osc_controller.rs` (1, over localhost UDP), Python `test_osc.py` |
+| Ableton Push | Push 1, Push 2, Push 3 | `src/controller/push/` | `push_setup.rs`, `push_modes_track.rs`, `push_modes_misc.rs`, `push_views.rs`, `ffi.rs` (USB callback), Python `test_usb.py`, Zynthian `test_push.py` |
 
 There are also 220 unit tests in the sources.
 
@@ -105,6 +106,20 @@ Not ported (no command in the core): the crossfade mode of tracks, renaming and 
 `/browser/insertClap`; and the Java `ConformanceModule`. The Bitwig extension definition is not
 generated yet (`backends/bitwig/tools/gen_definitions.py`). Divergences: BITWIG_DIVERGENCES.md
 §9, bugs kept: UPSTREAM_CANDIDATES.md Q.
+
+**Ableton Push 1, 2 and 3 (2026-11-19):** all modes, views and commands of the Java version,
+for the three models (Push 1: the 4x68 character sysex display; Push 2/3: the 960x160 display),
+the Push 3 specifics (encoder, extra buttons, MPE with in-tune settings, the audio interface
+settings) and all settings of `PushConfiguration`. The Push 2/3 display is drawn by the extended
+`framework::graphics` (the large-display components, icons, anti-aliasing, a vector font); every
+frame (16-byte header + 327,680 BGR565 bytes, XOR-masked) goes to the host through the new
+`Backend::usb_bulk_out` / C ABI `dbm_set_usb_callback` (changed frames at most 30 per second,
+a keep-alive every second). The hosts write it with Bitwig's USB API (the generated definitions
+claim the device), with usbdevfs from Python (Zynthian, the reference host) or to the UNIX socket
+of the Push simulator (`DBM_PUSH_DISPLAY_SOCKET`, HOST_BRIDGE_GUIDE §5a). Not tested with
+hardware or in Bitwig yet. Not ported: the device favorites of Add Track, the track crossfade,
+slot chains, entering layers, the host's MPE note input; see BITWIG_DIVERGENCES §9, bugs:
+UPSTREAM_CANDIDATES R.
 
 **Akai (2026-11-02):** APC mini Mk1/Mk2, APC40 Mk1/Mk2, MPC/Force over ACVS and the Fire.
 The Fire's 128x64 OLED is drawn with the new dependency-free graphics module

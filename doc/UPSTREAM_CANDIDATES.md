@@ -464,6 +464,27 @@ Found while porting the OSC controller; the port keeps them.
   `default: throw new UnknownCommandException`. Fix: `return` after setting the name or color.
 - **Confidence:** high. **Ready:** yes, checkable with OSC only.
 
+#### R. Push: bugs found while porting the Push 1/2/3
+
+- **Push 3 pad curve without command byte (fixed in the port).** `PushControlSurface.
+  sendPadSensitivityPush3` fills `data` with 0x43 + the curve but calls `sendSysex (curve)`. Fix:
+  send `data`.
+- **Kept in the port:**
+  - QuantizeMode: `onKnobTouch` does not store the touch state, and the quantize amount (knob 8)
+    shows the touch state of knob 1 (`isKnobTouched (0)`). NoteMode and GrooveMode do not store
+    the touch state either.
+  - NoteViewSelectMode (Push 2): `viewManager.get (VIEWS_TOP[i]).getName ()` throws if a view is
+    not registered (the port shows "").
+  - ClipMode returns Push 2 color constants for row 2 on the Push 1 too.
+  - DeviceChainsMode keeps the knobs bound to the device parameters although its `onKnobValue`
+    is empty; its button 4 toggles its own `showDevices`, not the one of DEVICE_PARAMS.
+  - The layer mute/solo menus read the layers without the drum pad offset; the layer sends
+    element does not convert the send values to display values.
+  - DeviceBrowserMode `encoderRight` never selects the last filter column.
+  - MasterMode's `isTemporary` parameter is unused.
+- **Confidence:** high for the pad curve, medium for the others. **Ready:** the pad curve fix is
+  a one-liner; it needs a Push 3 to verify.
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |

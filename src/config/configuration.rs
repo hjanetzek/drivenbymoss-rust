@@ -1293,6 +1293,18 @@ impl Configuration {
         self.flip_session
     }
 
+    /// Set the flip session flag without a setting (former direct write of `flipSession`, e.g.
+    /// by the session view setting of the Push).
+    pub fn set_flip_session_field(&mut self, enabled: bool) {
+        self.flip_session = enabled;
+    }
+
+    /// Set the aftertouch conversion without a setting (former direct write of
+    /// `convertAftertouch`, e.g. by the Push 3).
+    pub fn set_convert_aftertouch_field(&mut self, convert_aftertouch: i32) {
+        self.convert_aftertouch = convert_aftertouch;
+    }
+
     pub fn set_flip_session(&mut self, enabled: bool) {
         self.set_on_off(SettingId::FLIP_SESSION, enabled);
     }

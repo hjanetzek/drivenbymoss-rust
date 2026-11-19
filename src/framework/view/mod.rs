@@ -19,3 +19,5 @@ pub mod drum64_view;
 pub mod deferred;
 pub mod control_only_view;
 pub mod dummy_view;
+pub mod color_select_mode;
+pub mod color_view;

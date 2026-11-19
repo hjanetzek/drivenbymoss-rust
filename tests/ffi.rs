@@ -391,6 +391,60 @@ fn host_time_drives_the_instance() {
     unsafe { dbm_tick(host.app) };
 }
 
+/// A USB write: instance, device index, vendor, product, interface, endpoint and the first 16
+/// bytes, with the length.
+type UsbWrite = (c_int, c_int, u16, u16, u8, u8, Vec<u8>, usize);
+
+extern "C" fn usb_bulk_out(user: *mut c_void, instance: c_int, device_index: c_int, vendor_id: u16, product_id: u16, interface_number: u8, endpoint: u8, data: *const u8, length: usize) -> c_int {
+    // SAFETY: `user` is the mutex of the test, which outlives the instance
+    let writes = unsafe { &*(user as *const Mutex<Vec<UsbWrite>>) };
+    let head = unsafe { std::slice::from_raw_parts(data, length.min(16)) }.to_vec();
+    writes.lock().unwrap().push((instance, device_index, vendor_id, product_id, interface_number, endpoint, head, length));
+    1
+}
+
+/// `dbm_set_usb_callback`: the version is checked; the USB writes of a controller with USB
+/// devices (`dbm_list_usb_devices`, the first one listed, e.g. the Push 2) reach the callback with
+/// the device's IDs. Skipped while no controller has USB devices.
+#[test]
+fn usb_callback_receives_the_writes() {
+    let host = Host::single("usb-version", "5afa5045-ff92-4737-a091-5b371cd5e529");
+    let writes: Box<Mutex<Vec<UsbWrite>>> = Box::default();
+    let user = &*writes as *const Mutex<Vec<UsbWrite>> as *mut c_void;
+    assert_eq!(unsafe { dbm_set_usb_callback(host.app, DBM_USB_VERSION + 1, Some(usb_bulk_out), user) }, 0);
+    assert_eq!(unsafe { dbm_set_usb_callback(host.app, DBM_USB_VERSION, Some(usb_bulk_out), user) }, 1);
+    assert_eq!(unsafe { dbm_set_usb_callback(host.app, DBM_USB_VERSION, None, user) }, 1);
+    drop(host);
+
+    let all = take_string(unsafe { dbm_list_usb_devices(std::ptr::null()) });
+    // {"<uuid>":[{"vendorId":…,"productId":…,"interface":…,"endpoint":…}, …], …}
+    let Some(uuid) = all.strip_prefix("{\"").and_then(|rest| rest.split('"').next()) else {
+        eprintln!("no controller with USB devices, skipped");
+        return;
+    };
+    let number = |key: &str| -> u32 {
+        let start = all.find(&format!("\"{key}\":")).unwrap() + key.len() + 3;
+        all[start..].split(|c: char| !c.is_ascii_digit()).next().unwrap().parse().unwrap()
+    };
+    let (vendor, product, interface, endpoint) = (number("vendorId") as u16, number("productId") as u16, number("interface") as u8, number("endpoint") as u8);
+    let one = take_string(unsafe { dbm_list_usb_devices(CString::new(uuid).unwrap().as_ptr()) });
+    assert!(one.starts_with(&format!("{{\"{uuid}\":")), "{one}");
+
+    let host = Host::single("usb-writes", uuid);
+    assert_eq!(unsafe { dbm_set_usb_callback(host.app, DBM_USB_VERSION, Some(usb_bulk_out), user) }, 1);
+    unsafe { dbm_set_time(host.app, 0) };
+    unsafe { dbm_start_infrastructure(host.app) };
+    for time in (0..4000).step_by(30) {
+        unsafe { dbm_set_time(host.app, time) };
+        unsafe { dbm_tick(host.app) };
+    }
+    let writes = writes.lock().unwrap();
+    assert!(!writes.is_empty(), "{uuid}: no USB writes");
+    for (i, d, v, p, n, e, _, _) in writes.iter() {
+        assert_eq!((*i, *d, *v, *p, *n, *e), (0, 0, vendor, product, interface, endpoint));
+    }
+}
+
 /// The commands of the binary form: one entry per delivered buffer, as text.
 extern "C" fn binary_commands(user: *mut c_void, buffer: *const u8, length: usize) {
     let text = take_string(unsafe { dbm_messages_to_text(buffer, length) });

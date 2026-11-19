@@ -31,8 +31,8 @@ class.
 
 | Controller | Missing in the framework |
 | --- | --- |
-| Push 2/3 | USB bulk transfer of the display (framework/usb + backend); `IMemoryBlock`; the large-display components (Channel, Parameter, Sends, Options, Menu, ClipList, SceneList, MidiClip, GraphOverlay, ChannelSelect, SendData, IGraphicsInfo), images/icons, anti-aliasing, rounded rectangles, vector fonts; `ColorView`, `ColorSelectMode`, `IColorSetting`; `AbstractDrumXoXView`; `IExpressionView` (MPE); `CreateSceneCommand`, `StartClipCommand`; mute/solo/crossfade as parameters |
-| Akai Fire (DRUM view), Oxi One | `AbstractDrumXoXView`; Oxi: `NoteGenerator`, the large-display components, maybe an `AbstractNoteParameterMode` base |
+| Push 2/3 | Done (2026-11-19): USB bulk out, the large-display components, icons, anti-aliasing, vector font, `ColorView`, `AbstractDrumXoXView`, `IExpressionView` (`View::is_expression_view`), `CreateSceneCommand`. Still missing: track crossfade, layer `enter`, the host MPE note input, `IColorSetting` (colors are text settings) |
+| Akai Fire (DRUM view), Oxi One | `AbstractDrumXoXView` exists now (`DrumXoXBase`, without the Fire's `adjustPage`); Oxi: `NoteGenerator`, the large-display components, maybe an `AbstractNoteParameterMode` base |
 | Kontrol Mk1 | HID (`IHidDevice`, `UsbMatcher`) + backend; `ILightGuide` (key LEDs); `MasterVolumeCommand`; `IMemoryBlock` |
 | Kontrol Mk2/Mk3 | `CreateSceneCommand`, `StartClipCommand`, `WriteArranger/ClipLauncherAutomationCommand` |
 | ESI Xjam | `SelectPrevious/NextDeviceCommand`, `SelectParamPageCommand`, `ToggleDeviceWindowCommand`, `EnableCommand` |
@@ -205,7 +205,7 @@ Model gaps which affect behaviour on Bitwig:
 |---|---|---|---|
 | IDisplay, ITextDisplay, AbstractTextDisplay | `framework::display::{TextDisplay, LineWriter}`, `Ctx::text_display`, `Ctx::notify` | full | Only ASCII is sent; lines are sent synchronously |
 | Format | `framework::display::Format` | full | |
-| IGraphicDisplay, AbstractGraphicDisplay | `framework::graphics::GraphicDisplay` | partial | No anti-aliasing, bitmap font; few components (no Push/Oxi components) |
+| IGraphicDisplay, AbstractGraphicDisplay | `framework::graphics::GraphicDisplay` | full | All `IGraphicDisplay` methods (snake_case, Java order); components take plain data (`SceneInfo`, `SlotInfo`, `MidiClipInfo`, `SendData`); `render` + `has_changed`/`generation` |
 | DummyDisplay | - | n/a | OSC: `Ctx::notify` without a text display shows the host notification, as DummyDisplay |
 
 ### framework/controller/grid
@@ -309,7 +309,7 @@ Model gaps which affect behaviour on Bitwig:
 | IBrowser, AbstractBrowser; BrowserImpl, BrowserColumnImpl, BrowserColumnItemImpl | `daw::browser::{Browser, BrowserColumn, BrowserColumnItem}` | partial | `Model::browser()` is Option. Reaper: preset browsing only; Bitwig: full popup browser (BD §2) |
 | IClipLauncherNavigator; ClipLauncherNavigatorImpl | `framework::clip_launcher_navigator::ClipLauncherNavigator` | full | Owned by the controller (`Rc<RefCell>`); Bitwig needs `HostFeature::ClipLauncherNavigator` |
 | IHost; HostImpl | `host::Host` (+ `config` for capabilities) | partial | Logging, notifications, task scheduling only; no memory blocks, OSC/UDP or other host services |
-| IMemoryBlock; MemoryBlockImpl | — | missing | Needed by Push and Kontrol (graphics display) |
+| IMemoryBlock; MemoryBlockImpl | — | n/a | The Push frame is a `Vec<u8>` handed to `Backend::usb_bulk_out`; the Bitwig extension copies it into a memory block |
 | DAWColor | `daw::color::{DawColor, ColorEx}` | full | |
 | GrooveParameterID | `daw::constants::GrooveParameterId` | full | |
 
@@ -523,7 +523,7 @@ Rust paths in this part are relative to `src/framework/`.
 | ControlOnlyView | view::control_only_view::ControlOnlyView | full | |
 | ScenePlayView | view::scene_play_view::ScenePlayView | full | |
 | TransposeView | view::transpose_view::TransposeView (trait) | full | |
-| ColorView, ColorSelectMode | - | missing | Needed by Push and SL MkIII (the DAW color palette on the grid) |
+| ColorView, ColorSelectMode | view::color_view::ColorView, view::color_select_mode::ColorSelectMode | full | `View::set_color_select_mode` replaces the cast |
 | DummyView | ctrl launchkey (`view::misc::DummyView`) | full | Only in the Launchkey port (also needed by Electra One, EC4) |
 | Views (IDs + helpers) | ids::Views | partial | Only the enum. isSequencerView/isSessionView/isNoteView and the names are missing |
 | (none) | view::deferred::{activate_preferred_view_later, restore_view_later} | n/a | Rust only: a view switch requested by the view itself runs after the current event |
@@ -539,7 +539,7 @@ Rust paths in this part are relative to `src/framework/`.
 | AbstractDrumView, AbstractDrumExView | view::sequencer::abstract_drum_view::{DrumBase, DrumHooks, DrumExState} | full | Turn the Ex buttons on with with_extra_buttons. They are always handled, not registered on activation |
 | AbstractDrumLaneView, AbstractDrum4View, AbstractDrum8View | view::sequencer::abstract_drum_lane_view::{DrumLaneBase, DrumLaneHooks} | full | Drum4 means 4 lanes x 16 steps, Drum8 means 8 lanes x 8 steps (constructors) |
 | ClipLengthView | view::sequencer::clip_length_view::ClipLengthView | full | |
-| AbstractDrumXoXView | - | missing | Needed by Fire (DRUM button), Push and Oxi One |
+| AbstractDrumXoXView | view::sequencer::abstract_drum_xox_view::DrumXoXBase | full | Used by the Push; `adjustPage`/`blockSelectKnob` (Fire only) not ported |
 | AbstractMonophonicSequencerView | - | missing | Needed by the Yaeltex Turn |
 
 ### framework/graphics
@@ -547,14 +547,14 @@ Rust paths in this part are relative to `src/framework/`.
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
 | IBitmap | graphics::bitmap::Bitmap | full | RGB. encode_bgra, to_ascii_art (in place of the debug window) |
-| IGraphicsContext | graphics::bitmap::GraphicsContext | partial | No anti-aliasing. A rounded rect is drawn as a plain rect. No images, gradients or clipping |
+| IGraphicsContext | graphics::bitmap::GraphicsContext | full | Anti-aliasing (own rasterizer `graphics::raster`, exact coverage) when the configuration enables it, rounded/gradient rectangles, triangles, circles, icon masks; lines are 1 px, clipping on whole pixels |
 | Align | graphics::bitmap::Align | full | |
 | IGraphicsConfiguration, ChromaticGraphicsConfiguration | graphics::GraphicsConfiguration (::chromatic) | full | |
 | IGraphicsDimensions, DefaultGraphicsDimensions | graphics::GraphicsDimensions | full | |
 | IBounds, DefaultBounds | - (plain f64 params) | n/a | |
-| IGraphicsInfo, DefaultGraphicsInfo | - | missing | Components get the context and bounds directly. Needed for the large-display components |
-| IImage, IRenderer, IEncoder | - | missing | No images or icons (SVG/PNG resources). Needed by Push 2/3 |
-| (fonts) | graphics::font (5x8 bitmap, integer scale) | partial | Not a vector font, so text widths differ from Java |
+| IGraphicsInfo, DefaultGraphicsInfo | graphics::canvas::DrawInfo | full | |
+| IImage, IRenderer, IEncoder | graphics::icons (+ generated icon_data.rs) | partial | The SVG icons are pre-rendered alpha masks (tools/gen_icons.py), tinted when drawn |
+| (fonts) | graphics::font (5x8 bitmap), graphics::vector_font (DejaVu Sans outlines, generated font_data.rs) | full | The vector font is used with anti-aliasing (Push); no hinting or kerning |
 
 ### framework/graphics/display
 
@@ -568,10 +568,10 @@ Rust paths in this part are relative to `src/framework/`.
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
 | IComponent | graphics::component::Component (enum) | partial | An enum, not a trait. PartialEq decides when to re-render |
-| LabelComponent | Component::Label, LabelLayout | partial | No icons |
+| LabelComponent | Component::Label, Component::LabelWithIcon, LabelLayout | full | |
 | ListComponent | Component::List | full | |
-| ChannelComponent, ChannelSelectComponent, ParameterComponent, SendsComponent, OptionsComponent, MenuComponent | - | missing | The Push 2/3 large-display components |
-| ClipListComponent, SceneListGridElement, MidiClipComponent, GraphOverlayComponent | - | missing | Push 2/3 only |
+| ChannelComponent, ChannelSelectComponent, ParameterComponent, SendsComponent, OptionsComponent, MenuComponent | graphics::canvas::* (Component::{Channel, ChannelSelect, Parameter, Sends, Options, Menu}) | full | Java layout math |
+| ClipListComponent, SceneListGridElement, MidiClipComponent, GraphOverlayComponent | graphics::canvas::* (Component::{ClipList, SceneList, MidiClip}, overlays) | full | Plain data instead of model objects, so they re-render only on changes |
 
 ### framework/graphics/canvas/component/simple
 
@@ -584,7 +584,7 @@ Rust paths in this part are relative to `src/framework/`.
 
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
-| SendData | - | missing | Only used by SendsComponent and ChannelComponent (Push) |
+| SendData | graphics::canvas::SendData | full | |
 
 ### framework/osc
 
@@ -603,6 +603,6 @@ The `osc` in src/parser.rs is unrelated: it is Reaper's own path protocol.
 
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
-| IUsbDevice, IUsbEndpoint, IUsbCallback, UsbException | - | missing | No USB. Reaper: reaper/framework/usb/{UsbDeviceImpl, UsbEndpointImpl} (libusb) |
+| IUsbDevice, IUsbEndpoint, IUsbCallback, UsbException | `Backend::usb_bulk_out` / `Sender::usb_bulk_out` | partial | Bulk OUT only: the core hands the bytes to the host (C ABI `dbm_set_usb_callback`; Bitwig USB API, Python usbdevfs or the simulator socket, see HOST_BRIDGE_GUIDE §5a). No IN endpoints |
 | IHidDevice, IHidCallback | - | missing | Reaper: reaper/framework/usb/HidDeviceImpl. Needed by Kontrol Mk1 |
-| UsbMatcher | - | missing | Requires a factory or backend API to declare the USB/HID devices |
+| UsbMatcher | controller::UsbMatcher, `ControllerFactory::usb_devices` | full | Exposed by `dbm_list_usb_devices` and `dbm-catalog --usb` (Bitwig definitions) |
