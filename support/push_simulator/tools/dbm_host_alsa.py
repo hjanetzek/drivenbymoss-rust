@@ -14,6 +14,11 @@ once the binding forwards that callback). The encoder state of the Push 2/3 (the
 channel, ``Backend.simulator_data_out``: ``DBMV`` messages) goes to the same socket between the
 frames, unless ``--no-values`` or ``DBM_PUSH_SIM_VALUES=0``. ``--controller`` runs any other
 controller UUID.
+
+The Maschine simulators (support/controller_simulator, ``--model mk2|jam``): the runner reads
+from their "... In"/"... Input" port and writes to "... Out"/"... Output" (with the suffix
+" (sim)" which they take next to dbm-nihost, else the plain names). The Mk2's core asks at its
+start whether Shift is sent (F0 7D 44 42 4D 11 F7); the simulator answers with the hello.
 """
 
 import argparse
@@ -35,7 +40,16 @@ CONTROLLERS = {
     "push1": "DBED9610-C474-11E6-9598-0800200C9A66",
     "push2": "15176AA0-C476-11E6-9598-0800200C9A66",
     "push3": "F8D561F2-722D-4DC7-975A-C562788C63FA",
+    "mk2": "015E4908-C049-4808-A645-A7A44BEFE36B",
+    "jam": "72F32A83-A697-446B-9016-64AA3F9476E4",
 }
+# The Maschine simulators (support/controller_simulator): (DAW input, DAW output) port names,
+# first with the suffix the simulator takes next to dbm-nihost
+MASCHINE_PORTS = {
+    "mk2": ("Maschine MK2 In", "Maschine MK2 Out"),
+    "jam": ("Maschine Jam - 1 Input", "Maschine Jam - 1 Output"),
+}
+MASCHINE_SUFFIXES = (" (sim)", "")
 TICK_MS = 30
 
 
@@ -77,7 +91,7 @@ class DisplayWriter:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", choices=layout.MODELS, default="push2")
+    parser.add_argument("--model", choices=layout.MODELS + tuple(MASCHINE_PORTS), default="push2")
     parser.add_argument("--controller", default=None, help="controller UUID (default: the one of the model)")
     parser.add_argument("--bindings", default=os.path.join(REPO, "bindings", "python"),
                         help="directory with the packages drivenbymoss and dbm_host")
@@ -85,7 +99,10 @@ def main() -> int:
     parser.add_argument("--config", default=None, help="configuration directory (default: a temporary one)")
     parser.add_argument("--display-socket", default=None)
     parser.add_argument("--port-style", choices=layout.PORT_STYLES, default="jack")
-    parser.add_argument("--port", default=None, help="name of the simulator port (default: its Live port; Push 1: User port)")
+    parser.add_argument("--port", default=None, help="name of the simulator port (default: its Live port; Push 1: User port; "
+                                                      "Maschine: the port the DAW reads, the other one is found by its name)")
+    parser.add_argument("--suffix", default=None, help='Maschine: the suffix of the simulator\'s port names (default: " (sim)", '
+                                                       'else none)')
     parser.add_argument("--no-values", action="store_true", help="do not send the encoder state (the side channel)")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
@@ -101,15 +118,33 @@ def main() -> int:
     if known and controller.upper() not in known:
         sys.exit(f"the library has no controller {controller} (is it the build of the Push port? --library)")
 
-    _, live, user = layout.midi_names(args.model, args.port_style)
-    port_name = args.port or (user if args.model == "push1" else live)
-    seq = alsa_seq.AlsaSeq("DrivenByMoss dbm_host", ["Push"])
-    target = seq.find_port(port_name)
-    if target is None:
-        sys.exit(f"the simulator port {port_name!r} was not found; is the simulator running?")
-    seq.connect_to(0, *target)
-    seq.connect_from(0, *target)
-    print(f"connected to {target[0]}:{target[1]} '{port_name}'")
+    seq = alsa_seq.AlsaSeq("DrivenByMoss dbm_host", ["DrivenByMoss"])
+    if args.model in MASCHINE_PORTS:
+        # Two ports as NI's driver and dbm-nihost: the DAW reads "... In(put)", writes "... Out(put)"
+        daw_in, daw_out = MASCHINE_PORTS[args.model]
+        suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
+        found = None
+        for suffix in suffixes:
+            source = seq.find_port(args.port or daw_in + suffix)
+            sink = seq.find_port(daw_out + suffix)
+            if source and sink:
+                found = (source, sink, suffix)
+                break
+        if found is None:
+            sys.exit(f"the simulator ports {daw_in!r}/{daw_out!r} were not found; is the simulator running?")
+        source, sink, suffix = found
+        seq.connect_from(0, *source)
+        seq.connect_to(0, *sink)
+        print(f"connected to {source[0]}:{source[1]} '{daw_in}{suffix}' and {sink[0]}:{sink[1]} '{daw_out}{suffix}'")
+    else:
+        _, live, user = layout.midi_names(args.model, args.port_style)
+        port_name = args.port or (user if args.model == "push1" else live)
+        target = seq.find_port(port_name)
+        if target is None:
+            sys.exit(f"the simulator port {port_name!r} was not found; is the simulator running?")
+        seq.connect_to(0, *target)
+        seq.connect_from(0, *target)
+        print(f"connected to {target[0]}:{target[1]} '{port_name}'")
 
     writer = DisplayWriter(args.display_socket or display.default_socket_path())
 

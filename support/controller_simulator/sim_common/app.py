@@ -68,6 +68,8 @@ def run(app, sim, qml_file: str, args, image_providers: dict | None = None,
     runs at the end."""
     from PySide6.QtCore import QTimer, QUrl
     from PySide6.QtQml import QQmlApplicationEngine
+    # Imported so that the root object comes as a QQuickWindow (with grabWindow), not as a QWindow
+    from PySide6 import QtQuick  # noqa: F401
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(QML_IMPORT_PATH)
