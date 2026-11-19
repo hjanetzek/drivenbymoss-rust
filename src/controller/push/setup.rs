@@ -13,7 +13,7 @@
 //! - `layoutControls` (the bounds of the simulator GUI) is not ported.
 
 use super::surface::{self as push, PushState};
-use super::{command, mode, view};
+use super::{command, mode, sim_values, view};
 use crate::backend::Sender;
 use crate::config::push::{self as config, LockState, PushVersion};
 use crate::config::{Configuration, SettingId};
@@ -393,17 +393,47 @@ pub fn is_session_view(view: Views) -> bool {
 /// to the host if one is due (former `Push2Display.send`).
 fn send_display_frame(ctx: &mut Ctx) {
     let now = std::time::Instant::now();
+    if ctx.graphics_display.is_none() {
+        return;
+    }
+    // The encoder state for the simulator, from the components before the render takes them
+    let sender = ctx.sender.clone();
+    let encoder_states = sender.simulator_data_enabled().then(|| simulator_encoder_states(ctx));
     let Some(display) = ctx.graphics_display.as_mut() else {
         return;
     };
     display.render(now);
     let changed = display.has_changed();
     let image = display.image().clone();
-    let sender = ctx.sender.clone();
     let state = ctx.ext_mut::<PushState>();
     if let Some(frame) = state.usb_display.frame(&image, changed, now) {
         sender.usb_bulk_out(0, super::usb_display::ENDPOINT, frame);
     }
+    if let Some(message) = encoder_states.as_deref().and_then(|states| state.sim_values.update(states)) {
+        sender.simulator_data_out(message);
+    }
+}
+
+/// The state of the encoders for the simulator side channel ([`super::sim_values`]): the 8
+/// encoders from the columns of the display, the master volume, the play position and the tempo
+/// from the model.
+pub fn simulator_encoder_states(ctx: &Ctx) -> Vec<sim_values::EncoderState> {
+    use crate::framework::ids::ContinuousId;
+    use sim_values::EncoderState;
+    let Some(display) = ctx.graphics_display.as_ref() else {
+        return Vec::new();
+    };
+    let max = display.dimensions().max_parameter_value - 1;
+    let mut states = sim_values::encoder_states(display.components(), max);
+    let touched = |id: ContinuousId| ctx.surface.continuous(id).is_some_and(|c| c.is_touched);
+    let master = ctx.model.master_track();
+    states.push(EncoderState::value(sim_values::MASTER, "Master", master.volume(), max, &master.volume_str(), touched(ContinuousId::MasterKnob)));
+    let transport = ctx.model.transport();
+    if ctx.surface.continuous(ContinuousId::PlayPosition).is_some() && push::version(ctx) != PushVersion::Version3 {
+        states.push(EncoderState::text(sim_values::POSITION, "Position", transport.position_text(), touched(ContinuousId::PlayPosition)));
+    }
+    states.push(EncoderState::text(sim_values::TEMPO, "Tempo", &crate::daw::transport::format_tempo(transport.tempo()), touched(ContinuousId::Tempo)));
+    states
 }
 
 /// Send the current display without the rate limit (on shutdown).

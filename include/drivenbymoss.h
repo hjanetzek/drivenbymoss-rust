@@ -31,6 +31,10 @@
 // The version of the USB interface ([`dbm_set_usb_callback`], [`DbmUsbBulkOut`]).
 #define DBM_USB_VERSION 1
 
+// The version of the simulator side channel ([`dbm_set_simulator_callback`],
+// [`DbmSimulatorData`]).
+#define DBM_SIMULATOR_VERSION 1
+
 // Flag for [`dbm_create`]: do not start the internal timer thread. The host must call
 // [`dbm_tick`] regularly (every 30ms is recommended) instead.
 #define DBM_FLAG_HOST_TICK 1
@@ -266,6 +270,25 @@ int dbm_set_usb_callback(struct DbmApp *app,
                                          const uint8_t *data,
                                          size_t length),
                          void *user);
+
+// Set the receiver of the simulator side channel of the instance (see [`DbmSimulatorData`]),
+// e.g. the encoder state of the Push 2/3 for the Push simulator; a null `callback` removes it.
+// Only a host which writes the USB data to a simulator (the socket of
+// `DBM_PUSH_DISPLAY_SOCKET`) registers it: the controllers build the data only while a receiver
+// is set, and it must never go to a real device. `version` must be [`DBM_SIMULATOR_VERSION`].
+// It can be called at any time. Returns 1, or 0 (and keeps the previous receiver) if `version`
+// differs or `app` is null.
+//
+// # Safety
+// `app` must be a valid handle (or null); `user` must stay valid until [`dbm_destroy`] or the
+// next call.
+int dbm_set_simulator_callback(struct DbmApp *app,
+                               uint32_t version,
+                               int (*callback)(void *user,
+                                               int instance,
+                                               const uint8_t *data,
+                                               size_t length),
+                               void *user);
 
 // The USB devices of the controllers besides MIDI (e.g. the display of the Push 2/3), for hosts
 // which claim them up front (Bitwig definitions, udev rules): a JSON object with the UUID of

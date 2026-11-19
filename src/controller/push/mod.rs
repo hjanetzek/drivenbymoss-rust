@@ -11,6 +11,8 @@
 //!   [`crate::backend::Backend::usb_bulk_out`], which writes it to the USB bulk endpoint of the
 //!   display (Bitwig: its USB API; Linux hosts without one: usbdevfs; the simulator: a UNIX
 //!   socket). See `doc/HOST_BRIDGE_GUIDE.md` for the host side.
+//! - Push 2 and 3 with the Push simulator: the encoder state as a side channel
+//!   ([`sim_values`], [`crate::backend::Backend::simulator_data_out`]).
 
 pub mod colors;
 pub mod command;
@@ -19,6 +21,7 @@ pub mod mode;
 pub mod palette;
 pub mod parameterprovider;
 pub mod setup;
+pub mod sim_values;
 pub mod surface;
 pub mod usb_display;
 pub mod view;

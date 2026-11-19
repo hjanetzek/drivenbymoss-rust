@@ -242,6 +242,8 @@ pub struct PushState {
     pub palette: super::palette::ColorPalette,
     /// The frame state of the USB display of the Push 2/3.
     pub usb_display: super::usb_display::UsbDisplay,
+    /// The last encoder state sent to the simulator ([`super::sim_values`]).
+    pub sim_values: super::sim_values::SimValues,
     /// The controller specific state of the modes and views, which other parts need.
     pub extra: PushExtra,
 }
@@ -273,6 +275,7 @@ impl PushState {
             layer_mode: None,
             palette: super::palette::ColorPalette::new(),
             usb_display: super::usb_display::UsbDisplay::new(),
+            sim_values: super::sim_values::SimValues::new(),
             extra: PushExtra::default(),
         }
     }

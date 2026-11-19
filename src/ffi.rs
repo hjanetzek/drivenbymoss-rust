@@ -43,6 +43,19 @@ pub type DbmUsbBulkOut = extern "C" fn(user: *mut c_void, instance: c_int, devic
 /// The version of the USB interface ([`dbm_set_usb_callback`], [`DbmUsbBulkOut`]).
 pub const DBM_USB_VERSION: u32 = 1;
 
+/// Receives the messages of the simulator side channel of an instance
+/// ([`dbm_set_simulator_callback`]), e.g. the encoder state of the Push 2/3 for the Push
+/// simulator (a `DBMV` message, see `doc/HOST_BRIDGE_GUIDE.md`). `instance` is the index of the
+/// controller instance, `data` (`length` bytes) the complete message, the exact bytes to write
+/// to the simulator's stream (between two USB writes, never inside one), only valid during the
+/// call. Never write it to a real device. Returns non-zero if the data was written or queued.
+/// It runs with the instance locked, as [`DbmUsbBulkOut`].
+pub type DbmSimulatorData = extern "C" fn(user: *mut c_void, instance: c_int, data: *const u8, length: usize) -> c_int;
+
+/// The version of the simulator side channel ([`dbm_set_simulator_callback`],
+/// [`DbmSimulatorData`]).
+pub const DBM_SIMULATOR_VERSION: u32 = 1;
+
 /// Adds one MIDI device (ID and name) to a list, see `get_midi_inputs`.
 pub type DbmAddDevice = extern "C" fn(list: *mut c_void, id: c_int, name: *const c_char);
 
@@ -118,11 +131,13 @@ pub struct FfiBackend {
     command_features: std::cell::Cell<Option<u32>>,
     /// The receiver of the USB writes ([`dbm_set_usb_callback`]) and its user pointer.
     usb: std::cell::Cell<Option<(DbmUsbBulkOut, *mut c_void)>>,
+    /// The receiver of the simulator data ([`dbm_set_simulator_callback`]) and its user pointer.
+    simulator: std::cell::Cell<Option<(DbmSimulatorData, *mut c_void)>>,
 }
 
 impl FfiBackend {
     fn new(callbacks: DbmCallbacks) -> Self {
-        FfiBackend { callbacks, binary: RefCell::new(None), command_features: std::cell::Cell::new(None), usb: std::cell::Cell::new(None) }
+        FfiBackend { callbacks, binary: RefCell::new(None), command_features: std::cell::Cell::new(None), usb: std::cell::Cell::new(None), simulator: std::cell::Cell::new(None) }
     }
 
     /// Deliver the buffered commands of the binary form (before any other callback and at the
@@ -300,6 +315,18 @@ impl Backend for FfiBackend {
         };
         self.flush();
         callback(user, target.instance, target.device_index, target.vendor_id, target.product_id, target.interface, target.endpoint, data.as_ptr(), data.len()) != 0
+    }
+
+    fn simulator_data_enabled(&self) -> bool {
+        self.simulator.get().is_some()
+    }
+
+    fn simulator_data_out_to(&self, instance: i32, data: &[u8]) -> bool {
+        let Some((callback, user)) = self.simulator.get() else {
+            return false;
+        };
+        self.flush();
+        callback(user, instance, data.as_ptr(), data.len()) != 0
     }
 
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
@@ -722,6 +749,39 @@ pub unsafe extern "C" fn dbm_set_usb_callback(app: *mut DbmApp, version: u32, ca
     result.unwrap_or(0)
 }
 
+/// Set the receiver of the simulator side channel of the instance (see [`DbmSimulatorData`]),
+/// e.g. the encoder state of the Push 2/3 for the Push simulator; a null `callback` removes it.
+/// Only a host which writes the USB data to a simulator (the socket of
+/// `DBM_PUSH_DISPLAY_SOCKET`) registers it: the controllers build the data only while a receiver
+/// is set, and it must never go to a real device. `version` must be [`DBM_SIMULATOR_VERSION`].
+/// It can be called at any time. Returns 1, or 0 (and keeps the previous receiver) if `version`
+/// differs or `app` is null.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `user` must stay valid until [`dbm_destroy`] or the
+/// next call.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_set_simulator_callback(app: *mut DbmApp, version: u32, callback: Option<extern "C" fn(user: *mut c_void, instance: c_int, data: *const u8, length: usize) -> c_int>, user: *mut c_void) -> c_int {
+    if version != DBM_SIMULATOR_VERSION {
+        return 0;
+    }
+    let Some(app) = (unsafe { handle(app) }) else {
+        return 0;
+    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let guard = match app.inner.app.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(ffi) = &guard.1 else {
+            return 0;
+        };
+        ffi.simulator.set(callback.map(|callback| (callback, user)));
+        1
+    }));
+    result.unwrap_or(0)
+}
+
 /// The USB devices of the controllers besides MIDI (e.g. the display of the Push 2/3), for hosts
 /// which claim them up front (Bitwig definitions, udev rules): a JSON object with the UUID of
 /// each controller which has USB devices as key and the list of its devices as value, each
@@ -1022,6 +1082,32 @@ mod tests {
         assert!(ffi.usb_bulk_out(0, 0x01, &frame));
         ffi.usb.set(None);
         assert_eq!(calls, [(2, 0, 0x2982, 0x1967, 0, 0x01, 4, 0xFF), (-1, 0, 0, 0, 0, 0x01, 4, 0xFF)]);
+    }
+
+    extern "C" fn simulator_callback(user: *mut c_void, instance: c_int, data: *const u8, length: usize) -> c_int {
+        // SAFETY: `user` is the vector of the test, which outlives the backend
+        let calls = unsafe { &mut *(user as *mut Vec<(c_int, Vec<u8>)>) };
+        calls.push((instance, unsafe { std::slice::from_raw_parts(data, length) }.to_vec()));
+        1
+    }
+
+    #[test]
+    fn simulator_data_reaches_its_callback_with_the_instance() {
+        // SAFETY: an all-null callback table is valid (null function pointers are ignored)
+        let callbacks: DbmCallbacks = unsafe { std::mem::zeroed() };
+        let ffi = Rc::new(FfiBackend::new(callbacks));
+        let instance = UsbInstanceBackend::new(ffi.clone(), 2, Vec::new());
+        assert!(!instance.simulator_data_enabled());
+        assert!(!instance.simulator_data_out(b"DBMV"));
+        let mut calls: Vec<(c_int, Vec<u8>)> = Vec::new();
+        ffi.simulator.set(Some((simulator_callback, &mut calls as *mut Vec<(c_int, Vec<u8>)> as *mut c_void)));
+        assert!(instance.simulator_data_enabled());
+        assert!(instance.simulator_data_out(b"DBMV"));
+        // The USB callback is not involved
+        assert!(!instance.usb_bulk_out(0, 0x01, b"x"));
+        ffi.simulator.set(None);
+        assert_eq!(calls, [(2, b"DBMV".to_vec())]);
+        assert_eq!(unsafe { dbm_set_simulator_callback(std::ptr::null_mut(), DBM_SIMULATOR_VERSION, Some(simulator_callback), std::ptr::null_mut()) }, 0);
     }
 
     #[test]

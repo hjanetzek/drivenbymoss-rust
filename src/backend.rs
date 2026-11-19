@@ -176,6 +176,26 @@ pub trait Backend {
     fn usb_bulk_out_to(&self, target: &UsbTarget, data: &[u8]) -> bool {
         self.usb_bulk_out(target.device_index, target.endpoint, data)
     }
+    /// True if the host takes the simulator data ([`Backend::simulator_data_out`]): only a host
+    /// which writes the USB data of the controller to a simulator (the Push simulator's socket)
+    /// and registered a receiver (`dbm_set_simulator_callback`). The controllers build the data
+    /// only then. The default: false.
+    fn simulator_data_enabled(&self) -> bool {
+        false
+    }
+    /// A message of the simulator side channel, e.g. the encoder state of the Push 2/3
+    /// (`DBMV` message, [`crate::controller::push::sim_values`]): the exact bytes to write to
+    /// the simulator's stream, between two USB writes. Never for a real device. Returns false
+    /// if the host does not take it. The default calls [`Backend::simulator_data_out_to`] with
+    /// instance -1.
+    fn simulator_data_out(&self, data: &[u8]) -> bool {
+        self.simulator_data_out_to(-1, data)
+    }
+    /// [`Backend::simulator_data_out`] with the index of the controller instance resolved (by
+    /// [`UsbInstanceBackend`]). The default does nothing.
+    fn simulator_data_out_to(&self, _instance: i32, _data: &[u8]) -> bool {
+        false
+    }
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]);
     fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
@@ -226,6 +246,16 @@ impl Sender {
     /// Write to a USB bulk OUT endpoint, see [`Backend::usb_bulk_out`].
     pub fn usb_bulk_out(&self, device_index: i32, endpoint: u8, data: &[u8]) -> bool {
         self.backend.usb_bulk_out(device_index, endpoint, data)
+    }
+
+    /// True if the host takes simulator data, see [`Backend::simulator_data_enabled`].
+    pub fn simulator_data_enabled(&self) -> bool {
+        self.backend.simulator_data_enabled()
+    }
+
+    /// Send a message of the simulator side channel, see [`Backend::simulator_data_out`].
+    pub fn simulator_data_out(&self, data: &[u8]) -> bool {
+        self.backend.simulator_data_out(data)
     }
 }
 
@@ -299,6 +329,16 @@ impl Backend for UsbInstanceBackend {
     fn usb_bulk_out_to(&self, target: &UsbTarget, data: &[u8]) -> bool {
         self.inner.usb_bulk_out_to(target, data)
     }
+    fn simulator_data_enabled(&self) -> bool {
+        self.inner.simulator_data_enabled()
+    }
+    /// Adds the instance.
+    fn simulator_data_out(&self, data: &[u8]) -> bool {
+        self.inner.simulator_data_out_to(self.instance, data)
+    }
+    fn simulator_data_out_to(&self, instance: i32, data: &[u8]) -> bool {
+        self.inner.simulator_data_out_to(instance, data)
+    }
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
         self.inner.set_note_input_filters(device_id, note_input_index, filters);
     }
@@ -349,6 +389,9 @@ pub enum BackendCall {
     /// to keep for every write). The data of the last write is in
     /// [`RecordingBackend::last_usb_data`].
     UsbBulkOut { device_index: i32, endpoint: u8, length: usize, hash: u64 },
+    /// A message of the simulator side channel ([`Backend::simulator_data_out`]): the instance
+    /// and the data (only with [`RecordingBackend::simulator_data`] set).
+    SimulatorData(i32, Vec<u8>),
 }
 
 impl BackendCall {
@@ -426,6 +469,9 @@ pub struct RecordingBackend {
     pub handled: RefCell<Option<Vec<u64>>>,
     /// The data of the last USB write ([`BackendCall::UsbBulkOut`]).
     pub last_usb_data: RefCell<Vec<u8>>,
+    /// True: the backend takes simulator data ([`Backend::simulator_data_enabled`], recorded as
+    /// [`BackendCall::SimulatorData`]).
+    pub simulator_data: bool,
 }
 
 impl RecordingBackend {
@@ -510,6 +556,18 @@ impl Backend for RecordingBackend {
         true
     }
 
+    fn simulator_data_enabled(&self) -> bool {
+        self.simulator_data
+    }
+
+    fn simulator_data_out_to(&self, instance: i32, data: &[u8]) -> bool {
+        if !self.simulator_data {
+            return false;
+        }
+        self.push(BackendCall::SimulatorData(instance, data.to_vec()));
+        true
+    }
+
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
         self.push(BackendCall::NoteInputFilters(device_id, note_input_index, filters.to_vec()));
     }
@@ -538,5 +596,21 @@ mod tests {
         assert_eq!(recording.take_calls(), [BackendCall::UsbBulkOut { device_index: 0, endpoint: 0x01, length: 6, hash: usb_data_hash(&frame) }]);
         assert_eq!(*recording.last_usb_data.borrow(), frame);
         assert_ne!(usb_data_hash(&frame), usb_data_hash(&frame[..5]));
+    }
+
+    #[test]
+    fn simulator_data_only_when_enabled_with_the_instance() {
+        let recording = Rc::new(RecordingBackend::default());
+        let instance = Sender::new(Rc::new(UsbInstanceBackend::new(recording.clone(), 3, Vec::new())));
+        assert!(!instance.simulator_data_enabled());
+        assert!(!instance.simulator_data_out(b"DBMV"));
+        assert!(recording.take_calls().is_empty());
+
+        let recording = Rc::new(RecordingBackend { simulator_data: true, ..Default::default() });
+        let instance = Sender::new(Rc::new(UsbInstanceBackend::new(recording.clone(), 3, Vec::new())));
+        assert!(instance.simulator_data_enabled());
+        assert!(instance.simulator_data_out(b"DBMV"));
+        assert!(recording.simulator_data_out(b"x"));
+        assert_eq!(recording.take_calls(), [BackendCall::SimulatorData(3, b"DBMV".to_vec()), BackendCall::SimulatorData(-1, b"x".to_vec())]);
     }
 }

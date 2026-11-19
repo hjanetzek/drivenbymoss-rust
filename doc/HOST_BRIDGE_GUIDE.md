@@ -857,8 +857,68 @@ frame exactly the bytes of the write (header + 327,680 data bytes), no length pr
 back to back on one connection. The host connects lazily, writes with a 1 s timeout, and after
 any error closes the connection and tries again at most once per second; a frame is either
 written completely or the connection is closed, so a new connection always starts with a
-header. Frames which come while the previous one is still being written replace each other
-(dropped).
+header (or the last message of the simulator side channel, see below). Frames which come while
+the previous one is still being written replace each other (dropped).
+
+### Simulator side channel (the Push 2/3 encoder state)
+
+*Reference host:* `Backend.simulator_data_out` / `App.use_simulator_data`
+(`bindings/python/drivenbymoss/__init__.py`), `UsbOutput.write_simulator` (`usb.py`),
+`support/push_simulator/tools/dbm_host_alsa.py`; Bitwig: `UsbOutput.writeSimulator`,
+`NativeCore.setSimulatorCallback`. Core: `src/controller/push/sim_values.rs`.
+
+Data for the Push simulator only, which the hardware does not have: the state of the encoders
+(the real Push has endless encoders without LED rings, the values are only on the display). The
+simulator draws it as rings around its encoders. It is meant to grow (more message kinds, maybe
+another transport for a tablet controller), but must never reach a real device. So it has its own
+callback, not the USB one:
+
+```c
+typedef int (*DbmSimulatorData)(void *user, int instance, const uint8_t *data, size_t length);
+int dbm_set_simulator_callback(DbmApp *app, uint32_t version /* DBM_SIMULATOR_VERSION */, DbmSimulatorData callback, void *user);
+```
+
+- **Gating:** only a host whose USB data goes to a simulator registers it. The core builds the
+  data only while a callback is set (`Backend::simulator_data_enabled`), so other hosts pay
+  nothing. The Python binding and Bitwig register it when their USB transport is the socket
+  (`DBM_PUSH_DISPLAY_SOCKET`) and `DBM_PUSH_SIM_VALUES` is not `0`
+  (`drivenbymoss.usb.simulator_data_enabled()`, `UsbOutput.simulatorDataEnabled()`). Their device
+  transports (Bitwig's pipes, usbdevfs) never get the data: `write_simulator` / `writeSimulator`
+  return false without the socket. `DbmCallbacks` keeps its layout. It can be set at any time.
+- **Data:** each call is one complete message, the exact bytes for the simulator's stream. Write
+  it on the same connection as the frames, between two writes (never inside a frame). It is the
+  complete state, so a newer message may replace one which was not written yet. The core sends a
+  message only on change (the first one after the start). The socket transports keep the last
+  message and write it again first after every (re)connect, so a simulator started later gets
+  the state at once.
+- **Threading:** as `DbmUsbBulkOut`.
+
+**The message:**
+`"DBMV"`, version (1 byte, 1), kind (1 byte), payload length (3 bytes, 7 bits each, least
+significant first), payload. No message contains the byte `0xFF`: all numbers are 7-bit and UTF-8
+has no `0xFF`. A message can therefore never contain the frame header (`FF CC AA 88` + 12 zeros),
+so a reader which only scans for frame headers (older simulators) skips messages like garbage. A
+reader of messages skips an unknown version or kind by its length, and rejects a "message" with a
+`0xFF` in it (garbage which happened to contain `DBMV`, or a frame which follows).
+
+Kind 1, the encoder state: the number of encoders (1 byte), then per encoder:
+
+| Field | Size | Meaning |
+| --- | --- | --- |
+| index | 1 | the encoder's touch note: 0-7 the encoders over the display, 8 master, 9 the small right encoder (Push 2 "Swing", the play position in DrivenByMoss), 10 tempo |
+| flags | 1 | 1 = has a value, 2 = touched, 4 = bipolar (the ring starts at the middle, e.g. panorama) |
+| value, max | 2 + 2 | 14 bits each, 7 bits per byte, least significant first; the ring shows value / max |
+| name | 1 + n | length (0-127) and UTF-8 bytes (cut at a character boundary) |
+| text | 1 + n | the value text, the same way |
+
+The Push 2/3 takes the state from what the display shows, so no mode knows about it: the
+components of the 8 columns (a parameter: its name, value, value text and touch state; a channel
+in a volume, panorama or crossfader mode: the track name and that value; a sends column: the
+edited send), plus the master volume, the play position text and the tempo text from the model.
+The modes show the value text of a channel only while its encoder is touched, so the text is
+empty otherwise and "touched" means the text is shown. Columns without a single value (the track
+mode's channel with all values, lists, options) send the name without a value. Push 3 takes the
+same code path (no position encoder: its small encoder is tempo/swing); Push 1 sends nothing.
 
 ## 6. Behavioural rules learned from the conformance work
 

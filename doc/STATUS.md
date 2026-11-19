@@ -59,7 +59,7 @@ MIDI mode).
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 | Arturia Beatstep | Beatstep (also the Beatstep Pro, same MIDI) | `src/controller/arturia/beatstep/` | `arturia_beatstep.rs` (9) |
 | Open Sound Control | OSC (`OSCControllerInstance`) | `src/controller/osc/` | `osc_controller.rs` (1, over localhost UDP), Python `test_osc.py` |
-| Ableton Push | Push 1, Push 2, Push 3 | `src/controller/push/` | `push_setup.rs`, `push_modes_track.rs`, `push_modes_misc.rs`, `push_views.rs`, `ffi.rs` (USB callback), Python `test_usb.py`, Zynthian `test_push.py` |
+| Ableton Push | Push 1, Push 2, Push 3 | `src/controller/push/` | `push_setup.rs`, `push_modes_track.rs`, `push_modes_misc.rs`, `push_views.rs`, `push_sim_values.rs`, `ffi.rs` (USB callback), Python `test_usb.py`, `test_simulator_data.py`, Zynthian `test_push.py` |
 
 There are also 220 unit tests in the sources.
 
@@ -194,6 +194,9 @@ and the identity reply. The display frames arrive on a UNIX socket
 controller in the reference host `dbm_host` against it in real time, and `--connect` reaches
 Bitwig through `snd-virmidi`. Unit, ALSA loopback and offscreen smoke tests are in its `tests/`.
 See `support/push_simulator/README.md`.
+A simulator-only side channel (`dbm_set_simulator_callback`, `DBMV` messages on the display socket,
+HOST_BRIDGE_GUIDE §5a) sends the Push 2/3 encoder state from the display (values, names, touch),
+which the simulator draws as LED rings (Python hosts and Bitwig with `DBM_PUSH_DISPLAY_SOCKET`).
 
 **Scope and size:**
 
