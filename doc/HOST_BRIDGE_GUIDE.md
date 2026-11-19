@@ -846,7 +846,7 @@ The transports of the hosts:
 
 | Host | Transport |
 | --- | --- |
-| Bitwig | Bitwig's USB API: the definition claims the device (`UsbDeviceMatcher` with an interface and a bulk endpoint matcher), the extension writes with `host.hardwareDevice(i)` → `iface(0).pipe(0)` → `UsbOutputPipe.write` on a thread of its own (`UsbOutput.java`) |
+| Bitwig | Bitwig's USB API: the definition claims the device (`UsbDeviceMatcher` with an interface and a bulk endpoint matcher), the extension writes with `host.hardwareDevice(i)` → `iface(0).pipe(0)` → `UsbOutputPipe.write` on a thread of its own (`UsbOutput.java`); with `DBM_PUSH_DISPLAY_SOCKET` set when Bitwig starts, `UsbOutput` writes to that socket instead (the Push simulator) and the definition claims no USB device |
 | Python (reference host, zynthian) | `drivenbymoss.Backend.usb_bulk_out(device_index, endpoint, data)` (overridable; the device's IDs in `backend.usb_device`), by default queued for `drivenbymoss.usb.UsbOutput.from_environment()`: the Push simulator's socket if `DBM_PUSH_DISPLAY_SOCKET` is set, else on Linux usbdevfs (`/dev/bus/usb/BBB/DDD`, needs the udev rule `support/linux/ni_host/packaging/70-dbm-nihost.rules` or root) |
 | Reaper | not a target (no USB transport) |
 

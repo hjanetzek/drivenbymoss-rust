@@ -204,11 +204,15 @@ public abstract class DbmExtensionDefinition extends ControllerExtensionDefiniti
     /**
      * Claim the USB devices (as AbstractControllerExtensionDefinition of the Java version): per
      * device a matcher of the vendor and product with one interface with one bulk endpoint.
-     * {@code host.hardwareDevice (i)} is then device i of the core.
+     * {@code host.hardwareDevice (i)} is then device i of the core. Not with
+     * {@code DBM_PUSH_DISPLAY_SOCKET} ({@link UsbOutput#socketPath}): the data goes to that socket
+     * (the Push simulator) and the controller runs without the device.
      */
     @Override
     public void listHardwareDevices (final HardwareDeviceMatcherList matchers)
     {
+        if (UsbOutput.socketPath () != null)
+            return;
         for (final int [] device: this.usbDevices)
         {
             final UsbEndpointMatcher endpoint = new UsbEndpointMatcher (UsbTransferType.BULK, (byte) device[3]);

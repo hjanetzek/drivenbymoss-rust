@@ -62,8 +62,24 @@ support/push_simulator/run.sh --connect "VirMIDI 2-0"     # the name aconnect -l
 ```
 
 In Bitwig, add the Push 2/3 controller and select the virtual raw MIDI device as input and
-output. Bitwig's USB display cannot reach the simulator: Bitwig writes the frames to the USB
-device, not to the socket. With Bitwig you only get the MIDI side.
+output. Bitwig numbers the virtual raw MIDI devices from 1: `VirMIDI 5-3` is "Virtual Raw MIDI
+4/1" in Bitwig.
+
+**The display with the Rust extension:** start Bitwig with the socket of the simulator in its
+environment:
+
+```sh
+export DBM_PUSH_DISPLAY_SOCKET=$XDG_RUNTIME_DIR/dbm-push-display.sock
+support/push_simulator/run.sh --model push2 --connect "VirMIDI 5-3" &
+bitwig-studio
+```
+
+The extension then writes the display frames to that socket instead of the USB device (the exact
+bytes of the bulk writes, as the Python hosts do), and its definition claims no USB device, so
+the controller runs without a Push attached. Without a listener it drops the frames and tries to
+connect again once a second. The variable must be set when Bitwig starts (the definition reads it
+when Bitwig loads the extension). The Java DrivenByMoss always writes to the USB device: with it
+you only get the MIDI side.
 
 ### Feeding it by hand
 
