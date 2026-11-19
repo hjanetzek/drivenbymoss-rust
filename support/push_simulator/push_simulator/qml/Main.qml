@@ -172,14 +172,15 @@ ApplicationWindow {
                 color: enc.touched ? "#4b4d55" : "#33343a"
                 border.color: "#5c5d66"
                 border.width: Math.max(1, 0.4 * window.k)
+                // The indicator: from the center to the outline, turning around the center
                 Rectangle {
                     width: Math.max(2, 0.7 * window.k)
-                    height: parent.height * 0.38
+                    height: parent.height / 2 - parent.border.width
                     radius: width / 2
                     color: "#e0e0e4"
                     x: (parent.width - width) / 2
-                    y: parent.height * 0.08
-                    transform: Rotation { origin.x: width / 2; origin.y: enc.height * 0.42; angle: enc.angle }
+                    y: parent.height / 2 - height
+                    transform: Rotation { origin.x: width / 2; origin.y: height; angle: enc.angle }
                 }
             }
             Text {
