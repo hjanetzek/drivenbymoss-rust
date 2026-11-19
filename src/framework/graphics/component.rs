@@ -5,12 +5,18 @@
 //! The components which are drawn on a graphics display (former `IComponent` and its
 //! implementations in `framework.graphics.canvas.component`).
 //!
-//! Only the components used by the ported controllers exist: `LabelComponent` (without icons),
-//! `ListComponent` and the simple components for small displays `TitleValueComponent`,
-//! `TitleValueMenuComponent` and `TitleChannelsComponent`. The Java classes are an enum here;
-//! the equality (former `equals`) decides if the display needs to be rendered again.
+//! The Java classes are an enum here; the equality (former `equals`) decides if the display
+//! needs to be rendered again:
+//! - `LabelComponent` (the [`Component::Label`] variant without icon, [`LabelComponent`] with),
+//!   `ListComponent` and the simple components for small displays `TitleValueComponent`,
+//!   `TitleValueMenuComponent` and `TitleChannelsComponent`, drawn in this module.
+//! - The components of the large color displays (Push 2/3) in [`super::canvas`].
 
 use super::bitmap::{Align, GraphicsContext};
+use super::canvas::{
+    ChannelComponent, ChannelSelectComponent, ClipListComponent, DrawInfo, LabelComponent, MenuComponent, MidiClipComponent, OptionsComponent, ParameterComponent, SceneListComponent, SendsComponent,
+};
+use super::icons::Icon;
 use super::{GraphicsConfiguration, GraphicsDimensions};
 use crate::daw::color::ColorEx;
 
@@ -45,6 +51,26 @@ pub enum Component {
     TitleValueMenu { label1: String, label2: String, menu: [String; 4], value: i32, vu_left: i32, vu_right: i32, is_pan: bool },
     /// A title and vertical faders of several channels (former `TitleChannelsComponent`).
     TitleChannels { label: String, selected: Vec<bool>, values: Vec<i32>, is_pan: bool },
+    /// A label with an icon (former `LabelComponent`).
+    LabelWithIcon(LabelComponent),
+    /// A header and a footer label (former `MenuComponent`).
+    Menu(MenuComponent),
+    /// Former `ChannelSelectComponent`.
+    ChannelSelect(ChannelSelectComponent),
+    /// Former `ChannelComponent`.
+    Channel(Box<ChannelComponent>),
+    /// Former `SendsComponent`.
+    Sends(Box<SendsComponent>),
+    /// Former `ParameterComponent`.
+    Parameter(Box<ParameterComponent>),
+    /// Former `OptionsComponent`.
+    Options(Box<OptionsComponent>),
+    /// Former `SceneListGridElement`.
+    SceneList(Box<SceneListComponent>),
+    /// Former `ClipListComponent`.
+    ClipList(Box<ClipListComponent>),
+    /// Former `MidiClipComponent`.
+    MidiClip(Box<MidiClipComponent>),
 }
 
 impl Component {
@@ -72,7 +98,7 @@ impl Component {
     pub fn draw(&self, gc: &mut GraphicsContext, bounds: (f64, f64, f64, f64), configuration: &GraphicsConfiguration, dimensions: &GraphicsDimensions) {
         match self {
             Component::Label { text, color, is_selected, is_active, layout } => {
-                draw_label(gc, bounds, configuration, dimensions, text, *color, *is_selected, *is_active, *layout)
+                draw_label(gc, bounds, configuration, dimensions, text, None, *color, *is_selected, *is_active, *layout)
             }
             Component::List { items } => draw_list(gc, bounds, configuration, dimensions, items),
             Component::TitleValue { label1, label2, value, vu_left, vu_right, is_pan } => {
@@ -87,17 +113,35 @@ impl Component {
                 draw_menu(gc, menu, row_height);
             }
             Component::TitleChannels { label, selected, values, is_pan } => draw_title_channels(gc, configuration, label, selected, values, *is_pan),
+            _ => {
+                let mut info = DrawInfo { gc, configuration, dimensions };
+                match self {
+                    Component::LabelWithIcon(c) => c.draw(&mut info, bounds),
+                    Component::Menu(c) => c.draw(&mut info, bounds),
+                    Component::ChannelSelect(c) => c.draw(&mut info, bounds),
+                    Component::Channel(c) => c.draw(&mut info, bounds),
+                    Component::Sends(c) => c.draw(&mut info, bounds),
+                    Component::Parameter(c) => c.draw(&mut info, bounds),
+                    Component::Options(c) => c.draw(&mut info, bounds),
+                    Component::SceneList(c) => c.draw(&mut info, bounds),
+                    Component::ClipList(c) => c.draw(&mut info, bounds),
+                    Component::MidiClip(c) => c.draw(&mut info, bounds),
+                    _ => {}
+                }
+            }
         }
     }
 }
 
+/// Draw a label (former `LabelComponent.draw`).
 #[allow(clippy::too_many_arguments)]
-fn draw_label(
+pub(super) fn draw_label(
     gc: &mut GraphicsContext,
     bounds: (f64, f64, f64, f64),
     configuration: &GraphicsConfiguration,
     dimensions: &GraphicsDimensions,
     text: &str,
+    icon: Option<Icon>,
     color: Option<ColorEx>,
     is_selected: bool,
     is_active: bool,
@@ -107,21 +151,33 @@ fn draw_label(
     let separator_size = dimensions.separator_size;
     let menu_height = dimensions.menu_height();
     if layout == LabelLayout::Colored {
-        // Former drawColoredLayout (without icon)
+        // Former drawColoredLayout
         let unit = dimensions.unit();
         let inset = dimensions.inset();
+        let modify_if_off = |c: ColorEx| if is_active { c } else { ColorEx::dim_to_gray(c) };
+        // The tracks icon and name
         let text_height = 1.2 * unit + 1.0;
         let text_top = top + height - text_height;
+        // The track color section
         let info_color = color.unwrap_or(configuration.color_background);
         gc.fill_rectangle(left, text_top, width, text_height, if is_active { info_color } else { ColorEx::even_darker(info_color) });
+        let mut offset_x = 0.0;
+        if let Some(icon) = icon {
+            let left_column = left + inset - 1.0;
+            offset_x = icon.width as f64 + 1.4 * inset;
+            let y = text_top + (text_height - icon.height as f64) / 2.0;
+            // Former getMaskColor: always the text color
+            let mut mask_color = configuration.color_text;
+            if is_selected {
+                mask_color = ColorEx::calc_contrast_color(mask_color);
+            }
+            gc.mask_image(icon, left_column, y, modify_if_off(mask_color));
+        }
         let mut color_text = configuration.color_text;
         if is_selected {
             color_text = ColorEx::calc_contrast_color(color_text);
         }
-        if !is_active {
-            color_text = ColorEx::dim_to_gray(color_text);
-        }
-        gc.draw_text_in_bounds(text, left, text_top, width - 1.4 * inset, text_height, Align::Left, color_text, None, unit);
+        gc.draw_text_in_bounds(text, left + offset_x, text_top, width - offset_x - 1.4 * inset, text_height, Align::Left, modify_if_off(color_text), None, unit);
         return;
     }
 
