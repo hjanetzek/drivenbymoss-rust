@@ -167,6 +167,19 @@ The Linux guard of the Maschine factories is removed.
 - It installs with CMake, including a systemd user service. See
   `support/linux/ni_host/README.md`.
 
+**Push simulator:** `support/push_simulator` is a PySide6 + QML desktop simulator of Push 2 and
+Push 3 (Push 1 with its text display), for testing the Push port without the hardware. It creates
+ALSA sequencer ports with the device's names (`Ableton Push 2 Live Port` / `User Port`; ctypes on
+libasound, no other packages) and implements the device side of the protocol: pads with velocity
+and aftertouch (Push 3 MPE), buttons, relative encoders with touch, the touch strip with its LED
+modes, LED colours from the palette with the blink/pulse channels, the palette and settings SysEx,
+and the identity reply. The display frames arrive on a UNIX socket
+(`$XDG_RUNTIME_DIR/dbm-push-display.sock`) as the exact Push 2 USB bulk stream (header
+`FF CC AA 88`, 160 × 2048 bytes BGR565, XOR `E7 F3 E7 FF`). `tools/dbm_host_alsa.py` runs a core
+controller in the reference host `dbm_host` against it in real time, and `--connect` reaches
+Bitwig through `snd-virmidi`. Unit, ALSA loopback and offscreen smoke tests are in its `tests/`.
+See `support/push_simulator/README.md`.
+
 **Scope and size:**
 
 - The Java project has about 240,000 lines in 1,544 files.
@@ -253,6 +266,7 @@ All paths are under `rust/`.
 | `bindings/cpp/` | — | Header-only C++ wrapper (`dbm::App`, `dbm::Backend`) and its test |
 | `tests/` | — | Integration tests per controller |
 | `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
+| `support/push_simulator/` | — | Push 1/2/3 simulator (PySide6 + QML, ALSA through ctypes, display socket) |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues
