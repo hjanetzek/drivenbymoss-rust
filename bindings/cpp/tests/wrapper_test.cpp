@@ -149,6 +149,15 @@ int main (int argc, char **argv)
         CHECK (!single.logs.empty ());
     }
 
+    // The USB interface (the frames go to Backend::usbBulkOut once a controller has USB devices)
+    {
+        RecordingBackend single;
+        dbm::App app = dbm::App::forController (single, "5AFA5045-FF92-4737-A091-5B371CD5E529", dir, "Bitwig Studio 5.3", DBM_FLAG_HOST_TICK);
+        CHECK (app.useUsb ());
+        CHECK (dbm::listUsbDevices ().front () == '{');
+        CHECK (dbm::listUsbDevices ("5AFA5045-FF92-4737-A091-5B371CD5E529") == "{}");
+    }
+
     // The binary form of the protocol
     {
         RecordingBackend single;

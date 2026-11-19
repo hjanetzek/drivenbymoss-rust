@@ -420,6 +420,12 @@ size_t dbm_messages_from_text(const char *text, uint8_t *out, size_t capacity); 
   unless `dbm_set_command_callback` succeeded.
 - **The Reaper variant** `dbm_create` (several controllers per instance, `app.rs:399` feeds every
   line to every instance) works the same: one `Msg` decode, applied to every running controller.
+- **USB devices** (added 2026-11-19, the Push 2/3 display): `dbm_set_usb_callback(app,
+  DBM_USB_VERSION, callback, user)` follows the same conventions (a separate setter, its own
+  version number `DBM_USB_VERSION` = 1, returns 0 for another version, call before
+  `dbm_start_infrastructure`, the callback's buffer is valid during the call, same threading).
+  It is not part of the binary protocol: a display frame is opaque bytes for an endpoint, not a
+  record. See HOST_BRIDGE_GUIDE.md §5a.
 
 ### 2.4 Change-only reporting and dumps
 

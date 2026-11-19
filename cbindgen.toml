@@ -32,7 +32,7 @@ header = """/*
  */"""
 
 [export]
-include = ["DbmCallbacks", "DbmAddDevice", "DbmCommands"]
+include = ["DbmCallbacks", "DbmAddDevice", "DbmCommands", "DbmUsbBulkOut"]
 
 [export.rename]
 

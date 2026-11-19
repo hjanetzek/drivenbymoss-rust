@@ -88,6 +88,22 @@ library's buffer (no copy), released after the call: neither it nor a view read 
 kept (copy what is kept). `messages_to_text`/`messages_from_text` convert
 buffers for logs and tests; `protocol_info()` is the library's (major, minor, hash).
 
+## USB devices (the Push 2/3 display)
+
+`app.use_usb()` (before `start_infrastructure`, `dbm_set_usb_callback`) delivers the USB bulk
+writes of the controllers to `Backend.usb_bulk_out(device_index, endpoint, data)` (the
+signature of the core's `Backend::usb_bulk_out`; the vendor, product and interface of the device
+are in `backend.usb_device`); `drivenbymoss.list_usb_devices()` lists the devices of the
+controllers. Override it to write the frames elsewhere (e.g. the simulator's runner). The
+default queues them for `backend.usb_output`, a `drivenbymoss.usb.UsbOutput`, which writes them
+without blocking the core (a thread, the newest frame replaces an unwritten one; `App.close`
+closes it): `UsbOutput.from_environment()` takes the Push
+simulator's socket if `DBM_PUSH_DISPLAY_SOCKET` is set (per frame exactly its 327,696 bytes, no
+length prefix, reconnecting at most once per second), else on Linux the device through usbdevfs
+(needs the udev rule `support/linux/ni_host/packaging/70-dbm-nihost.rules`). `DBM_USB_TRANSPORT`
+= `none`, `socket` (the default path `$XDG_RUNTIME_DIR/dbm-push-display.sock`) or `usbdevfs`
+chooses explicitly. The reference host (`dbm_host.Bridge`) does all of this. Details: HOST_BRIDGE_GUIDE.md §5a.
+
 ## Threading and callbacks
 
 - The App is created with `DBM_FLAG_HOST_TICK`: the library starts no timer thread, the host

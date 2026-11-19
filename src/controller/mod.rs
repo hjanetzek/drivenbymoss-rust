@@ -135,6 +135,13 @@ pub trait ControllerFactory {
         self.create(host, sender, first, configuration)
     }
 
+    /// The USB devices of an instance besides MIDI (former `claimUSBDevice`), e.g. the display
+    /// of the Push 2/3. The index in this list is the `device_index` of
+    /// [`crate::backend::Backend::usb_bulk_out`]. The default is none.
+    fn usb_devices(&self) -> Vec<UsbMatcher> {
+        Vec::new()
+    }
+
     /// The number of further MIDI inputs of an instance, after the inputs of the port pairs (e.g.
     /// the keyboard port of the Novation Launchkey, Java `createInput (1, ...)`). The default is
     /// 0. They are configured as `MIDI_INPUT<n>` after the inputs of the pairs (as the Java Reaper
@@ -158,6 +165,18 @@ pub trait ControllerFactory {
     ) -> Result<InstanceParts, String> {
         self.create_with_ports(host, sender, ports, configuration)
     }
+}
+
+/// A USB device which a controller uses besides MIDI (former `UsbMatcher` of
+/// `IControllerDefinition.claimUSBDevice`), e.g. the display of the Push 2/3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsbMatcher {
+    pub vendor_id: u16,
+    pub product_id: u16,
+    /// The interface number which contains the endpoint.
+    pub interface: u8,
+    /// The endpoint address (bit 7 set for IN endpoints).
+    pub endpoint: u8,
 }
 
 /// All supported controllers.

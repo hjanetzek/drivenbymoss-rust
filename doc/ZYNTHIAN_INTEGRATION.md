@@ -564,3 +564,26 @@ daemon, no ALSA sequencer ports, no PipeWire MIDI bridge, no JACK ports for them
   open, answers to the query, LED and display reports written). The drivers inside zynthian: after
   installing the packages.
 
+
+## 11. The Push 1/2/3 (USB MIDI, the display over usbdevfs)
+
+Added 2026-11-19. The Push is class compliant USB MIDI (pads, buttons, knobs), so its drivers are
+plain MIDI drivers (`zynthian_ctrldev_dbm_push1.py`, `_push2.py`, `_push3.py`; the core's UUIDs of the
+Push factories, which `dbm_create_controller` takes). Their dev_ids are both forms of zynthian's port ids, the
+jack name form (as the Launchkey MK4's "DAW In") and the alias `<card> IN <port>`: Push 1
+`Ableton Push User Port` / `Ableton Push IN 2` (the User Port, as the Java version), Push 2
+`Ableton Push 2 Live Port` / `Ableton Push 2 IN 1`, Push 3 `Ableton Push 3 Live Port` /
+`Ableton Push 3 IN 1` (the Live Port; the Push simulator's ALSA ports have the same names); to be confirmed on the hardware.
+
+The display of the Push 2/3 (USB interface 0, bulk endpoint 0x01) is no MIDI: the core hands its
+frames to the host (`dbm_set_usb_callback`, HOST_BRIDGE_GUIDE.md §5a). The drivers need nothing
+of their own for it: `ZynBridge` inherits the reference host's `Bridge.usb_bulk_out`, which
+queues the frames for `drivenbymoss.usb.UsbOutput.from_environment()`, on zynthian the usbdevfs
+writer (Python with ctypes, no native library: it finds the device in `/sys/bus/usb/devices`,
+opens `/dev/bus/usb/BBB/DDD`, claims interface 0 (the MIDI interfaces stay with snd-usb-audio),
+writes the header and the image in 16 KiB bulk transfers on a thread of its own, the newest
+frame replacing an unwritten one, and opens the device again after an unplug, at most once per
+second). zynthian runs as root; otherwise the udev rule (`70-drivenbymoss-maschine.rules`, which
+now also covers 2982:1967 and 2982:1969) gives the group audio access. Like the Maschines'
+in-process host, only one process can drive the display: Ableton Live or another host on the
+same device fails to claim interface 0 (and vice versa).

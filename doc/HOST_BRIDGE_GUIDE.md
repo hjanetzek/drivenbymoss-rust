@@ -799,6 +799,67 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
   plays.
 - **Note repeat** works on the default note input (Bitwig: its `arpeggiator()`), see §4.2.
 
+## 5a. USB devices (the Push 2/3 display)
+
+*Reference host:* `Bridge.usb_bulk_out` (`bindings/python/dbm_host/bridge.py`) and the transports
+of `bindings/python/drivenbymoss/usb.py`; Bitwig: `UsbOutput` and
+`DbmExtensionDefinition.listHardwareDevices` (`backends/bitwig`).
+
+Some controllers use a USB device besides MIDI: the Push 2 (`2982:1967`) and Push 3
+(`2982:1969`) display is USB interface 0, bulk OUT endpoint `0x01` (the pads and buttons stay
+class compliant USB MIDI). The core renders the display and hands the host the bytes to write:
+
+```c
+typedef int (*DbmUsbBulkOut)(void *user, int instance, int device_index, uint16_t vendor_id,
+                             uint16_t product_id, uint8_t interface_number, uint8_t endpoint,
+                             const uint8_t *data, size_t length);
+int dbm_set_usb_callback(DbmApp *app, uint32_t version /* DBM_USB_VERSION */, DbmUsbBulkOut callback, void *user);
+char *dbm_list_usb_devices(const char *controller_id);   /* JSON, dbm_free_string */
+```
+
+- **Registration:** `dbm_set_usb_callback` before `dbm_start_infrastructure` (it can be called
+  later and again; null removes the callback). Returns 1, or 0 for another `DBM_USB_VERSION` or
+  a null `app`. A separate setter (as `dbm_set_command_callback`): `DbmCallbacks` keeps its
+  layout. Without a callback the writes are dropped and the controller runs without the device.
+- **Arguments:** `instance` is the index of the controller instance (0 for
+  `dbm_create_controller`), `device_index` the position in the controller's USB device list
+  (`dbm_list_usb_devices`); `vendor_id`, `product_id`, `interface_number` are that device's, so a
+  simple host needs no lookup. `data` is the complete byte stream of the write, valid during the
+  call. Return non-zero if written or queued.
+- **A Push frame** is one write of 327,696 bytes: the 16-byte header `FF CC AA 88` + 12 zero
+  bytes, then 327,680 bytes of pixel data (160 lines of 2,048 bytes, RGB565 little endian,
+  already XOR-masked with `E7 F3 E7 FF`). Write it as it is; a transport may split it into
+  transfers (the Java version writes the header and the image as two bulk writes, the Python
+  usbdevfs writer additionally chunks the image into 16 KiB transfers). The core limits the rate:
+  changed frames at most ~30 per second, the unchanged frame again about every second (the Push
+  blanks its display without frames).
+- **Threading:** as all callbacks: on the thread of the call into the library (or the internal
+  timer thread), with the instance locked, and the callback must not call into the instance. It
+  must not block: copy the data, write it on another thread, and drop a frame rather than stall
+  (a newer frame replaces one which was not written yet).
+- **Claiming up front:** hosts which declare the devices before the controller runs (Bitwig's
+  `listHardwareDevices`, udev rules) take the list from `dbm_list_usb_devices` (or
+  `dbm-catalog --usb`; `backends/bitwig/tools/gen_definitions.py` generates it into the Bitwig
+  definitions).
+
+The transports of the hosts:
+
+| Host | Transport |
+| --- | --- |
+| Bitwig | Bitwig's USB API: the definition claims the device (`UsbDeviceMatcher` with an interface and a bulk endpoint matcher), the extension writes with `host.hardwareDevice(i)` → `iface(0).pipe(0)` → `UsbOutputPipe.write` on a thread of its own (`UsbOutput.java`) |
+| Python (reference host, zynthian) | `drivenbymoss.Backend.usb_bulk_out(device_index, endpoint, data)` (overridable; the device's IDs in `backend.usb_device`), by default queued for `drivenbymoss.usb.UsbOutput.from_environment()`: the Push simulator's socket if `DBM_PUSH_DISPLAY_SOCKET` is set, else on Linux usbdevfs (`/dev/bus/usb/BBB/DDD`, needs the udev rule `support/linux/ni_host/packaging/70-dbm-nihost.rules` or root) |
+| Reaper | not a target (no USB transport) |
+
+**The simulator socket** (`DBM_PUSH_DISPLAY_SOCKET`, the simulator's default
+`$XDG_RUNTIME_DIR/dbm-push-display.sock`; `DBM_USB_TRANSPORT=socket` uses that default,
+`DBM_USB_TRANSPORT=none` disables USB, `=usbdevfs` forces the device): a UNIX stream socket; per
+frame exactly the bytes of the write (header + 327,680 data bytes), no length prefix, frames
+back to back on one connection. The host connects lazily, writes with a 1 s timeout, and after
+any error closes the connection and tries again at most once per second; a frame is either
+written completely or the connection is closed, so a new connection always starts with a
+header. Frames which come while the previous one is still being written replace each other
+(dropped).
+
 ## 6. Behavioural rules learned from the conformance work
 
 1. **Report again after a value command (takeover/pickup).** The core sets the value it sends

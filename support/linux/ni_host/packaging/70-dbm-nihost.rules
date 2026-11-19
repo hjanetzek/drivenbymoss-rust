@@ -6,3 +6,12 @@
 #   sudo udevadm control --reload && sudo udevadm trigger
 KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1140", MODE="0660", GROUP="audio", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1500", MODE="0660", GROUP="audio", TAG+="uaccess"
+
+# Access to the display of the Ableton Push 2 (2982:1967) and Push 3 (2982:1969, the ID of
+# DrivenByMoss' Push3ControllerDefinition): USB interface 0, bulk endpoint 0x01, written through
+# usbdevfs (/dev/bus/usb/BBB/DDD) by the Python hosts (bindings/python/drivenbymoss/usb.py: the
+# reference host, zynthian's Push drivers). The pads and buttons are class compliant USB MIDI and
+# need no rule. Bitwig claims the device through its own USB access (also /dev/bus/usb), which
+# needs the same rule.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2982", ATTR{idProduct}=="1967", MODE="0660", GROUP="audio", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2982", ATTR{idProduct}=="1969", MODE="0660", GROUP="audio", TAG+="uaccess"

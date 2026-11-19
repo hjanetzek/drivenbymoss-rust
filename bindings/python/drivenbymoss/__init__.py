@@ -50,10 +50,12 @@ __all__ = [
     "MidiDevice",
     "Setting",
     "SettingState",
+    "UsbDevice",
     "dispatch_legacy_line",
     "legacy_command",
     "legacy_commands",
     "list_controllers",
+    "list_usb_devices",
     "messages_from_text",
     "messages_to_text",
     "protocol",
@@ -87,6 +89,18 @@ class Setting:
     extra: list[str] = field(default_factory=list)
     """The options of an enumeration, the minimum and maximum of an integer or the button text of
     a signal."""
+
+
+class UsbDevice(NamedTuple):
+    """The device of a USB write (Backend.usb_device): the controller instance, the index of the
+    device in its list (list_usb_devices) and the device's IDs."""
+
+    instance: int
+    device_index: int
+    vendor_id: int
+    product_id: int
+    interface: int
+    endpoint: int
 
 
 class SettingState(NamedTuple):
@@ -174,6 +188,34 @@ class Backend:
 
     def set_note_input_velocity_translation_table(self, device_id: int, note_input_index: int, table: list[int]) -> None:
         pass
+
+    usb_device: "UsbDevice | None" = None
+    """The device of the USB write being delivered (set before usb_bulk_out is called)."""
+    usb_output = None
+    """Where the default usb_bulk_out writes (drivenbymoss.usb.UsbOutput, created from the
+    environment on the first write if None; closed by App.close)."""
+
+    def usb_bulk_out(self, device_index: int, endpoint: int, data: bytes) -> bool:
+        """A USB bulk write of the core (after App.use_usb), e.g. a frame of the Push 2/3
+        display: the complete byte stream for the endpoint of the controller's USB device
+        ``device_index`` (the signature of the core's Backend::usb_bulk_out; the vendor, product
+        and interface are in ``self.usb_device``). It runs during a call into the core: do not
+        block. The default queues it for ``usb_output`` (UsbOutput.from_environment(): the Push
+        simulator's socket with DBM_PUSH_DISPLAY_SOCKET, else usbdevfs on Linux). True if the
+        data was written or queued."""
+        device = self.usb_device
+        if device is None:
+            return False
+        if self.usb_output is None:
+            from .usb import UsbOutput
+            self.usb_output = UsbOutput.from_environment()
+        return self.usb_output.write(device.vendor_id, device.product_id, device.interface, endpoint, data)
+
+    def close_usb(self) -> None:
+        """Close the default USB output (App.close calls it)."""
+        output, self.usb_output = self.usb_output, None
+        if output is not None:
+            output.close()
 
     def log(self, message: str) -> None:
         """A log message of the library. The binding always takes the log, so the library does not
@@ -334,6 +376,17 @@ def version() -> str:
     return _str(_ffi.library().dbm_version())
 
 
+def list_usb_devices(controller_id: str = "") -> dict[str, list[dict]]:
+    """The USB devices of the controllers besides MIDI (parsed JSON, see dbm_list_usb_devices):
+    the UUID of each controller with USB devices -> its devices, each with 'vendorId',
+    'productId', 'interface' and 'endpoint' (the position is the device index). Only that
+    controller if controller_id is given."""
+    library = _ffi.library()
+    if not hasattr(library, "dbm_list_usb_devices"):
+        return {}
+    return json.loads(_take(library.dbm_list_usb_devices(_bytes(controller_id))) or "{}")
+
+
 def list_controllers() -> list[dict]:
     """The supported controllers (parsed JSON, see dbm_list_controllers): per controller its
     'uuid', 'vendor', 'model', 'numMidiInPorts', 'numMidiOutPorts' and 'discovery'."""
@@ -388,6 +441,11 @@ class _Trampolines:
             "set_note_input_velocity_translation_table": _ffi.SetNoteInputTable(guard("set_note_input_velocity_translation_table", None, lambda d, i, t, n: b.set_note_input_velocity_translation_table(d, i, _ints(t, n)))),
             "log": _ffi.Log(guard("log", None, lambda m: b.log(_str(m)))),
         }
+        def usb_bulk_out(instance, device_index, vendor_id, product_id, interface, endpoint, data, length):
+            b.usb_device = UsbDevice(instance, device_index, vendor_id, product_id, interface, endpoint)
+            return 1 if b.usb_bulk_out(device_index, endpoint, ctypes.string_at(data, length) if data and length > 0 else b"") else 0
+
+        self.usb = _ffi.DbmUsbBulkOut(guard("usb_bulk_out", 0, usb_bulk_out))
         self.commands = _ffi.DbmCommands(guard("process_commands", None, lambda data, n: _process_commands(b, data, n)))
         self.table = _ffi.DbmCallbacks(user=None, **self.functions)
 
@@ -456,6 +514,7 @@ class App:
         handle = self._app()
         self._handle = None
         self._library.dbm_destroy(handle)
+        self.backend.close_usb()
 
     def __enter__(self) -> "App":
         return self
@@ -516,6 +575,14 @@ class App:
             count = len(bits)
             words = (ctypes.c_uint64 * max(1, count))(*bits)
         return self._library.dbm_set_command_callback(self._app(), protocol.VERSION_MAJOR, self._trampolines.commands, None, words, count) != 0
+
+    def use_usb(self) -> bool:
+        """Deliver the USB bulk writes of the controllers (e.g. the Push 2/3 display) to
+        Backend.usb_bulk_out (dbm_set_usb_callback); call it before start_infrastructure. False
+        if the library has another version of the USB interface (or none)."""
+        if not hasattr(self._library, "dbm_set_usb_callback"):
+            return False
+        return self._library.dbm_set_usb_callback(self._app(), _ffi.DBM_USB_VERSION, self._trampolines.usb, None) != 0
 
     def update_model_bin(self, data) -> None:
         """Update the model with a buffer of binary records (a protocol.Writer or a bytes-like

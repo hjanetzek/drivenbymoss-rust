@@ -29,6 +29,20 @@ use crate::protocol::{Arg, Cmd, Legacy};
 /// buffer of records (`include/dbm_protocol.h`), valid during the call.
 pub type DbmCommands = extern "C" fn(user: *mut c_void, buffer: *const u8, length: usize);
 
+/// Receives the USB bulk writes of an instance ([`dbm_set_usb_callback`]), e.g. the frames of
+/// the Push 2/3 display. `instance` is the index of the controller instance (0 for
+/// [`dbm_create_controller`]), `device_index` the index of the USB device of the controller (see
+/// [`dbm_list_usb_devices`]); `vendor_id`, `product_id` and `interface_number` are those of the
+/// device's matcher, `endpoint` the endpoint address (e.g. 0x01, OUT). `data` (`length` bytes)
+/// is the complete byte stream of the write and is only valid during the call. Returns non-zero
+/// if the data was written or queued, 0 if not (no device, error). It runs with the instance
+/// locked: it must not block for long (queue the data and write it on another thread, drop data
+/// rather than stall) and must not call into the same instance.
+pub type DbmUsbBulkOut = extern "C" fn(user: *mut c_void, instance: c_int, device_index: c_int, vendor_id: u16, product_id: u16, interface_number: u8, endpoint: u8, data: *const u8, length: usize) -> c_int;
+
+/// The version of the USB interface ([`dbm_set_usb_callback`], [`DbmUsbBulkOut`]).
+pub const DBM_USB_VERSION: u32 = 1;
+
 /// Adds one MIDI device (ID and name) to a list, see `get_midi_inputs`.
 pub type DbmAddDevice = extern "C" fn(list: *mut c_void, id: c_int, name: *const c_char);
 
@@ -102,11 +116,13 @@ pub struct FfiBackend {
     binary: RefCell<Option<BinaryCommands>>,
     /// The command features of the binary form, derived from the handled commands (None: text).
     command_features: std::cell::Cell<Option<u32>>,
+    /// The receiver of the USB writes ([`dbm_set_usb_callback`]) and its user pointer.
+    usb: std::cell::Cell<Option<(DbmUsbBulkOut, *mut c_void)>>,
 }
 
 impl FfiBackend {
     fn new(callbacks: DbmCallbacks) -> Self {
-        FfiBackend { callbacks, binary: RefCell::new(None), command_features: std::cell::Cell::new(None) }
+        FfiBackend { callbacks, binary: RefCell::new(None), command_features: std::cell::Cell::new(None), usb: std::cell::Cell::new(None) }
     }
 
     /// Deliver the buffered commands of the binary form (before any other callback and at the
@@ -269,6 +285,21 @@ impl Backend for FfiBackend {
         if let Some(f) = self.callbacks.send_midi_data {
             f(self.callbacks.user, device_id, data.as_ptr(), data.len() as c_int);
         }
+    }
+
+    /// A write without a resolved device (the application resolves the writes of its instances,
+    /// see [`crate::backend::UsbInstanceBackend`]): instance -1, the IDs 0.
+    fn usb_bulk_out(&self, device_index: i32, endpoint: u8, data: &[u8]) -> bool {
+        let target = crate::backend::UsbTarget { instance: -1, device_index, vendor_id: 0, product_id: 0, interface: 0, endpoint };
+        self.usb_bulk_out_to(&target, data)
+    }
+
+    fn usb_bulk_out_to(&self, target: &crate::backend::UsbTarget, data: &[u8]) -> bool {
+        let Some((callback, user)) = self.usb.get() else {
+            return false;
+        };
+        self.flush();
+        callback(user, target.instance, target.device_index, target.vendor_id, target.product_id, target.interface, target.endpoint, data.as_ptr(), data.len()) != 0
     }
 
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
@@ -657,6 +688,82 @@ pub unsafe extern "C" fn dbm_set_command_callback(app: *mut DbmApp, major: u32, 
     result.unwrap_or(0)
 }
 
+/// Set the receiver of the USB bulk writes of the instance (e.g. the frames of the Push 2/3
+/// display, see [`DbmUsbBulkOut`]); a null `callback` removes it (the writes then fail and
+/// are dropped). Without a receiver the controllers run without their USB devices. `version`
+/// must be [`DBM_USB_VERSION`]. Call it before [`dbm_start_infrastructure`] (it can be called
+/// later and again, the next write goes to the new receiver). The callback runs on the thread of
+/// the call into the library or on the internal timer thread, with the instance locked (see
+/// [`DbmUsbBulkOut`]). Returns 1, or 0 (and keeps the previous receiver) if `version` differs
+/// or `app` is null.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `user` must stay valid until [`dbm_destroy`] or the
+/// next call.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_set_usb_callback(app: *mut DbmApp, version: u32, callback: Option<extern "C" fn(user: *mut c_void, instance: c_int, device_index: c_int, vendor_id: u16, product_id: u16, interface_number: u8, endpoint: u8, data: *const u8, length: usize) -> c_int>, user: *mut c_void) -> c_int {
+    if version != DBM_USB_VERSION {
+        return 0;
+    }
+    let Some(app) = (unsafe { handle(app) }) else {
+        return 0;
+    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let guard = match app.inner.app.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(ffi) = &guard.1 else {
+            return 0;
+        };
+        ffi.usb.set(callback.map(|callback| (callback, user)));
+        1
+    }));
+    result.unwrap_or(0)
+}
+
+/// The USB devices of the controllers besides MIDI (e.g. the display of the Push 2/3), for hosts
+/// which claim them up front (Bitwig definitions, udev rules): a JSON object with the UUID of
+/// each controller which has USB devices as key and the list of its devices as value, each
+/// `{"vendorId": 10626, "productId": 6503, "interface": 0, "endpoint": 1}` (numbers in decimal;
+/// the position is the `device_index` of [`DbmUsbBulkOut`]). If `controller_id` is not null or
+/// empty, only that controller is listed. Release the string with [`dbm_free_string`].
+///
+/// # Safety
+/// `controller_id` must be a valid NUL terminated string (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_list_usb_devices(controller_id: *const c_char) -> *mut c_char {
+    let controller_id = unsafe { from_c(controller_id) };
+    let json = std::panic::catch_unwind(|| usb_devices_json(&controller_id)).unwrap_or_else(|_| "{}".to_string());
+    c_string(&json).into_raw()
+}
+
+/// The USB devices of the controllers as JSON, see [`dbm_list_usb_devices`] (an empty
+/// `controller_id`: all controllers). Also printed by `dbm-catalog --usb`.
+pub fn usb_devices_json(controller_id: &str) -> String {
+    let mut json = crate::json::JsonWriter::new();
+    json.begin_object();
+    for factory in crate::controller::all_factories() {
+        let uuid = factory.info().uuid;
+        let devices = factory.usb_devices();
+        if devices.is_empty() || (!controller_id.is_empty() && !uuid.eq_ignore_ascii_case(controller_id)) {
+            continue;
+        }
+        json.key(&uuid).begin_array();
+        for device in devices {
+            json.begin_object();
+            json.key("vendorId").number(i64::from(device.vendor_id));
+            json.key("productId").number(i64::from(device.product_id));
+            json.key("interface").number(i64::from(device.interface));
+            json.key("endpoint").number(i64::from(device.endpoint));
+            json.end_object();
+        }
+        json.end_array();
+    }
+    json.end_object();
+    json.finish()
+}
+
 /// Update the model with a buffer of binary records (one buffer = one report), the binary form
 /// of [`dbm_update_model`]. Both can be used on the same instance.
 ///
@@ -878,7 +985,54 @@ fn parse_version(version: &str) -> (i32, i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_version;
+    use super::*;
+    use crate::backend::UsbInstanceBackend;
+    use crate::controller::UsbMatcher;
+
+    /// The calls of `usb_callback`: instance, device index, vendor, product, interface,
+    /// endpoint, length, first byte.
+    type UsbCall = (c_int, c_int, u16, u16, u8, u8, usize, u8);
+
+    extern "C" fn usb_callback(user: *mut c_void, instance: c_int, device_index: c_int, vendor_id: u16, product_id: u16, interface_number: u8, endpoint: u8, data: *const u8, length: usize) -> c_int {
+        // SAFETY: `user` is the vector of the test, which outlives the backend
+        let calls = unsafe { &mut *(user as *mut Vec<UsbCall>) };
+        let first = unsafe { *data };
+        calls.push((instance, device_index, vendor_id, product_id, interface_number, endpoint, length, first));
+        1
+    }
+
+    #[test]
+    fn usb_writes_reach_the_callback_with_their_device() {
+        // SAFETY: an all-null callback table is valid (null function pointers are ignored)
+        let callbacks: DbmCallbacks = unsafe { std::mem::zeroed() };
+        let ffi = Rc::new(FfiBackend::new(callbacks));
+        let push2 = UsbMatcher { vendor_id: 0x2982, product_id: 0x1967, interface: 0, endpoint: 0x01 };
+        let instance = UsbInstanceBackend::new(ffi.clone(), 2, vec![push2]);
+        let frame = [0xFFu8, 0xCC, 0xAA, 0x88];
+
+        // Without a callback the writes fail
+        assert!(!instance.usb_bulk_out(0, 0x01, &frame));
+
+        let mut calls: Vec<UsbCall> = Vec::new();
+        ffi.usb.set(Some((usb_callback, &mut calls as *mut Vec<UsbCall> as *mut c_void)));
+        assert!(instance.usb_bulk_out(0, 0x01, &frame));
+        // A device index without a device is not written
+        assert!(!instance.usb_bulk_out(1, 0x01, &frame));
+        // Directly on the backend (no instance): instance -1 and no IDs
+        assert!(ffi.usb_bulk_out(0, 0x01, &frame));
+        ffi.usb.set(None);
+        assert_eq!(calls, [(2, 0, 0x2982, 0x1967, 0, 0x01, 4, 0xFF), (-1, 0, 0, 0, 0, 0x01, 4, 0xFF)]);
+    }
+
+    #[test]
+    fn usb_callback_version_and_device_list() {
+        assert_eq!(unsafe { dbm_set_usb_callback(std::ptr::null_mut(), DBM_USB_VERSION, Some(usb_callback), std::ptr::null_mut()) }, 0);
+        assert!(usb_devices_json("").starts_with('{'));
+        assert_eq!(usb_devices_json("no-such-controller"), "{}");
+        // Every listed device has the four numbers
+        let all = usb_devices_json("");
+        assert_eq!(all.matches("\"vendorId\"").count(), all.matches("\"endpoint\"").count());
+    }
 
     #[test]
     fn version_parsing() {

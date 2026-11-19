@@ -161,6 +161,21 @@ pub trait Backend {
     fn close_midi_input(&self, device_id: i32);
     fn close_midi_output(&self, device_id: i32);
     fn send_midi_data(&self, device_id: i32, data: &[u8]);
+    /// Write to a USB bulk OUT endpoint of a USB device of the controller instance (former
+    /// `IHost.getUsbDevice (deviceIndex).getEndpoint (0, ...).send (data)`), e.g. a frame of the
+    /// Push 2/3 display. `device_index` is the index of the device in
+    /// `ControllerFactory::usb_devices`, `endpoint` the endpoint address (e.g. 0x01). Returns
+    /// false if the host has no USB transport or the write failed. The default does nothing.
+    fn usb_bulk_out(&self, _device_index: i32, _endpoint: u8, _data: &[u8]) -> bool {
+        false
+    }
+    /// [`Backend::usb_bulk_out`] with the instance and the matcher of the device resolved (by
+    /// [`UsbInstanceBackend`], which the application puts in front of the backend of an instance
+    /// with USB devices). The C interface passes all of it to the host (`dbm_set_usb_callback`),
+    /// so that a host needs no lookup. The default calls [`Backend::usb_bulk_out`].
+    fn usb_bulk_out_to(&self, target: &UsbTarget, data: &[u8]) -> bool {
+        self.usb_bulk_out(target.device_index, target.endpoint, data)
+    }
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]);
     fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]);
@@ -207,6 +222,107 @@ impl Sender {
     pub fn refresh(&self) {
         self.send(&Cmd::Refresh {});
     }
+
+    /// Write to a USB bulk OUT endpoint, see [`Backend::usb_bulk_out`].
+    pub fn usb_bulk_out(&self, device_index: i32, endpoint: u8, data: &[u8]) -> bool {
+        self.backend.usb_bulk_out(device_index, endpoint, data)
+    }
+}
+
+/// The destination of a USB bulk write ([`Backend::usb_bulk_out_to`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsbTarget {
+    /// The index of the controller instance in the application (0 for an application with one
+    /// controller, `dbm_create_controller`).
+    pub instance: i32,
+    /// The index of the device in `ControllerFactory::usb_devices`.
+    pub device_index: i32,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    /// The interface number of the device's matcher.
+    pub interface: u8,
+    /// The endpoint address of the write.
+    pub endpoint: u8,
+}
+
+/// The backend of a controller instance with USB devices: forwards everything to the backend of
+/// the application and resolves the USB writes of the instance ([`Backend::usb_bulk_out`]) to
+/// their instance and device ([`Backend::usb_bulk_out_to`]).
+pub struct UsbInstanceBackend {
+    inner: Rc<dyn Backend>,
+    instance: i32,
+    devices: Vec<crate::controller::UsbMatcher>,
+}
+
+impl UsbInstanceBackend {
+    pub fn new(inner: Rc<dyn Backend>, instance: i32, devices: Vec<crate::controller::UsbMatcher>) -> Self {
+        UsbInstanceBackend { inner, instance, devices }
+    }
+}
+
+impl Backend for UsbInstanceBackend {
+    fn send_command(&self, cmd: &Cmd) {
+        self.inner.send_command(cmd);
+    }
+    fn process_midi_arg(&self, device_id: i32, status: i32, data1: i32, data2: i32) {
+        self.inner.process_midi_arg(device_id, status, data1, data2);
+    }
+    fn midi_inputs(&self) -> Vec<(i32, String)> {
+        self.inner.midi_inputs()
+    }
+    fn midi_outputs(&self) -> Vec<(i32, String)> {
+        self.inner.midi_outputs()
+    }
+    fn open_midi_input(&self, device_id: i32) -> bool {
+        self.inner.open_midi_input(device_id)
+    }
+    fn open_midi_output(&self, device_id: i32) -> bool {
+        self.inner.open_midi_output(device_id)
+    }
+    fn close_midi_input(&self, device_id: i32) {
+        self.inner.close_midi_input(device_id);
+    }
+    fn close_midi_output(&self, device_id: i32) {
+        self.inner.close_midi_output(device_id);
+    }
+    fn send_midi_data(&self, device_id: i32, data: &[u8]) {
+        self.inner.send_midi_data(device_id, data);
+    }
+    /// Resolves the device; an index without a device is not written (false).
+    fn usb_bulk_out(&self, device_index: i32, endpoint: u8, data: &[u8]) -> bool {
+        let Some(device) = usize::try_from(device_index).ok().and_then(|i| self.devices.get(i)) else {
+            return false;
+        };
+        let target = UsbTarget { instance: self.instance, device_index, vendor_id: device.vendor_id, product_id: device.product_id, interface: device.interface, endpoint };
+        self.inner.usb_bulk_out_to(&target, data)
+    }
+    fn usb_bulk_out_to(&self, target: &UsbTarget, data: &[u8]) -> bool {
+        self.inner.usb_bulk_out_to(target, data)
+    }
+    fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
+        self.inner.set_note_input_filters(device_id, note_input_index, filters);
+    }
+    fn set_note_input_key_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]) {
+        self.inner.set_note_input_key_translation_table(device_id, note_input_index, table);
+    }
+    fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]) {
+        self.inner.set_note_input_velocity_translation_table(device_id, note_input_index, table);
+    }
+    fn log(&self, message: &str) {
+        self.inner.log(message);
+    }
+    fn command_features(&self) -> Option<u32> {
+        self.inner.command_features()
+    }
+    fn handles_log(&self) -> bool {
+        self.inner.handles_log()
+    }
+}
+
+/// The FNV-1a hash (64 bit) of the data of a USB write, as recorded by [`RecordingBackend`]
+/// ([`BackendCall::UsbBulkOut`]).
+pub fn usb_data_hash(data: &[u8]) -> u64 {
+    data.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// A call to the backend, recorded by the [`RecordingBackend`].
@@ -228,6 +344,11 @@ pub enum BackendCall {
     NoteInputFilters(i32, i32, Vec<String>),
     KeyTranslation(i32, i32, Vec<i32>),
     VelocityTranslation(i32, i32, Vec<i32>),
+    /// A USB bulk write ([`Backend::usb_bulk_out`]): the device index, the endpoint, the length
+    /// and the hash of the data ([`usb_data_hash`]; a display frame is 327,696 bytes, too large
+    /// to keep for every write). The data of the last write is in
+    /// [`RecordingBackend::last_usb_data`].
+    UsbBulkOut { device_index: i32, endpoint: u8, length: usize, hash: u64 },
 }
 
 impl BackendCall {
@@ -303,6 +424,8 @@ pub struct RecordingBackend {
     /// the `handled` event of a recording): the command features come from them
     /// ([`Backend::command_features`]). None: a text host.
     pub handled: RefCell<Option<Vec<u64>>>,
+    /// The data of the last USB write ([`BackendCall::UsbBulkOut`]).
+    pub last_usb_data: RefCell<Vec<u8>>,
 }
 
 impl RecordingBackend {
@@ -381,6 +504,12 @@ impl Backend for RecordingBackend {
         self.push(BackendCall::SendMidi(device_id, data.to_vec()));
     }
 
+    fn usb_bulk_out(&self, device_index: i32, endpoint: u8, data: &[u8]) -> bool {
+        self.push(BackendCall::UsbBulkOut { device_index, endpoint, length: data.len(), hash: usb_data_hash(data) });
+        *self.last_usb_data.borrow_mut() = data.to_vec();
+        true
+    }
+
     fn set_note_input_filters(&self, device_id: i32, note_input_index: i32, filters: &[String]) {
         self.push(BackendCall::NoteInputFilters(device_id, note_input_index, filters.to_vec()));
     }
@@ -391,5 +520,23 @@ impl Backend for RecordingBackend {
 
     fn set_note_input_velocity_translation_table(&self, device_id: i32, note_input_index: i32, table: &[i32]) {
         self.push(BackendCall::VelocityTranslation(device_id, note_input_index, table.to_vec()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::controller::UsbMatcher;
+
+    #[test]
+    fn usb_writes_of_an_instance_are_recorded_with_their_device() {
+        let recording = Rc::new(RecordingBackend::default());
+        let push3 = UsbMatcher { vendor_id: 0x2982, product_id: 0x1969, interface: 0, endpoint: 0x01 };
+        let instance = UsbInstanceBackend::new(recording.clone(), 0, vec![push3]);
+        let frame = vec![0xFF, 0xCC, 0xAA, 0x88, 0, 0];
+        assert!(Sender::new(Rc::new(instance)).usb_bulk_out(0, 0x01, &frame));
+        assert_eq!(recording.take_calls(), [BackendCall::UsbBulkOut { device_index: 0, endpoint: 0x01, length: 6, hash: usb_data_hash(&frame) }]);
+        assert_eq!(*recording.last_usb_data.borrow(), frame);
+        assert_ne!(usb_data_hash(&frame), usb_data_hash(&frame[..5]));
     }
 }

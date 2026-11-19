@@ -28,6 +28,9 @@
 #include <stddef.h>
 #include "dbm_protocol.h"
 
+// The version of the USB interface ([`dbm_set_usb_callback`], [`DbmUsbBulkOut`]).
+#define DBM_USB_VERSION 1
+
 // Flag for [`dbm_create`]: do not start the internal timer thread. The host must call
 // [`dbm_tick`] regularly (every 30ms is recommended) instead.
 #define DBM_FLAG_HOST_TICK 1
@@ -89,6 +92,25 @@ typedef struct DbmCallbacks {
 // Receives the commands of an instance in the binary form ([`dbm_set_command_callback`]): a
 // buffer of records (`include/dbm_protocol.h`), valid during the call.
 typedef void (*DbmCommands)(void *user, const uint8_t *buffer, size_t length);
+
+// Receives the USB bulk writes of an instance ([`dbm_set_usb_callback`]), e.g. the frames of
+// the Push 2/3 display. `instance` is the index of the controller instance (0 for
+// [`dbm_create_controller`]), `device_index` the index of the USB device of the controller (see
+// [`dbm_list_usb_devices`]); `vendor_id`, `product_id` and `interface_number` are those of the
+// device's matcher, `endpoint` the endpoint address (e.g. 0x01, OUT). `data` (`length` bytes)
+// is the complete byte stream of the write and is only valid during the call. Returns non-zero
+// if the data was written or queued, 0 if not (no device, error). It runs with the instance
+// locked: it must not block for long (queue the data and write it on another thread, drop data
+// rather than stall) and must not call into the same instance.
+typedef int (*DbmUsbBulkOut)(void *user,
+                             int instance,
+                             int device_index,
+                             uint16_t vendor_id,
+                             uint16_t product_id,
+                             uint8_t interface_number,
+                             uint8_t endpoint,
+                             const uint8_t *data,
+                             size_t length);
 
 #ifdef __cplusplus
 extern "C" {
@@ -219,6 +241,42 @@ int dbm_set_command_callback(struct DbmApp *app,
                              void *user,
                              const uint64_t *handled,
                              size_t handled_words);
+
+// Set the receiver of the USB bulk writes of the instance (e.g. the frames of the Push 2/3
+// display, see [`DbmUsbBulkOut`]); a null `callback` removes it (the writes then fail and
+// are dropped). Without a receiver the controllers run without their USB devices. `version`
+// must be [`DBM_USB_VERSION`]. Call it before [`dbm_start_infrastructure`] (it can be called
+// later and again, the next write goes to the new receiver). The callback runs on the thread of
+// the call into the library or on the internal timer thread, with the instance locked (see
+// [`DbmUsbBulkOut`]). Returns 1, or 0 (and keeps the previous receiver) if `version` differs
+// or `app` is null.
+//
+// # Safety
+// `app` must be a valid handle (or null); `user` must stay valid until [`dbm_destroy`] or the
+// next call.
+int dbm_set_usb_callback(struct DbmApp *app,
+                         uint32_t version,
+                         int (*callback)(void *user,
+                                         int instance,
+                                         int device_index,
+                                         uint16_t vendor_id,
+                                         uint16_t product_id,
+                                         uint8_t interface_number,
+                                         uint8_t endpoint,
+                                         const uint8_t *data,
+                                         size_t length),
+                         void *user);
+
+// The USB devices of the controllers besides MIDI (e.g. the display of the Push 2/3), for hosts
+// which claim them up front (Bitwig definitions, udev rules): a JSON object with the UUID of
+// each controller which has USB devices as key and the list of its devices as value, each
+// `{"vendorId": 10626, "productId": 6503, "interface": 0, "endpoint": 1}` (numbers in decimal;
+// the position is the `device_index` of [`DbmUsbBulkOut`]). If `controller_id` is not null or
+// empty, only that controller is listed. Release the string with [`dbm_free_string`].
+//
+// # Safety
+// `controller_id` must be a valid NUL terminated string (or null).
+char *dbm_list_usb_devices(const char *controller_id);
 
 // Update the model with a buffer of binary records (one buffer = one report), the binary form
 // of [`dbm_update_model`]. Both can be used on the same instance.

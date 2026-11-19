@@ -8,7 +8,9 @@
 #
 #   backends/bitwig/tools/gen_definitions.py          (from the rust/ directory)
 #
-# The controller data comes from `cargo run --bin dbm-catalog` (see dbm_list_controllers). The
+# The controller data comes from `cargo run --bin dbm-catalog` (see dbm_list_controllers), the
+# USB devices besides MIDI (e.g. the Push 2/3 display, which the definition claims with
+# listHardwareDevices) from `cargo run --bin dbm-catalog -- --usb` (dbm_list_usb_devices). The
 # definitions get their own UUIDs (derived from the core's), so that the extension can be
 # installed next to the Java DrivenByMoss, which uses the core's UUIDs.
 
@@ -52,6 +54,12 @@ def java_pairs(pairs):
     return "new String [][][]\n        {\n            " + ",\n            ".join(items) + "\n        }"
 
 
+def java_usb_devices(devices):
+    """The USB devices as Java code: new int [][] { { vendor, product, interface, endpoint }, ... }."""
+    items = [f"{{ 0x{d['vendorId']:04X}, 0x{d['productId']:04X}, {d['interface']}, 0x{d['endpoint']:02X} }}" for d in devices]
+    return "new int [][] { " + ", ".join(items) + " }"
+
+
 def class_name(controller):
     words = re.findall(r"[A-Za-z0-9]+", controller["vendor"] + " " + controller["model"])
     return "".join(word[0].upper() + word[1:] for word in words) + "Definition"
@@ -59,6 +67,9 @@ def class_name(controller):
 
 def main():
     catalog = json.loads(subprocess.check_output(["cargo", "run", "-q", "--bin", "dbm-catalog"], cwd=CRATE))
+    usb = json.loads(subprocess.check_output(["cargo", "run", "-q", "--bin", "dbm-catalog", "--", "--usb"], cwd=CRATE))
+    # An older dbm-catalog ignores --usb and prints the catalog
+    usb = {key.upper(): value for key, value in usb.items()} if isinstance(usb, dict) else {}
     os.makedirs(SOURCE_DIR, exist_ok=True)
     for name in os.listdir(SOURCE_DIR):
         if name.endswith("Definition.java"):
@@ -69,6 +80,8 @@ def main():
         name = class_name(controller)
         own_id = uuid.uuid5(NAMESPACE, controller["uuid"].upper())
         discovery = controller["discovery"]
+        devices = usb.get(controller["uuid"].upper(), [])
+        usb_argument = f",\n        // USB devices: vendor, product, interface, bulk endpoint\n        {java_usb_devices(devices)}" if devices else ""
         code = HEADER + f"""package {PACKAGE};
 
 import de.mossgrabers.dbm.bitwig.DbmExtensionDefinition;
@@ -90,7 +103,7 @@ public final class {name} extends DbmExtensionDefinition
         // Linux
         {java_pairs(discovery["linux"])},
         // macOS
-        {java_pairs(discovery["mac"])});
+        {java_pairs(discovery["mac"])}{usb_argument});
     }}
 }}
 """

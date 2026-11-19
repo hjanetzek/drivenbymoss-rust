@@ -7,8 +7,14 @@ import com.bitwig.extension.api.PlatformType;
 import com.bitwig.extension.controller.AutoDetectionMidiPortNamesList;
 import com.bitwig.extension.controller.ControllerExtension;
 import com.bitwig.extension.controller.ControllerExtensionDefinition;
+import com.bitwig.extension.controller.HardwareDeviceMatcherList;
+import com.bitwig.extension.controller.UsbDeviceMatcher;
+import com.bitwig.extension.controller.UsbEndpointMatcher;
+import com.bitwig.extension.controller.UsbInterfaceMatcher;
+import com.bitwig.extension.controller.api.UsbTransferType;
 import com.bitwig.extension.controller.api.ControllerHost;
 
+import java.util.Locale;
 import java.util.UUID;
 
 
@@ -31,6 +37,7 @@ public abstract class DbmExtensionDefinition extends ControllerExtensionDefiniti
     private final String [][][] windowsPorts;
     private final String [][][] linuxPorts;
     private final String [][][] macPorts;
+    private final int [][]      usbDevices;
 
 
     /**
@@ -50,6 +57,29 @@ public abstract class DbmExtensionDefinition extends ControllerExtensionDefiniti
      */
     protected DbmExtensionDefinition (final String id, final String coreId, final String vendor, final String model, final int numMidiInPorts, final int numMidiOutPorts, final String [][][] windowsPorts, final String [][][] linuxPorts, final String [][][] macPorts)
     {
+        this (id, coreId, vendor, model, numMidiInPorts, numMidiOutPorts, windowsPorts, linuxPorts, macPorts, new int [0][]);
+    }
+
+
+    /**
+     * Constructor for a controller with USB devices besides MIDI (e.g. the display of the Push
+     * 2/3, dbm_list_usb_devices).
+     *
+     * @param id The UUID of the extension
+     * @param coreId The UUID of the controller in the core
+     * @param vendor The hardware vendor
+     * @param model The hardware model
+     * @param numMidiInPorts The number of MIDI inputs
+     * @param numMidiOutPorts The number of MIDI outputs
+     * @param windowsPorts The port names for the automatic detection on Windows
+     * @param linuxPorts The port names for the automatic detection on Linux
+     * @param macPorts The port names for the automatic detection on macOS
+     * @param usbDevices The USB devices, each { vendor ID, product ID, interface, bulk endpoint
+     *            address }; the position is the device index of the core
+     */
+    protected DbmExtensionDefinition (final String id, final String coreId, final String vendor, final String model, final int numMidiInPorts, final int numMidiOutPorts, final String [][][] windowsPorts, final String [][][] linuxPorts, final String [][][] macPorts, final int [][] usbDevices)
+    {
+        this.usbDevices = usbDevices;
         this.id = UUID.fromString (id);
         this.coreId = coreId;
         this.vendor = vendor;
@@ -70,6 +100,17 @@ public abstract class DbmExtensionDefinition extends ControllerExtensionDefiniti
     public String getCoreId ()
     {
         return this.coreId;
+    }
+
+
+    /**
+     * Get the number of the USB devices besides MIDI.
+     *
+     * @return The number
+     */
+    public int getNumUsbDevices ()
+    {
+        return this.usbDevices.length;
     }
 
 
@@ -157,6 +198,24 @@ public abstract class DbmExtensionDefinition extends ControllerExtensionDefiniti
         };
         for (final String [][] pair: pairs)
             list.add (pair[0], pair[1]);
+    }
+
+
+    /**
+     * Claim the USB devices (as AbstractControllerExtensionDefinition of the Java version): per
+     * device a matcher of the vendor and product with one interface with one bulk endpoint.
+     * {@code host.hardwareDevice (i)} is then device i of the core.
+     */
+    @Override
+    public void listHardwareDevices (final HardwareDeviceMatcherList matchers)
+    {
+        for (final int [] device: this.usbDevices)
+        {
+            final UsbEndpointMatcher endpoint = new UsbEndpointMatcher (UsbTransferType.BULK, (byte) device[3]);
+            final UsbInterfaceMatcher iface = new UsbInterfaceMatcher (String.format (Locale.US, "bInterfaceNumber == 0x%02X", Integer.valueOf (device[2])), endpoint);
+            final String expression = String.format (Locale.US, "idVendor == 0x%04X && idProduct == 0x%04X", Integer.valueOf (device[0]), Integer.valueOf (device[1]));
+            matchers.add (new UsbDeviceMatcher (this.vendor + " " + this.model, expression, iface));
+        }
     }
 
 

@@ -17,6 +17,11 @@ moves the DAW (``SimDaw.advance``), gives the time to the core (``dbm_set_time``
 pending MIDI, ticks the core, reports the changes and calls ``update_model``. Nothing sleeps: the
 core's own timers (the 1 s startup delay, the 75 ms selection after a page change, long presses,
 blinking) run on the simulated clock too.
+
+USB: the USB bulk writes of the core (the Push 2/3 display) go to ``usb_output``, by default
+``UsbOutput.from_environment()`` (created on the first write): with ``DBM_PUSH_DISPLAY_SOCKET``
+to the Push simulator's socket, else on Linux to the device through usbdevfs
+(``drivenbymoss/usb.py``). ``usb_frames`` counts them, ``last_usb_frame`` keeps the last one.
 """
 
 import logging
@@ -77,6 +82,8 @@ class Bridge(drivenbymoss.Backend):
         self.notifications: list[str] = []
         self.reports: list[str] = []
         """Every batch given to update_model."""
+        self.usb_frames = 0
+        self.last_usb_frame: bytes | None = None
 
     # Lifecycle
 
@@ -86,6 +93,7 @@ class Bridge(drivenbymoss.Backend):
         self.app.set_time(int(self.clock_ms))
         if not self.app.use_binary_commands(self.commands.handled_commands()):
             raise RuntimeError("The library refused the binary commands (another major protocol version)")
+        self.app.use_usb()
         # The note inputs can only be created while the controller starts (DbmExtension.init)
         self._initializing = True
         self.daw.note_input = None
@@ -107,6 +115,7 @@ class Bridge(drivenbymoss.Backend):
         if self.app is not None:
             self.app.close()
             self.app = None
+        self.close_usb()
 
     def __enter__(self) -> "Bridge":
         return self
@@ -231,6 +240,13 @@ class Bridge(drivenbymoss.Backend):
         note_input = self.note_inputs.get(note_input_index) if device_id == DEVICE else None
         if note_input is not None:
             note_input.velocity_table = list(table)
+
+    def usb_bulk_out(self, device_index: int, endpoint: int, data: bytes) -> bool:
+        """A USB write of the core (the Push display), queued for ``usb_output`` (Backend's
+        default)."""
+        self.usb_frames += 1
+        self.last_usb_frame = data
+        return super().usb_bulk_out(device_index, endpoint, data)
 
     def log(self, message: str) -> None:
         self.logs.append(message)

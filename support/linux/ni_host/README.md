@@ -29,7 +29,9 @@ build-nihost/dbm-nihost            # both devices; --mk2 / --jam for one, --log-
 ```
 
 The devices can be plugged in and out while it runs. Access to `/dev/hidraw*` needs the udev rule
-`packaging/70-dbm-nihost.rules`.
+`packaging/70-dbm-nihost.rules`. The rule also gives access to the USB device nodes of the Push
+2/3 (their display, written by the Python hosts' usbdevfs writer
+`bindings/python/drivenbymoss/usb.py`; not part of this library).
 
 ## Install
 

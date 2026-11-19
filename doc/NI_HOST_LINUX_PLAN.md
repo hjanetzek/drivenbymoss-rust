@@ -242,6 +242,18 @@ optional.
   sends it for the Mk2, and the switch needs the announcement anyway.
 - [ ] Page left / right and the encoder directions.
 
+## 7b. The Push 2/3 display (2026-11-19)
+
+Not a NI device, but the same problem for the Python hosts (no DAW USB API): the Push 2/3
+display is USB bulk (interface 0, endpoint 0x01), written by the core's frames
+(`dbm_set_usb_callback`, HOST_BRIDGE_GUIDE.md §5a). The writer is **not** in this library but in
+Python (`bindings/python/drivenbymoss/usb.py`, ctypes ioctls on usbdevfs): it is a handful of
+ioctls (`USBDEVFS_CLAIMINTERFACE`, `USBDEVFS_BULK`, `USBDEVFS_RELEASEINTERFACE`), needs no device
+protocol translation (the core renders the frame), and so nothing has to be built, loaded or
+packaged besides the Python files. Only the udev rule is shared: `packaging/70-dbm-nihost.rules`
+now also gives the group audio (and uaccess) the USB device nodes of 2982:1967 (Push 2) and
+2982:1969 (Push 3).
+
 ## 8. Testing
 
 - **Unit tests** (no hardware): feed recorded or synthetic HID reports into the translators and

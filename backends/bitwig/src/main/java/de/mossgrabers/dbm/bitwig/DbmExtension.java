@@ -56,6 +56,8 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     private final Set<String>                unhandledCommands  = new TreeSet<> ();
     private ModelReporter                    reporter;
     private NativeCore                       core;
+    /** The USB devices of the controller (the Push 2/3 display), null without. */
+    private UsbOutput                        usbOutput;
     private BitwigModel                      model;
     private CommandHandler                   commands;
     private HostSettings                     settings;
@@ -207,6 +209,27 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         if (LOG_MIDI)
             this.println ("Logging MIDI to stderr (DBM_LOG_MIDI).");
 
+        // The USB devices (e.g. the Push 2/3 display), claimed by the definition; the hardware
+        // devices can only be looked up during init
+        if (this.definition.getNumUsbDevices () > 0)
+        {
+            this.usbOutput = new UsbOutput (host, this.definition.getNumUsbDevices (), (message, ex) -> {
+                if (ex == null)
+                    this.errorln (message);
+                else
+                    this.error (message, ex);
+            });
+            try
+            {
+                if (!this.core.setUsbCallback ())
+                    this.errorln ("The core (" + this.core.getVersion () + ") has no USB interface: no display.");
+            }
+            catch (final ReflectiveOperationException ex)
+            {
+                this.error ("Could not bind the USB callback", ex);
+            }
+        }
+
         // Note inputs can only be created during init, the core creates them on start
         this.isInitializing = true;
         this.record ("start");
@@ -253,6 +276,11 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     {
         this.isRunning = false;
         this.closeCore ();
+        if (this.usbOutput != null)
+        {
+            this.usbOutput.shutdown ();
+            this.usbOutput = null;
+        }
         if (this.recorder != null)
             this.recorder.close ();
     }
@@ -416,6 +444,14 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 
 
     // NativeCore.Callbacks
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean usbBulkOut (final int deviceIndex, final int endpoint, final MemorySegment data)
+    {
+        return this.usbOutput != null && this.usbOutput.write (deviceIndex, data);
+    }
+
 
     /** {@inheritDoc} */
     @Override

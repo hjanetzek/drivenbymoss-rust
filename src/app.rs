@@ -405,7 +405,11 @@ impl App {
         // The note clips which the views request while they are created (former
         // model.getNoteClip in the constructors), so that the host can create them during init
         crate::daw::clip::take_requested_note_clips();
-        match instance.factory.create_with_extra_inputs(self.host.clone(), self.sender.clone(), &ports, &extra_inputs, configuration) {
+        // The USB writes of an instance with USB devices go to its instance and device
+        // (`Backend::usb_bulk_out_to`); the other instances share the backend unchanged
+        let usb_devices = instance.factory.usb_devices();
+        let sender = if usb_devices.is_empty() { self.sender.clone() } else { Sender::new(Rc::new(crate::backend::UsbInstanceBackend::new(backend.clone(), index as i32, usb_devices))) };
+        match instance.factory.create_with_extra_inputs(self.host.clone(), sender, &ports, &extra_inputs, configuration) {
             Ok(mut parts) => {
                 parts.setup.init(&mut parts.ctx);
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {

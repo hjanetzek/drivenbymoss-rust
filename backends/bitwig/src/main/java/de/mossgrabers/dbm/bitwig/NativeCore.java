@@ -7,6 +7,7 @@ import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import static java.lang.foreign.ValueLayout.JAVA_SHORT;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -34,6 +35,9 @@ public final class NativeCore implements AutoCloseable
 
     /** The number of pointers in the struct DbmCallbacks (user + 19 functions). */
     private static final int NUM_CALLBACK_FIELDS = 20;
+
+    /** The version of the USB interface (DBM_USB_VERSION, dbm_set_usb_callback). */
+    private static final int DBM_USB_VERSION     = 1;
 
 
     /**
@@ -72,6 +76,23 @@ public final class NativeCore implements AutoCloseable
          * @param buffer The buffer of records (with the header)
          */
         void processCommands (MemorySegment buffer);
+
+
+        /**
+         * A USB bulk write of the core (see {@link NativeCore#setUsbCallback()}), e.g. a frame of
+         * the Push 2/3 display. Called during a call into the core: must not block, queue the
+         * data. The buffer belongs to the core and is only valid during the call.
+         *
+         * @param deviceIndex The index of the controller's USB device (the hardware device of the
+         *            definition)
+         * @param endpoint The endpoint address
+         * @param data The complete byte stream of the write
+         * @return True if the data was written or queued
+         */
+        default boolean usbBulkOut (final int deviceIndex, final int endpoint, final MemorySegment data)
+        {
+            return false;
+        }
     }
 
 
@@ -98,6 +119,10 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  updateModelBin;
     private final MethodHandle  messagesToText;
     private final MethodHandle  messagesFromText;
+    /** dbm_set_usb_callback, null for an older core. */
+    private final MethodHandle  setUsbCallback;
+    /** The stub of the USB callback, created on demand. */
+    private MemorySegment       usbStub;
     /** The stub of the command callback, created on demand. */
     private MemorySegment       commandsStub;
     private final MemorySegment callbackTable;
@@ -134,6 +159,7 @@ public final class NativeCore implements AutoCloseable
         this.updateModelBin = optionalDowncall (lookup, "dbm_update_model_bin", FunctionDescriptor.ofVoid (ADDRESS, ADDRESS, JAVA_LONG));
         this.messagesToText = optionalDowncall (lookup, "dbm_messages_to_text", FunctionDescriptor.of (ADDRESS, ADDRESS, JAVA_LONG));
         this.messagesFromText = optionalDowncall (lookup, "dbm_messages_from_text", FunctionDescriptor.of (JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
+        this.setUsbCallback = optionalDowncall (lookup, "dbm_set_usb_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS));
 
         final MethodHandle versionHandle = downcall (lookup, "dbm_version", FunctionDescriptor.of (ADDRESS));
         this.version = readString ((MemorySegment) invoke (versionHandle));
@@ -269,6 +295,24 @@ public final class NativeCore implements AutoCloseable
             words.setAtIndex (JAVA_LONG, i, handled[i]);
         final int result = ((Integer) invoke (this.setCommandCallback, this.app, Integer.valueOf (Protocol.VERSION_MAJOR), this.commandsStub, MemorySegment.NULL, words, Long.valueOf (handled.length))).intValue ();
         return result != 0;
+    }
+
+
+    /**
+     * Deliver the USB bulk writes of the core (dbm_set_usb_callback) to
+     * {@link Callbacks#usbBulkOut(int, int, MemorySegment)}. Call it before
+     * {@link #startInfrastructure()}.
+     *
+     * @return True if the core takes the callback (false for an older core)
+     * @throws ReflectiveOperationException The binding of the callback failed
+     */
+    public boolean setUsbCallback () throws ReflectiveOperationException
+    {
+        if (!this.isValid () || this.setUsbCallback == null)
+            return false;
+        if (this.usbStub == null)
+            this.usbStub = this.upcall ("upcallUsbBulkOut", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, JAVA_SHORT, JAVA_SHORT, JAVA_BYTE, JAVA_BYTE, ADDRESS, JAVA_LONG));
+        return ((Integer) invoke (this.setUsbCallback, this.app, Integer.valueOf (DBM_USB_VERSION), this.usbStub, MemorySegment.NULL)).intValue () != 0;
     }
 
 
@@ -660,6 +704,23 @@ public final class NativeCore implements AutoCloseable
         catch (final Throwable ex)
         {
             this.callbacks.error ("processCommands", ex);
+        }
+    }
+
+
+    @SuppressWarnings("unused")
+    private int upcallUsbBulkOut (final MemorySegment user, final int instance, final int deviceIndex, final short vendorId, final short productId, final byte interfaceNumber, final byte endpoint, final MemorySegment data, final long length)
+    {
+        try
+        {
+            if (data.equals (MemorySegment.NULL) || length <= 0)
+                return 0;
+            return this.callbacks.usbBulkOut (deviceIndex, Byte.toUnsignedInt (endpoint), data.reinterpret (length)) ? 1 : 0;
+        }
+        catch (final Throwable ex)
+        {
+            this.callbacks.error ("usbBulkOut", ex);
+            return 0;
         }
     }
 

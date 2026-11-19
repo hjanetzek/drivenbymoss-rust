@@ -26,6 +26,7 @@ The protocol has three parts, all over the C ABI (`include/drivenbymoss.h`, see
 | Core → host | `DbmCallbacks`: `process_*_arg(processor, command[, value])`, `delay_updates`, `enable_updates` | Commands: change the DAW state ([§2](#2-commands-core--host)) |
 | Host → core | `dbm_update_model(app, text)` | Model updates: the DAW state as text lines ([§3](#3-model-updates-host--core)) |
 | Both | `process_midi_arg`, `send_midi_data`, `dbm_on_midi_event`, the MIDI port callbacks | Controller MIDI; not covered here |
+| Core → host | `dbm_set_usb_callback` | USB bulk writes to a USB device of the controller besides MIDI (the Push 2/3 display), [HOST_BRIDGE_GUIDE.md §5a](HOST_BRIDGE_GUIDE.md#5a-usb-devices-the-push-23-display) |
 
 The core never asks for values: the host pushes changes, and on a `refresh` command the full
 state. Commands are fire-and-forget; their effect comes back as model updates.
@@ -41,6 +42,8 @@ state. Commands are fire-and-forget; their effect comes back as model updates.
 | `dbm_update_model(app, data)` / `updateModel` | push model text (this document) |
 | `dbm_update_model_bin(app, buffer, length)` / `updateModelBin` | the same in the binary form: a buffer of records (`include/dbm_protocol.h`, TYPED_PROTOCOL_PLAN §2.2); text and binary can be mixed. Reaper stays on the text form |
 | `dbm_set_command_callback(app, major, callback, user, handled, words)` / `useBinaryCommands` | commands as buffers of binary records (one per call, delivered before any other callback and at the end of the call) instead of the `process_*` callbacks; call before `dbm_start_infrastructure`; returns 0 for another major version. `handled`: optional bitset of the command IDs the host executes (others are logged once) |
+| `dbm_set_usb_callback(app, DBM_USB_VERSION, callback, user)` / `useUsb` + `Backend::usbBulkOut` | the USB bulk writes of the controllers (the Push 2/3 display frames): `callback(user, instance, device_index, vendor_id, product_id, interface_number, endpoint, data, length) -> int`; call before `dbm_start_infrastructure`; null removes it; returns 0 for another version. Details in HOST_BRIDGE_GUIDE.md §5a |
+| `dbm_list_usb_devices(controller_id)` / `listUsbDevices` | the USB devices of the controllers as JSON (`{"<uuid>": [{"vendorId", "productId", "interface", "endpoint"}, …]}`), for hosts which claim them up front; free with `dbm_free_string` |
 | `dbm_protocol_info(&major, &minor, &hash)` | the protocol identity (`DBM_PROTOCOL_*` of `dbm_protocol.h`) |
 | `dbm_messages_to_text(buffer, length)` / `messagesToText`, `dbm_messages_from_text(text, out, capacity)` / `messagesFromText` | conversions between the binary form and the text (report lines; commands as `<kind>\t<processor>\t<command>[\t<value>]`, the kinds of the recordings), for logs, recordings and tests |
 | `dbm_tick(app)` / `tick` | run due tasks, delayed startup, `handle_changes`, `flush` (controller output); every 30 ms recommended |

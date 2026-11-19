@@ -78,6 +78,16 @@ public:
         with dbm::protocol::Reader and the views of dbm::protocol::cmd; valid during the call. */
     virtual void processCommands (const uint8_t *buffer, size_t length) { (void) buffer; (void) length; }
 
+    /** A USB bulk write (after App::useUsb), e.g. a frame of the Push 2/3 display: the complete
+        byte stream for the endpoint, valid during the call. Runs with the instance locked: queue
+        the data and write it on another thread (drop rather than stall). Return true if the data
+        was written or queued. See dbm_set_usb_callback. */
+    virtual bool usbBulkOut (int instance, int deviceIndex, uint16_t vendorId, uint16_t productId, uint8_t interfaceNumber, uint8_t endpoint, const uint8_t *data, size_t length)
+    {
+        (void) instance; (void) deviceIndex; (void) vendorId; (void) productId; (void) interfaceNumber; (void) endpoint; (void) data; (void) length;
+        return false;
+    }
+
     /** A log message of the library. The library only writes its log to stderr itself if the host
         sets no log callback; the wrapper always sets one, so the default writes it to stderr. */
     virtual void log (const std::string &message) { std::cerr << "[DrivenByMoss] " << message << std::endl; }
@@ -136,6 +146,10 @@ namespace detail
     inline void velocityTable (void *u, int d, int i, const int *t, int n) { DBM_GUARD (backend (u).setNoteInputVelocityTranslationTable (d, i, ints (t, n))) }
     inline void log (void *u, const char *m) { DBM_GUARD (backend (u).log (str (m))) }
     inline void commands (void *u, const uint8_t *b, size_t n) { DBM_GUARD (backend (u).processCommands (b, n)) }
+    inline int usbBulkOut (void *u, int instance, int device, uint16_t vendor, uint16_t product, uint8_t interfaceNumber, uint8_t endpoint, const uint8_t *data, size_t length)
+    {
+        try { return backend (u).usbBulkOut (instance, device, vendor, product, interfaceNumber, endpoint, data, length) ? 1 : 0; } catch (...) { return 0; }
+    }
 
     /** Take ownership of a string returned by the library. */
     inline std::string take (char *text)
@@ -186,6 +200,13 @@ inline std::string version ()
 inline std::string listControllers ()
 {
     return detail::take (dbm_list_controllers ());
+}
+
+
+/** The USB devices of the controllers (or of one controller) as JSON, see dbm_list_usb_devices. */
+inline std::string listUsbDevices (const std::string &controllerId = std::string ())
+{
+    return detail::take (dbm_list_usb_devices (controllerId.c_str ()));
 }
 
 
@@ -285,6 +306,15 @@ public:
     {
         return dbm_set_command_callback (this->app, DBM_PROTOCOL_VERSION_MAJOR, detail::commands, this->backend, handled == nullptr ? nullptr : handled->data (), handled == nullptr ? 0 : handled->size ()) != 0;
     }
+
+    /**
+     * Receive the USB bulk writes of the controllers (Backend::usbBulkOut), e.g. the frames of the
+     * Push 2/3 display. Call it before startInfrastructure.
+     *
+     * @return False if the library has a different version of the USB interface
+     */
+    bool useUsb () { return dbm_set_usb_callback (this->app, DBM_USB_VERSION, detail::usbBulkOut, this->backend) != 0; }
+
     void onMidiEvent (int deviceId, const uint8_t *data, int length) { dbm_on_midi_event (this->app, deviceId, data, length); }
     void displayWindow () { dbm_display_window (this->app); }
     void displayProjectWindow () { dbm_display_project_window (this->app); }

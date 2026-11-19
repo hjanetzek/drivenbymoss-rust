@@ -20,6 +20,9 @@ from pathlib import Path
 # regularly (every 30ms is recommended) instead.
 DBM_FLAG_HOST_TICK = 1
 
+# The version of the USB interface (dbm_set_usb_callback, DbmUsbBulkOut).
+DBM_USB_VERSION = 1
+
 
 def _library_name() -> str:
     if sys.platform == "win32":
@@ -99,6 +102,10 @@ Log = ctypes.CFUNCTYPE(None, _void_p, _char_p)
 # Receives the commands in the binary form (dbm_set_command_callback): user, buffer, length
 DbmCommands = ctypes.CFUNCTYPE(None, _void_p, _bytes, ctypes.c_size_t)
 
+# Receives the USB bulk writes (dbm_set_usb_callback): user, instance, device_index, vendor_id,
+# product_id, interface_number, endpoint, data, length; returns non-zero if written or queued
+DbmUsbBulkOut = ctypes.CFUNCTYPE(_int, _void_p, _int, _int, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint8, ctypes.c_uint8, _bytes, ctypes.c_size_t)
+
 
 class DbmCallbacks(ctypes.Structure):
     """The functions provided by the host. Function pointers may be null: the call is ignored
@@ -143,6 +150,8 @@ _PROTOTYPES = [
     ("dbm_update_model", None, [DbmAppPointer, _char_p]),
     ("dbm_protocol_info", None, [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64)]),
     ("dbm_set_command_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmCommands, _void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t]),
+    ("dbm_set_usb_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmUsbBulkOut, _void_p]),
+    ("dbm_list_usb_devices", _void_p, [_char_p]),
     ("dbm_update_model_bin", None, [DbmAppPointer, _bytes, ctypes.c_size_t]),
     ("dbm_messages_to_text", _void_p, [_bytes, ctypes.c_size_t]),
     ("dbm_messages_from_text", ctypes.c_size_t, [_char_p, _bytes, ctypes.c_size_t]),
@@ -163,8 +172,15 @@ _PROTOTYPES = [
 ]
 
 
+# Functions a library built before them lacks: the binding still loads it without them
+# (App.use_usb then returns False)
+_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices"}
+
+
 def _declare(library: ctypes.CDLL) -> None:
     for name, result, arguments in _PROTOTYPES:
+        if name in _OPTIONAL and not hasattr(library, name):
+            continue
         function = getattr(library, name)
         function.restype = result
         function.argtypes = arguments

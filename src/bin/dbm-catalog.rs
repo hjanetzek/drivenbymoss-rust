@@ -4,7 +4,13 @@
 
 //! Prints the supported controllers as JSON (see `dbm_list_controllers`). Used to generate the
 //! controller definitions of the Bitwig extension (`backends/bitwig/tools/gen_definitions.py`).
+//! With `--usb` it prints the USB devices of the controllers instead (see
+//! `dbm_list_usb_devices`).
 
 fn main() {
-    println!("{}", drivenbymoss::controller::catalog_json());
+    if std::env::args().any(|arg| arg == "--usb") {
+        println!("{}", drivenbymoss::ffi::usb_devices_json(""));
+    } else {
+        println!("{}", drivenbymoss::controller::catalog_json());
+    }
 }
