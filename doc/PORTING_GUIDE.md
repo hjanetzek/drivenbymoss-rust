@@ -377,6 +377,11 @@ The complete list, class by class and by upcoming controller, is in
 
 ## 6. Testing requirements
 
+Controllers with a simulator (Push 1/2/3, Maschine Mk2/JAM) can also be tried without hardware:
+run the simulator and the core in the reference host on ALSA (`dbm_host_alsa.py`), or Bitwig. For
+a new controller, a simulator is often the quickest way to see the port working. See
+[CONTROLLER_SIMULATORS.md](CONTROLLER_SIMULATORS.md) for how to build one.
+
 Every controller needs:
 
 - **Unit tests** for definitions (sysex builders, button maps), configuration defaults and

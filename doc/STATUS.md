@@ -198,6 +198,15 @@ A simulator-only side channel (`dbm_set_simulator_callback`, `DBMV` messages on 
 HOST_BRIDGE_GUIDE §5a) sends the Push 2/3 encoder state from the display (values, names, touch),
 which the simulator draws as LED rings (Python hosts and Bitwig with `DBM_PUSH_DISPLAY_SOCKET`).
 
+**Maschine simulators:** `support/controller_simulator` has simulators of the Maschine Mk2 and
+JAM in the same style. They speak what DrivenByMoss sees through dbm-nihost: the client and port
+names (with the suffix ` (sim)` while dbm-nihost owns them), the template MIDI, the LED feedback
+with NI's palette, the Mk2's MCU text displays and button labels, the JAM's touch strips and level
+meters, and the hello/query/gone handshake, including the Mk2's Shift. They share `sim_common`
+(ALSA, MIDI, Qt base, the QML module `SimCommon`) with the Push simulator. `run.sh --model
+mk2|jam|push*`; `dbm_host_alsa.py --model mk2|jam` runs the core against them. How the simulators
+are built and what we learned: [CONTROLLER_SIMULATORS.md](CONTROLLER_SIMULATORS.md).
+
 **Scope and size:**
 
 - The Java project has about 240,000 lines in 1,544 files.
@@ -285,6 +294,7 @@ All paths are under `rust/`.
 | `tests/` | — | Integration tests per controller |
 | `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
 | `support/push_simulator/` | — | Push 1/2/3 simulator (PySide6 + QML, ALSA through ctypes, display socket) |
+| `support/controller_simulator/` | — | Maschine Mk2/JAM simulators and the shared simulator code (`sim_common`); guide: `doc/CONTROLLER_SIMULATORS.md` |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues

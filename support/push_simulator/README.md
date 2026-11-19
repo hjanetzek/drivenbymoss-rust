@@ -6,6 +6,11 @@ like the Push layout (an own drawing, not Ableton's artwork) and speaks the devi
 Push protocol over ALSA sequencer ports, with the names of the real device. The Push 2/3 display
 frames come in over a UNIX socket.
 
+It shares its ALSA client, MIDI parser, Qt base and QML components (`sim_common`) with the
+Maschine simulators in [support/controller_simulator](../controller_simulator/README.md). How the
+simulators are built, the protocol sources, and the pitfalls (port names, socket paths, QML) are in
+[doc/CONTROLLER_SIMULATORS.md](../../doc/CONTROLLER_SIMULATORS.md).
+
 Licensed under LGPLv3.
 
 ## Requirements
@@ -178,9 +183,8 @@ count and the fps. Display brightness (`08`) dims the picture.
 | `push_simulator/palette.py` | the default palette (DrivenByMoss' `PushColorManager.DEFAULT_PALETTE`, so its palette check finds nothing to rewrite), Push 1 LED values |
 | `push_simulator/display.py` | frame decoding (mask, BGR565, resync), the side channel messages in the stream, and the socket server, without Qt |
 | `push_simulator/sim_values.py` | the `DBMV` side channel: encoder state messages (encode, decode), without Qt |
-| `push_simulator/midi.py` | MIDI stream parser and monitor texts |
-| `push_simulator/alsa_seq.py` | ALSA sequencer client through ctypes |
-| `push_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object for QML, the display image provider, the view |
+| `push_simulator/midi.py`, `push_simulator/alsa_seq.py` | re-export the shared MIDI parser and ALSA client (`support/controller_simulator/sim_common`) |
+| `push_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object for QML (a `SimulatorBase`), the display image provider, the view (on the shared `SimWindow`, `Pad`, `LedButton`, `Encoder`; the touch strip and the display are its own) |
 | `push_simulator/main.py` | the command line and startup |
 | `tools/` | `demo_feed.py` (a test host), `dbm_host_alsa.py` (the reference host on ALSA) |
 
