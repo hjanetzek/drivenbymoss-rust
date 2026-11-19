@@ -42,8 +42,9 @@ class SmokeTest(unittest.TestCase):
                     break
                 time.sleep(0.1)
             time.sleep(0.5)
+            # With the encoder state (the rings); the connection stays open until the screenshot
             feed = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "demo_feed.py"), "--display-socket", sock,
-                                   "--frames", "3"], capture_output=True, text=True, timeout=30)
+                                   "--frames", "3", "--values", "--hold", "6"], capture_output=True, text=True, timeout=30)
             self.assertEqual(feed.returncode, 0, feed.stderr)
             self.assertIn("identity reply: f0 7e 01 06 02", feed.stdout)
             output, _ = app.communicate(timeout=30)
@@ -58,6 +59,11 @@ class SmokeTest(unittest.TestCase):
         colors = {(c.red() > 200, c.green() > 200, c.blue() < 60)
                   for c in (image.pixelColor(x, y) for x in range(0, image.width(), 7) for y in range(0, image.height(), 7))}
         self.assertIn((True, True, True), colors)
+        # The LED rings: their cyan above the display (the encoder row)
+        top = int(image.height() * 0.09)
+        ring = {(c.red() < 120, c.green() > 160, c.blue() > 200)
+                for c in (image.pixelColor(x, y) for x in range(0, image.width(), 2) for y in range(0, top, 2))}
+        self.assertIn((True, True, True), ring)
         if os.environ.get("PUSH_SIM_SCREENSHOT"):
             print(f"\nscreenshot: {shot}")
 

@@ -54,9 +54,11 @@ class Simulator(QObject):
     logChanged = Signal()
     statusChanged = Signal()
     monitorVisibleChanged = Signal()
+    encodersChanged = Signal()
 
     midiReceived = Signal(bytes, str)
     frameReceived = Signal(bytes)
+    encodersReceived = Signal(object)
     statusReceived = Signal(str)
 
     def __init__(self, device: PushDevice, image_provider: DisplayImageProvider, parent=None):
@@ -76,10 +78,14 @@ class Simulator(QObject):
         self._midi_status = "MIDI: off"
         self._dirty = set()
         self._start = time.monotonic()
+        # The encoder state of the side channel (sim_values), by touch note
+        self._encoders: dict[int, dict] = {}
+        self._encoder_revision = 0
         device.listeners.append(self._on_device_change)
         device.monitor = self._on_monitor
         self.midiReceived.connect(self._on_midi)
         self.frameReceived.connect(self._on_frame)
+        self.encodersReceived.connect(self._on_encoders)
         self.statusReceived.connect(self._on_status)
         self._timer = QTimer(self)
         self._timer.setInterval(33)
@@ -97,6 +103,11 @@ class Simulator(QObject):
     def post_status(self, text: str) -> None:
         self.statusReceived.emit(text)
 
+    def post_encoders(self, states) -> None:
+        """The encoder state of the side channel (a list of sim_values.EncoderState), None: the
+        host (dis)connected, no state."""
+        self.encodersReceived.emit(states)
+
     # GUI thread
 
     def _on_midi(self, data: bytes, port: str) -> None:
@@ -108,6 +119,13 @@ class Simulator(QObject):
         self._frame_revision += 1
         self._fps.tick()
         self.frameChanged.emit()
+
+    def _on_encoders(self, states) -> None:
+        encoders = {s.index: s.as_dict() for s in states} if states else {}
+        if encoders != self._encoders:
+            self._encoders = encoders
+            self._encoder_revision += 1
+            self.encodersChanged.emit()
 
     def _on_status(self, text: str) -> None:
         if text.startswith("display:"):
@@ -176,6 +194,10 @@ class Simulator(QObject):
     @Property(int, notify=frameChanged)
     def frameRevision(self):
         return self._frame_revision
+
+    @Property(int, notify=encodersChanged)
+    def encoderRevision(self):
+        return self._encoder_revision
 
     @Property(int, notify=frameChanged)
     def frames(self):
@@ -254,6 +276,12 @@ class Simulator(QObject):
     @Slot(int)
     def buttonRelease(self, cc):
         self.device.release_button(cc)
+
+    @Slot(int, result="QVariantMap")
+    def encoderState(self, note):
+        """The state of the encoder with the touch note from the side channel: hasValue, value
+        (0..1), touched, bipolar, name, text; hasValue false and empty texts without one."""
+        return self._encoders.get(note) or {"hasValue": False, "value": 0.0, "touched": False, "bipolar": False, "name": "", "text": ""}
 
     @Slot(int, int)
     def encoderTurn(self, cc, delta):

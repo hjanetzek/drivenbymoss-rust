@@ -12,7 +12,8 @@ A host writes per frame exactly what goes to the USB bulk OUT endpoint 0x01 of P
   ``E7 F3 E7 FF`` ("signal shaping").
 
 ``FrameAssembler`` finds the header in a byte stream (resynchronising after garbage), collects
-the 327,680 bytes and returns the unmasked frame; ``DisplayServer`` accepts connections one after
+the 327,680 bytes and returns the unmasked frame, and the side channel messages between the frames
+(``sim_values``, ``DBMV``: the encoder state); ``DisplayServer`` accepts connections one after
 the other on a UNIX stream socket and hands every complete frame to a callback (from its thread).
 """
 
@@ -21,6 +22,8 @@ import socket
 import threading
 import time
 from typing import Callable
+
+from . import sim_values
 
 WIDTH = 960
 HEIGHT = 160
@@ -94,35 +97,52 @@ def frame_to_rgb888(frame: bytes) -> bytes:
 
 
 class FrameAssembler:
-    """Collects frames from a byte stream of arbitrary chunks."""
+    """Collects frames and side channel messages (``sim_values``: ``DBMV``) from a byte stream of
+    arbitrary chunks. Outside a frame it scans for the frame header or the message magic,
+    whichever comes first; everything else is garbage and skipped. A message must be complete
+    and valid (no 0xFF byte, see ``sim_values``), otherwise its magic counts as garbage."""
+
+    # Bytes kept at the end of the buffer while scanning: a possible beginning of a header
+    _KEEP = max(len(HEADER), sim_values.HEADER_SIZE) - 1
 
     def __init__(self):
         self.buffer = bytearray()
         self.in_frame = False
         self.frames = 0
+        self.messages = 0
         self.skipped_bytes = 0
 
     def reset(self) -> None:
-        """A new connection: a partial frame is dropped."""
+        """A new connection: a partial frame or message is dropped."""
         self.buffer.clear()
         self.in_frame = False
 
     def feed(self, chunk: bytes) -> list[bytes]:
-        """Returns the completed (unmasked) frames."""
+        """Returns the completed (unmasked) frames; the messages are dropped."""
+        return [item for kind, item in self.feed_items(chunk) if kind == "frame"]
+
+    def feed_items(self, chunk: bytes) -> list[tuple[str, object]]:
+        """Returns the completed items in stream order: ("frame", unmasked frame bytes) and
+        ("encoders", list of sim_values.EncoderState). Messages of an unknown kind are skipped."""
         self.buffer += chunk
-        frames = []
+        items = []
         while True:
             if not self.in_frame:
-                i = self.buffer.find(HEADER)
-                if i < 0:
-                    # Keep a possible beginning of the header
-                    keep = len(HEADER) - 1
-                    if len(self.buffer) > keep:
-                        self.skipped_bytes += len(self.buffer) - keep
-                        del self.buffer[:-keep]
+                frame_at = self.buffer.find(HEADER)
+                message_at = self.buffer.find(sim_values.MAGIC)
+                if message_at >= 0 and (frame_at < 0 or message_at < frame_at):
+                    self.skipped_bytes += message_at
+                    del self.buffer[:message_at]
+                    if not self._message(items):
+                        break
+                    continue
+                if frame_at < 0:
+                    if len(self.buffer) > self._KEEP:
+                        self.skipped_bytes += len(self.buffer) - self._KEEP
+                        del self.buffer[:-self._KEEP]
                     break
-                self.skipped_bytes += i
-                del self.buffer[:i + len(HEADER)]
+                self.skipped_bytes += frame_at
+                del self.buffer[:frame_at + len(HEADER)]
                 self.in_frame = True
             if len(self.buffer) < FRAME_BYTES:
                 break
@@ -130,18 +150,46 @@ class FrameAssembler:
             del self.buffer[:FRAME_BYTES]
             self.in_frame = False
             self.frames += 1
-            frames.append(xor_mask(data))
-        return frames
+            items.append(("frame", xor_mask(data)))
+        return items
+
+    def _message(self, items: list) -> bool:
+        """The buffer starts with the message magic: consume the message or its magic (garbage).
+        False if more data is needed."""
+        if len(self.buffer) < sim_values.HEADER_SIZE:
+            return False
+        length = sim_values.header_length(self.buffer)
+        if length is not None:
+            end = sim_values.HEADER_SIZE + length
+            # A 0xFF byte ends a "message" early: it is no message (and maybe a frame starts)
+            if self.buffer.find(0xFF, sim_values.HEADER_SIZE, end) < 0:
+                if len(self.buffer) < end:
+                    return False
+                decoded = sim_values.decode_message(self.buffer[:end])
+                if decoded is not None:
+                    del self.buffer[:end]
+                    message, _ = decoded
+                    self.messages += 1
+                    if isinstance(message, list):
+                        items.append(("encoders", message))
+                    return True
+        # Not a message: skip its first byte and scan again
+        self.skipped_bytes += 1
+        del self.buffer[:1]
+        return True
 
 
 class DisplayServer:
     """Listens on a UNIX stream socket; one connection at a time, the next after it closed."""
 
     def __init__(self, path: str, on_frame: Callable[[bytes], None],
-                 on_status: Callable[[str], None] | None = None):
+                 on_status: Callable[[str], None] | None = None,
+                 on_encoders: Callable[[list | None], None] | None = None):
         self.path = path
         self.on_frame = on_frame
         self.on_status = on_status
+        # The encoder state of the side channel; None when the host connects or disconnects
+        self.on_encoders = on_encoders
         self.assembler = FrameAssembler()
         self.connected = False
         self.connections = 0
@@ -178,6 +226,10 @@ class DisplayServer:
         if self.on_status:
             self.on_status(text)
 
+    def _encoders(self, states: list | None) -> None:
+        if self.on_encoders:
+            self.on_encoders(states)
+
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
@@ -189,6 +241,7 @@ class DisplayServer:
             self.connections += 1
             self.connected = True
             self.assembler.reset()
+            self._encoders(None)
             self._status(f"display: host connected (#{self.connections})")
             conn.settimeout(0.2)
             with conn:
@@ -201,9 +254,13 @@ class DisplayServer:
                         break
                     if not chunk:
                         break
-                    for frame in self.assembler.feed(chunk):
-                        self.on_frame(frame)
+                    for kind, item in self.assembler.feed_items(chunk):
+                        if kind == "frame":
+                            self.on_frame(item)
+                        else:
+                            self._encoders(item)
             self.connected = False
+            self._encoders(None)
             self._status("display: host disconnected")
 
 

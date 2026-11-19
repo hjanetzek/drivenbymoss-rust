@@ -5,7 +5,12 @@
 messages over ALSA (pads in palette colours, some buttons, a blinking and a pulsing pad, the touch
 strip as a bar). Also a quick check that the simulator answers the identity request.
 
+With ``--values`` it also sends the encoder state of the side channel (``DBMV`` messages between
+the frames: values, names, one touched encoder) and with ``--hold S`` keeps the connection open
+for S seconds afterwards (the simulator forgets the state when the host disconnects).
+
 Usage: demo_feed.py [--model push2] [--display-socket PATH] [--frames N] [--fps F] [--no-midi]
+                    [--values] [--hold S]
 """
 
 import argparse
@@ -16,7 +21,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from push_simulator import display, layout  # noqa: E402
+from push_simulator import display, layout, sim_values  # noqa: E402
 
 
 def test_frame(phase: int = 0) -> bytes:
@@ -46,7 +51,27 @@ def test_frame(phase: int = 0) -> bytes:
     return display.HEADER + display.xor_mask(b"".join(lines))
 
 
-def send_frames(path: str, count: int, fps: float) -> None:
+def demo_values() -> bytes:
+    """An encoder state message: the 8 encoders with values (one bipolar, one touched, one
+    without a value), master and tempo."""
+    E = sim_values.EncoderState
+    states = [
+        E(0, True, 800, 1023, False, False, "Drums", ""),
+        E(1, True, 512, 1023, False, True, "Pan", ""),
+        E(2, True, 256, 1023, True, False, "Cutoff", "1.2 kHz"),
+        E(3, True, 0, 1023, False, False, "Reso", ""),
+        E(4, True, 1023, 1023, False, False, "Drive", ""),
+        E(5, True, 380, 1023, False, True, "Width", ""),
+        E(6, name="Off"),
+        E(7, True, 640, 1023, False, False, "Mix", ""),
+        E(sim_values.MASTER, True, 900, 1023, False, False, "Master", "-1.5 dB"),
+        E(sim_values.POSITION, name="Position", text="1.1.1"),
+        E(sim_values.TEMPO, name="Tempo", text="120.00"),
+    ]
+    return sim_values.encode_encoders(states)
+
+
+def send_frames(path: str, count: int, fps: float, values: bool = False, hold: float = 0.0) -> None:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(path)
     # Some garbage first: the simulator has to resynchronise on the header
@@ -57,7 +82,12 @@ def send_frames(path: str, count: int, fps: float) -> None:
         s.sendall(data[:16])
         s.sendall(data[16:100000])
         s.sendall(data[100000:])
+        if values:
+            # The side channel between two frames
+            s.sendall(demo_values())
         time.sleep(1.0 / fps)
+    if hold > 0:
+        time.sleep(hold)
     s.close()
 
 
@@ -102,11 +132,13 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--no-midi", action="store_true")
+    parser.add_argument("--values", action="store_true", help="send the encoder state (DBMV) too")
+    parser.add_argument("--hold", type=float, default=0.0, help="keep the connection open for S seconds")
     args = parser.parse_args()
     if not args.no_midi:
         send_midi(args.model)
     if args.model != "push1" and args.frames > 0:
-        send_frames(args.display_socket or display.default_socket_path(), args.frames, args.fps)
+        send_frames(args.display_socket or display.default_socket_path(), args.frames, args.fps, args.values, args.hold)
         print(f"sent {args.frames} frames")
     return 0
 

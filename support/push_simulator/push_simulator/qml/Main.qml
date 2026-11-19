@@ -147,31 +147,48 @@ ApplicationWindow {
 
     // ---------------------------------------------------------------------------------------
     // Encoder: wheel = relative steps (Ctrl: x8), vertical drag = steps; press, drag and wheel
-    // touch it (wheel touches end 500 ms after the last step)
+    // touch it (wheel touches end 500 ms after the last step).
+    // With the side channel of the host (sim.encoderState, the DBMV messages): an LED ring with
+    // the value around the cap (fine segments, lit from the start or, bipolar, from the top to
+    // the value; brighter while touched), the name below it and, while touched or hovered, the
+    // value text instead. The indicator then points to the value; without a value it turns with
+    // the relative steps.
 
     Component {
         id: encoderComponent
         Item {
             id: enc
             property var c: parent.control
-            property real angle: 0
+            property var st: { sim.encoderRevision; return sim.encoderState(c.note) }
+            property real stepAngle: 0
             property real lastY: 0
             property bool wheelTouch: false
             property bool touched: earea.pressed || wheelTouch
+            // Touched here or reported as touched by the host
+            property bool lit: touched || st.touched
+            readonly property real sweep: 300
+            readonly property real valueAngle: -sweep / 2 + sweep * st.value
+            property real angle: st.hasValue ? valueAngle : stepAngle
             onTouchedChanged: sim.encoderTouch(c.note, touched)
+            onStChanged: ring.requestPaint()
+            onLitChanged: ring.requestPaint()
 
             function turn(steps) {
                 if (steps === 0) return
                 sim.encoderTurn(c.cc, steps)
-                angle += steps * 6
+                stepAngle += steps * 6
             }
 
+            // The cap, smaller than the control so that the ring fits around it
             Rectangle {
-                anchors.fill: parent
+                id: cap
+                anchors.centerIn: parent
+                width: parent.width * 0.76
+                height: width
                 radius: width / 2
-                color: enc.touched ? "#4b4d55" : "#33343a"
-                border.color: "#5c5d66"
-                border.width: Math.max(1, 0.4 * window.k)
+                color: enc.lit ? "#4b4d55" : "#33343a"
+                border.color: enc.lit && enc.st.hasValue ? "#7fdcff" : "#5c5d66"
+                border.width: Math.max(1, 0.35 * window.k)
                 // The indicator: from the center to the outline, turning around the center
                 Rectangle {
                     width: Math.max(2, 0.7 * window.k)
@@ -186,20 +203,80 @@ ApplicationWindow {
                     rotation: enc.angle
                 }
             }
+
+            // The LED ring: many fine segments, a dim track and the lit part with a glow
+            Canvas {
+                id: ring
+                visible: enc.st.hasValue
+                anchors.centerIn: parent
+                width: parent.width + 2 * window.k
+                height: width
+                onWidthChanged: requestPaint()
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    if (!enc.st.hasValue) return
+                    var cx = width / 2, cy = height / 2
+                    var radius = enc.width * 0.44
+                    var lineWidth = Math.max(1.5, enc.width * 0.075)
+                    var segments = 90
+                    var start = -enc.sweep / 2
+                    var step = enc.sweep / segments
+                    var gap = step * 0.28
+                    function rad(deg) { return (deg - 90) * Math.PI / 180 }
+                    function arc(from, to) {
+                        ctx.beginPath()
+                        ctx.arc(cx, cy, radius, rad(from), rad(to), false)
+                        ctx.stroke()
+                    }
+                    ctx.lineCap = "butt"
+                    ctx.lineWidth = lineWidth
+                    // The dim track
+                    ctx.strokeStyle = "#33444d"
+                    for (var i = 0; i < segments; i++)
+                        arc(start + i * step + gap / 2, start + (i + 1) * step - gap / 2)
+                    // The lit part: from the start (bipolar: the top) to the value, the last
+                    // segment cut at the value
+                    var value = start + enc.sweep * enc.st.value
+                    var from = enc.st.bipolar ? Math.min(0, value) : start
+                    var to = enc.st.bipolar ? Math.max(0, value) : value
+                    if (to - from < 0.5) {
+                        // At least a thin mark at the value (e.g. 0 or the centre)
+                        from = value - 1.5
+                        to = value + 1.5
+                    }
+                    ctx.strokeStyle = enc.lit ? "#d8f6ff" : "#45c8f5"
+                    ctx.shadowColor = enc.lit ? "#a0e8ff" : "#2a9fd0"
+                    ctx.shadowBlur = (enc.lit ? 1.6 : 0.9) * window.k
+                    for (i = 0; i < segments; i++) {
+                        var a = Math.max(from, start + i * step + gap / 2)
+                        var b = Math.min(to, start + (i + 1) * step - gap / 2)
+                        if (b > a)
+                            arc(a, b)
+                    }
+                }
+            }
+
             Text {
                 anchors.top: parent.bottom
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: enc.c.label
-                color: "#9a9aa2"
+                width: parent.width * 1.3
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                property bool showValue: (enc.lit || earea.containsMouse) && enc.st.text.length > 0
+                text: showValue ? enc.st.text : (enc.st.name.length > 0 ? enc.st.name : (enc.c.label.length > 1 ? enc.c.label : ""))
+                color: showValue ? "#d8f6ff" : (enc.lit ? "#ffffff" : "#9a9aa2")
                 font.pixelSize: Math.max(7, 1.8 * window.k)
-                visible: enc.c.label.length > 1
+                font.bold: enc.lit
             }
             Timer { id: wheelTimer; interval: 500; onTriggered: enc.wheelTouch = false }
             MouseArea {
                 id: earea
                 anchors.fill: parent
+                hoverEnabled: true
                 onPressed: (mouse) => { enc.lastY = mouse.y }
                 onPositionChanged: (mouse) => {
+                    if (!pressed) return
                     var steps = Math.trunc((enc.lastY - mouse.y) / 3)
                     if (steps !== 0) { enc.turn(steps); enc.lastY -= steps * 3 }
                 }

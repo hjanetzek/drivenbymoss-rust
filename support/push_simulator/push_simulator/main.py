@@ -95,7 +95,7 @@ def main(argv=None) -> int:
     server = None
     if args.model != "push1" and not args.no_display:
         path = args.display_socket or display.default_socket_path()
-        server = display.DisplayServer(path, sim.post_frame, sim.post_status)
+        server = display.DisplayServer(path, sim.post_frame, sim.post_status, sim.post_encoders)
         try:
             server.start()
         except OSError as ex:

@@ -10,7 +10,10 @@ its simulated DAW) in real time, its MIDI port 0 connected to the simulator's AL
 
 The display: the bridge gets a ``usb_bulk_out(device_index, endpoint, data)`` method which writes
 the bytes to the simulator's display socket (``Backend::usb_bulk_out`` of the core; it is called
-once the binding forwards that callback). ``--controller`` runs any other controller UUID.
+once the binding forwards that callback). The encoder state of the Push 2/3 (the simulator side
+channel, ``Backend.simulator_data_out``: ``DBMV`` messages) goes to the same socket between the
+frames, unless ``--no-values`` or ``DBM_PUSH_SIM_VALUES=0``. ``--controller`` runs any other
+controller UUID.
 """
 
 import argparse
@@ -37,21 +40,31 @@ TICK_MS = 30
 
 
 class DisplayWriter:
-    """Writes the USB bulk stream to the simulator's socket; reconnects when it was closed."""
+    """Writes the USB bulk stream to the simulator's socket; reconnects when it was closed. The
+    last message of the side channel (``write_simulator``) is written again after a connect (the
+    core sends it only on change)."""
 
     def __init__(self, path: str):
         self.path = path
         self.sock: socket.socket | None = None
         self.lock = threading.Lock()
         self.bytes = 0
+        self.simulator_data: bytes | None = None
 
-    def write(self, data: bytes) -> bool:
+    def write_simulator(self, data: bytes) -> bool:
+        with self.lock:
+            self.simulator_data = bytes(data)
+        return self.write(data, is_simulator_data=True)
+
+    def write(self, data: bytes, is_simulator_data: bool = False) -> bool:
         with self.lock:
             for _ in range(2):
                 try:
                     if self.sock is None:
                         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                         self.sock.connect(self.path)
+                        if self.simulator_data is not None and not is_simulator_data:
+                            self.sock.sendall(self.simulator_data)
                     self.sock.sendall(data)
                     self.bytes += len(data)
                     return True
@@ -73,6 +86,7 @@ def main() -> int:
     parser.add_argument("--display-socket", default=None)
     parser.add_argument("--port-style", choices=layout.PORT_STYLES, default="jack")
     parser.add_argument("--port", default=None, help="name of the simulator port (default: its Live port; Push 1: User port)")
+    parser.add_argument("--no-values", action="store_true", help="do not send the encoder state (the side channel)")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
 
@@ -99,9 +113,18 @@ def main() -> int:
 
     writer = DisplayWriter(args.display_socket or display.default_socket_path())
 
+    send_values = not args.no_values and os.environ.get("DBM_PUSH_SIM_VALUES", "1").strip() != "0"
+
     class AlsaBridge(Bridge):
         def usb_bulk_out(self, device_index: int, endpoint: int, data: bytes) -> bool:
             return writer.write(bytes(data))
+
+        def wants_simulator_data(self) -> bool:
+            # The USB data always goes to the simulator here
+            return send_values
+
+        def simulator_data_out(self, data: bytes) -> bool:
+            return writer.write_simulator(bytes(data))
 
     daw = SimDaw().build(
         tracks=[("Synth", "INSTRUMENT"), ("Drums", "INSTRUMENT"), ("Bass", "INSTRUMENT"), ("Vocals", "AUDIO"), ("Audio 5", "AUDIO")],

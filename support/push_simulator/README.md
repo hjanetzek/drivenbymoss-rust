@@ -31,7 +31,7 @@ cd support/push_simulator && python3 -m push_simulator --help
 | `--client-name`, `--live-port-name`, `--user-port-name` | override the ALSA names |
 | `--connect PORT` | connect the port the controls send on to another ALSA port, both ways (name or `client:port`, repeatable), e.g. a `snd-virmidi` port for Bitwig |
 | `--monitor` | open the MIDI monitor (F2 toggles it) |
-| `--no-alsa`, `--no-display` | without MIDI ports or socket |
+| `--no-alsa`, `--no-display` | without MIDI ports or socket (and so without the encoder values) |
 | `--quit-after S`, `--screenshot PNG`, `--size WxH` | for automated runs (`QT_QPA_PLATFORM=offscreen`) |
 
 ### With the Rust Push port in the reference host (`dbm_host`)
@@ -80,6 +80,31 @@ the controller runs without a Push attached. Without a listener it drops the fra
 connect again once a second. The variable must be set when Bitwig starts (the definition reads it
 when Bitwig loads the extension). The Java DrivenByMoss always writes to the USB device: with it
 you only get the MIDI side.
+
+### The encoder values (side channel)
+
+The real Push has endless encoders without LED rings; the values are only on its display. With
+the Rust core the simulator draws them around its encoders: an LED-ring look in high resolution
+(90 fine segments over 300 degrees, a dim track and the lit part with a glow, from the left end or,
+for bipolar values like panorama, from the top). A touched encoder lights brighter. Below each
+encoder is its name (the track or parameter name); while it is touched or under the mouse, the
+value text replaces it (the core sends the text of a volume or panorama only while it is touched,
+as the display shows it). The indicator line points to the value when one is known, otherwise it
+turns with the relative steps as before. Encoders without a value (e.g. the track mode's channel
+column, the tempo) show only their name and text.
+
+The core sends this state over the display socket, as `DBMV` messages between the frames
+(HOST_BRIDGE_GUIDE §5a, "Simulator side channel"). It is on whenever the host writes the display to
+the socket:
+
+- `tools/dbm_host_alsa.py`: always (`--no-values` or `DBM_PUSH_SIM_VALUES=0` turns it off).
+- Bitwig with the Rust extension and other Python hosts: when `DBM_PUSH_DISPLAY_SOCKET` is set
+  (as above); `DBM_PUSH_SIM_VALUES=0` in the environment turns it off.
+
+A real Push never gets it: the hosts only register the core's callback for the socket, and their
+USB device writers do not take the messages. It is Push 2 and Push 3 only (Push 1 sends nothing).
+The simulator forgets the state when the host disconnects, and the host writes the last state
+again after it reconnects. `tools/demo_feed.py --values --hold 5` sends a test state.
 
 ### Feeding it by hand
 
@@ -133,6 +158,12 @@ interface manual, DrivenByMoss `PushUsbDisplay`):
   5-10 green, 11-15 blue) followed by 128 filler bytes. All of it is XORed with the repeating
   `E7 F3 E7 FF`.
 
+Between two frames the host may write side channel messages (`DBMV`, version, kind, 3-byte
+length, payload; see "The encoder values" and HOST_BRIDGE_GUIDE §5a). A message never contains the
+byte `0xFF`, so it cannot contain a frame header; simulators before the side channel skip it as
+garbage. The parser takes whichever comes first, a frame header or a message, skips messages of an
+unknown kind by their length, and treats a "message" with a `0xFF` in it as garbage.
+
 The simulator resyncs on the header and drops a partial frame when the connection closes. It
 accepts one connection at a time, the next one after the first closes. The header and the data
 may arrive in any chunks (Java sends them as two transfers). The status bar shows the frame
@@ -145,7 +176,8 @@ count and the fps. Display brightness (`08`) dims the picture.
 | `push_simulator/device.py` | `PushDevice`: protocol and state, without Qt |
 | `push_simulator/layout.py` | controls of the models (MIDI numbers, labels, positions), port names |
 | `push_simulator/palette.py` | the default palette (DrivenByMoss' `PushColorManager.DEFAULT_PALETTE`, so its palette check finds nothing to rewrite), Push 1 LED values |
-| `push_simulator/display.py` | frame decoding (mask, BGR565, resync) and the socket server, without Qt |
+| `push_simulator/display.py` | frame decoding (mask, BGR565, resync), the side channel messages in the stream, and the socket server, without Qt |
+| `push_simulator/sim_values.py` | the `DBMV` side channel: encoder state messages (encode, decode), without Qt |
 | `push_simulator/midi.py` | MIDI stream parser and monitor texts |
 | `push_simulator/alsa_seq.py` | ALSA sequencer client through ctypes |
 | `push_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object for QML, the display image provider, the view |
@@ -164,11 +196,14 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   Push 1 text, layout.
 - `test_display.py`: masking, pixel format, decoding of a synthetic frame, resync after garbage
   and partial reads, sequential socket connections, the QImage conversion.
+- `test_sim_values.py`: the `DBMV` format (the shared fixture `tests/data/dbmv_encoders.hex`,
+  also encoded by the Rust test), the parser with frames and messages interleaved, garbage and
+  split reads, the parser before the side channel, and the server's encoder callback.
 - `test_alsa.py`: an ALSA loopback between simulator ports and a test client (skipped without
   ALSA).
-- `test_smoke.py`: the app offscreen, fed by `demo_feed.py`, grabbed to a PNG (in
-  `PUSH_SIM_SCREENSHOT`, if set), and checked for the colours of the test frame (skipped without
-  PySide6 or ALSA).
+- `test_smoke.py`: the app offscreen, fed by `demo_feed.py` (with encoder values), grabbed to a PNG
+  (in `PUSH_SIM_SCREENSHOT`, if set), and checked for the colours of the test frame and the rings
+  (skipped without PySide6 or ALSA).
 
 ## Not covered
 
