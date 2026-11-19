@@ -104,6 +104,13 @@ length prefix, reconnecting at most once per second), else on Linux the device t
 = `none`, `socket` (the default path `$XDG_RUNTIME_DIR/dbm-push-display.sock`) or `usbdevfs`
 chooses explicitly. The reference host (`dbm_host.Bridge`) does all of this. Details: HOST_BRIDGE_GUIDE.md §5a.
 
+`app.use_simulator_data()` (`dbm_set_simulator_callback`) delivers the simulator side channel (the
+Push 2/3 encoder state as `DBMV` messages) to `Backend.simulator_data_out(data)`; the default
+queues it for the socket of `usb_output` (`UsbOutput.write_simulator`, never a device), which
+replays the last message after a reconnect. Register it only if `backend.wants_simulator_data()`
+(default: the socket transport is chosen and `DBM_PUSH_SIM_VALUES` is not `0`); `dbm_host.Bridge`
+does. Details: HOST_BRIDGE_GUIDE.md §5a, "Simulator side channel".
+
 ## Threading and callbacks
 
 - The App is created with `DBM_FLAG_HOST_TICK`: the library starts no timer thread, the host

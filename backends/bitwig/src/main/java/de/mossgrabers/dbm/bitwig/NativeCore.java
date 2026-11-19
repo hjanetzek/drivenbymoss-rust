@@ -39,6 +39,9 @@ public final class NativeCore implements AutoCloseable
     /** The version of the USB interface (DBM_USB_VERSION, dbm_set_usb_callback). */
     private static final int DBM_USB_VERSION     = 1;
 
+    /** The version of the simulator side channel (DBM_SIMULATOR_VERSION, dbm_set_simulator_callback). */
+    private static final int DBM_SIMULATOR_VERSION = 1;
+
 
     /**
      * The functions the core calls. Implementations must not throw; exceptions are caught and
@@ -93,6 +96,21 @@ public final class NativeCore implements AutoCloseable
         {
             return false;
         }
+
+
+        /**
+         * A message of the simulator side channel (see {@link NativeCore#setSimulatorCallback()}),
+         * e.g. the encoder state of the Push 2/3 for the Push simulator: the exact bytes for the
+         * simulator's socket, between two USB writes. Never for a real device. Called during a
+         * call into the core: must not block. The buffer is only valid during the call.
+         *
+         * @param data The complete message
+         * @return True if the data was written or queued
+         */
+        default boolean simulatorData (final MemorySegment data)
+        {
+            return false;
+        }
     }
 
 
@@ -123,6 +141,10 @@ public final class NativeCore implements AutoCloseable
     private final MethodHandle  setUsbCallback;
     /** The stub of the USB callback, created on demand. */
     private MemorySegment       usbStub;
+    /** dbm_set_simulator_callback, null for an older core. */
+    private final MethodHandle  setSimulatorCallback;
+    /** The stub of the simulator callback, created on demand. */
+    private MemorySegment       simulatorStub;
     /** The stub of the command callback, created on demand. */
     private MemorySegment       commandsStub;
     private final MemorySegment callbackTable;
@@ -160,6 +182,7 @@ public final class NativeCore implements AutoCloseable
         this.messagesToText = optionalDowncall (lookup, "dbm_messages_to_text", FunctionDescriptor.of (ADDRESS, ADDRESS, JAVA_LONG));
         this.messagesFromText = optionalDowncall (lookup, "dbm_messages_from_text", FunctionDescriptor.of (JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
         this.setUsbCallback = optionalDowncall (lookup, "dbm_set_usb_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS));
+        this.setSimulatorCallback = optionalDowncall (lookup, "dbm_set_simulator_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS));
 
         final MethodHandle versionHandle = downcall (lookup, "dbm_version", FunctionDescriptor.of (ADDRESS));
         this.version = readString ((MemorySegment) invoke (versionHandle));
@@ -313,6 +336,24 @@ public final class NativeCore implements AutoCloseable
         if (this.usbStub == null)
             this.usbStub = this.upcall ("upcallUsbBulkOut", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, JAVA_SHORT, JAVA_SHORT, JAVA_BYTE, JAVA_BYTE, ADDRESS, JAVA_LONG));
         return ((Integer) invoke (this.setUsbCallback, this.app, Integer.valueOf (DBM_USB_VERSION), this.usbStub, MemorySegment.NULL)).intValue () != 0;
+    }
+
+
+    /**
+     * Deliver the messages of the simulator side channel (dbm_set_simulator_callback) to
+     * {@link Callbacks#simulatorData(MemorySegment)}. Only when the USB data goes to the Push
+     * simulator's socket: the core builds the data only while the callback is set.
+     *
+     * @return True if the core takes the callback (false for an older core)
+     * @throws ReflectiveOperationException The binding of the callback failed
+     */
+    public boolean setSimulatorCallback () throws ReflectiveOperationException
+    {
+        if (!this.isValid () || this.setSimulatorCallback == null)
+            return false;
+        if (this.simulatorStub == null)
+            this.simulatorStub = this.upcall ("upcallSimulatorData", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, JAVA_LONG));
+        return ((Integer) invoke (this.setSimulatorCallback, this.app, Integer.valueOf (DBM_SIMULATOR_VERSION), this.simulatorStub, MemorySegment.NULL)).intValue () != 0;
     }
 
 
@@ -720,6 +761,23 @@ public final class NativeCore implements AutoCloseable
         catch (final Throwable ex)
         {
             this.callbacks.error ("usbBulkOut", ex);
+            return 0;
+        }
+    }
+
+
+    @SuppressWarnings("unused")
+    private int upcallSimulatorData (final MemorySegment user, final int instance, final MemorySegment data, final long length)
+    {
+        try
+        {
+            if (data.equals (MemorySegment.NULL) || length <= 0)
+                return 0;
+            return this.callbacks.simulatorData (data.reinterpret (length)) ? 1 : 0;
+        }
+        catch (final Throwable ex)
+        {
+            this.callbacks.error ("simulatorData", ex);
             return 0;
         }
     }

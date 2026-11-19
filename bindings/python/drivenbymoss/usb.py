@@ -18,6 +18,14 @@
   usbdevfs (``/dev/bus/usb/BBB/DDD``, found through ``/sys/bus/usb/devices``), which needs write
   access to the device node (the udev rule ``70-dbm-nihost.rules``).
 
+The simulator side channel (``Backend.simulator_data_out``, ``App.use_simulator_data``): messages
+for the simulator only (``DBMV``: the encoder state of the Push 2/3), the exact bytes for the
+socket between two writes. Only the socket transport takes them (``UsbOutput.write_simulator``;
+the device transports never see them); ``simulator_data_enabled()`` tells the hosts whether to
+register the callback: the socket transport is chosen and ``DBM_PUSH_SIM_VALUES`` is not ``0``.
+The core sends a message only on change, so the socket keeps the last one and writes it again
+first after every (re)connect.
+
 The policy of all transports: the core's callback never blocks. It copies the data into one slot
 per device (a newer frame replaces one which was not written yet: frames are dropped, never
 queued up) and a writer thread writes it. The core resends the display about every second, so a
@@ -43,7 +51,11 @@ logger = logging.getLogger("drivenbymoss.usb")
 
 SOCKET_ENV = "DBM_PUSH_DISPLAY_SOCKET"
 TRANSPORT_ENV = "DBM_USB_TRANSPORT"
+SIM_VALUES_ENV = "DBM_PUSH_SIM_VALUES"
 DEFAULT_SOCKET_NAME = "dbm-push-display.sock"
+
+# The slot of the simulator side channel in UsbOutput (no device has these numbers)
+SIMULATOR_SLOT = (-1, -1, -1, -1)
 
 # The header of a Push 2/3 display frame
 PUSH_FRAME_HEADER = bytes([0xFF, 0xCC, 0xAA, 0x88]) + bytes(12)
@@ -64,6 +76,18 @@ def default_socket_path() -> str:
     if path:
         return path
     return os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", DEFAULT_SOCKET_NAME)
+
+
+def socket_transport_selected() -> bool:
+    """True if ``UsbOutput.from_environment()`` picks the socket transport."""
+    kind = os.environ.get(TRANSPORT_ENV, "").lower()
+    return kind == "socket" or (kind not in ("usbdevfs", "none") and bool(os.environ.get(SOCKET_ENV)))
+
+
+def simulator_data_enabled() -> bool:
+    """True if a host should take the simulator side channel: the USB data goes to the
+    simulator's socket and ``DBM_PUSH_SIM_VALUES`` is not ``0``."""
+    return socket_transport_selected() and os.environ.get(SIM_VALUES_ENV, "1").strip() != "0"
 
 
 def split_frame(data: bytes) -> list[bytes]:
@@ -89,6 +113,8 @@ class SocketSink:
         self.sock: socket.socket | None = None
         self.retry_at = 0.0
         self.logged = False
+        # The last message of the simulator side channel, written again after a connect
+        self.simulator_data: bytes | None = None
 
     def _connect(self) -> bool:
         if self.sock is not None:
@@ -109,11 +135,25 @@ class SocketSink:
         self.sock = sock
         self.logged = False
         logger.info("USB display socket %s connected", self.path)
+        if self.simulator_data is not None:
+            return self._send(self.simulator_data)
         return True
 
     def write(self, data: bytes) -> bool:
         if not self._connect():
             return False
+        return self._send(data)
+
+    def write_simulator(self, data: bytes) -> bool:
+        """A message of the simulator side channel: written now (or first after the next
+        connect) and kept for the next connect."""
+        self.simulator_data = bytes(data)
+        if self.sock is None:
+            # A connect writes it
+            return self._connect()
+        return self._send(self.simulator_data)
+
+    def _send(self, data: bytes) -> bool:
         try:
             self.sock.sendall(data)
             return True
@@ -283,6 +323,9 @@ class UsbOutput:
 
     def __init__(self, factory: Callable[[int, int, int], object] | None):
         self.factory = factory
+        # The sink of the simulator side channel (``write_simulator(data) -> bool``): only the
+        # socket transport has one
+        self.simulator_sink = None
         self.sinks: dict[tuple[int, int, int], object] = {}
         self.slots: dict[tuple[int, int, int, int], bytes] = {}
         self.lock = threading.Condition()
@@ -314,11 +357,16 @@ class UsbOutput:
             def write(self, _endpoint, data):
                 return sink.write(data)
 
+            def write_simulator(self, data):
+                return sink.write_simulator(data)
+
             def close(self):
                 sink.close()
 
         shared = Shared()
-        return cls(lambda vendor_id, product_id, interface: shared)
+        output = cls(lambda vendor_id, product_id, interface: shared)
+        output.simulator_sink = shared
+        return output
 
     @property
     def enabled(self) -> bool:
@@ -336,6 +384,22 @@ class UsbOutput:
             if key in self.slots:
                 self.dropped += 1
             self.slots[key] = bytes(data)
+            if self.thread is None:
+                self.thread = threading.Thread(target=self._run, name="dbm usb", daemon=True)
+                self.thread.start()
+            self.lock.notify()
+        return True
+
+    def write_simulator(self, data: bytes) -> bool:
+        """Queue a message of the simulator side channel (a newer one replaces one not written
+        yet; it is the complete state). False without the socket transport: it never goes to a
+        device."""
+        if self.simulator_sink is None:
+            return False
+        with self.lock:
+            if self.closed:
+                return False
+            self.slots[SIMULATOR_SLOT] = bytes(data)
             if self.thread is None:
                 self.thread = threading.Thread(target=self._run, name="dbm usb", daemon=True)
                 self.thread.start()
@@ -366,10 +430,13 @@ class UsbOutput:
                 self._busy = True
             vendor_id, product_id, interface, endpoint = key
             try:
-                sink = self.sinks.get(key[:3])
-                if sink is None:
-                    sink = self.sinks[key[:3]] = self.factory(vendor_id, product_id, interface)
-                ok = sink.write(endpoint, data)
+                if key == SIMULATOR_SLOT:
+                    ok = self.simulator_sink.write_simulator(data)
+                else:
+                    sink = self.sinks.get(key[:3])
+                    if sink is None:
+                        sink = self.sinks[key[:3]] = self.factory(vendor_id, product_id, interface)
+                    ok = sink.write(endpoint, data)
             except Exception:  # noqa: BLE001 - the thread must survive a broken sink
                 logger.exception("USB write to %04x:%04x failed", vendor_id, product_id)
                 ok = False

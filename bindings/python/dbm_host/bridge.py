@@ -22,6 +22,9 @@ USB: the USB bulk writes of the core (the Push 2/3 display) go to ``usb_output``
 ``UsbOutput.from_environment()`` (created on the first write): with ``DBM_PUSH_DISPLAY_SOCKET``
 to the Push simulator's socket, else on Linux to the device through usbdevfs
 (``drivenbymoss/usb.py``). ``usb_frames`` counts them, ``last_usb_frame`` keeps the last one.
+With the simulator's socket the bridge also takes the simulator side channel
+(``App.use_simulator_data``, ``Backend.simulator_data_out``: the encoder state of the Push 2/3),
+which goes to the same socket between the frames.
 """
 
 import logging
@@ -94,6 +97,9 @@ class Bridge(drivenbymoss.Backend):
         if not self.app.use_binary_commands(self.commands.handled_commands()):
             raise RuntimeError("The library refused the binary commands (another major protocol version)")
         self.app.use_usb()
+        # The simulator side channel (the encoder state of the Push 2/3), only towards a simulator
+        if self.wants_simulator_data():
+            self.app.use_simulator_data()
         # The note inputs can only be created while the controller starts (DbmExtension.init)
         self._initializing = True
         self.daw.note_input = None

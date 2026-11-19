@@ -23,6 +23,9 @@ DBM_FLAG_HOST_TICK = 1
 # The version of the USB interface (dbm_set_usb_callback, DbmUsbBulkOut).
 DBM_USB_VERSION = 1
 
+# The version of the simulator side channel (dbm_set_simulator_callback, DbmSimulatorData).
+DBM_SIMULATOR_VERSION = 1
+
 
 def _library_name() -> str:
     if sys.platform == "win32":
@@ -106,6 +109,10 @@ DbmCommands = ctypes.CFUNCTYPE(None, _void_p, _bytes, ctypes.c_size_t)
 # product_id, interface_number, endpoint, data, length; returns non-zero if written or queued
 DbmUsbBulkOut = ctypes.CFUNCTYPE(_int, _void_p, _int, _int, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint8, ctypes.c_uint8, _bytes, ctypes.c_size_t)
 
+# Receives the messages of the simulator side channel (dbm_set_simulator_callback): user,
+# instance, data, length; returns non-zero if written or queued
+DbmSimulatorData = ctypes.CFUNCTYPE(_int, _void_p, _int, _bytes, ctypes.c_size_t)
+
 
 class DbmCallbacks(ctypes.Structure):
     """The functions provided by the host. Function pointers may be null: the call is ignored
@@ -152,6 +159,7 @@ _PROTOTYPES = [
     ("dbm_set_command_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmCommands, _void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t]),
     ("dbm_set_usb_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmUsbBulkOut, _void_p]),
     ("dbm_list_usb_devices", _void_p, [_char_p]),
+    ("dbm_set_simulator_callback", _int, [DbmAppPointer, ctypes.c_uint32, DbmSimulatorData, _void_p]),
     ("dbm_update_model_bin", None, [DbmAppPointer, _bytes, ctypes.c_size_t]),
     ("dbm_messages_to_text", _void_p, [_bytes, ctypes.c_size_t]),
     ("dbm_messages_from_text", ctypes.c_size_t, [_char_p, _bytes, ctypes.c_size_t]),
@@ -173,8 +181,8 @@ _PROTOTYPES = [
 
 
 # Functions a library built before them lacks: the binding still loads it without them
-# (App.use_usb then returns False)
-_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices"}
+# (App.use_usb and App.use_simulator_data then return False)
+_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices", "dbm_set_simulator_callback"}
 
 
 def _declare(library: ctypes.CDLL) -> None:

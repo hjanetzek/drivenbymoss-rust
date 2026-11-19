@@ -40,11 +40,21 @@ import java.util.function.BiConsumer;
  * (support/push_simulator): the exact bytes of the bulk writes (a Push frame: header and image),
  * back to back, without the device; the definition then claims no USB device. Without a listener
  * the frames are dropped and the connection is tried again at most once a second.
+ *
+ * <p>
+ * The simulator side channel ({@link #writeSimulator}, dbm_set_simulator_callback: the encoder
+ * state of the Push 2/3 as DBMV messages) only goes to the socket, on the connection of device 0,
+ * between two writes; the device pipes never see it. The socket keeps the last message and writes
+ * it again first after a (re)connect, since the core sends it only on change.
+ * {@link #simulatorDataEnabled} tells whether to register the callback: with the socket and
+ * {@code DBM_PUSH_SIM_VALUES} not 0.
  */
 public final class UsbOutput
 {
     /** The environment variable of the socket (the contract with the Push simulator). */
     public static final String   SOCKET_VARIABLE = "DBM_PUSH_DISPLAY_SOCKET";
+    /** The environment variable which turns the simulator side channel off with 0. */
+    public static final String   SIM_VALUES_VARIABLE = "DBM_PUSH_SIM_VALUES";
 
     /** The timeout of one write in milliseconds (as PushUsbDisplay). */
     private static final int     TIMEOUT         = 1000;
@@ -61,6 +71,7 @@ public final class UsbOutput
         return thread;
     });
     private final BiConsumer<String, Throwable> errors;
+    private final boolean        isSocket;
     private volatile boolean     isShutdown;
 
 
@@ -76,6 +87,18 @@ public final class UsbOutput
         void write (byte [] data) throws IOException;
 
 
+        /**
+         * Write a message of the simulator side channel (only the socket takes it).
+         *
+         * @param data The message
+         * @throws IOException A socket error
+         */
+        default void writeSimulator (final byte [] data) throws IOException
+        {
+            // A device never gets it
+        }
+
+
         /** Release the target (exit). */
         default void close ()
         {
@@ -89,6 +112,8 @@ public final class UsbOutput
     {
         private final Target                   target;
         private final AtomicReference<byte []> pending = new AtomicReference<> ();
+        /** The message of the simulator side channel to write. */
+        private final AtomicReference<byte []> pendingSimulator = new AtomicReference<> ();
         private boolean                        hasLoggedError;
 
 
@@ -100,12 +125,16 @@ public final class UsbOutput
 
         void write ()
         {
+            final byte [] simulatorData = this.pendingSimulator.getAndSet (null);
             final byte [] data = this.pending.getAndSet (null);
-            if (data == null || UsbOutput.this.isShutdown)
+            if (UsbOutput.this.isShutdown)
                 return;
             try
             {
-                this.target.write (data);
+                if (simulatorData != null)
+                    this.target.writeSimulator (simulatorData);
+                if (data != null)
+                    this.target.write (data);
                 this.hasLoggedError = false;
             }
             catch (final IOException | RuntimeException ex)
@@ -170,6 +199,8 @@ public final class UsbOutput
         private final UnixDomainSocketAddress address;
         private SocketChannel                 channel;
         private long                          nextAttempt;
+        /** The last message of the simulator side channel, written again after a connect. */
+        private byte []                       simulatorData;
 
 
         SocketTarget (final String path)
@@ -181,24 +212,56 @@ public final class UsbOutput
         @Override
         public void write (final byte [] data) throws IOException
         {
-            if (this.channel == null)
+            if (this.connect ())
+                this.send (data);
+        }
+
+
+        @Override
+        public void writeSimulator (final byte [] data) throws IOException
+        {
+            final boolean isConnected = this.channel != null;
+            this.simulatorData = data;
+            // A new connection writes it first anyway
+            if (this.connect () && isConnected)
+                this.send (data);
+        }
+
+
+        /**
+         * Connect if not connected (at most once a second); a new connection starts with the
+         * last message of the simulator side channel.
+         *
+         * @return True if connected
+         * @throws IOException The message could not be written
+         */
+        private boolean connect () throws IOException
+        {
+            if (this.channel != null)
+                return true;
+            final long now = System.currentTimeMillis ();
+            if (now < this.nextAttempt)
+                return false;
+            this.nextAttempt = now + RECONNECT_PAUSE;
+            try
             {
-                final long now = System.currentTimeMillis ();
-                if (now < this.nextAttempt)
-                    return;
-                this.nextAttempt = now + RECONNECT_PAUSE;
-                try
-                {
-                    this.channel = SocketChannel.open (StandardProtocolFamily.UNIX);
-                    this.channel.connect (this.address);
-                }
-                catch (final IOException ex)
-                {
-                    this.close ();
-                    // No listener yet: not an error worth a log line per second
-                    return;
-                }
+                this.channel = SocketChannel.open (StandardProtocolFamily.UNIX);
+                this.channel.connect (this.address);
             }
+            catch (final IOException ex)
+            {
+                this.close ();
+                // No listener yet: not an error worth a log line per second
+                return false;
+            }
+            if (this.simulatorData != null)
+                this.send (this.simulatorData);
+            return true;
+        }
+
+
+        private void send (final byte [] data) throws IOException
+        {
             try
             {
                 final ByteBuffer buffer = ByteBuffer.wrap (data);
@@ -246,6 +309,19 @@ public final class UsbOutput
 
 
     /**
+     * True if the simulator side channel should be registered: the data goes to the socket of
+     * {@code DBM_PUSH_DISPLAY_SOCKET} and {@code DBM_PUSH_SIM_VALUES} is not 0.
+     *
+     * @return True to register it
+     */
+    public static boolean simulatorDataEnabled ()
+    {
+        final String values = System.getenv (SIM_VALUES_VARIABLE);
+        return socketPath () != null && (values == null || !"0".equals (values.trim ()));
+    }
+
+
+    /**
      * Claim the pipes of the devices of the definition (or connect them to the socket of
      * DBM_PUSH_DISPLAY_SOCKET). Call it during init.
      *
@@ -260,6 +336,7 @@ public final class UsbOutput
         this.devices = new Device [numDevices];
 
         final String socket = socketPath ();
+        this.isSocket = socket != null;
         if (socket != null)
         {
             host.println ("USB data to the socket " + socket + " (" + SOCKET_VARIABLE + "), not to the device.");
@@ -316,6 +393,32 @@ public final class UsbOutput
             {
                 return false;
             }
+        }
+        return true;
+    }
+
+
+    /**
+     * Queue a message of the simulator side channel (the callback of dbm_set_simulator_callback)
+     * for the socket of device 0; a newer message replaces one not written yet (it is the complete
+     * state).
+     *
+     * @param data The message, only valid during the call
+     * @return True if the data was queued, false without the socket (never to a device)
+     */
+    public boolean writeSimulator (final MemorySegment data)
+    {
+        if (this.isShutdown || !this.isSocket || this.devices.length == 0 || this.devices[0] == null)
+            return false;
+        final Device device = this.devices[0];
+        device.pendingSimulator.set (data.toArray (ValueLayout.JAVA_BYTE));
+        try
+        {
+            this.executor.execute (device::write);
+        }
+        catch (final RuntimeException ex)
+        {
+            return false;
         }
         return true;
     }

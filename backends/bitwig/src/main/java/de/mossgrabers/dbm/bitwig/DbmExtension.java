@@ -223,6 +223,10 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
             {
                 if (!this.core.setUsbCallback ())
                     this.errorln ("The core (" + this.core.getVersion () + ") has no USB interface: no display.");
+                // The simulator side channel (the encoder state of the Push 2/3), only towards
+                // the Push simulator's socket
+                if (UsbOutput.simulatorDataEnabled () && !this.core.setSimulatorCallback ())
+                    this.println ("The core (" + this.core.getVersion () + ") has no simulator side channel.");
             }
             catch (final ReflectiveOperationException ex)
             {
@@ -450,6 +454,14 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
     public boolean usbBulkOut (final int deviceIndex, final int endpoint, final MemorySegment data)
     {
         return this.usbOutput != null && this.usbOutput.write (deviceIndex, data);
+    }
+
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean simulatorData (final MemorySegment data)
+    {
+        return this.usbOutput != null && this.usbOutput.writeSimulator (data);
     }
 
 

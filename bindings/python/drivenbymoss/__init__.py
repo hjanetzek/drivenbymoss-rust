@@ -211,6 +211,26 @@ class Backend:
             self.usb_output = UsbOutput.from_environment()
         return self.usb_output.write(device.vendor_id, device.product_id, device.interface, endpoint, data)
 
+    def wants_simulator_data(self) -> bool:
+        """True if this backend takes the simulator side channel (``simulator_data_out``): the
+        hosts call ``App.use_simulator_data`` then. The default: the USB output of the
+        environment is the Push simulator's socket (``drivenbymoss.usb.simulator_data_enabled``:
+        ``DBM_PUSH_DISPLAY_SOCKET`` set and ``DBM_PUSH_SIM_VALUES`` not 0). A backend with its own
+        transport overrides it (and ``simulator_data_out``)."""
+        from .usb import simulator_data_enabled
+        return simulator_data_enabled()
+
+    def simulator_data_out(self, data: bytes) -> bool:
+        """A message of the simulator side channel (after App.use_simulator_data), e.g. the
+        encoder state of the Push 2/3 (a ``DBMV`` message): the exact bytes for the simulator's
+        stream, between two USB writes. Never for a real device. It runs during a call into the
+        core: do not block. The default queues it for ``usb_output`` if that is the socket
+        (``UsbOutput.write_simulator``). True if the data was written or queued."""
+        if self.usb_output is None:
+            from .usb import UsbOutput
+            self.usb_output = UsbOutput.from_environment()
+        return self.usb_output.write_simulator(data)
+
     def close_usb(self) -> None:
         """Close the default USB output (App.close calls it)."""
         output, self.usb_output = self.usb_output, None
@@ -446,6 +466,7 @@ class _Trampolines:
             return 1 if b.usb_bulk_out(device_index, endpoint, ctypes.string_at(data, length) if data and length > 0 else b"") else 0
 
         self.usb = _ffi.DbmUsbBulkOut(guard("usb_bulk_out", 0, usb_bulk_out))
+        self.simulator = _ffi.DbmSimulatorData(guard("simulator_data_out", 0, lambda instance, data, length: 1 if b.simulator_data_out(ctypes.string_at(data, length) if data and length > 0 else b"") else 0))
         self.commands = _ffi.DbmCommands(guard("process_commands", None, lambda data, n: _process_commands(b, data, n)))
         self.table = _ffi.DbmCallbacks(user=None, **self.functions)
 
@@ -583,6 +604,15 @@ class App:
         if not hasattr(self._library, "dbm_set_usb_callback"):
             return False
         return self._library.dbm_set_usb_callback(self._app(), _ffi.DBM_USB_VERSION, self._trampolines.usb, None) != 0
+
+    def use_simulator_data(self) -> bool:
+        """Deliver the messages of the simulator side channel (e.g. the encoder state of the Push
+        2/3 for the Push simulator) to Backend.simulator_data_out (dbm_set_simulator_callback).
+        Only for a host whose USB data goes to a simulator: the controllers build the data only
+        while it is set. False if the library has another version of the interface (or none)."""
+        if not hasattr(self._library, "dbm_set_simulator_callback"):
+            return False
+        return self._library.dbm_set_simulator_callback(self._app(), _ffi.DBM_SIMULATOR_VERSION, self._trampolines.simulator, None) != 0
 
     def update_model_bin(self, data) -> None:
         """Update the model with a buffer of binary records (a protocol.Writer or a bytes-like
