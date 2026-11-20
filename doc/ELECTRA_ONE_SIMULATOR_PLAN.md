@@ -1,10 +1,20 @@
 # Electra One simulator: research and plan
 
-Status: 2026-11-20. Research and planning only, no simulator code yet. This document covers the
-device, what DrivenByMoss uses of it, four ways to simulate it, a recommendation, and phases.
-The Electra One is a touchscreen controller driven by presets and Lua, which makes it the
-closest relative of the planned tablet controller (doc/CONTROLLER_SIMULATORS.md). Section 6
-looks at what the tablet should take from it.
+Status: 2026-11-20, second version. Research and planning only, no simulator code yet. This
+document covers the device, what DrivenByMoss uses of it, four ways to simulate it, a
+recommendation, and phases. The Electra One is a touchscreen controller driven by presets and
+Lua, which makes it the closest relative of the planned tablet controller
+(doc/CONTROLLER_SIMULATORS.md). Section 6 looks at what the tablet should take from it.
+
+What changed since the first version:
+
+- **The license is no factor.** The project is GPL-3.0, so firmware code may be used and
+  copied; only the notices of copied code are recorded (§3 (b)).
+- **A host shim exists:** the MicroDexed-touch port's Linux build, which runs a Teensy sketch on
+  the PC.
+
+With both, the recommendation moves from the native re-implementation (a) to the real firmware
+on the host, (b) with our QML front end (d), and (a) later for the tablet (§3).
 
 Sources:
 
@@ -26,6 +36,11 @@ Sources:
 - **DrivenByMoss Java**: `src/main/java/de/mossgrabers/controller/electra/one/` (5,441 lines:
   `base/`, `normal/` for the mk1/mk2, `mini/`) and `resources/Electra.One/DrivenByMoss.eproj`
   and `DrivenByMoss Mini.eproj`.
+- **The MicroDexed-touch port's Linux build**: `~/bastel/cynthian/port` (codeberg
+  hjanetzek/cynthian, at 11dc641). Read: `README.md` ("Linux desktop build"),
+  `LINUX_BUILD_PLAN.md`, `host/` (`CMakeLists.txt`, `shim/`, `core/`, `linux/`),
+  `addon/arduino` (the Arduino/Teensy API and the Teensy 4 core subset), `app/mdt/ili9341emu.*`
+  and `nativefont.*`, `hal/zynthian_v4`, `tools/mdtctl.py`, `tools/uiwalk.py`, `tests/host`.
 
 ## 1. The device
 
@@ -98,8 +113,9 @@ applied.
 
 **The editor's project format is different.** The Electra web editor (app.electra.one) stores a
 project (`.eproj`: `schemaVersion` 2 or 3, `tiles`, `layouts`, `lua`) and sends the device a
-`.epr` it generates from that. DrivenByMoss ships only `.eproj` files, which matters for every
-simulator approach (§2.3).
+`.epr` it generates from that. The firmware reads only `.epr`. DrivenByMoss ships only
+`.eproj` files, so a simulator gets the DBM preset either from the editor's upload or from a
+converter (§2.3, §3 (b) Fidelity).
 
 ### 1.4 Lua
 
@@ -219,22 +235,26 @@ for the buttons and 40 for knob touch, and has 3 modes (Volume, Device, Transpor
 | Switching | `09 08` → ACK + `7E 02 bank slot`; `09 0A` → ACK + `7E 06 page`, and the page is shown |
 | Subscriptions | `14 79` stored, events only for the subscribed classes |
 | Live updates | `14 07` (name, color, visible; `value` optional), `14 0E` (value text), `7F 7A` (repaint batching), `7F 7D` (logger on/off) |
-| Lua | `08 0D` with at least `sgt(id,"text")` executed against the preset's `sgt` (§4.1) |
+| Lua | `08 0D` with at least `sgt(id,"text")` executed against the preset's `sgt` (the real Lua in (b), a shim in (a)) |
 | Parameter map | an incoming CC on (port 1, ch 16) sets every value bound to it (cc7 and relative messages); pad on/off |
 | Controls | fader (incl. relative message), relative, pad (momentary/toggle, color from `14 07`), list with overlay, group label (variant highlighted, visibility) |
 | Input | 12 knobs bound by the active control set, sending relative two's-complement CCs (accelerated); knob touch → `7E 0A` (0-based pot id, control id); screen touch on a pad → `onValue`/`offValue`; 6 buttons (control set 1–3, page selection) |
-| Preset loading | `.epr` files in slots; an `.eproj` → `.epr` converter for the shipped DBM files |
+| Preset loading | `.epr` files in slots; the shipped DBM `.eproj` installed by the editor's upload, or by a converter |
 | Robustness | ACK/NACK with the echoed transaction id; NACK for everything unknown, logged as "unhandled" in the monitor; long SysEx reassembled from ALSA fragments |
 
-A Rust port of the controller needs exactly the same subset.
+A Rust port of the controller needs exactly the same subset. In (b) all of it comes with the
+firmware. Only the ports, the input and the card are host work.
 
 ## 3. Simulator approaches
+
+Marks used in this section: **verified** = read in the code or measured here; **assumed** = an
+estimate or a plausible guess still to be checked.
 
 ### (a) A native re-implementation in our PySide6/QML stack
 
 A pure Python model (`electra_simulator/device.py`, no Qt) with:
 
-- a preset parser (`.epr`, plus an `.eproj` converter);
+- a preset parser (`.epr`, plus an `.eproj` converter or the editor's own upload);
 - the parameter map with the MIDI ↔ display translation;
 - the SysEx API subset of §2.4 (later: preset/Lua upload, `08 13` commands, `14 77`, `09 0B`,
   events for control sets);
@@ -244,168 +264,347 @@ QML renders the controls natively: a `PageView` of `Repeater`s over the page's g
 controls, with one component each for fader, pad, list, relative and group, the bars, 12
 `Encoder`s with touch and 6 `LedButton`s from `SimCommon`.
 
-- **Effort:** the DBM subset takes roughly 1,500–2,500 lines of Python + QML and fits the
-  `midi_simulator` pattern (listeners, monitor, layout test, smoke screenshot). Envelopes,
+- **Effort (assumed):** the DBM subset takes roughly 1,500–2,500 lines of Python + QML and fits
+  the `midi_simulator` pattern (listeners, monitor, layout test, smoke screenshot). Envelopes,
   XY pad, vfader, knob, detail view and snapshots come later, as needed.
 - **Fidelity:** protocol behaviour as specified, with pixels "in the style of" the device, not
-  identical. The firmware's rendering details (fonts, the fader thin/dial variants) are
-  approximated. Lua (below) is the largest fidelity gap.
-- **License:** clean. It is written from the public documentation (docs.electra.one) and the
-  observed protocol. Reading the GPL firmware to learn facts (message layouts, field names) is
-  interoperability work. Copying code or larger tables into our LGPL tree is not, and we
-  don't.
+  identical. Lua (below) is the largest gap. Since GPL-3.0 code may be used, (a) can translate
+  firmware logic and tables instead of inferring them: the slot geometry, `ControlMetrics.h`,
+  the sign and relative modes, the preset parser's defaults. That narrows the gap, but each
+  of them is then a copy that has to follow upstream by hand.
 - **Lua, three options:**
-  1. **None, plus a shim (stdlib only, recommended to start).** `08 0D` text is matched against
-     `name(arg, …)` calls with literal arguments. A function the simulator knows (DBM's `sgt`:
-     set the group label, visibility from the text length) runs natively; anything else is
-     logged as unhandled Lua. The preset's own `lua` is parsed only to see which functions it
-     defines. That covers DBM completely, and 50 lines do it.
+  1. **None, plus a shim (stdlib only).** `08 0D` text is matched against `name(arg, …)` calls
+     with literal arguments. A function the simulator knows (DBM's `sgt`: set the group label,
+     visibility from the text length) runs natively; anything else is logged as unhandled Lua.
+     That covers DBM completely, and 50 lines do it.
   2. **`lupa`** (Python binding to Lua 5.4/LuaJIT, MIT). This gives real Lua with the API
      modules in Python, but it is a new dependency, against the project's no-deps rule, and needs
      the owner's decision.
   3. **Lua through our Rust library.** `mlua` with Lua 5.4 is already the one approved
      dependency (doc/LUA_PLAN.md). A small C ABI ("a sandboxed Lua state with host callbacks")
      in `libdrivenbymoss` would give the simulator, and later the tablet controller, real Lua
-     with no new dependency. It is more work than lupa but keeps one Lua runtime in the project.
-  - A tiny Lua interpreter in Python is not worth it: real presets use the whole language.
+     with no new dependency.
+  - In every option the ~25 Lua modules of §1.4 have to be written again; only the language
+    comes for free.
 
 ### (b) Running the real firmware on the host
 
 Compile `src/`, `apps/controller` and the portable libraries (`lib/lua`, `ArduinoJson`,
-`base64`, `CircularBuffer`, `TaskScheduler`, `arduino_midi_library`) natively against a host
-BSP. Assessment from `bsp/`, `ARCHITECTURE.md` and the include graph:
+`base64`, `CircularBuffer`, `TaskScheduler`, `arduino_midi_library`) natively, against a host
+BSP that replaces `bsp/` (the firmware's copy of the Teensy 3 core with Electra's changes) and
+the hardware libraries (`RA8876`, `FT5x16`, `BU21072`, `ADC`, `SdFat`, `USBHost_t36`, `i2c_t3`).
 
-- **The boundary is narrow.** Only 14 files in `src/` and `apps/controller` include hardware
-  headers (`Arduino.h`, `core_pins.h`, `mk66fx1m0.h`, `IntervalTimer.h`, `ADC.h`, `RA8876.h`,
-  `SdFat.h`, `USBHost_t36.h`, `FT5x16.h`, `BU21072.h`); only 11 lines touch registers directly
-  (IRQ masking, DWT, NVIC). There are 76k lines of application code and 68k lines of libraries.
-- **The host BSP would need:**
-  - an Arduino shim (`millis`, `micros`, `delay`, `elapsedMillis`, `Serial`, pins as no-ops);
-  - `IntervalTimer` → call `readMidi` from the main loop, or a thread with `__disable_irq` as a
-    mutex;
-  - USB MIDI (`usb_midi_*`, `usbMIDI`, 3 cables, partial-SysEx callbacks) → ALSA sequencer;
-  - `SdFat` → host files (`tests/fakes/SdFat.cpp` is a 163-line start);
-  - the RA8876 → a software rasterizer;
-  - FT5x16 → mouse, BU21072 and the pots → UI events injected at `PotBroadcaster`/`Pot` level;
-  - DIN, the USB host and EEPROM → stubs or files.
-- **The display is the big piece.** `Graphics`/`FrameBuffer` derive from the `RA8876` class
-  (about 125 methods: primitives, the BTE copy/chroma/expansion engine, CGRAM fonts, canvas and
-  layer addresses, readRAM/writeRAM into 16 MB SDRAM). Text and bitmaps live in that SDRAM and
-  are blitted by the BTE. A software RA8876 is about 1,500–2,500 lines of C++, and has to be
-  exact for the text atlases to come out right. `tests/fakes/RA8876` models only the memory.
-- **Platform assumptions:**
-  - 32-bit pointers in packed model structures (`LookupEntry` 8 bytes with a pointer, "four bytes
-    an entry" indexes), so building with `-m32` (i386 multilib) is the cheapest way round;
-  - the SRAM-bank and heap/stack checks (`_sbrk`, `RamMonitor`, the 62,000-byte `adj_free` gate
-    in `Presets::loadPreset`) need stubs;
-  - Teensy-specific `DMAChannel`/SPI code goes away with the BSP.
-- **Threading** is simple: no RTOS, one cooperative scheduler plus a 500 µs timer ISR that only
-  queues. A single-threaded host loop is faithful.
-- **Lua** is plain Lua 5.4 C and compiles as is.
-- **The tests** (`tests/`, CppUTest, macOS paths, testing a removed `extram.cpp`) are stale and
-  no help.
-- **Effort:** about 2–4 weeks of agent work to a window that boots the controller app, loads
-  an `.epr` from a directory and talks over ALSA. The display is half of it, and the 64-bit
-  issues are an unknown.
-- **Fidelity:** the highest. The real parameter map, Lua, rendering and SysEx answers.
-- **License:** the host port is a derivative work of GPL-3.0 code and must be GPL-3.0. It has
-  to be a **separate repository** (a fork of firmware-mk1 with a `host/` BSP, ideally offered
-  upstream). It cannot go into our LGPL tree. Our LGPL code talking to it over ALSA MIDI or a
-  socket is communication between separate programs (aggregation), which the GPL allows.
-  Starting such a project, and whether to approach Electra about upstreaming it, is the
-  owner's decision.
-- **Limits:** it simulates the mk1 only. The mk2 and Mini firmware is closed; their differences
-  (screen size, Mini knob pushes, `model` key) would have to be patched in.
+#### What the firmware needs from a host (verified)
+
+- **A narrow boundary.** Only 14 files in `src/` and `apps/controller` include hardware
+  headers. Only 11 lines touch registers directly: `__disable_irq`/`__enable_irq` in
+  `TaskReadMidi.cpp`, `TaskProcessSysex.cpp` and `SysexHandlerCtrl.h`, and the DWT cycle counter
+  in `Profile.h`. There are 76k lines of application code and 68k lines of libraries.
+- **A clean entry point.** `bsp/main.cpp` calls `initialise()` once and then `processEvents()`
+  forever (`src/main.cpp`). There is no RTOS. The only timers are two `IntervalTimer`s:
+  `readMidi` every 500 µs, switched to `readCtrlMidi` every 6 µs during a CTRL upload, and the
+  boot spinner (`SystemTasks.cpp`).
+- **USB MIDI device:** `bsp/usb/usb_midi.c` with 3 cables and Electra's partial-SysEx
+  callback with a cable argument. The firmware uses `usbMIDI.*`, `usb_midi_write_packed`,
+  `usb_midi_read_sysex` and the `usb_midi_handle*` hooks.
+- **Storage:** SdFat v2 (`SdFs`, `FsFile`, `openNext`, `SdioConfig`), behind
+  `PersistentStorage`, `LocalFile` and `FileIoStream`.
+- **The display:**
+  - `Graphics`/`FrameBuffer` derive from the `RA8876` class. That class has about 125
+    methods, each writing the chip's registers over SPI.
+  - The firmware calls about 55 of them: mostly `fillRect` (71 call sites), `fillAll`,
+    `drawLine`, round rectangles, triangles, circles, ellipses and curves; also
+    `setCanvasAddress`, `bteCopyNoWait`, `bteCopyChroma`, `bteCopyRop`, `bteExpansion`,
+    `setActiveWindow*`, `setMainWindowAddress` and `writeRamData`.
+  - Double buffering swaps two frame buffers in the 16 MB SDRAM (canvas vs. main window
+    address, `FrameBuffer.cpp`).
+  - Text is drawn by BTE: chroma-key copies from a glyph atlas in SDRAM, and colour
+    expansion of masks (`TextAtlas.cpp`). Strings and bitmaps also live in SDRAM
+    (`VramStore`, `BitmapPool`).
+- **Lua:** the firmware's own Lua 5.4 (`lib/lua`, `LUA_VERSION_NUM 504`). Its file access goes
+  through the firmware's own SD layer (`luaBridge.cpp`), and the rest is plain C.
+- **A syntax survey** (host `g++ -std=gnu++17 -fsyntax-only` over all 194 `.cpp` files of `src/`
+  and `apps/controller/src`, with the Makefile's defines, against the unchanged `bsp/`):
+  - 29 compile.
+  - Almost all failures come from the Teensy core headers: `DMAChannel.h` and the register
+    macros cast pointers to `uint32_t`, and `compat.h` redeclares `exp10`. These go away with a
+    host BSP.
+  - What remains is a short list in the application:
+    - `static_assert(sizeof(Span<int>) == 5)` (a packed pointer + count, 41 files) and
+      `sizeof(Control) == 32` fail on 64-bit;
+    - SdFat's `File32`/`FsFile` selection;
+    - `#include <String>` and `#include "String.h"` in `bsp/compat.h`, which only resolve on a
+      case-insensitive file system. The firmware is developed on macOS, and `src/Lua/` has both
+      `luabridge.cpp` and `luaBridge.cpp`;
+    - a missing `<algorithm>` (`std::find`);
+    - `random()` clashing with glibc;
+    - `Print::write(int)` ambiguous (`Database.h`).
+
+#### The shim of the MicroDexed-touch port (verified)
+
+`~/bastel/cynthian/port` runs MicroDexed-touch, a Teensy 4 Arduino sketch, on Linux
+(`README.md` "Linux desktop build", `LINUX_BUILD_PLAN.md`). It is layered:
+
+1. the sketch;
+2. `addon/arduino`: the Arduino/Teensy API on top of Circle, plus a subset of the
+   Teensy 4 core in `addon/arduino/teensycore` (`Print`, `Stream`, `WString`,
+   `EventResponder`, `elapsedMillis`, and `usb_midi.c` with the parser kept and the transport
+   replaced by packet rings);
+3. Circle (bare-metal Raspberry Pi);
+4. on Linux, `host/shim/circle` (14 headers of Circle's API) and `host/core` + `host/linux`
+   (about 3,500 lines).
+
+The Electra firmware does not need layers 2–3: it brings its own Teensy core, and Circle
+plays no part. What carries over is the host layer's pieces and, more than that, its method:
+
+| Need of the Electra firmware | In the shim | Carries over |
+| --- | --- | --- |
+| `millis`, `micros`, `delay`, `yield`, `elapsedMillis` | `host/core/arduino_time_host.cpp` (`clock_gettime`, `nanosleep`), `teensycore/elapsedMillis.h` | directly (about 100 lines) |
+| Print, Stream, WString, Arduino.h subset | `addon/arduino/include/Arduino.h`, `teensycore/*` | as a template. Electra's own `bsp/Print.cpp`, `Stream.cpp` are portable and probably compile as they are (assumed) |
+| USB MIDI device, 3 cables | `teensycore/usb_midi.c`: the parser with packet rings, `usb_midi_rx_packet`/`usb_midi_tx_packet` | the pattern: keep Electra's own `usb_midi.c` parser, replace its transport with rings in the same way |
+| ALSA sequencer | `host/linux/alsamidi.cpp`: a client, reader thread, `snd_midi_event` encode/decode, hotplug, `--midi-trace` | the code, with the role reversed. The shim is a USB **host** that connects to devices; the Electra is the **device**: one client "Electra Controller" with 3 duplex ports that DAWs connect to |
+| USB host MIDI (2 sockets) | `host/core/hostmidi.cpp`, `hostmididevice.h`: ALSA clients appear as `USBHost_t36` MIDI devices, ports as cables; virtual devices over the control port (`vmidi`) | close to directly, if Electra's `MidiUsbHost` uses the same `MIDIDevice` API (assumed) |
+| IntervalTimer, IRQ masking | "threads are cores" (`CMultiCoreSupport::ThisCore`), a timer thread for TeensyTimerTool | the idea only: the Electra has one core, so a cooperative host loop is simpler and exact (below) |
+| SD card | FatFs on a disk image (`sd.cpp`, `diskio_host.cpp`) behind `SD.h` | partly: Electra uses SdFat v2 (`SdFs`, `FsFile`), so it needs its own adapter, on a host directory or on the shim's FatFs image |
+| EEPROM | stub saved to a file | directly |
+| Window, input | `host/linux/hostwindow.cpp` (SDL2: scaled canvas, mouse = touch, keys = encoders, F12 screenshot), `hostboard.cpp` (a virtual MCP23017 answering on the I²C shim) | the window directly (1024×600 instead of 480×320); the virtual-chip pattern for the FT5x16 and BU21072 |
+| Display | `app/mdt/ili9341emu.cpp` (about 400 lines: ILI9341 command level, native fonts), `hostdisplay.cpp` (touch state, PNG screenshots with zlib) | the PNG writer and touch handling directly. The emulator is only the pattern: the RA8876 is a different and much larger chip |
+| Control port | `host/core/hostcontrol.cpp`: UDP 127.0.0.1:5000, `ping`, `uptime`, `quit`, `inject …`, `touch`, `screenshot`, `vmidi …` | directly, with Electra commands |
+| Headless runs and tests | `--headless`, `--no-alsa`, `--port`, `--replay`; `tools/mdtctl.py` (one UDP command); `tools/uiwalk.py` (every page, screenshots, contact sheet); `tests/host/run.sh` with `*.sim` scripts and `expect` lines | directly as tooling and as test format |
+| Build, sanitizers | `host/CMakeLists.txt` + `core/HostCore.cmake` (source lists read from the Makefiles, `-include hostcompat.h`), `-DSANITIZE=ON` (ASan + UBSan), `--wrap=malloc` with a zeroing `operator new` | directly as structure |
+
+Lessons from that port which apply here too: a 64-bit address bug (`uint32_t` holding a heap
+address) and code that relies on a zeroed heap showed up only under ASan. Both kinds are
+plausible in the Electra firmware (assumed): its SDRAM addresses are `uint32_t` into the chip
+and fine, but host pointers are worth an ASan run.
+
+#### What is new for the Electra
+
+| Part | Work | Lines (assumed) |
+| --- | --- | --- |
+| Host BSP headers | `Arduino.h`/`core_pins.h`/`WProgram.h` replacements (pins as no-ops, `DMAMEM`/`FASTRUN` empty, `__disable_irq` as a lock), `IntervalTimer` (registered callbacks), SPI/DMA/UART stubs, `random()`, a `String.h` that is `<string.h>` | 350 |
+| Timing model | `processEvents()` on the main thread; the 500 µs (and 6 µs) "ISR" called from that loop between tasks, so an ISR is as atomic for the main loop as on the chip. ALSA, the window and the control port run in their own threads and only fill and drain the USB packet rings under a lock | 100 |
+| USB device MIDI | Electra's `usb_midi.c` parser with rings; 3 duplex ALSA ports `Electra Port 1`, `Electra Port 2`, `Electra CTRL` in the client `Electra Controller`; virtual cables over the control port for tests without ALSA | 350 |
+| **RA8876 in software** | a host `RA8876` class with the same interface. Its state is a 16 MB SDRAM array, canvas and main-window addresses, the active window (clip), and the colour depth (16 bit). It implements the drawing primitives, `writeRam*`/`readRam*`, and the BTE copy, ROP, chroma key and colour expansion. The frame shown is the main window's buffer. `tests/fakes/RA8876` already models the memory | 1,500–2,000 |
+| Storage | SdFat v2 subset (`SdFs`, `FsFile`, directories, `openNext`) on a host directory (`--card DIR`; preset slots are then plain files) | 300 |
+| Touch, knobs, buttons | FT5x16 → the window's mouse and `touch` commands. The 12 pots → deltas injected into `Pot`; a later option is to synthesize the two gangs' ADC values, which would also run the decoder of `POTS.md`. BU21072 → knob touch. The 6 buttons | 300 |
+| Memory checks | `_sbrk`, `RamMonitor`, the `adj_free` gate of `Presets::loadPreset`, the SRAM-bank placement → stubs that report the Teensy's sizes, so the firmware refuses the same presets it refuses on the unit | 100 |
+| Firmware patches | `#ifndef ELECTRA_HOST` around the size asserts (or `-m32`), `<algorithm>`, the `Print::write` overload, the info reply's `model` as a build option (`mk1`/`mk2`) | about 20 lines in a handful of files, upstreamable |
+| Window, control port, tooling | adapted from the shim: SDL window 1024×600 with knobs on keys and wheel; UDP control port with `pot N ±steps`, `potTouch N 0|1`, `button NAME`, `touch X Y`, `screenshot`, `vmidi …`, `quit`; `electra_ctl.py`, a `uiwalk`-like page walker | 600, half of it copied |
+| Build | CMake reading the firmware Makefile's source lists, like `HostCore.cmake` | 150 |
+
+Notes:
+
+- **The 64-bit question.** Two ways. Either build for 64-bit and guard the four size asserts
+  (the sizes are budgets for the Teensy's RAM, not layout contracts), or build with `-m32`. The
+  second needs i386 multilib packages of ALSA, SDL2 and zlib. 64-bit with guarded asserts is
+  the plan (assumed to be enough; ASan is the check).
+- **Screen touch** goes through the window's mouse and the control port (the FT5x16 is polled
+  every 40 ms, so a touch must be held at least that long, like the shim's 80 ms minimum).
+- **The mk2 and Mini** are not covered by the mk1 firmware's screens. The mk2 differs for DBM
+  only in the info reply's `model`, which is a build option. The Mini (800×480, 8 knobs with
+  push, 4 pads) is a different instrument; (b) does not cover it.
+
+#### Effort (assumed)
+
+| | Without the shim | With the shim |
+| --- | --- | --- |
+| Boots headless, logs to stderr, `processEvents()` runs (BSP headers, timing, stubs, patches) | 3–4 days | 2–3 days (the survey method, `hostcompat.h`, CMake) |
+| The screen: RA8876, PNG screenshot | 6–8 days | 5–7 days (only the PNG writer and touch plumbing are reused) |
+| USB MIDI with 3 ALSA ports, virtual cables | 3 days | 1–2 days |
+| Storage, presets in slots | 2 days | 2 days |
+| Window, input, control port, tooling, `*.sim` tests | 4–5 days | 1–2 days |
+| **Total to "DBM's preset runs, DBM talks to it"** | **3–4 weeks** | **2–3 weeks** |
+
+The shim saves about a week. Most of that is infrastructure that the shim has already
+debugged: the control port, headless screenshots, ALSA, the test runner, the sanitizer
+build. The RA8876 is the same risk either way.
+
+#### Fidelity
+
+The highest available:
+
+- the real preset parser, parameter map, Lua 5.4, components and windows;
+- the real SysEx answers, including the corners `SYSEX-API.md` documents (NACK for the rest,
+  transaction ids, the staged upload);
+- the same repaint batching and the same RAM refusals.
+
+The rendering is exact to the extent that the RA8876 emulation is exact. A wrong BTE detail
+shows at once in the glyphs.
+
+There is no `.eproj` guesswork either, but not because the firmware reads `.eproj`: it reads
+`.epr` only. The point is that the real tools can talk to the host build. The web editor
+(app.electra.one, WebMIDI on the ALSA ports) or `electraone-cli` can upload
+`DrivenByMoss.eproj` the way a user does. That they accept the host build is **assumed**: they
+should, if the info reply looks like a 5.0.6 mk1.
+
+#### Maintenance
+
+Upstream is very active: dozens of commits in October 2026, with mk2 parity as the goal. The
+host build compiles `src/` and `apps/controller` from a pinned firmware checkout and replaces
+only `bsp/` and the hardware libraries, so most upstream changes come for free with a bump of
+the pin. What needs work after a bump:
+
+- changes at the boundary: new RA8876 calls, a new hardware task, a new static assert;
+- a failing patch in the handful of patched files.
+
+Offering the host BSP and the patches upstream would remove most of that; Electra already
+keeps a compatibility harness and Linux tooling (`tools/compat`).
+
+#### Where it lives and license notes
+
+The project is GPL-3.0, so the host BSP can live in our tree, for example
+`support/electra_host/` (C++, CMake), with firmware-mk1 as a pinned git submodule or a sibling
+checkout, as the MDT port does with its submodules. What has to be noted, per file:
+
+- **firmware-mk1:** GPL-3.0-or-later, Electra One Project. Copied or patched files keep their
+  headers.
+- **The Teensy core parts** (Electra's `bsp/`, the shim's `teensycore/`): PJRC's MIT-style
+  license. Keep the notices.
+- **The libraries** keep their licenses: Lua (MIT), ArduinoJson (MIT), SdFat (MIT, assumed).
+- **The MDT port's host code** (`~/bastel/cynthian/port/host`): the owner's own code, with no
+  license file. Its license has to be stated when files are copied (§8).
+- **System libraries:** the host build links SDL2 (optional, for the window), ALSA and zlib. It
+  is a separate C++ program, so the Rust crate and Python stay free of new dependencies.
 
 ### (c) An emulator
 
 QEMU has no Kinetis K66 machine. An emulator would need models for the K66 core peripherals,
 the RA8876 on SPI with its BTE engine, the FT5x16 and BU21072 on I²C, the ADC with the
 multiplexer, the SDHC, and above all the Kinetis USB-FS device controller with a 3-cable MIDI
-function bridged to ALSA. Renode or a custom QEMU machine could do it in principle, but that
-takes months, and every peripheral model is a fidelity risk. It brings nothing that (b) does
-not bring cheaper. **Rejected.**
+function bridged to ALSA. That takes months, and it needs the same RA8876 model as (b) plus
+everything else. **Rejected.**
 
-### (d) A hybrid: our QML front end with (b) behind a socket
+### (d) Our QML front end over (b)
 
-The GPL host port renders into its framebuffer and streams frames over a UNIX socket, as the
-Push display does (`display.DisplayServer`); the QML shell shows the image and sends touch,
-knob and button events back. That gives (b)'s fidelity with our window, monitor, screenshots
-and the run.sh hand-over. The cost is (b) plus about 300 lines of shell. The screen is a pixel
-image, though, so nothing of it is reusable for the tablet controller, which wants native,
+The host build runs headless and streams its frames over a UNIX socket, as the Push display
+does (`display.DisplayServer`). Our QML shell shows the frames and sends touch, knob, knob-touch
+and button events back:
+
+- **The frames:** RGB565 1024×600 (1.2 MB) on each buffer swap, at most 40 a second, about
+  50 MB/s over a local socket. Dirty rectangles later, if that is too much.
+- **The events:** the same commands as the control port.
+
+What the shell gives:
+
+- `SimCommon`'s 12 `Encoder`s with touch and 6 `LedButton`s around the screen;
+- the MIDI monitor (F2) on the ALSA traffic, with the decoded Electra SysEx;
+- screenshots and the `run.sh` hand-over like the other simulators;
+- no SDL dependency for the firmware build.
+
+It costs about 300 lines of QML and Python on our side and 150 in the host build. The
+firmware's own SDL window stays useful for quick looks and for debugging the host build alone.
+
+For the tablet, (d) is a "remote screen". A tablet could host the real Electra this way and
+look exactly like it. But it would be pixels at a fixed 1024×600, not native, scalable,
 data-driven controls.
 
 ### Comparison
 
-| | Effort | Fidelity | License | Serves the tablet | Covers mk2/Mini |
+| | Effort | Fidelity | Maintenance | Serves the tablet | Covers mk2/Mini |
 | --- | --- | --- | --- | --- | --- |
-| (a) native | low to medium (DBM subset in 1–2 weeks) | protocol: high for the subset; pixels: approximate; Lua: shim | clean (LGPL, our code) | **directly**: the preset model and renderer are the tablet's | yes, as data (screen size, knobs) |
-| (b) host firmware | high (2–4 weeks, display emulation) | highest for the mk1 | separate GPL-3.0 project | no (pixels) | mk1 only |
-| (c) emulator | very high (months) | high, if every peripheral is right | separate project | no | no |
-| (d) hybrid | (b) + small | as (b) | GPL part separate | no | mk1 only |
+| (a) native | 1–2 weeks for the DBM subset | protocol high for the subset; pixels approximate; Lua shim or a re-written API | follows upstream by hand | **directly**: the preset model and renderer are the tablet's | yes, as data |
+| (b) host firmware | 2–3 weeks with the shim (3–4 without) | exact: the real firmware; pixels as exact as the RA8876 emulation | a pin bump; the boundary rarely moves | as an oracle, not as UI | mk1; mk2 by a flag; not the Mini |
+| (c) emulator | months | high, if every peripheral is right | the same as (b), plus the peripheral models | no | no |
+| (d) QML over (b) | (b) + 2–3 days | as (b) | as (b) | a remote screen only | as (b) |
 
-### Recommendation: (a)
+### Recommendation: (b) + (d) first, (a) later for the tablet
 
-1. It covers everything DBM uses (§2.4), for the Java controller and a future Rust port, at
-   the lowest cost, and fits the existing simulator pattern and tests unchanged.
-2. It is the **tablet controller's foundation**. A preset-driven surface model (pages, control
-   sets, groups, controls, values bound to messages, host-updatable labels and colours) with
-   native QML controls is exactly what the tablet needs. The Electra simulator would be its
-   first user.
-3. It avoids the GPL question entirely and covers the mk1, mk2 and Mini as data.
-4. (b)/(d) remain a possible later **reference oracle**: a separate GPL project that answers
-   "does the real firmware do the same?" for the protocol corners. Worth it only if (a)'s
-   behaviour is ever in doubt, and only with the owner's go-ahead.
+1. **(b) is the DBM test target.** It answers every SysEx the way the unit does, runs the
+   preset's Lua, and loads the preset with the real parser. The question "is the simulator
+   right?" goes away for the Java controller and for the Rust port. The Lua question goes
+   away too: the firmware brings its own Lua 5.4.
+2. **The shim brings (b)'s cost close to (a)'s:** 2–3 weeks against 1–2. The infrastructure
+   (control port, headless screenshots, ALSA, `*.sim` tests, sanitizers) is already proven
+   there.
+3. **(d) fits it into our simulators:** our window, monitor and `run.sh` around the real
+   screen.
+4. **(a) comes later, when the tablet needs it,** and then with (b) as its **oracle**. The same
+   SysEx/MIDI stream goes into both. The test compares the outgoing MIDI and the control state
+   (names, colours, values, visibility; from the firmware through the control port or
+   `controls.print`). The tablet's preset model is thus tested against the real firmware, and
+   (a) may translate firmware logic where that is the shortest way to agreement.
+5. **The Mini** is not covered by (b). It needs (a), or it waits.
 
-Lua: start with the shim (stdlib only). If real Lua is wanted, prefer option 3 (through the Rust
-library's `mlua`) over `lupa`, because it adds no dependency and the tablet controller would
-script through the same runtime as the Lua controllers.
+The cost of this order: there is no QML model of the Electra until the tablet work starts. If
+the tablet comes first, (a) can start in parallel with (b), and only its oracle tests wait.
 
-## 4. Design sketch for (a)
+**The first step** is phase 1 (§7), a day or two: a CMake build over the firmware's sources
+with a stub host BSP. First every `.cpp` compiles, then it links, then `initialise()` returns
+and `processEvents()` runs headless with a null display. That turns the survey's findings
+(§3 (b)) into a complete list. It also shows early whether 64-bit with guarded size asserts
+holds up, and whether the boot depends on hardware answers that the stubs must give. The
+RA8876 work starts only after that.
 
-### 4.1 Package and modules
+## 4. Design sketch
 
-`support/controller_simulator/electra_simulator/`, next to `maschine_simulator`, using
-`sim_common`:
+### 4.1 The host build of the firmware ((b), `support/electra_host/`)
 
-| Module | Content |
+| Part | Content |
 | --- | --- |
-| `preset.py` | the `.epr` model (Preset, Page, Device, Overlay, Group, Control, Value, Message), the slot geometry, validation |
-| `eproj.py` | `.eproj` → `.epr` conversion (schemaVersion 2 tiles; 3 with `layouts` for the Mini) |
-| `parameter_map.py` | (device, type, number) → MIDI value and bound values; MIDI ↔ display translation (ranges, sign modes, relative modes, acceleration) |
-| `sysex_api.py` | parse/build the Electra SysEx, transaction ids, ACK/NACK, events, subscriptions |
-| `lua_shim.py` | `08 0D` call matcher, the known functions (`sgt`), detection of the preset's defined functions |
-| `device.py` | the device: ports, slots, the loaded preset, active page and control set, knob → control binding, `receive(data, port)`, `turn_knob`, `touch_knob`, `press_button`, `touch_control`, listeners, monitor, `unknown` |
-| `models.py` | mk1 / mk2 / Mini: screen, knobs (with push on the Mini), buttons, info JSON |
-| `qt_bridge.py`, `main.py`, `qml/` | `SimulatorBase` subclass and the QML page renderer |
+| `CMakeLists.txt` | the firmware's source lists (`src/`, `apps/controller`, `lib/*`), minus `bsp/` and the hardware libraries; `ELECTRA_HOST`; `-include hostcompat.h`; `SANITIZE` option |
+| `bsp/` | host `Arduino.h`/`core_pins.h`, `IntervalTimer`, `SPI`/`DMAChannel`/`Uart` stubs, `usb_midi` transport rings, EEPROM file |
+| `ra8876/` | the software RA8876 (`RA8876.h` interface kept) |
+| `storage/` | the SdFat v2 subset on a directory |
+| `input/` | FT5x16, BU21072, pots and buttons as injected events |
+| `linux/` | `main.cpp` (options, threads, the loop), `alsamidi.cpp`, `hostwindow.cpp` (SDL, optional), `control.cpp` (UDP), `framesocket.cpp` (for (d)) |
+| `patches/` | the few firmware patches, until upstream takes them |
+| `tools/` | `electra_ctl.py` (like `mdtctl.py`), `electra_walk.py` (every page of a preset, screenshots), `run_tests.sh` with `*.sim` scripts |
 
-Notes:
+Options:
 
-- Slots live in a directory (`--slots DIR`, default a temp copy). `--preset FILE[@bank:slot]`
-  preloads the DBM preset.
-- The info reply follows `--model mk1|mk2|mini` and `--firmware 5.0.6`, so DBM's version checks
-  (`300400300`, `500000400`) can be tested both ways.
-- Long SysEx: `sim_common.alsa_seq` decodes event by event. Large uploads (a preset is
-  100 KB+) arrive in fragments and must be reassembled until `F7`, and the 64 KB encoder buffer
-  is too small for sending a preset back. DBM itself sends only short messages.
+- `--card DIR` (the SD card as a directory);
+- `--headless`, `--no-alsa`, `--port N`;
+- `--frames SOCKET` (for (d));
+- `--model mk1|mk2` (the info reply);
+- `--midi-trace`.
 
-### 4.2 Testing
+### 4.2 The QML shell ((d), `support/controller_simulator/electra_simulator/`)
 
-- **Unit tests** (headless): the converter against the shipped `.eproj` (307 tiles → 252
-  controls + 55 groups, unique ids, pages from `slotId // 72`, bounds on the grid). Each SysEx
-  command has a test, and so do the parameter map translations.
-- **A scripted host** (`tools/electra_feed.py`): replays the Java conversation of §2.2 over ALSA
-  and checks the replies. This is the stand-in until the Rust port exists.
-- **The official client as a cross-check:** `electraone-cli` (GPL, run as an external program)
-  can upload presets, Lua and run commands against the simulator's CTRL port, which tests the
-  upload paths against a "complete host of the protocol". The web editor (Chrome WebMIDI on the
-  ALSA ports) is a further check, if it accepts a simulated device.
-- **Java DBM in Bitwig:** two `snd-virmidi` devices (Port 1 and CTRL), `--connect` both; select
-  them by hand in Bitwig (the names don't match the discovery names).
-- **The Rust port:** `dbm_host_alsa.py --model electra` and an in-process `CoreTest` (bridge ↔
-  device model, `device.unknown` empty, every control operated, no core errors).
-- **A smoke test:** offscreen screenshot after the feeder has set labels, colours and group
-  titles; check the colours in the PNG.
+- **A `SimulatorBase` subclass:** `controls` for the 12 encoders (with touch) and the 6
+  buttons, and an `Image` fed from the frame socket. Mouse on the image → `touch X Y`, held
+  for at least 40 ms.
+- **The ALSA side:** the shell does not create MIDI ports. The host build owns `Electra
+  Controller`, and DBM and Bitwig connect to it as to the unit. ALSA cannot snoop on a
+  connection between two other clients, so the host build itself sends what passes its
+  ports to the monitor, as a message stream on the frame socket (what `--midi-trace` logs).
+- **`run.sh`:** starts the host build and the shell, and stops both.
+
+### 4.3 The native model ((a), later)
+
+As in the first version of this plan:
+
+- `preset.py`, `eproj.py` (only if the editor's upload is not available);
+- `parameter_map.py`, `sysex_api.py`, `lua_shim.py` (or real Lua, §8);
+- `device.py`, `models.py`, and the QML page renderer.
+
+Its tests add the oracle comparison with (b).
+
+### 4.4 Testing
+
+- **Headless screenshots:**
+  1. `--headless --port 5100`, load the preset;
+  2. `electra_ctl.py screenshot` → PNG from the emulated main window;
+  3. `electra_walk.py` switches every page (`09 0A` over a virtual cable, or the `button`
+     command) and writes a contact sheet, as `uiwalk.py` does for MDT.
+  - The firmware's own screenshot (`7F 76` into `tmp`, fetched with `02 35`) is a second
+    path that tests the file API too.
+- **`*.sim` scripts** (like `tests/host/*.sim`):
+  - lines that send MIDI/SysEx on a virtual cable and press, turn or touch;
+  - `expect` lines on the replies (ACK, `7E 06`, CC out) and on screenshot pixels.
+  - Deterministic, no ALSA (`--no-alsa`).
+- **A scripted DBM conversation** (`electra_feed.py`): the Java handshake of §2.2, checking the
+  replies. This is the stand-in until the Rust port exists.
+- **`electraone-cli`** against the CTRL port: preset and Lua upload, commands.
+- **The web editor** (Chrome WebMIDI on the ALSA ports): installing `DrivenByMoss.eproj` the
+  user's way (assumed to work, §3 (b) Fidelity).
+- **Java DBM in Bitwig:** two `snd-virmidi` devices (Port 1 and CTRL) connected to the host
+  build's ports; select them by hand in Bitwig (the names don't match the discovery names).
+- **The Rust port:**
+  - `dbm_host_alsa.py --model electra` against the host build;
+  - an in-process `CoreTest`: the bridge talks to the host build through the virtual cables of
+    the control port. It requires no NACK and no core error, and every control operated.
+- **Sanitizers:** an ASan/UBSan build runs the `*.sim` scripts.
 
 ## 5. The Rust port of the DBM controller
 
@@ -431,7 +630,7 @@ Notes:
   2. the other modes;
   3. touch combinations;
   4. the Mini.
-- **The simulator tests each step:** the handshake first, since a missing reply leaves the core
+- **The host build tests each step:** the handshake first, since a missing reply leaves the core
   offline and silent, like the LCXL template answer.
 - **Conformance:** an `electra_one` setup is possible later. The runner plays the device into a
   virmidi port and needs `[[stub]]` replies for `02 7F`, `02 04` and `09 08`, like the LCXL's
@@ -464,59 +663,73 @@ Notes:
 - **No 7-bit and length limits, no fixed 6×6 grid:** layouts by bounds, scaled to the screen.
   The Electra already allows free bounds, and the grid is only the editor's default.
 - **Lua runtime:** one in the project (mlua in the Rust library) rather than one per frontend.
-
+- **Pixels vs. model:** the Electra draws its own pixels from its own model. A tablet that
+  only showed the firmware's frames (§3 (d)) would inherit the fixed 1024×600. The tablet keeps
+  the model and renders natively, and uses the real firmware as the reference it is tested
+  against.
 ## 7. Phases
 
 Each step ends with tests and a commit.
 
 | # | Step | Verified by |
 | --- | --- | --- |
-| 0 | Decisions (§8). Get an `.epr` the editor generated from `DrivenByMoss.eproj` (export from app.electra.one, or fetch from a unit with `02 01`) as the reference for the converter | the file is in `tests/fixtures/` |
-| 1 | `preset.py` + `eproj.py`: parse `.epr`, convert the two DBM `.eproj` | unit tests: counts, ids, pages, bounds; equal to the editor's `.epr` where it is available |
-| 2 | `sysex_api.py` + `device.py` headless: info, preset list, switching, `14 07`, `14 0E`, `14 79`, `7F 7A`, `7F 7D`, `08 0D` with the `sgt` shim, ACK/NACK, NACK for the rest; the parameter map for CC | unit tests, plus `electra_feed.py` replaying the Java conversation |
-| 3 | ALSA ports (`Electra Controller`: Port 1, Port 2, CTRL), long SysEx reassembly, the MIDI monitor with decoded Electra SysEx | ALSA loopback test |
-| 4 | QML: page view (fader, relative, pad, list, group), bars, 12 touch encoders, 6 buttons, control sets, page selection; `--model mk1` | offscreen screenshot smoke test with the feeder |
-| 5 | Java DBM in Bitwig through snd-virmidi: online/offline, all 7 pages, touch combinations | manual run, findings in CONTROLLER_SIMULATORS.md §9/§10 |
-| 6 | The Rust port (§5), step by step against the simulator; `dbm_host_alsa.py --model electra`, the in-process `CoreTest` | tests in `test_midi_simulators.py`-style |
-| 7 | mk2 (`model:"mk2"`) and Mini (800×480, no screen touch, 8 knobs with push and touch, 4 buttons, the schemaVersion 3 `layouts`), the Rust Mini controller | unit + smoke tests per model |
-| 8 | Optional, per decision: real Lua (via the Rust library, or lupa); more control types (knob, vfader, envelopes, XY, textBox); the detail view; preset/Lua upload so the CLI and editor can write the simulator | per feature |
-| 9 | Optional, separate GPL repository: the host port of firmware-mk1 as a reference oracle | out of this repository |
+| 0 | Decisions (§8). The location of the host build (in our tree with firmware-mk1 as a submodule, or a fork) and the license of the copied MDT host code | the decisions are recorded in this plan |
+| 1 | **The survey and the skeleton.** CMake over the firmware's sources with a stub host BSP: every `.cpp` compiles (`-fsyntax-only` first, as the MDT survey did), then it links; `initialise()` returns and `processEvents()` runs headless, logs to stderr, no display (a null RA8876), no MIDI | the build; the log shows the boot up to the main loop and the preset load from `--card DIR` |
+| 2 | The RA8876 in software, the PNG screenshot over the control port (`screenshot`, `quit`) | a screenshot of the boot screen and of the compat preset (`tools/compat/presets/compat.epr`) whose text is legible; pixel checks in a `*.sim` script |
+| 3 | USB MIDI: the 3 ALSA ports, virtual cables over the control port, `--midi-trace` | `*.sim`: `02 7F` → `01 7F`, `02 04` → `01 04`, `09 0A` → ACK + `7E 06`; `electraone-cli` against the CTRL port |
+| 4 | Input: knobs (deltas, touch), buttons, screen touch; the SDL window (optional) | `*.sim`: a knob turn sends the preset's CC, knob touch sends `7E 0A`, a pad touch sends on/off |
+| 5 | The DBM preset on the card (the editor's upload over WebMIDI, or `electraone-cli`, or an `.epr` placed by hand). The Java conversation replayed by `electra_feed.py` | the replies of §2.2 and screenshots of the 7 pages with labels, colours and group titles set |
+| 6 | (d): the frame and monitor socket, the QML shell with encoders, buttons, monitor; `run.sh` | offscreen screenshot smoke test, as for the other simulators |
+| 7 | Java DBM in Bitwig through snd-virmidi: online/offline, all 7 pages, touch combinations | manual run, findings in CONTROLLER_SIMULATORS.md §9/§10 |
+| 8 | The Rust port (§5), step by step against the host build; `dbm_host_alsa.py --model electra`, the in-process `CoreTest` | tests in `test_midi_simulators.py`-style |
+| 9 | `--model mk2`; ASan/UBSan run of the `*.sim` scripts; the patches offered upstream | the Rust and Java controllers report mk2; clean sanitizer run |
+| 10 | Later, with the tablet work: (a), the native preset model and QML renderer, with oracle tests against the host build; the Mini, if wanted, in (a) | the same stream into both, equal MIDI out and control state |
 
 ## 8. Open questions for the owner
 
-1. **The GPL host port:** never, later as an oracle (a separate GPL-3.0 repository), or ask
-   Electra (Martin Pavlas, who is actively working on firmware-mk1) whether they would take a
-   host BSP upstream?
-2. **Lua:** shim only (stdlib); a C ABI to the Rust library's `mlua` (no new dependency); or
-   `lupa` (a new Python dependency)?
-3. **Scope:** mk1 first and the mk2 as a flag (identical apart from `model`), with the Mini
-   later? Or all three from the start?
-4. **The reference `.epr`:** can you export the editor's `.epr` for `DrivenByMoss.eproj` (and
-   the Mini's)? Without it the converter reproduces the editor's derivation of bounds and pages
-   by inference.
-5. **The Rust port's place:** port the Electra One controller as the simulator's first real
-   client (PORTING_GUIDE order 3), or keep the simulator for the tablet work and Java tests
-   first?
-6. **The tablet direction:** should the tablet's surface format be the Electra `.epr` (with
+1. **Where the host build lives:** in our tree (`support/electra_host/`, firmware-mk1 as a
+   pinned submodule or a sibling checkout), or as a fork of firmware-mk1 with a `host/`
+   directory? Offer it upstream to Electra (Martin Pavlas is actively working on firmware-mk1)?
+2. **The MDT host code:** under which license may files of `~/bastel/cynthian/port/host` be
+   copied? There is no license file there.
+3. **The display path:** our QML shell (d) as the default, with the SDL window optional (no
+   SDL dependency unless wanted), or the SDL window first?
+4. **64-bit:** guard the four size asserts for the host build (the plan), or build with `-m32`
+   (needs i386 multilib packages)?
+5. **Scope:** mk1 and mk2 (a flag) through (b); the Mini only later through (a), or not at
+   all?
+6. **The DBM preset:** is installing it with the web editor (or `electraone-cli`) into the host
+   build acceptable as the way the test card is made? Otherwise an editor-exported `.epr` in
+   `tests/fixtures/` is needed.
+7. **The tablet direction:** should the tablet's surface format be the Electra `.epr` (with
    extensions), so that Electra presets run on the tablet, or a format of our own inspired by
-   it?
+   it? And Lua for (a) later: the Rust library's `mlua` (no new dependency) or `lupa`?
+8. **The Rust port's place:** port the Electra One controller as the host build's first real
+   client (PORTING_GUIDE order 3), or test with Java first?
 
 ## 9. Risks
 
-- **The `.eproj` → `.epr` derivation** is undocumented: tile bounds, pages from `slotId`,
-  `relative` messages, group mapping and the Mini's `layouts`. A wrong guess shows as wrong
-  positions or controls that don't react. Mitigation: the reference export (question 4).
-- **Silent offline.** DBM throws if the `DrivenByMoss` preset is missing from the list and stays
-  offline unless `7E 02` names its slot. The simulator must preload it, and the monitor must
-  make a missing handshake obvious.
+- **The RA8876 emulation** is the largest piece, and an exact BTE is needed for the text
+  atlases: chroma key, expansion and the colour depth. A detail wrong shows as garbled text.
+  Mitigation: screenshots from step 2 on; compare against photos or a unit's `7F 76`
+  screenshot if one is available.
+- **The 64-bit build:** the size asserts are known. Pointers held in 32-bit fields and a
+  reliance on a zeroed heap are not known but plausible (the MDT port had both). Mitigation:
+  ASan/UBSan early.
+- **Timing:** the host is much faster than the 180 MHz M4, so timing bugs (the 90 ms repaint,
+  the DIN line rate of §5.3 in ARCHITECTURE.md) can hide. The cooperative ISR model keeps the
+  ordering, not the durations.
+- **Upstream churn** at the BSP boundary: a pin bump may need host work. Mitigation: upstream
+  the BSP.
+- **The editor and the CLI might not accept the host build** (an unknown check of serial,
+  hardware revision, or USB identity). Mitigation: an exported `.epr` (question 6).
+- **Silent offline.** DBM throws if the `DrivenByMoss` preset is missing from the list, and
+  stays offline unless `7E 02` names its slot. The card must hold the preset, and the monitor
+  must make a missing handshake obvious.
 - **Version and model checks** differ between the controllers (mk1/mk2 ≥ 3.4.3, Mini ≥ 5.0.4
-  and `model:"mini"`). The defaults must satisfy them; tests cover both sides.
+  and `model:"mini"`). The host build reports 5.0.6 and `mk1` (no `model`) or `mk2`.
 - **Bitwig port names:** virmidi ports don't match the discovery names, so selection is manual
   (as for the other simulators).
-- **Long SysEx through ALSA:** fragmentation and the 64 KB buffer only matter for uploads, which
-  DBM does not do.
-- **Fidelity drift:** the native renderer won't match the firmware's pixels; the vendor
-  documentation and the mk1 firmware may disagree on details (e.g. the `14 79` flag set). Where
-  they disagree, follow the firmware for the mk1 and record the difference.
-- **License hygiene:** keep firmware code out of the LGPL tree. Implement from the public docs
-  and observed behaviour, and cite the facts used.
+- **Long SysEx through ALSA:** uploads (a preset is 100 KB+) arrive in fragments, and the
+  firmware's partial-SysEx path has to see them as the USB stack delivers them. This is tested
+  by `electraone-cli` uploads in step 3.
