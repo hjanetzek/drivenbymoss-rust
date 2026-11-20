@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Hannes Janetzek
 # Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
-"""Feed a running APC40 mkII or Launchpad Pro Mk3 simulator as DrivenByMoss would: the identity
+"""Feed a running APC40 mkII, Launchpad Pro Mk3 or Launch Control XL simulator as DrivenByMoss would: the identity
 request (prints the reply), the startup SysEx, pad and button LEDs, and the APC's LED rings or the
-Launchpad's SysEx LED update with RGB and the logo.
+Launchpad's SysEx LED update with RGB and the logo, or the Launch Control XL's template
+selection, two-colour LEDs, flashing and SysEx LED update.
 
-Usage: midi_feed.py [--model apc40mk2|lppromk3] [--suffix " (sim)"]
+Usage: midi_feed.py [--model apc40mk2|lppromk3|lcxl] [--suffix " (sim)"]
 """
 
 import argparse
@@ -41,6 +42,20 @@ def messages(model: str) -> list[bytes]:
             out.append(bytes([0xB0, 0x10 + i, 127 - 15 * i]))
         out.append(bytes([0x90, 0x5B, 1]))  # Play
         out.append(bytes([0x90, 0x57, 1]))  # Pan
+    elif model == "lcxl":
+        header = bytes.fromhex("F0 00 20 29 02 11")
+        out.append(header + bytes([0x77, 0x08, 0xF7]))  # factory template 1 (the device answers)
+        for column in range(8):
+            for row in range(3):
+                red, green = (column + row) % 4, (column // 2 + row) % 4
+                out.append(bytes([0x98, 13 + row + 16 * column, 12 + red + 16 * green]))
+            out.append(bytes([0x98, (41, 42, 43, 44, 57, 58, 59, 60)[column], 0x3C if column == 0 else 0x1D]))
+            out.append(bytes([0x98, (73, 74, 75, 76, 89, 90, 91, 92)[column], 0x0F]))
+        out.append(bytes([0x98, 106, 0x3F]))  # Mute: amber
+        out.append(bytes([0xB8, 104, 0x3C]))  # Send up: green
+        out.append(bytes([0xB8, 0x00, 0x28]))  # flashing on
+        out.append(bytes([0x98, 108, 0x0B]))  # Record Arm: red, flashing (flags 8)
+        out.append(header + bytes([0x78, 0x08, 44 + 3, 0x3F, 0xF7]))  # SysEx LED update: ▶ amber
     else:
         header = bytes.fromhex("F0 00 20 29 02 0E")
         out.append(header + bytes([0x10, 0x00, 0xF7]))

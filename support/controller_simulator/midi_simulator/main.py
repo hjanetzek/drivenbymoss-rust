@@ -14,11 +14,12 @@ from . import DEVICES
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(prog="midi_simulator", description="APC40 mkII / Launchpad Pro Mk3 simulator for DrivenByMoss")
+    parser = argparse.ArgumentParser(prog="midi_simulator", description="APC40 mkII / Launchpad Pro Mk3 / Launch Control XL simulator for DrivenByMoss")
     parser.add_argument("--model", choices=tuple(DEVICES), default="apc40mk2")
     parser.add_argument("--suffix", default="", help="appended to the client and port names (e.g. \" (sim)\" next to a real device)")
     parser.add_argument("--port-style", choices=("jack", "numbered"), default="jack",
-                        help="Launchpad Pro Mk3: \"jack\" = \"... LPProMK3 MIDI\" (current kernels), \"numbered\" = \"... MIDI 1\"")
+                        help="Launchpad Pro Mk3, Launch Control XL: \"jack\" = the USB jack names of current kernels "
+                             "(\"... LPProMK3 MIDI\", \"Launch Control XL Launch Contro\"), \"numbered\" = \"... MIDI 1\"")
     parser.add_argument("--port-name", default=None, help="override the name of the port the core uses")
     parser.add_argument("--channel-pressure", action="store_true", help="send channel instead of poly aftertouch")
     sim_app.add_common_args(parser)

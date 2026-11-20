@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hannes Janetzek
 # Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-"""ALSA loopback of the APC40 mkII and Launchpad Pro Mk3 ports with a test client; the names get
+"""ALSA loopback of the APC40 mkII, Launchpad Pro Mk3 and Launch Control XL ports with a test client; the names get
 the suffix " (test)". Skipped without an ALSA sequencer."""
 
 import os
@@ -77,6 +77,17 @@ class MidiAlsaTest(unittest.TestCase):
         self.device.press_pad(self.device.by_message[("note", 0, 55)], 64)
         self.assertTrue(wait_for(lambda: len(self.host_in) == 1))
         self.assertEqual(self.host_in, [b"\x90\x37\x40"])
+
+    def test_lcxl(self):
+        self.open("lcxl")
+        self.host.send(bytes.fromhex("F0 00 20 29 02 11 77 08 F7"), 0)
+        self.host.send(bytes([0x98, 13, 12 + 48]), 0)
+        self.pump(2)
+        self.assertEqual(self.device.led_rgb(self.device.by_message[("led", 0, 13)]), (0, 255, 0))
+        self.device.move_fader(self.device.by_message[("cc", 0, 77)], 90)
+        self.assertTrue(wait_for(lambda: len(self.host_in) == 2))
+        # The answer to the template selection, then the fader on the template's channel
+        self.assertEqual(self.host_in, [bytes.fromhex("F0 00 20 29 02 11 77 08 F7"), b"\xB8\x4D\x5A"])
 
 
 if __name__ == "__main__":

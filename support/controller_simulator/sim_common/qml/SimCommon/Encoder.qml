@@ -61,7 +61,8 @@ Item {
     // The LED ring: many fine segments, a dim track and the lit part with a glow
     Canvas {
         id: ring
-        visible: enc.st.hasValue
+        // st.ring false: a knob without a ring (the value only turns the indicator)
+        visible: enc.st.hasValue && enc.st.ring !== false
         anchors.centerIn: parent
         width: parent.width + 2 * k
         height: width
@@ -69,7 +70,7 @@ Item {
         onPaint: {
             var ctx = getContext("2d")
             ctx.reset()
-            if (!enc.st.hasValue) return
+            if (!enc.st.hasValue || enc.st.ring === false) return
             var cx = width / 2, cy = height / 2
             var radius = enc.width * 0.44
             var lineWidth = Math.max(1.5, enc.width * 0.075)

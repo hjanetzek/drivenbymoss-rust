@@ -17,7 +17,7 @@ class MidiSimulator(SimulatorBase):
 
     def tick_dirty(self, dirty: set[str]) -> None:
         if "rings" in dirty:
-            self.set_encoders({key: self.device.encoder_state(key) for key in self.device.rings})
+            self.set_encoders({c.key: self.device.encoder_state(c.key) for c in self.device.controls if c.kind == "encoder"})
         if "faders" in dirty and "leds" not in dirty:
             # the fader caps follow sim.revision
             self._revision += 1

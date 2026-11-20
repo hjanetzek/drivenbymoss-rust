@@ -17,6 +17,7 @@ sys.path.insert(0, ROOT)
 
 from midi_simulator import DEVICES  # noqa: E402
 from midi_simulator.apc40mk2 import Apc40Mk2  # noqa: E402
+from midi_simulator.lcxl import LaunchControlXl, decode_led  # noqa: E402
 from midi_simulator.lppromk3 import HEADER, LaunchpadProMk3  # noqa: E402
 from sim_common.palettes import VELOCITY_128  # noqa: E402
 
@@ -26,6 +27,7 @@ APC_DEFINITION = os.path.join(REPO, "src", "controller", "akai", "apc", "definit
 LP_DEFINITION = os.path.join(REPO, "src", "controller", "launchpad", "definition.rs")
 LP_SURFACE = os.path.join(REPO, "src", "controller", "launchpad", "surface.rs")
 LP_SETUP = os.path.join(REPO, "src", "controller", "launchpad", "setup.rs")
+LCXL_DIR = os.path.join(REPO, "src", "controller", "launchcontrol")
 
 
 class Clock:
@@ -106,6 +108,36 @@ class SyncTest(unittest.TestCase):
         self.assertIn('"Launchpad Pro MK3 LPProMK3 MIDI"', text)
         self.assertIn('"Launchpad Pro MK3 MIDI 1"', text)
         self.assertIn("ProMk3 | LaunchpadModel::X | LaunchpadModel::MiniMkIII => \"0E 01\"", text)
+
+    @unittest.skipUnless(os.path.isdir(LCXL_DIR), "the Rust sources are not there")
+    def test_lcxl_constants(self):
+        with open(os.path.join(LCXL_DIR, "surface.rs")) as f:
+            surface = f.read()
+        rust = {name: int(value, 0) for name, value in re.findall(r"pub const (LAUNCHCONTROL_\w+): i32 = (0x[0-9A-Fa-f]+|\d+);", surface)}
+        d = LaunchControlXl()
+        checked = 0
+        for c in d.controls:
+            if not c.const.startswith("LAUNCHCONTROL_"):
+                continue
+            value = rust[c.const]
+            if c.const.endswith(("_1", "_5")):
+                self.assertIn(c.number - value, range(8 if c.const.endswith("_1") and "KNOB" in c.const or "FADER" in c.const else 4), c)
+            else:
+                self.assertEqual(c.number, value, c)
+            checked += 1
+        self.assertEqual(checked, 24 + 8 + 16 + 4 + 4)
+        # The template change header and the knob LED formula of the core
+        self.assertIn("[0xF0, 0x00, 0x20, 0x29, 0x02, 0x11, 0x77]", surface)
+        self.assertIn("13 + row as i32 + column as i32 * 16, 12 + r + (g << 4)", surface)
+        leds = sorted(c.number for c in d.controls if c.msg == "led")
+        self.assertEqual(leds, sorted(13 + row + 16 * column for row in range(3) for column in range(8)))
+        with open(os.path.join(LCXL_DIR, "definition.rs")) as f:
+            definition = f.read()
+        self.assertIn(d.UUID, definition)
+        self.assertIn('format!("{LAUNCH_CONTROL_XL} Launch Contro")', definition)
+        self.assertEqual(d.PORTS["midi"], "Launch Control XL Launch Contro")
+        with open(os.path.join(LCXL_DIR, "setup.rs")) as f:
+            self.assertIn("xl::select_template(ctx, 8);", f.read())
 
     def test_layouts(self):
         for model, cls in DEVICES.items():
@@ -235,6 +267,68 @@ class LaunchpadTest(Base):
         self.assertEqual(list(reply[12:16]), [0, 5, 3, 1])
 
 
+class LcxlTest(Base):
+    def test_template_handshake(self):
+        d = self.make(LaunchControlXl)
+        d.receive(bytes.fromhex("F0 00 20 29 02 11 77 08 F7"))
+        self.assertEqual(self.sent, [bytes.fromhex("F0 00 20 29 02 11 77 08 F7")])  # the device answers
+        self.assertEqual(d.mode, "factory template 1")
+        # The selector of the simulator: the device announces the change
+        d.press_button(d.template_keys[2])
+        self.assertEqual(self.sent[-1], bytes.fromhex("F0 00 20 29 02 11 77 02 F7"))
+        self.assertEqual(d.template, 2)
+
+    def test_controls_on_the_template_channel(self):
+        d = self.make(LaunchControlXl)
+        d.receive(bytes.fromhex("F0 00 20 29 02 11 77 08 F7"))
+        self.sent.clear()
+        d.press_button(self.key(d, "note", 0, 41))  # Track Focus 1
+        d.release_button(self.key(d, "note", 0, 41))
+        d.press_button(self.key(d, "cc", 0, 107))  # Track ▶
+        knob = self.key(d, "cc", 0, 49)  # Pan 1
+        d.turn_encoder(knob, 70)
+        d.move_fader(self.key(d, "cc", 0, 84), 100)
+        d.press_button(self.key(d, "led", 0, 13))  # a knob LED: no message
+        self.assertEqual(self.sent, [b"\x98\x29\x7F", b"\x88\x29\x00", b"\xB8\x6B\x7F", b"\xB8\x31\x46", b"\xB8\x54\x64"])
+        state = d.encoder_state(knob)
+        self.assertEqual((state["hasValue"], state["ring"]), (True, False))
+        self.assertAlmostEqual(state["value"], 70 / 127)
+
+    def test_leds(self):
+        d = self.make(LaunchControlXl)
+        d.receive(bytes.fromhex("F0 00 20 29 02 11 77 08 F7"))
+        self.assertEqual(decode_led(12 + 3 + (3 << 4)), (3, 3, 3))
+        knob_led = self.key(d, "led", 0, 13 + 2 + 16 * 7)  # 3rd row, 8th column (the core's formula)
+        d.receive(bytes([0x98, 13 + 2 + 16 * 7, 12 + 0 + (3 << 4)]))  # green
+        self.assertEqual(d.led_rgb(knob_led), (0, 255, 0))
+        d.receive(bytes([0x98, 106, 12 + 3]))  # Mute: red
+        self.assertEqual(d.led_rgb(self.key(d, "note", 0, 106)), (255, 0, 0))
+        d.receive(bytes([0xB8, 104, 12 + 3 + 48]))  # Send ▲: amber (red + green)
+        self.assertEqual(d.led_rgb(self.key(d, "cc", 0, 104)), (255, 255, 0))
+        # Another template's LEDs are kept for it
+        d.receive(bytes([0x90, 106, 12 + 48]))
+        self.assertEqual(d.led_rgb(self.key(d, "note", 0, 106)), (255, 0, 0))
+        d.press_button(d.template_keys[0])
+        self.assertEqual(d.led_rgb(self.key(d, "note", 0, 106)), (0, 255, 0))
+        d.press_button(d.template_keys[8])
+        # SysEx LED update (index 41 = Mute), reset and flashing
+        d.receive(bytes.fromhex("F0 00 20 29 02 11 78 08 29 3C F7"))
+        self.assertEqual(d.led_rgb(self.key(d, "note", 0, 106)), (0, 255, 0))
+        d.receive(b"\xB8\x00\x28")
+        d.receive(bytes([0x98, 105, 8 + 3]))  # Device: red, flashing (flags 8)
+        colours = {d.led_rgb(self.key(d, "note", 0, 105), self.clock.t + i * 0.05) for i in range(20)}
+        self.assertEqual(colours, {(255, 0, 0), (0, 0, 0)})
+        d.receive(b"\xB8\x00\x00")
+        self.assertEqual(d.led_rgb(self.key(d, "note", 0, 106)), (0, 0, 0))
+        self.assertEqual(d.unknown, [])
+
+    def test_identity(self):
+        d = self.make(LaunchControlXl)
+        d.receive(bytes.fromhex("F0 7E 7F 06 01 F7"))
+        self.assertEqual(len(self.sent[-1]), 17)
+        self.assertEqual(self.sent[-1][5:10], b"\x00\x20\x29\x61\x00")
+
+
 def library_available() -> bool:
     lib = os.environ.get("DBM_LIBRARY") or os.path.join(REPO, "target", "debug", "libdrivenbymoss.so")
     return os.path.exists(lib)
@@ -264,8 +358,8 @@ class CoreTest(unittest.TestCase):
             lit = [k for k, led in device.leds.items() if led.value or led.rgb]
             self.assertGreater(len(lit), 10)
             for c in device.controls:
-                if c.number < 0:
-                    continue
+                if c.number < 0 or c.msg not in ("note", "cc"):
+                    continue  # the logo, knob LEDs and the template selector send nothing to the core
                 if c.kind == "pad":
                     device.press_pad(c.key, 100)
                     device.release_pad(c.key)
@@ -282,7 +376,8 @@ class CoreTest(unittest.TestCase):
             # No errors of the core (e.g. "CC .. should be handled in framework" for an unbound CC)
             self.assertEqual(bridge.core_errors(), [])
             self.assertEqual(device.unknown, [], [m.hex(" ") for m in device.unknown[:5]])
-            running = {"mode": device.mode, "programmer": getattr(device, "programmer", None)}
+            running = {"mode": device.mode, "programmer": getattr(device, "programmer", None),
+                       "lit": sum(1 for key in device.leds if device.led_rgb(key) != (0, 0, 0))}
             bridge.close()
         return device, running
 
@@ -290,6 +385,12 @@ class CoreTest(unittest.TestCase):
         device, running = self.run_core(Apc40Mk2)
         self.assertEqual(running["mode"], "Ableton Live mode")
         self.assertTrue(any(r.mode for r in device.rings.values()))
+
+    def test_lcxl(self):
+        device, running = self.run_core(LaunchControlXl)
+        # The core selected factory template 1, the device answered, and the core lit the LEDs
+        self.assertEqual(running["mode"], "factory template 1")
+        self.assertGreater(running["lit"], 10)
 
     def test_lppromk3(self):
         device, running = self.run_core(LaunchpadProMk3)

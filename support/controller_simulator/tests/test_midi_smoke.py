@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hannes Janetzek
 # Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-"""Smoke runs: the APC40 mkII and Launchpad Pro Mk3 simulators offscreen (names with the suffix
+"""Smoke runs: the APC40 mkII, Launchpad Pro Mk3 and Launch Control XL simulators offscreen (names with the suffix
 " (smoke)"), fed by tools/midi_feed.py, grabbed to PNGs (into MIDI_SIM_SCREENSHOTS if set, else a
 temporary directory) and checked for the fed colours; started through the Push simulator's
 run.sh, which hands the models over. Skipped without PySide6 or ALSA."""
@@ -74,6 +74,11 @@ class MidiSmokeTest(unittest.TestCase):
     def test_lppromk3(self):
         # Palette colours of the pads and the RGB pad (magenta from the SysEx LED update)
         self.run_model("lppromk3", [(255, 0, 0), (255, 0, 255)])
+
+    def test_lcxl(self):
+        # The knob LEDs (full red and full green) and the selected template (white), as LedButton
+        # blends them into its cap
+        self.run_model("lcxl", [(255, 29, 32), (28, 255, 32), (233, 233, 233)])
 
 
 if __name__ == "__main__":

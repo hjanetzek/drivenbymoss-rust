@@ -20,8 +20,9 @@ from their "... In"/"... Input" port and writes to "... Out"/"... Output" (with 
 " (sim)" which they take next to dbm-nihost, else the plain names). The Mk2's core asks at its
 start whether Shift is sent (F0 7D 44 42 4D 11 F7); the simulator answers with the hello.
 
-The APC40 mkII and Launchpad Pro Mk3 simulators (``--model apc40mk2|lppromk3``): one duplex port,
-"APC40 mkII MIDI 1" / "Launchpad Pro MK3 LPProMK3 MIDI" (with " (sim)" first, then without).
+The APC40 mkII, Launchpad Pro Mk3 and Launch Control XL simulators (``--model
+apc40mk2|lppromk3|lcxl``): one duplex port, "APC40 mkII MIDI 1" / "Launchpad Pro MK3 LPProMK3 MIDI" /
+"Launch Control XL Launch Contro" (with " (sim)" first, then without).
 """
 
 import argparse
@@ -47,6 +48,7 @@ CONTROLLERS = {
     "jam": "72F32A83-A697-446B-9016-64AA3F9476E4",
     "apc40mk2": "14787D10-35DE-11E4-8C21-0800200C9A66",
     "lppromk3": "4EDED44C-7817-4C66-A334-66A9E342AAA0",
+    "lcxl": "5AFA5045-FF92-4737-A091-5B371CD5E529",
 }
 # The plain MIDI simulators (support/controller_simulator, midi_simulator): the duplex port the
 # core opens (also searched with the suffixes of MASCHINE_SUFFIXES; the Launchpad also by its
@@ -54,6 +56,7 @@ CONTROLLERS = {
 MIDI_PORTS = {
     "apc40mk2": ("APC40 mkII MIDI 1",),
     "lppromk3": ("Launchpad Pro MK3 LPProMK3 MIDI", "Launchpad Pro MK3 MIDI 1"),
+    "lcxl": ("Launch Control XL Launch Contro", "Launch Control XL MIDI 1"),
 }
 # The Maschine simulators (support/controller_simulator): (DAW input, DAW output) port names,
 # first with the suffix the simulator takes next to dbm-nihost
