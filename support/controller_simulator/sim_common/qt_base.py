@@ -12,7 +12,8 @@ The QML components of ``SimCommon`` (Pad, LedButton, Encoder, StatusBar, MidiMon
 use this interface: ``revision`` (bumped when LEDs change or animate), ``padColor(note)``,
 ``buttonColor(cc)``, ``padPress/padPressure/padSlide/padRelease``, ``mpeActive()``,
 ``buttonPress/buttonRelease(cc)``, ``encoderTurn(cc, steps)``, ``encoderTouch(note, touched)``,
-``encoderRevision``/``encoderState(note)`` (the value side channel), ``statusText``,
+``encoderRevision``/``encoderState(note)`` (the value side channel or an LED ring),
+``faderMove(cc, value)``/``faderValue(cc)`` (with ``revision``), ``statusText``,
 ``monitorVisible``, ``logLines``, ``controls``, ``surfaceWidth``/``surfaceHeight``, ``model``,
 ``title``. A control is identified by the ``cc`` and ``note`` fields of its dict in ``controls``;
 what they mean is up to the subclass.
@@ -237,6 +238,14 @@ class SimulatorBase(QObject):
     @Slot(int, bool)
     def encoderTouch(self, note, touched):
         pass
+
+    @Slot(int, int)
+    def faderMove(self, key, value):
+        pass
+
+    @Slot(int, result=int)
+    def faderValue(self, key):
+        return 0
 
     @Slot()
     def clearLog(self):

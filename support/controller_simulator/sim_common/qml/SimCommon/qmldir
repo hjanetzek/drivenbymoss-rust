@@ -5,3 +5,4 @@ LedButton 1.0 LedButton.qml
 Encoder 1.0 Encoder.qml
 StatusBar 1.0 StatusBar.qml
 MidiMonitor 1.0 MidiMonitor.qml
+Fader 1.0 Fader.qml

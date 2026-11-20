@@ -94,6 +94,11 @@ Item {
             var value = start + enc.sweep * enc.st.value
             var from = enc.st.bipolar ? Math.min(0, value) : start
             var to = enc.st.bipolar ? Math.max(0, value) : value
+            // A ring in "single" mode (st.dot, e.g. the APC40's LED rings): a short arc at the value
+            if (enc.st.dot) {
+                from = Math.max(start, value - 6)
+                to = Math.min(start + enc.sweep, value + 6)
+            }
             if (to - from < 0.5) {
                 // At least a thin mark at the value (e.g. 0 or the centre)
                 from = value - 1.5
