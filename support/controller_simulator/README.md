@@ -8,6 +8,8 @@ touchscreen controller (a tablet), so they may differ from the hardware where th
 | --- | --- | --- |
 | Maschine Mk2 (`mk2`) | `maschine_simulator` | the MIDI of dbm-nihost / NI's driver with the DrivenByMoss template, the two MCU text displays, the button labels, the hello/Shift handshake |
 | Maschine JAM (`jam`) | `maschine_simulator` | the template MIDI, the touch strips (setup, values, dual values), the level meters, NI's Shift SysEx and hello |
+| Akai APC40 mkII (`apc40mk2`) | `midi_simulator` | Ableton Live mode: RGB clip pads and scene buttons with the animation channels, single LEDs, the knobs with their LED rings, faders, crossfader |
+| Novation Launchpad Pro Mk3 (`lppromk3`) | `midi_simulator` | programmer mode: pads with aftertouch, all buttons, LEDs by note/CC with flashing and pulsing, the SysEx LED update with RGB, the logo |
 | Push 1/2/3 (`push1`, `push2`, `push3`) | `support/push_simulator` | the Push protocol, the display socket and the value side channel, see [its README](../push_simulator/README.md) |
 
 How they are built, how to find a controller's protocol, and what tripped us up along the way:
@@ -20,9 +22,14 @@ Licensed under LGPLv3.
 ```sh
 support/controller_simulator/run.sh --model mk2
 support/controller_simulator/run.sh --model jam --monitor
+support/controller_simulator/run.sh --model apc40mk2
+support/controller_simulator/run.sh --model lppromk3
 support/controller_simulator/run.sh --model push3        # hands over to support/push_simulator/run.sh
 cd support/controller_simulator && python3 -m maschine_simulator --help
+cd support/controller_simulator && python3 -m midi_simulator --help
 ```
+
+`support/push_simulator/run.sh` hands all non-Push models over to this `run.sh`.
 
 | Option (Maschine) | Meaning |
 | --- | --- |
@@ -35,6 +42,15 @@ cd support/controller_simulator && python3 -m maschine_simulator --help
 | `--no-alsa` | no ports |
 | `--quit-after S`, `--screenshot PNG`, `--size WxH` | for automated runs (`QT_QPA_PLATFORM=offscreen`) |
 
+| Option (APC40 mkII, Launchpad Pro Mk3) | Meaning |
+| --- | --- |
+| `--model apc40mk2\|lppromk3` | the device (default `apc40mk2`) |
+| `--suffix TEXT` | appended to the client and port names, e.g. ` (sim)` next to a real device |
+| `--port-style jack\|numbered` | Launchpad: `Launchpad Pro MK3 LPProMK3 MIDI`/`DIN`/`DAW` (current kernels) or `Launchpad Pro MK3 MIDI 1`/`2`/`3` |
+| `--port-name`, `--client-name` | override the name of the port the core uses, of the client |
+| `--channel-pressure` | send channel instead of poly aftertouch |
+| `--connect PORT`, `--monitor`, `--no-alsa`, `--quit-after`, `--screenshot`, `--size` | as above |
+
 ### With the Rust core in the reference host
 
 `tools/dbm_host_alsa.py` (the Push simulator's runner, which also knows the Maschines) runs a
@@ -46,7 +62,15 @@ support/controller_simulator/run.sh --model mk2 --monitor &
 support/controller_simulator/tools/dbm_host_alsa.py --model mk2 --library target/debug/libdrivenbymoss.so
 ```
 
-It reads from the simulator's `... In (sim)` port and writes to `... Out (sim)`. Without the
+For the APC40 mkII and the Launchpad Pro Mk3 it connects to their duplex port (`APC40 mkII MIDI 1`,
+`Launchpad Pro MK3 LPProMK3 MIDI`, first with ` (sim)`):
+
+```sh
+support/controller_simulator/run.sh --model apc40mk2 --suffix " (sim)" &
+support/controller_simulator/tools/dbm_host_alsa.py --model apc40mk2 --library target/debug/libdrivenbymoss.so
+```
+
+For the Maschines it reads from the simulator's `... In (sim)` port and writes to `... Out (sim)`. Without the
 suffix it falls back to the plain names; `--suffix` picks a suffix. The Mk2's core sends the query
 at its start, the simulator answers with the hello, and the core logs "dbm-nihost sends the Shift
 button, STEP LEFT is Stop".
@@ -61,6 +85,10 @@ sudo modprobe snd-virmidi midi_devs=4
 aconnect -l | grep VirMIDI                                    # e.g. VirMIDI 5-2
 support/controller_simulator/run.sh --model jam --connect "VirMIDI 5-2"
 ```
+
+The APC40 mkII and the Launchpad Pro Mk3 go the same way: `--connect "VirMIDI 5-2"`, then add the
+Akai APC40 mkII or Novation Launchpad Pro Mk3 controller in Bitwig. Both the Java DrivenByMoss and
+the Rust extension have these controllers; neither has been tried with these simulators yet.
 
 In Bitwig, add the Maschine JAM (or Mk2) controller of the Rust extension and select "Virtual Raw
 MIDI 3/1" as input and output. Bitwig numbers the devices from 1, so `VirMIDI 5-2` is the third.
@@ -110,6 +138,35 @@ new transport (a SysEx with a 7-bit encoding of the `DBMV` payload, whose UTF-8 
 ≥ 0x80) and Rust changes in the Mk2 core. The shared `Encoder` component already draws a ring
 whenever `encoderState` delivers a value, so a tablet controller can add it later.
 
+## The APC40 mkII protocol
+
+| Direction | Messages |
+| --- | --- |
+| Startup (DAW → device) | the mode SysEx `F0 47 7F 29 60 00 04 41 08 02 01 F7` (0x41: Ableton Live mode); the simulator shows the mode |
+| Buttons → DAW | notes on 127, released with note off. Track buttons (clip stop 0x34, select 0x33, A/B 0x42, activator 0x32, solo 0x31, arm 0x30) on the track's channel 1..8, the others on channel 1; the footswitch is CC 0x40 |
+| Pads → DAW | notes 0..39 on channel 1 (0 bottom left, 39 top right) with velocity; the hardware has no aftertouch |
+| Knobs → DAW | track knobs CC 0x30..0x37 and device knobs CC 0x10..0x17 absolute (0..127, continuing from the value the DAW set); tempo CC 0x0D and cue level CC 0x2F relative (1 = +1, 127 = -1) |
+| Faders → DAW | CC 7 on the track's channel, master CC 14, crossfader CC 15 |
+| DAW → LEDs | pads and scene buttons (0x52..0x56): velocity = index of the 128-colour palette, channel 1 steady, 2..6 one-shot, 7..11 pulsing, 12..16 blinking (24th .. half note at 120 BPM; the core uses 11 and 13). Single LEDs: 0 off, 1 on, 2 blinking; A/B: 1 A (yellow), 2 B (orange) |
+| DAW → rings | the knob's CC = ring value (also the knob's new value), CC 0x38..0x3F (track) / 0x18..0x1F (device) = ring mode: 0 off, 1 single (a short arc), 2 volume (from the left), 3 pan (from the top); drawn by the shared `Encoder` |
+| Identity | `F0 7E 7F 06 01 F7` → `F0 7E 00 06 02 47 29 00 19 00 00 01 00 00 F7` (the core doesn't ask) |
+
+## The Launchpad Pro Mk3 protocol
+
+| Direction | Messages |
+| --- | --- |
+| Ports | `LPProMK3 MIDI` (the core's: Linux discovery `Launchpad Pro MK3 LPProMK3 MIDI` or `Launchpad Pro MK3 MIDI 1`), `LPProMK3 DIN` and `LPProMK3 DAW` (logged only) |
+| Startup (DAW → device) | the identity request, `F0 00 20 29 02 0E 10 00 F7` (DAW mode off, standalone), `... 0E 01 F7` (programmer mode); on exit `... 0E 00 F7`. Layout select `00 <layout>` is shown too |
+| Pads → DAW | notes 11..88 (row × 10 + column, 11 bottom left) with velocity, released with velocity 0; poly aftertouch (or channel aftertouch with `--channel-pressure`) |
+| Buttons → DAW | CC 127/0: top row 91..98 (◀ ▶ Session Note Chord Custom Sequencer Projects), left column 90 (Shift), 80, 70, 60 .. 10, scenes 89..19, the bottom rows 101..108 (track select) and 1..8 (Record Arm .. Stop Clip) |
+| DAW → LEDs | note or CC with the palette index: channel 1 static, 2 flashing (between the static colour and the new one), 3 pulsing |
+| DAW → LED SysEx | `F0 00 20 29 02 0E 03 <entries> F7`, entries type 0 static (index, colour), 1 flashing (index, colour B, colour A), 2 pulsing (index, colour), 3 RGB (index, r, g, b 0..127); index 99 is the logo |
+| Identity | `F0 7E 00 06 02 00 20 29 23 01 00 00 00 05 03 01 F7`; the core logs "Firmware version: 531" |
+
+Both use the 128-colour velocity palette shared by Push 1, the APC40 mkII and the Launchpads
+(`sim_common/palettes.py`, generated from Java's `PushColorManager.DEFAULT_PALETTE` by
+`tools/gen_palettes.py`).
+
 ## Code
 
 | Path | Contents |
@@ -118,13 +175,17 @@ whenever `encoderState` delivers a value, so a tablet controller can add it late
 | `sim_common/midi.py` | MIDI stream parser, monitor texts |
 | `sim_common/qt_base.py` | `SimulatorBase`: what QML uses as `sim` (log, monitor, LED revision, value side channel state, status) |
 | `sim_common/app.py` | the common options, `open_ports`, the run loop with `--quit-after`/`--screenshot` |
-| `sim_common/qml/SimCommon/` | the QML module: `SimWindow` (surface, status bar, monitor), `Pad`, `LedButton`, `Encoder`, `StatusBar`, `MidiMonitor` |
+| `sim_common/qml/SimCommon/` | the QML module: `SimWindow` (surface, status bar, monitor), `Pad`, `LedButton`, `Encoder` (value ring or LED ring, "single" mode as a short arc), `Fader`, `StatusBar`, `MidiMonitor` |
+| `sim_common/palettes.py` | the 128-colour velocity palette (generated) |
 | `maschine_simulator/device.py` | `MaschineDevice`: protocol and state without Qt |
 | `maschine_simulator/layout.py` | the controls with template ids and positions, the port names |
 | `maschine_simulator/ni.py` | NI's palette, the SysEx of NI and of dbm-nihost |
 | `maschine_simulator/templates.py` | the template tables (generated) |
 | `maschine_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object, the view (Mk2 displays, JAM strips and meters) |
-| `tools/` | `maschine_feed.py` (a test host), `gen_maschine_templates.py`, `dbm_host_alsa.py` (runs the Push simulator's runner) |
+| `midi_simulator/base.py` | `GridDevice`: controls with their message and LED kind, LED animations, absolute/relative encoders with rings, faders, without Qt |
+| `midi_simulator/apc40mk2.py`, `lppromk3.py` | the two devices: controls and layout, LED addressing, animation channels, SysEx, identity |
+| `midi_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object and the view (only shared components) |
+| `tools/` | `maschine_feed.py`, `midi_feed.py` (test hosts), `gen_maschine_templates.py`, `gen_palettes.py`, `dbm_host_alsa.py` (runs the Push simulator's runner) |
 
 The Push simulator uses `sim_common` too. Its `alsa_seq` and `midi` modules re-export the shared
 ones, and its package puts `support/controller_simulator` on `sys.path`.
@@ -144,3 +205,13 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 - `test_maschine_smoke.py`: both simulators offscreen with the suffix ` (smoke)`, fed by
   `maschine_feed.py` and grabbed to PNGs (into `MASCHINE_SIM_SCREENSHOTS` if set), checked for the
   fed colours; and that `run.sh` hands Push models to the Push simulator.
+- `test_midi_simulators.py`: the APC40 mkII and Launchpad Pro Mk3 protocol (controls, LEDs and
+  animations, rings, SysEx, identity), the sync with the Rust sources (the APC constants in
+  `surface.rs`, the Launchpad Pro Mk3 buttons, header, program mode and port names in
+  `definition.rs`) and the Java palette, and a run of the real core in-process: everything the
+  core sends must be understood, and every control is operated without a core error (skipped
+  without `target/debug/libdrivenbymoss.so`).
+- `test_midi_alsa.py`: an ALSA loopback with ` (test)` names.
+- `test_midi_smoke.py`: both offscreen with ` (smoke)` names, started through the Push `run.sh`,
+  fed by `midi_feed.py`, grabbed to PNGs (into `MIDI_SIM_SCREENSHOTS`), checked for the fed colours
+  and the LED rings.

@@ -207,6 +207,14 @@ meters, and the hello/query/gone handshake, including the Mk2's Shift. They shar
 mk2|jam|push*`; `dbm_host_alsa.py --model mk2|jam` runs the core against them. How the simulators
 are built and what we learned: [CONTROLLER_SIMULATORS.md](CONTROLLER_SIMULATORS.md).
 
+**APC40 mkII and Launchpad Pro Mk3 simulators:** `midi_simulator` in `support/controller_simulator`
+(`run.sh --model apc40mk2|lppromk3`, `dbm_host_alsa.py --model apc40mk2|lppromk3`): the APC40 mkII in
+Ableton Live mode with RGB pads and scene buttons (animation channels), single LEDs, absolute knobs
+with LED rings from the ring CCs, faders and crossfader; the Launchpad Pro Mk3 with its three ports,
+programmer mode, pads with aftertouch, all buttons, flashing/pulsing LEDs and the SysEx LED update
+(RGB, logo). Their tests include a run of the real core in-process, which checks that every message
+of the core is understood and every control is handled.
+
 **Scope and size:**
 
 - The Java project has about 240,000 lines in 1,544 files.
@@ -294,7 +302,7 @@ All paths are under `rust/`.
 | `tests/` | — | Integration tests per controller |
 | `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
 | `support/push_simulator/` | — | Push 1/2/3 simulator (PySide6 + QML, ALSA through ctypes, display socket) |
-| `support/controller_simulator/` | — | Maschine Mk2/JAM simulators and the shared simulator code (`sim_common`); guide: `doc/CONTROLLER_SIMULATORS.md` |
+| `support/controller_simulator/` | — | Maschine Mk2/JAM, APC40 mkII and Launchpad Pro Mk3 simulators and the shared simulator code (`sim_common`); guide: `doc/CONTROLLER_SIMULATORS.md` |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues

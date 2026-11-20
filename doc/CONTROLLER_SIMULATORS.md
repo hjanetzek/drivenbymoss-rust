@@ -1,8 +1,8 @@
 # Controller simulators: how they are built and what we learned
 
 The repository has desktop simulators of controllers for testing DrivenByMoss without the
-hardware. They emulate the Push 1/2/3 (`support/push_simulator`) and the Maschine Mk2 and JAM
-(`support/controller_simulator`). This guide is for whoever builds the next one, or the tablet
+hardware. They emulate the Push 1/2/3 (`support/push_simulator`), the Maschine Mk2 and JAM, the
+Akai APC40 mkII and the Novation Launchpad Pro Mk3 (`support/controller_simulator`). This guide is for whoever builds the next one, or the tablet
 touchscreen controller that is meant to grow out of them. It covers the architecture, where to
 find a controller's protocol, and the pitfalls we hit.
 
@@ -24,7 +24,8 @@ The READMEs have the user's view (options, protocol tables, how to run):
      └──────────────────────────────────────▶ QML (SimCommon components + own ones)
 ```
 
-- **The protocol model has no Qt** (`push_simulator/device.py`, `maschine_simulator/device.py`).
+- **The protocol model has no Qt** (`push_simulator/device.py`, `maschine_simulator/device.py`,
+  `midi_simulator/base.py` with `apc40mk2.py` and `lppromk3.py`).
   It keeps the state the host sets (LEDs, displays, strips, settings) from `receive(data, port)`.
   It turns the control actions (`press_button`, `press_pad`, `turn_encoder`, ...) into MIDI through
   a `send(data, port)` callback. It tells the UI what changed through `listeners` ("leds",
@@ -52,8 +53,14 @@ The READMEs have the user's view (options, protocol tables, how to run):
   shared components are `Pad`, `LedButton` and `Encoder` (with the LED ring of the side channel).
   A simulator adds only what is special: the Push display and touch strip, the Mk2 text displays,
   the JAM strips and meters.
-- **The layout is data** (`layout.py` of each simulator): positions, labels, MIDI numbers or
-  template ids. QML has no per-device code for ordinary controls. A layout test checks that
+- **Plain MIDI controllers need almost no own code** (`midi_simulator`): `GridDevice` takes a list
+  of controls, each with its message (note/CC, channel, number), its LED kind (palette RGB, single,
+  none), and for encoders absolute/relative and the ring CCs. A device module adds its layout, its
+  LED addressing (`led_for`: which message lights which control, on which animation channel), its
+  animation channels, its SysEx and its identity reply. Its view uses only shared components
+  (`Pad`, `LedButton`, `Encoder`, `Fader`). This is the template for the next pad controller.
+- **The layout is data** (`layout.py` of each simulator, `build_controls` of the midi_simulator
+  devices): positions, labels, MIDI numbers or template ids. QML has no per-device code for ordinary controls. A layout test checks that
   everything fits on the surface and that no MIDI number or template id is used twice.
 - **The app scaffolding** (`sim_common/app.py`): the common options (`--connect`, `--monitor`,
   `--no-alsa`, `--quit-after`, `--screenshot`, `--size`), `open_ports`, and `run` (QML engine
@@ -79,7 +86,22 @@ DrivenByMoss4Reaper only adds the Reaper glue):
 **The Rust core** (`src/controller/<name>/`): `definition.rs` (discovery pairs, UUID),
 `surface.rs` (the MIDI numbers as constants), `setup.rs` (startup, SysEx handling, additions not
 in Java such as the Mk2's dbm-nihost handshake). `drivenbymoss.list_controllers()` lists the
-UUIDs and discovery names the library knows.
+UUIDs and discovery names the library knows. Look in particular at:
+
+- **The bindings with their channel**, not only the numbers. The APC40's track buttons are the same
+  note on the track's MIDI channel (`add_button(..., channel = i, ...)`), and so are its faders.
+- **The grid translation** (`create_pad_grid ... with_translation`): grid note 36 becomes the APC40
+  mkII's note 0 (bottom left, 0..39 on channel 1) or the Launchpad's programmer note 11 (row × 10 +
+  column).
+- **The blink mode of the pad grid** (`BlinkMode`): `Channels` sends the blink colour on an
+  animation channel (the APC: 11 slow, 13 fast); `Collect` gathers the blinking pads and sends
+  them as SysEx (the Launchpad's LED update, types 01/02); `Emulated` resends the colours.
+- **The colours are indices**: `colors.rs` maps colour IDs to the device's palette indices, but
+  holds no RGB for most of them (Java registers only a few, for its own simulator window). The
+  device's palette has to come from elsewhere. The APC40 mkII, the Launchpads and the Push 1
+  share one 128-colour velocity palette, which Java has as `PushColorManager.DEFAULT_PALETTE`.
+- **The startup and exit messages** in `create`/`init`/`exit` (the APC's mode SysEx, the
+  Launchpad's programmer mode and its reset on exit).
 
 **dbm-nihost** (`support/linux/ni_host`) for the NI controllers: its README ("What is emulated",
 "DrivenByMoss messages"), `src/midi.h` (the handshake SysEx), `src/mk2_host.cpp` and
@@ -94,6 +116,22 @@ the two in sync.
 knows and marks the rest "unhandled", and read the core's log lines. `aseqdump -p <client>:<port>`
 shows a port from outside. Whatever arrives as "unhandled" or "unknown SysEx" is the next thing to
 implement.
+
+**Keep the tables in sync** with what the core uses, mechanically where possible:
+
+- Generate tables from a source file and test that they still agree (the Maschine templates from
+  dbm-nihost's header, the velocity palette from Java's `PushColorManager`).
+- Tag each simulated control with the name of the Rust constant it stands for and test the values
+  against `surface.rs` (the APC40), or collect the numbers a Rust definition assigns and compare the
+  sets (the Launchpad Pro Mk3's `set_button` calls, its scene controls, track buttons and extra
+  buttons).
+- **Run the real core in-process** (`tests/test_midi_simulators.py`, `CoreTest`): a `dbm_host`
+  `Bridge` with the simulated DAW, its MIDI output fed into the device model and the model's
+  output into the bridge, no ALSA and no Qt. Then require that the model understood every message
+  the core sent (`device.unknown` is empty), operate every control, and require that the core
+  logged no error ("CC .. should be handled in framework" for an unbound CC). This catches
+  wrong numbers, channels and message kinds in both directions within a second. It needs the
+  built library (`cargo build`) and is skipped without it.
 
 ## 3. Ports, names and discovery
 
@@ -129,6 +167,13 @@ Names are where most of the time went.
 - **Which port sends.** Push 2/3 send on the Live port (on the User port after SysEx `0A 01`,
   both after `0A 02`). DrivenByMoss uses the User port of the Push 1. Replies go to the port the
   request came in on.
+- **Several ports, one of them used.** The Launchpad Pro Mk3 has three (`LPProMK3 MIDI`, `DIN`,
+  `DAW`); the core opens only `LPProMK3 MIDI` (programmer mode), not the DAW port that Ableton
+  uses. The simulator creates all three so that a host's port list looks like the device's, and
+  logs what arrives on the others.
+- **Name lookup by substring.** `find_port` takes an exact match first, then the first port whose
+  name contains the searched one. So `APC40 mkII MIDI 1` also finds `APC40 mkII MIDI 1 (sim)`. Give
+  tests their own suffix, and never rely on the substring match to tell two simulators apart.
 
 ## 4. The display socket and the side channel
 
@@ -193,6 +238,11 @@ tests (`tempfile.mkdtemp(dir=os.environ.get("XDG_RUNTIME_DIR"))`).
   messages).
 - **Shared QML module:** `SimCommon` is a directory with a `qmldir`, added with
   `engine.addImportPath(sim_common.QML_IMPORT_PATH)`, and imported as `import SimCommon`.
+- **Extend shared components by optional keys**, so the existing simulators stay untouched: the
+  `Encoder` draws a short arc for `st.dot` (the APC40's "single" ring mode). The Push's state has no
+  `dot` key, and an absent key is `undefined`, which is false.
+- **Faders are not motorized:** `Fader` shows the value the simulator sent last
+  (`sim.faderValue`) and follows `sim.revision`; the bridge bumps the revision when a fader moved.
 
 ## 6. Offscreen testing and screenshots
 
@@ -206,6 +256,10 @@ tests (`tempfile.mkdtemp(dir=os.environ.get("XDG_RUNTIME_DIR"))`).
 - Set `PUSH_SIM_SCREENSHOT` / `MASCHINE_SIM_SCREENSHOTS` to keep the PNGs, and look at them. Most
   layout and drawing bugs (the indicator rotating around the wrong centre, overlapping buttons)
   were only visible there.
+- Thin drawings (the LED rings) can fall between sampled pixels: the APC40 smoke test scans every
+  pixel of the top of the window for the ring colour instead of every third one.
+- `MIDI_SIM_SCREENSHOTS` keeps the APC40/Launchpad PNGs. Their smoke test starts the simulators
+  through the Push simulator's `run.sh`, which also tests the hand-over.
 - For a screenshot with the real core, start the simulator with `--quit-after`, then the runner,
   and let the screenshot happen while the runner still runs. When the runner stops, the core shuts
   down and clears the LEDs and displays.
@@ -223,7 +277,7 @@ support/controller_simulator/run.sh --model jam --monitor &
 support/controller_simulator/tools/dbm_host_alsa.py --model jam --library target/debug/libdrivenbymoss.so
 ```
 
-`--model push1|push2|push3|mk2|jam`, `--controller UUID` for others, `--bindings` and `--library`
+`--model push1|push2|push3|mk2|jam|apc40mk2|lppromk3`, `--controller UUID` for others, `--bindings` and `--library`
 for another checkout (e.g. a port in a worktree), `--verbose` prints the MIDI.
 
 **Bitwig with the Rust extension:**
@@ -245,6 +299,12 @@ bitwig-studio
   MIDI side. It refuses the Maschines on Linux (its Linux check), and it knows neither the
   Maschine hello nor the Mk2's Shift SysEx.
 
+**The `run.sh` hand-over** goes both ways: `support/push_simulator/run.sh` passes every non-Push
+model to `support/controller_simulator/run.sh`, which passes `push*` back and starts
+`maschine_simulator` or `midi_simulator` for the others. A new model needs a case in the
+controller simulator's `run.sh` only. Unknown models end up in `maschine_simulator`, whose
+argument parser rejects them, so there is no loop.
+
 ## 8. Handshakes and device presence
 
 A host that waits for its device needs to be told the device is there. The simulators send what
@@ -258,8 +318,29 @@ the real path sends:
   is sent, so STEP LEFT becomes Stop. The JAM's hello is NI's "return from host". On quit they
   send gone (`... 13 F7`), which stops the zynthian drivers until the next hello. `--detached`
   starts without the device, to test a host's waiting.
+- The APC40 mkII has no handshake: the core sends its mode SysEx (Ableton Live mode) and starts.
+  The Launchpad Pro Mk3 is asked for its identity (the core logs the firmware version from it),
+  switched out of the DAW mode and into programmer mode, and reset on exit.
 
-## 9. Java bugs found through the simulators
+## 9. Per-device notes
+
+- **APC40 mkII:** the knobs are endless encoders that send absolute values. The host's ring CC
+  (the knob's own CC) sets the LED ring and the knob's internal value, so turning continues from
+  the DAW's value. The ring mode CC selects off, single (a dot), volume (a bar from the left) or pan
+  (a bar from the top). The pads and the scene buttons are RGB with the Push-like animation
+  channels; the other buttons have single LEDs (0 off, 1 on, 2 blinking). The crossfader assignment
+  has two colours. The core's constant names follow the APC40 mk1, and its mk2 branch rebinds them,
+  e.g. `APC_BUTTON_CLIP_TRACK` (0x3A) is "◀ Device" on the mkII and `APC_BUTTON_SEND_C` (0x5A) is
+  Metronome. The simulator labels the buttons as printed on the mkII and keeps the Rust names as
+  `const` for the sync test.
+- **Launchpad Pro Mk3:** programmer mode only. Static colours come as notes/CCs on channel 1, and
+  the core sends blinking pads as the SysEx LED update (its grid uses `BlinkMode::Collect`):
+  flashing entries carry colour B (the blink colour) before colour A (the steady one). The device
+  also understands flashing/pulsing on channels 2/3 and RGB entries, which the core doesn't use.
+  The logo is LED 99. Pads are released with velocity 0 (note on). The core has no fader-mode
+  setup for the Pro Mk3: its faders are drawn on the pads.
+
+## 10. Java bugs found through the simulators
 
 - **Push 3 pad curve without its command byte:** `PushControlSurface.sendPadSensitivityPush3`
   builds an array with the command `0x43` but sends the bare curve, so the device gets
@@ -271,18 +352,24 @@ the real path sends:
   bug: hosts that list sequencer ports must offer manual selection or the jack names.
 - **Not bugs, but invisible on hardware:** Java logs dbm-nihost's hello and gone as "Unhandled
   Sysex message", because only the Rust core knows them.
+- **APC40 mkII and Launchpad Pro Mk3:** the in-process core run found no unknown message and no
+  core error. One observation, not checked on hardware: the core (like Java) lights a pressed APC
+  button with `BUTTON_STATE_HI` = 2, which is "blinking" for the mkII's single LEDs, so pressed
+  buttons blink instead of lighting brighter.
 
-## 10. Checklist for the next simulator
+## 11. Checklist for the next simulator
 
 1. Collect the protocol (§2): discovery names, buttons/encoders/pads with their MIDI, LED
    feedback, SysEx in both directions, startup messages, handshakes.
 2. Write the model without Qt and its unit tests first, against the messages the Java or Rust
    code builds (copy them from there, not from the manual).
-3. Write the layout as data, and reuse `SimWindow`, `Pad`, `LedButton` and `Encoder`. Add
-   components only for what is special.
+3. Write the layout as data, and reuse `SimWindow`, `Pad`, `LedButton`, `Encoder` and `Fader`. Add
+   components only for what is special. A plain MIDI pad controller is a new `midi_simulator`
+   device module (a `GridDevice` subclass) plus a case in `run.sh`.
 4. Create the ports with the device's names, made overridable, with a suffix when the name is
    taken. Add `--connect` for Bitwig.
 5. Add an ALSA loopback test and an offscreen smoke test with a feeder, and look at the PNG.
-6. Run the core against it with `dbm_host_alsa.py` and read the monitor for "unhandled".
+6. Add the sync tests (§2): generated tables or constant checks, and the in-process core run.
+   Run the core against it with `dbm_host_alsa.py` and read the monitor for "unhandled".
 7. Document the protocol table and the gaps in the simulator's README, and add what you learned
    here.
