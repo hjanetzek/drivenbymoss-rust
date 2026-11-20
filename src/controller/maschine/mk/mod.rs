@@ -3,7 +3,8 @@
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
 //! Support for the Maschine Mk2, Mk3, Mikro Mk3, Plus and Studio, which share one setup (former
-//! package `controller.ni.maschine.mk3`). Only the Mk2 is registered so far.
+//! package `controller.ni.maschine.mk3`). The Mk2, Mk3, Mikro Mk3 and Plus are registered; the
+//! Studio misses its monitor-encoder section.
 
 pub mod definition;
 pub mod mode;
@@ -53,9 +54,9 @@ impl ControllerFactory for MaschineFactory {
     }
 }
 
-/// The models which are supported so far (the setup supports the other models as well, but
-/// they are not tested yet).
-pub const SUPPORTED_MODELS: [Maschine; 1] = [Maschine::Mk2];
+/// The registered models. The Studio is not: its monitor section (the monitor encoder with its
+/// modes and VU, the MST/GRP/SND/CUE/IN1-4 buttons) is not ported.
+pub const SUPPORTED_MODELS: [Maschine; 4] = [Maschine::Mk2, Maschine::Mk3, Maschine::MikroMk3, Maschine::Plus];
 
 /// The factories of the supported models.
 pub fn factories() -> Vec<Box<dyn ControllerFactory>> {
