@@ -215,6 +215,11 @@ programmer mode, pads with aftertouch, all buttons, flashing/pulsing LEDs and th
 (RGB, logo). Their tests include a run of the real core in-process, which checks that every message
 of the core is understood and every control is handled.
 
+**Launch Control XL simulator:** `midi_simulator --model lcxl` (also `run.sh`, `dbm_host_alsa.py`):
+the 16 templates with the core's template-change handshake (the simulator answers like the device)
+and a template selector, 24 knobs with their two-colour LEDs, 8 faders, all buttons with LEDs,
+flashing and the SysEx LED update; tested like the others, including the in-process core run.
+
 **Scope and size:**
 
 - The Java project has about 240,000 lines in 1,544 files.
@@ -302,7 +307,7 @@ All paths are under `rust/`.
 | `tests/` | — | Integration tests per controller |
 | `backends/reaper/` | [DrivenByMoss4Reaper-Backend](https://github.com/git-moss/DrivenByMoss4Reaper-Backend) (C++ Reaper extension) | Squashed git subtree of upstream `master` (0e292a08), switched from JNI to the C ABI. Update with `git subtree pull --prefix=rust/backends/reaper https://github.com/git-moss/DrivenByMoss4Reaper-Backend master --squash` |
 | `support/push_simulator/` | — | Push 1/2/3 simulator (PySide6 + QML, ALSA through ctypes, display socket) |
-| `support/controller_simulator/` | — | Maschine Mk2/JAM, APC40 mkII and Launchpad Pro Mk3 simulators and the shared simulator code (`sim_common`); guide: `doc/CONTROLLER_SIMULATORS.md` |
+| `support/controller_simulator/` | — | Maschine Mk2/JAM, APC40 mkII, Launchpad Pro Mk3 and Launch Control XL simulators and the shared simulator code (`sim_common`); guide: `doc/CONTROLLER_SIMULATORS.md` |
 | `doc/` | — | This file and the porting guide |
 
 ## Next steps and open issues

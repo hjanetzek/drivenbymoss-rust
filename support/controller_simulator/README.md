@@ -10,6 +10,7 @@ touchscreen controller (a tablet), so they may differ from the hardware where th
 | Maschine JAM (`jam`) | `maschine_simulator` | the template MIDI, the touch strips (setup, values, dual values), the level meters, NI's Shift SysEx and hello |
 | Akai APC40 mkII (`apc40mk2`) | `midi_simulator` | Ableton Live mode: RGB clip pads and scene buttons with the animation channels, single LEDs, the knobs with their LED rings, faders, crossfader |
 | Novation Launchpad Pro Mk3 (`lppromk3`) | `midi_simulator` | programmer mode: pads with aftertouch, all buttons, LEDs by note/CC with flashing and pulsing, the SysEx LED update with RGB, the logo |
+| Novation Launch Control XL (`lcxl`) | `midi_simulator` | the 16 templates with the template-change handshake and a template selector, 24 knobs with their two-colour LEDs, 8 faders, 24 buttons with LEDs, flashing, the SysEx LED update |
 | Push 1/2/3 (`push1`, `push2`, `push3`) | `support/push_simulator` | the Push protocol, the display socket and the value side channel, see [its README](../push_simulator/README.md) |
 
 How they are built, how to find a controller's protocol, and what tripped us up along the way:
@@ -24,6 +25,7 @@ support/controller_simulator/run.sh --model mk2
 support/controller_simulator/run.sh --model jam --monitor
 support/controller_simulator/run.sh --model apc40mk2
 support/controller_simulator/run.sh --model lppromk3
+support/controller_simulator/run.sh --model lcxl
 support/controller_simulator/run.sh --model push3        # hands over to support/push_simulator/run.sh
 cd support/controller_simulator && python3 -m maschine_simulator --help
 cd support/controller_simulator && python3 -m midi_simulator --help
@@ -42,11 +44,11 @@ cd support/controller_simulator && python3 -m midi_simulator --help
 | `--no-alsa` | no ports |
 | `--quit-after S`, `--screenshot PNG`, `--size WxH` | for automated runs (`QT_QPA_PLATFORM=offscreen`) |
 
-| Option (APC40 mkII, Launchpad Pro Mk3) | Meaning |
+| Option (APC40 mkII, Launchpad Pro Mk3, Launch Control XL) | Meaning |
 | --- | --- |
-| `--model apc40mk2\|lppromk3` | the device (default `apc40mk2`) |
+| `--model apc40mk2\|lppromk3\|lcxl` | the device (default `apc40mk2`) |
 | `--suffix TEXT` | appended to the client and port names, e.g. ` (sim)` next to a real device |
-| `--port-style jack\|numbered` | Launchpad: `Launchpad Pro MK3 LPProMK3 MIDI`/`DIN`/`DAW` (current kernels) or `Launchpad Pro MK3 MIDI 1`/`2`/`3` |
+| `--port-style jack\|numbered` | Launchpad: `Launchpad Pro MK3 LPProMK3 MIDI`/`DIN`/`DAW` (current kernels) or `Launchpad Pro MK3 MIDI 1`/`2`/`3`; Launch Control XL: `Launch Control XL Launch Contro` or `Launch Control XL MIDI 1` |
 | `--port-name`, `--client-name` | override the name of the port the core uses, of the client |
 | `--channel-pressure` | send channel instead of poly aftertouch |
 | `--connect PORT`, `--monitor`, `--no-alsa`, `--quit-after`, `--screenshot`, `--size` | as above |
@@ -62,8 +64,9 @@ support/controller_simulator/run.sh --model mk2 --monitor &
 support/controller_simulator/tools/dbm_host_alsa.py --model mk2 --library target/debug/libdrivenbymoss.so
 ```
 
-For the APC40 mkII and the Launchpad Pro Mk3 it connects to their duplex port (`APC40 mkII MIDI 1`,
-`Launchpad Pro MK3 LPProMK3 MIDI`, first with ` (sim)`):
+For the APC40 mkII, the Launchpad Pro Mk3 and the Launch Control XL it connects to their duplex
+port (`APC40 mkII MIDI 1`, `Launchpad Pro MK3 LPProMK3 MIDI`, `Launch Control XL Launch Contro`,
+first with ` (sim)`):
 
 ```sh
 support/controller_simulator/run.sh --model apc40mk2 --suffix " (sim)" &
@@ -151,6 +154,21 @@ whenever `encoderState` delivers a value, so a tablet controller can add it late
 | DAW → rings | the knob's CC = ring value (also the knob's new value), CC 0x38..0x3F (track) / 0x18..0x1F (device) = ring mode: 0 off, 1 single (a short arc), 2 volume (from the left), 3 pan (from the top); drawn by the shared `Encoder` |
 | Identity | `F0 7E 7F 06 01 F7` → `F0 7E 00 06 02 47 29 00 19 00 00 01 00 00 F7` (the core doesn't ask) |
 
+## The Launch Control XL protocol
+
+| Direction | Messages |
+| --- | --- |
+| Port | `Launch Control XL Launch Contro`: the kernel's port name (the USB jack name, cut to 31 characters), one of the core's two Linux discovery names (the other is `Launch Control XL`) |
+| Templates | 16 templates: user 1-8 on MIDI channels 1-8, factory 1-8 on channels 9-16. Every control sends on the channel of the active template, and the LEDs are set on it; each template keeps its own LEDs |
+| Startup (DAW → device) | the template selection `F0 00 20 29 02 11 77 08 F7` (factory template 1). The device switches and answers with the same message, and only then the core binds its controls to channel 9 and lights the LEDs. Factory templates 1-5 are the core's Mixer, Equalizer, Layer Mixer, Drum Sequencer and Note Sequencer; the others are a dummy mode |
+| Template change (device → DAW) | the same message, sent when the template changes on the device; the simulator's selector row (U1-U8, F1-F8) does this. On the device: Templates + a Track Focus/Control button |
+| Knobs → DAW | absolute CC: Send A 13..20, Send B 29..36, Pan 49..56; the indicator shows the knob's position (no ring, the device has none) |
+| Faders → DAW | CC 77..84 |
+| Buttons → DAW | Track Focus notes 41..44, 57..60, Track Control notes 73..76, 89..92, Device/Mute/Solo/Record Arm notes 105..108 (on 127, off: note off 0); Send ▲/▼ and Track ◀/▶ CC 104..107 (127/0) |
+| DAW → LEDs | two-colour red/green: velocity = red (bits 0-1) + flags (bits 2-3: 4 copy, 8 clear) + 16 × green (bits 4-5), each 0..3, 12 = off. Knob LEDs: notes 13 + row + 16 × column (first row 13, 29 .. 125); the buttons: their own note or CC. CC 0 = 0 resets the template's LEDs; CC 0 = 0x28 switches flashing on, and LEDs written with the flags 8 (clear without copy) flash |
+| DAW → LED SysEx | `F0 00 20 29 02 11 78 <template> <index> <value> F7`: index 0-23 knobs (by row), 24-31 Track Focus, 32-39 Track Control, 40-43 Device/Mute/Solo/Record Arm, 44-47 ▲▼◀▶ (the core doesn't use it) |
+| Identity | `F0 7E 00 06 02 00 20 29 61 00 00 00 00 00 01 00 F7` (the core doesn't ask) |
+
 ## The Launchpad Pro Mk3 protocol
 
 | Direction | Messages |
@@ -183,7 +201,7 @@ Both use the 128-colour velocity palette shared by Push 1, the APC40 mkII and th
 | `maschine_simulator/templates.py` | the template tables (generated) |
 | `maschine_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object, the view (Mk2 displays, JAM strips and meters) |
 | `midi_simulator/base.py` | `GridDevice`: controls with their message and LED kind, LED animations, absolute/relative encoders with rings, faders, without Qt |
-| `midi_simulator/apc40mk2.py`, `lppromk3.py` | the two devices: controls and layout, LED addressing, animation channels, SysEx, identity |
+| `midi_simulator/apc40mk2.py`, `lppromk3.py`, `lcxl.py` | the devices: controls and layout, LED addressing, animation channels, SysEx, identity |
 | `midi_simulator/qt_bridge.py`, `qml/Main.qml` | the Qt object and the view (only shared components) |
 | `tools/` | `maschine_feed.py`, `midi_feed.py` (test hosts), `gen_maschine_templates.py`, `gen_palettes.py`, `dbm_host_alsa.py` (runs the Push simulator's runner) |
 
@@ -211,7 +229,11 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   `definition.rs`) and the Java palette, and a run of the real core in-process: everything the
   core sends must be understood, and every control is operated without a core error (skipped
   without `target/debug/libdrivenbymoss.so`).
+  The Launch Control XL: the template handshake and selector, the controls on the template's
+  channel, the two-colour LEDs per template, the SysEx LED update, flashing and reset, and the sync
+  with `src/controller/launchcontrol` (the constants, the template header, the knob LED formula,
+  the UUID, the discovery name and the startup template).
 - `test_midi_alsa.py`: an ALSA loopback with ` (test)` names.
-- `test_midi_smoke.py`: both offscreen with ` (smoke)` names, started through the Push `run.sh`,
+- `test_midi_smoke.py`: all three offscreen with ` (smoke)` names, started through the Push `run.sh`,
   fed by `midi_feed.py`, grabbed to PNGs (into `MIDI_SIM_SCREENSHOTS`), checked for the fed colours
   and the LED rings.

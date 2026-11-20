@@ -2,7 +2,8 @@
 
 The repository has desktop simulators of controllers for testing DrivenByMoss without the
 hardware. They emulate the Push 1/2/3 (`support/push_simulator`), the Maschine Mk2 and JAM, the
-Akai APC40 mkII and the Novation Launchpad Pro Mk3 (`support/controller_simulator`). This guide is for whoever builds the next one, or the tablet
+Akai APC40 mkII, the Novation Launchpad Pro Mk3 and the Novation Launch Control XL
+(`support/controller_simulator`). This guide is for whoever builds the next one, or the tablet
 touchscreen controller that is meant to grow out of them. It covers the architecture, where to
 find a controller's protocol, and the pitfalls we hit.
 
@@ -25,7 +26,7 @@ The READMEs have the user's view (options, protocol tables, how to run):
 ```
 
 - **The protocol model has no Qt** (`push_simulator/device.py`, `maschine_simulator/device.py`,
-  `midi_simulator/base.py` with `apc40mk2.py` and `lppromk3.py`).
+  `midi_simulator/base.py` with `apc40mk2.py`, `lppromk3.py` and `lcxl.py`).
   It keeps the state the host sets (LEDs, displays, strips, settings) from `receive(data, port)`.
   It turns the control actions (`press_button`, `press_pad`, `turn_encoder`, ...) into MIDI through
   a `send(data, port)` callback. It tells the UI what changed through `listeners` ("leds",
@@ -101,7 +102,16 @@ UUIDs and discovery names the library knows. Look in particular at:
   device's palette has to come from elsewhere. The APC40 mkII, the Launchpads and the Push 1
   share one 128-colour velocity palette, which Java has as `PushColorManager.DEFAULT_PALETTE`.
 - **The startup and exit messages** in `create`/`init`/`exit` (the APC's mode SysEx, the
-  Launchpad's programmer mode and its reset on exit).
+  Launchpad's programmer mode and its reset on exit, the Launch Control XL's template selection).
+- **What the core waits for.** The Launch Control XL core selects a template, but binds its
+  controls only when the device reports the template change (`handle_sysex`). A simulator that
+  doesn't answer looks dead: nothing reacts, and no LED is lit. The conformance scenarios show such
+  answers as `[[stub]]` entries (`reply = "echo"`).
+- **Read the formula, not the pattern of the inputs.** The Launch Control XL's knobs send
+  consecutive CCs per row (13..20, 29..36, 49..56), but their LEDs are addressed column by column:
+  `set_knob_led_color` sends the note `13 + row + 16 × column` (13, 29 .. 125 for the first row). The
+  simulator's first guess (13..20 per row) lit the wrong knobs; the monitor's "no LED" lines for the
+  core's messages showed it.
 
 **dbm-nihost** (`support/linux/ni_host`) for the NI controllers: its README ("What is emulated",
 "DrivenByMoss messages"), `src/midi.h` (the handshake SysEx), `src/mk2_host.cpp` and
@@ -239,7 +249,9 @@ tests (`tempfile.mkdtemp(dir=os.environ.get("XDG_RUNTIME_DIR"))`).
 - **Shared QML module:** `SimCommon` is a directory with a `qmldir`, added with
   `engine.addImportPath(sim_common.QML_IMPORT_PATH)`, and imported as `import SimCommon`.
 - **Extend shared components by optional keys**, so the existing simulators stay untouched: the
-  `Encoder` draws a short arc for `st.dot` (the APC40's "single" ring mode). The Push's state has no
+  `Encoder` draws a short arc for `st.dot` (the APC40's "single" ring mode), and no ring for
+  `st.ring === false` (the Launch Control XL: the value only turns the indicator, and the knob's LED
+  is a separate small `LedButton` without a message). The Push's state has no
   `dot` key, and an absent key is `undefined`, which is false.
 - **Faders are not motorized:** `Fader` shows the value the simulator sent last
   (`sim.faderValue`) and follows `sim.revision`; the bridge bumps the revision when a fader moved.
@@ -333,6 +345,15 @@ the real path sends:
   e.g. `APC_BUTTON_CLIP_TRACK` (0x3A) is "◀ Device" on the mkII and `APC_BUTTON_SEND_C` (0x5A) is
   Metronome. The simulator labels the buttons as printed on the mkII and keeps the Rust names as
   `const` for the sync test.
+- **Launch Control XL:** everything depends on the template. Each of the 16 templates has its own
+  MIDI channel (user 1-8 on 1-8, factory 1-8 on 9-16) and its own LED memory, so the simulator keeps
+  the LEDs per template and shows the active one. The core selects factory template 1 at its start,
+  and the simulator answers with the template change like the device. The UI's selector row stands
+  in for the device's Templates button. The LEDs are two-colour (red and green, 0..3 each, plus
+  copy/clear flags in bits 2-3): there is no palette, so `base_rgb` decodes the velocity. Flashing
+  is the Launchpad-S style double buffering (CC 0 = 0x28, LEDs with flags 8), which the core
+  doesn't use. The knobs are pots, not encoders: the simulator keeps their absolute value and sends
+  it.
 - **Launchpad Pro Mk3:** programmer mode only. Static colours come as notes/CCs on channel 1, and
   the core sends blinking pads as the SysEx LED update (its grid uses `BlinkMode::Collect`):
   flashing entries carry colour B (the blink colour) before colour A (the steady one). The device
@@ -357,7 +378,33 @@ the real path sends:
   button with `BUTTON_STATE_HI` = 2, which is "blinking" for the mkII's single LEDs, so pressed
   buttons blink instead of lighting brighter.
 
-## 11. Checklist for the next simulator
+## 11. The conformance scenarios and the simulators
+
+The Launch Control XL is a conformance setup (`tests/conformance/launchcontrol_xl/`). Could a
+simulator replay those scenarios instead of the VirMIDI runner? Not as a replacement:
+
+- The runner already plays the device. It sends the scenario's MIDI into a `snd-virmidi` port that
+  the Bitwig extensions use, answers like the device (the `[[stub]]` entries), and records what the
+  extensions send back. Its expectations are Bitwig's state (`expect.bitwig`, from OSC), so it
+  needs Bitwig and the fixture project, and it compares the Java version with the Rust one. A
+  simulator on the same port would be a second device: it would answer the template selection a
+  second time and could only replace what the runner does already.
+- Headless replays of the recordings against the core exist too (`cargo test --test
+  conformance_replay`), without MIDI ports. The simulators' in-process core run
+  (`tests/test_midi_simulators.py`) is similar but uses dbm_host's simulated DAW, not the fixture
+  project, so it can't check the scenarios' Bitwig expectations.
+
+Where a simulator could help:
+
+- **As the runner's device model:** the runner's stub and its LED bookkeeping could use the Qt-free
+  device model (`midi_simulator.lcxl.LaunchControlXl`). It answers the template selection,
+  decodes the two-colour LEDs per template, and reports unknown messages, which would make the LED
+  expectations readable ("Mute red" instead of `98 6A 0F`).
+- **As a viewer:** a simulator that only listens, started with `--no-alsa` and fed from a
+  recording, would show a run, which helps with debugging differences. It needs a "passive" mode
+  that doesn't answer. That is a small addition, not done yet.
+
+## 12. Checklist for the next simulator
 
 1. Collect the protocol (§2): discovery names, buttons/encoders/pads with their MIDI, LED
    feedback, SysEx in both directions, startup messages, handshakes.
