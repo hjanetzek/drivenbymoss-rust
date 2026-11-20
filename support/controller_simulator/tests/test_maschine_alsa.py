@@ -32,8 +32,13 @@ def wait_for(predicate, timeout=2.0):
 class MaschineAlsaTest(unittest.TestCase):
     def open(self, model):
         client, daw_in, daw_out = layout.midi_names(model, SUFFIX)
-        self.seq = alsa_seq.AlsaSeq(client, [(daw_in, alsa_seq.READ_CAPS), (daw_out, alsa_seq.WRITE_CAPS)])
-        ids = {IN_PORT: self.seq.ports[daw_in], OUT_PORT: self.seq.ports[daw_out]}
+        if daw_in == daw_out:
+            # Mk3, Mikro Mk3: one duplex port as NI's driver
+            self.seq = alsa_seq.AlsaSeq(client, [daw_in])
+            ids = {IN_PORT: self.seq.ports[daw_in], OUT_PORT: self.seq.ports[daw_in]}
+        else:
+            self.seq = alsa_seq.AlsaSeq(client, [(daw_in, alsa_seq.READ_CAPS), (daw_out, alsa_seq.WRITE_CAPS)])
+            ids = {IN_PORT: self.seq.ports[daw_in], OUT_PORT: self.seq.ports[daw_out]}
         self.device = MaschineDevice(model, send=lambda d, p: self.seq.send(d, ids[p]))
         self.received = []
         self.seq.start_reader(lambda d, port: self.received.append(d))
@@ -78,6 +83,17 @@ class MaschineAlsaTest(unittest.TestCase):
         self.device.move_strip(3, 10)
         self.assertTrue(wait_for(lambda: len(self.host_in) == 3))
         self.assertEqual(self.host_in, [ni.JAM_HELLO, b"\xB0\x17\x7F", b"\xB0\x0B\x0A"])
+
+    def test_mk3(self):
+        self.open("mk3")
+        self.device.attach()
+        self.host.send(b"\x90\x24\x1E", 0)
+        self.host.send(b"\xB0\x01\x7F", 0)  # the touch strip LEDs
+        self.pump(2)
+        self.assertEqual(self.device.touchstrip, 127)
+        self.device.press_button(next(c.key for c in self.device.controls if c.label == "Shift"))
+        self.assertTrue(wait_for(lambda: len(self.host_in) == 2))
+        self.assertEqual(self.host_in, [ni.ni_return_from_host("mk3"), ni.ni_shift("mk3", True)])
 
 
 if __name__ == "__main__":

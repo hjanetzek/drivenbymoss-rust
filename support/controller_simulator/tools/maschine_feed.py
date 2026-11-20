@@ -21,7 +21,19 @@ from sim_common.alsa_seq import AlsaSeq  # noqa: E402
 
 def messages(model: str) -> list[bytes]:
     out = [ni.QUERY]
-    if model == "mk2":
+    if model in ("mk3", "mikromk3"):
+        for i in range(16):
+            out.append(bytes([0x90, 36 + i, 4 + 4 * i + 2]))  # pads: NI's hues, full level
+        if model == "mk3":
+            for i in range(8):
+                out.append(bytes([0xB0, 100 + i, 6 + 8 * i]))  # groups
+            out.append(bytes([0xB0, 30, 127]))  # the encoder's up LED
+            line1 = "".join(f"{t:7s}" for t in ("Synth", "Drums", "Bass", "Vocals", "Audio5", "FX 1", "FX 2", "Master"))
+            out.append(ni.MCU_HEADER + bytes([0x14, ni.MCU_DISPLAY, 0]) + line1.encode() + b"\xF7")
+        for cc in (57, 58, 44):  # Play, Rec, Volume
+            out.append(bytes([0xB0, cc, 127]))
+        out.append(bytes([0xB0, 1, 90]))  # the touch strip LEDs
+    elif model == "mk2":
         for i in range(16):
             out.append(bytes([0x90, 36 + i, 4 + 4 * i]))  # pads: NI's hues
         for i in range(8):
@@ -73,8 +85,12 @@ def main() -> int:
     for message in messages(args.model):
         seq.send(message, 0)
     time.sleep(0.3)
-    hello = ni.MK2_HELLO if args.model == "mk2" else ni.JAM_HELLO
-    print("hello:", "yes" if hello in replies else "no", " ".join(r.hex(" ") for r in replies if r[0] == 0xF0))
+    if args.model in ("mk3", "mikromk3"):
+        # NI's driver ignores the query of dbm-nihost; it sent its "return from host" on attach
+        print("hello: n/a (NI's driver)", " ".join(r.hex(" ") for r in replies if r[0] == 0xF0))
+    else:
+        hello = ni.MK2_HELLO if args.model == "mk2" else ni.JAM_HELLO
+        print("hello:", "yes" if hello in replies else "no", " ".join(r.hex(" ") for r in replies if r[0] == 0xF0))
     seq.close()
     return 0
 

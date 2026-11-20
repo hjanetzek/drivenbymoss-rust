@@ -20,7 +20,7 @@ SimWindow {
     Component { id: encoderComponent; Encoder {} }
 
     // ---------------------------------------------------------------------------------------
-    // Mk2 display: the button labels and the two MCU lines (28 characters of each on a display)
+    // Mk2/Mk3 display: the button labels (Mk2) and the two MCU lines (28 characters of each on a display)
 
     Component {
         id: displayComponent
@@ -55,8 +55,9 @@ SimWindow {
     }
 
     // ---------------------------------------------------------------------------------------
-    // JAM touch strip: 11 LEDs in NI's palette colours (the strip setup of the core); press and
-    // drag = touch and value (0 bottom .. 127 top)
+    // Touch strip: 11 LEDs in NI's palette colours (JAM: the strip setup of the core; Mk3, Mikro
+    // Mk3: a white bar of the host's value). Vertical (JAM: 0 bottom .. 127 top) or horizontal
+    // (Mk3, Mikro Mk3: 0 left .. 127 right); press and drag = touch and value
 
     Component {
         id: stripComponent
@@ -64,23 +65,26 @@ SimWindow {
             id: strip
             property var c: parent.control
             property var colours: { sim.stripRevision; return sim.stripColours(c.index) }
+            readonly property bool horizontal: width > height
             radius: 1.5 * window.k
             color: "#18191c"
             border.color: sarea.pressed ? "#ffffff" : "#45464c"
             border.width: Math.max(1, 0.3 * window.k)
-            Column {
+            Grid {
                 anchors.fill: parent
                 anchors.margins: 1.2 * window.k
-                property real cellHeight: height / 11 * 0.7
-                spacing: (height - 11 * cellHeight) / 10
+                rows: strip.horizontal ? 1 : 11
+                columns: strip.horizontal ? 11 : 1
+                property real cell: (strip.horizontal ? width : height) / 11 * 0.7
+                spacing: ((strip.horizontal ? width : height) - 11 * cell) / 10
                 Repeater {
                     model: 11
                     Rectangle {
                         required property int index
-                        width: parent.width
-                        height: parent.cellHeight
-                        radius: height / 3
-                        property color led: strip.colours[10 - index]
+                        width: strip.horizontal ? parent.cell : parent.width
+                        height: strip.horizontal ? parent.height : parent.cell
+                        radius: Math.min(width, height) / 3
+                        property color led: strip.colours[strip.horizontal ? index : 10 - index]
                         color: Qt.rgba(0.13 + 0.87 * led.r, 0.13 + 0.87 * led.g, 0.15 + 0.85 * led.b, 1)
                     }
                 }
@@ -88,9 +92,12 @@ SimWindow {
             MouseArea {
                 id: sarea
                 anchors.fill: parent
-                function pos(my) { return Math.max(0, Math.min(1, 1 - my / height)) }
-                onPressed: (mouse) => sim.stripMove(strip.c.index, pos(mouse.y))
-                onPositionChanged: (mouse) => sim.stripMove(strip.c.index, pos(mouse.y))
+                function pos(mouse) {
+                    var f = strip.horizontal ? mouse.x / width : 1 - mouse.y / height
+                    return Math.max(0, Math.min(1, f))
+                }
+                onPressed: (mouse) => sim.stripMove(strip.c.index, pos(mouse))
+                onPositionChanged: (mouse) => sim.stripMove(strip.c.index, pos(mouse))
                 onReleased: sim.stripTouch(strip.c.index, false)
                 onCanceled: sim.stripTouch(strip.c.index, false)
             }

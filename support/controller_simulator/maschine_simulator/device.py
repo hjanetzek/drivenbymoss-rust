@@ -53,15 +53,27 @@ class Strip:
     touched: bool = False
 
 
+TABLES = {"mk2": templates.MK2, "jam": templates.JAM, "mk3": templates.MK3, "mikromk3": templates.MIKRO_MK3}
+DISABLED = {"mk3": templates.MK3_DISABLED, "mikromk3": templates.MIKRO_MK3_DISABLED}
+# The models behind dbm-nihost (Linux); the others emulate NI's driver directly
+NIHOST_MODELS = ("mk2", "jam")
+# The models with the MCU text display (two displays)
+MCU_MODELS = ("mk2", "mk3")
+# The controls which send but have no LED
+NO_LED = ("Push", "PshBrowse", "CapBrowse", "EncoderPush", "EncoderCap", "Navigation Push", "Navigation Touch", "TouchstripCap")
+
+
 def _table(model: str) -> list[TemplateControl]:
-    return [TemplateControl(*entry) for entry in (templates.MK2 if model == "mk2" else templates.JAM)]
+    return [TemplateControl(*entry) for entry in TABLES[model]]
 
 
 class MaschineDevice:
-    """One simulated Maschine (``model`` "mk2" or "jam")."""
+    """One simulated Maschine (``model`` "mk2", "jam", "mk3" or "mikromk3"). ``send_disabled``: also
+    send the controls which the NI template disables (the Mk3's touch strip touch), as the CC the
+    core binds."""
 
     def __init__(self, model: str, send: Callable[[bytes, str], None] | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, send_disabled: bool = False):
         if model not in layout.MODELS:
             raise ValueError(f"unknown model {model!r}")
         self.model = model
@@ -72,6 +84,10 @@ class MaschineDevice:
         table = _table(model)
         self.inputs = {t.id: t for t in table if t.direction == "input"}
         self.led_templates = {t.id: t for t in table if t.direction == "led"}
+        self.disabled = DISABLED.get(model, frozenset())
+        self.send_disabled = send_disabled
+        self.touchstrip = 0
+        """The value of the touch strip's LEDs (Mk3, Mikro Mk3: the template's TouchstripIDX)."""
         self.leds: dict[int, int] = {c.key: 0 for c in self.controls}
         self.shift_key = next((c.key for c in self.controls if c.label == "Shift" and not c.template), -1)
         self.shift_down = False
@@ -104,7 +120,7 @@ class MaschineDevice:
             return self.led_templates.get(control.template + ("H" if self.model == "mk2" else "IDX"))
         if control.kind == "button" and control.template:
             t = self.template(control)
-            if t is None or t.id in ("Push", "PshBrowse", "CapBrowse"):
+            if t is None or t.id in NO_LED:
                 return None
             return t
         return None
@@ -118,6 +134,8 @@ class MaschineDevice:
             self.led_map.setdefault((status, t.number), []).append(control.key)
         if self.model == "jam":
             self.strip_ccs = {self.led_templates[f"Tst{chr(ord('A') + i)}IDX"].number: i for i in range(8)}
+        strip_led = self.led_templates.get("TouchstripIDX")
+        self.touchstrip_cc = strip_led.number if strip_led is not None and self.model != "jam" else -1
 
     # ------------------------------------------------------------------------------------------
     # Output
@@ -146,7 +164,8 @@ class MaschineDevice:
     # Handshake
 
     def hello(self) -> bytes:
-        return ni.MK2_HELLO if self.model == "mk2" else ni.JAM_HELLO
+        """The Mk2's dbm-nihost hello, else NI's "return from host" of the device."""
+        return ni.MK2_HELLO if self.model == "mk2" else ni.ni_return_from_host(self.model)
 
     def attach(self) -> None:
         """The device is there: send the hello (the Mk2: Shift is sent; the JAM: NI's "return from
@@ -158,7 +177,8 @@ class MaschineDevice:
         """The device is gone (the simulator quits): F0 7D 44 42 4D 13 F7."""
         if self.present:
             self.present = False
-            self.emit(ni.GONE, "gone")
+            if self.model in NIHOST_MODELS:
+                self.emit(ni.GONE, "gone")
 
     # ------------------------------------------------------------------------------------------
     # Controls -> MIDI
@@ -174,7 +194,7 @@ class MaschineDevice:
             # Not in the template: the Mk2 sends it as DrivenByMoss SysEx, the JAM as NI's SysEx;
             # the LED is lit by the host (dbm-nihost)
             self.shift_down = down
-            self.emit(ni.mk2_shift(down) if self.model == "mk2" else ni.jam_shift(down), "Shift " + ("down" if down else "up"))
+            self.emit(ni.mk2_shift(down) if self.model == "mk2" else ni.ni_shift(self.model, down), "Shift " + ("down" if down else "up"))
             self.changed("leds")
             return
         control = self.by_key.get(key)
@@ -190,9 +210,12 @@ class MaschineDevice:
 
     def touch_encoder(self, key: int, touched: bool) -> None:
         control = self.by_key.get(key)
-        if control and control.touch:
+        if control and control.touch and self._can_send(control.touch):
             t = self.inputs[control.touch]
             self.send_control(t, t.on if touched else t.off)
+
+    def _can_send(self, template_id: str) -> bool:
+        return template_id not in self.disabled or self.send_disabled
 
     def press_pad(self, key: int, velocity: int) -> None:
         control = self.by_key.get(key)
@@ -203,7 +226,7 @@ class MaschineDevice:
     def pad_pressure(self, key: int, pressure: int) -> None:
         """The Mk2's pad pressure: the template's "Pressure<n>" (poly aftertouch)."""
         control = self.by_key.get(key)
-        if control and self.model == "mk2":
+        if control and self.model != "jam":
             t = self.inputs.get("Pressure" + control.template[3:])
             if t is not None:
                 self.send_control(t, pressure)
@@ -222,7 +245,12 @@ class MaschineDevice:
         if touched == state.touched:
             return
         state.touched = touched
+        if not self._can_send(strip.touch):
+            return
         t = self.inputs[strip.touch]
+        if t.id in self.disabled:
+            # Disabled in the template (NI's driver sends nothing); sent as the CC the core binds
+            t = TemplateControl(t.id, t.direction, "cc", t.channel, t.number, False, t.on, t.off)
         self.send_control(t, t.on if touched else t.off)
 
     def move_strip(self, index: int, value: int) -> None:
@@ -249,8 +277,9 @@ class MaschineDevice:
             note = self.handle_sysex(msg)
         elif len(msg) == 3 and msg[0] < 0xF0:
             kind, channel, number, value = msg[0] & 0xF0, msg[0] & 0x0F, msg[1], msg[2]
-            # dbm-nihost: the Mk2 takes channel 1 only, the JAM ignores the channel
-            if self.model == "mk2" and channel != 0:
+            # dbm-nihost: the Mk2 takes channel 1 only, the JAM ignores the channel; the Mk3 and
+            # the Mikro Mk3 (NI's driver) as the Mk2
+            if self.model != "jam" and channel != 0:
                 pass
             elif kind == 0xB0:
                 self._cc(number, value)
@@ -260,6 +289,10 @@ class MaschineDevice:
             self.monitor("in", port, msg, note)
 
     def _cc(self, number: int, value: int) -> None:
+        if number == self.touchstrip_cc:
+            self.touchstrip = value
+            self.changed("strip")
+            return
         if self.model == "jam":
             if number in self.strip_ccs:
                 self.strips[self.strip_ccs[number]].value = value
@@ -283,19 +316,21 @@ class MaschineDevice:
             self.changed("leds")
 
     def handle_sysex(self, msg: bytes) -> str:
+        if msg == ni.QUERY and self.model not in NIHOST_MODELS:
+            return "query of dbm-nihost (NI's driver ignores it)"
         if msg == ni.QUERY:
             if self.present:
                 self.emit(self.hello(), "hello")
                 return "query: answered with the hello"
             return "query (not attached: no answer)"
-        if self.model == "mk2":
+        if self.model in MCU_MODELS:
             if msg.startswith(ni.DBM_HEADER + bytes([ni.DBM_LABELS])) and len(msg) >= 9:
                 self._set_chars(self.labels, msg[6], msg[7:-1])
                 return "button labels"
             if msg.startswith(ni.MCU_HEADER) and len(msg) >= 8 and msg[5] == ni.MCU_DISPLAY:
                 self._set_chars(self.mcu_text, msg[6], msg[7:-1])
                 return "MCU display text"
-        else:
+        elif self.model == "jam":
             if msg.startswith(ni.JAM_HEADER) and len(msg) >= len(ni.JAM_HEADER) + 2:
                 command = msg[len(ni.JAM_HEADER)]
                 data = msg[ni.JAM_STRIP_VALUE_OFFSET:-1]
@@ -353,8 +388,12 @@ class MaschineDevice:
     def strip_colours(self, index: int) -> list[int]:
         """The 11 LEDs of a JAM touch strip (bottom first) as palette indices (dbm-nihost's
         drawStrip)."""
-        s = self.strips[index]
         leds = STRIP_LEDS
+        if self.model != "jam":
+            # The touch strip of the Mk3 / Mikro Mk3: a white bar of the host's value
+            bar = (self.touchstrip * leds + 63) // 127
+            return [ni.colour(ni.HUE_WHITE, ni.LEVEL_FULL) if i < bar else 0 for i in range(leds)]
+        s = self.strips[index]
 
         def led_of(value):
             return value * (leds - 1) // 127

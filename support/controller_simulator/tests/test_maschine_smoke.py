@@ -46,7 +46,7 @@ class MaschineSmokeTest(unittest.TestCase):
             feed = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "maschine_feed.py"), "--model", model,
                                    "--suffix", SUFFIX], capture_output=True, text=True, timeout=30)
             self.assertEqual(feed.returncode, 0, feed.stderr)
-            self.assertIn("hello: yes", feed.stdout)
+            self.assertIn("hello: n/a" if model in ("mk3", "mikromk3") else "hello: yes", feed.stdout)
             output, _ = app.communicate(timeout=30)
         finally:
             if app.poll() is None:
@@ -69,6 +69,14 @@ class MaschineSmokeTest(unittest.TestCase):
     def test_jam(self):
         # Scene 1: palette 30 (green), the pads' palette 6 (red)
         self.run_model("jam", [(0, 255, 0), (255, 0, 0)])
+
+    def test_mk3(self):
+        # Group A: palette 6 (red, on the cap), the full green pad (palette 30)
+        self.run_model("mk3", [(255, 29, 32), (0, 255, 0)])
+
+    def test_mikromk3(self):
+        # The pads in full palette colours (6 red, 30 green)
+        self.run_model("mikromk3", [(255, 0, 0), (0, 255, 0)])
 
     def test_run_sh_dispatches_push(self):
         result = subprocess.run([os.path.join(ROOT, "run.sh"), "--model", "push3", "--help"], capture_output=True,

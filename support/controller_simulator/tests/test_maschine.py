@@ -15,6 +15,8 @@ from maschine_simulator import layout, ni, templates  # noqa: E402
 from maschine_simulator.device import MaschineDevice  # noqa: E402
 
 HEADER = os.path.join(ROOT, "..", "linux", "ni_host", "src", "template_map.h")
+JAVA = os.path.expanduser("~/bastel/github/DrivenByMoss")
+REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 
 
 class Base(unittest.TestCase):
@@ -44,6 +46,43 @@ class TemplateTest(unittest.TestCase):
             tables = gen_maschine_templates.parse(f.read())
         self.assertEqual(tuple(tables["mk2"]), templates.MK2)
         self.assertEqual(tuple(tables["jam"]), templates.JAM)
+
+    @unittest.skipUnless(os.path.isdir(os.path.join(JAVA, "resources", "Maschine Mk3")), "the Java DrivenByMoss is not there")
+    def test_in_sync_with_the_ni_templates(self):
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import gen_maschine_templates
+        for name, rel in gen_maschine_templates.NI_TEMPLATES:
+            rows, disabled = gen_maschine_templates.parse_ni_template(os.path.join(JAVA, rel))
+            self.assertEqual(tuple(rows), getattr(templates, name.upper()), name)
+            self.assertEqual(frozenset(disabled), getattr(templates, name.upper() + "_DISABLED"), name)
+
+    def test_mk3_templates_match_the_core(self):
+        """The CCs of the Mk3 template are the core's (src/controller/maschine/mk/surface.rs)."""
+        surface = os.path.join(REPO, "src", "controller", "maschine", "mk", "surface.rs")
+        if not os.path.exists(surface):
+            self.skipTest("the Rust sources are not there")
+        import re
+        with open(surface) as f:
+            rust = {name: int(value) for name, value in re.findall(r"pub const (\w+): i32 = (\d+);", f.read())}
+        mk3 = {e[0]: e for e in templates.MK3 if e[1] == "input"}
+        pairs = {"Play": "PLAY", "Rec": "REC", "Stop": "STOP", "Restart": "RESTART", "Erase": "ERASE", "Tap": "TAP_METRO",
+                 "Follow": "FOLLOW", "Encoder": "ENCODER", "EncoderPush": "ENCODER_PUSH", "EncoderCap": "ENCODER_TOUCH",
+                 "EncoderUp": "CURSOR_UP", "EncoderRight": "CURSOR_RIGHT", "EncoderDown": "CURSOR_DOWN",
+                 "EncoderLeft": "CURSOR_LEFT", "Macro": "GROUP", "Auto": "AUTO", "Lock": "LOCK", "NoteRep": "NOTE_REPEAT",
+                 "File": "PROJECT", "Setting": "FAVORITES", "Browser": "BROWSER", "Channel": "CHANNEL",
+                 "Arranger": "ARRANGER", "Mixer": "MIXER", "Volume": "VOLUME", "Plugin": "PLUGIN", "Swing": "SWING",
+                 "Sampling": "SAMPLING", "Tempo": "TEMPO", "Pitch": "PITCH", "Mod": "MOD", "Perform": "PERFORM",
+                 "Notes": "NOTES", "FixedVel": "FIXED_VEL", "PadMode": "PAD_MODE", "Keyboard": "KEYBOARD",
+                 "Chords": "CHORDS", "Step": "STEP", "Scene": "SCENE", "Pattern": "PATTERN", "Events": "EVENTS",
+                 "Variation": "VARIATION", "Duplicate": "DUPLICATE", "Select": "SELECT", "Solo": "SOLO", "Mute": "MUTE",
+                 "Left": "PAGE_LEFT", "Right": "PAGE_RIGHT", "Touchstrip": "TOUCHSTRIP", "Button1": "MODE_BUTTON_1",
+                 "Knob1": "MODE_KNOB_1", "KnobCap1": "MODE_KNOB_TOUCH_1", "GroupA": "BANK_1"}
+        for ident, const in pairs.items():
+            self.assertEqual(mk3[ident][4], rust[const], ident)
+        # The touch strip touch: the core binds CC 2, the template has poly aftertouch 2, disabled
+        self.assertEqual(rust["TOUCHSTRIP_TOUCH"], 2)
+        self.assertEqual(mk3["TouchstripCap"][2:5], ("polyat", 0, 2))
+        self.assertIn("TouchstripCap", templates.MK3_DISABLED)
 
     def test_layout(self):
         for model in layout.MODELS:
@@ -192,6 +231,90 @@ class JamTest(Base):
         d.receive(b"\xB0\x40\x7F")
         d.receive(b"\xB0\x41\x40")
         self.assertEqual((d.meter_leds(0), d.meter_leds(1)), (8, 4))
+
+
+
+class Mk3Test(Base):
+    def test_attach_shift_and_no_dbm_nihost_messages(self):
+        d = self.make("mk3")
+        d.attach()
+        self.assertEqual(self.sent, [bytes.fromhex("F0 00 21 09 16 00 4D 50 00 01 46 01 F7")])  # return from host
+        d.receive(ni.QUERY)  # dbm-nihost's query: NI's driver ignores it
+        self.assertEqual(len(self.sent), 1)
+        shift = self.key(d, label="Shift")
+        d.press_button(shift)
+        d.release_button(shift)
+        self.assertEqual(self.sent[1:], [bytes.fromhex("F0 00 21 09 16 00 4D 50 00 01 4D 01 F7"),
+                                         bytes.fromhex("F0 00 21 09 16 00 4D 50 00 01 4D 00 F7")])
+        d.detach()
+        self.assertEqual(len(self.sent), 3)  # no "gone": that is dbm-nihost's
+
+    def test_controls(self):
+        d = self.make("mk3")
+        knob = self.key(d, "Knob3")
+        d.touch_encoder(knob, True)
+        d.turn_encoder(knob, -1)
+        enc = self.key(d, "Encoder")
+        d.touch_encoder(enc, True)
+        d.turn_encoder(enc, 2)
+        d.press_button(self.key(d, "EncoderPush"))
+        d.press_button(self.key(d, "EncoderLeft"))
+        d.press_button(self.key(d, "Button7"))  # a note, as on the Mk2
+        pad = self.key(d, "Pad16")
+        d.press_pad(pad, 80)
+        d.pad_pressure(pad, 30)
+        d.release_pad(pad)
+        self.assertEqual(self.sent, [b"\xB0\x3E\x7F", b"\xB0\x48\x7F", b"\xB0\x09\x7F", b"\xB0\x07\x02", b"\xB0\x08\x7F",
+                                     b"\xB0\x21\x7F", b"\x90\x1C\x7F", b"\x90\x33\x50", b"\xA0\x33\x1E", b"\x80\x33\x00"])
+
+    def test_touch_strip(self):
+        d = self.make("mk3")
+        d.move_strip(0, 64)
+        d.touch_strip(0, False)
+        # NI's driver sends no touch for the Mk3's strip (disabled in the template)
+        self.assertEqual(self.sent, [b"\xB0\x01\x40"])
+        e = self.make("mk3")
+        e.send_disabled = True
+        e.move_strip(0, 64)
+        e.touch_strip(0, False)
+        self.assertEqual(self.sent, [b"\xB0\x02\x7F", b"\xB0\x01\x40", b"\xB0\x02\x00"])
+        e.receive(b"\xB0\x01\x7F")
+        self.assertEqual(e.strip_colours(0), [70] * 11)
+
+    def test_leds_and_display(self):
+        d = self.make("mk3")
+        d.receive(b"\x90\x24\x1E")
+        d.receive(b"\xB0\x64\x06")
+        d.receive(b"\xB0\x1E\x7F")  # the encoder's up LED
+        d.receive(b"\xB0\x39\x7F")  # Play
+        self.assertEqual(d.led_rgb(self.key(d, "Pad1")), ni.PALETTE[30])
+        self.assertEqual(d.led_rgb(self.key(d, "GroupA")), (255, 0, 0))
+        self.assertNotEqual(d.led_rgb(self.key(d, "EncoderUp")), (0, 0, 0))
+        self.assertNotEqual(d.led_rgb(self.key(d, "Play")), (0, 0, 0))
+        d.receive(ni.MCU_HEADER + bytes([0x14, 0x12, 0]) + b"Synth" + b"\xF7")
+        self.assertTrue(d.display_lines(0)[1].startswith("Synth"))
+        self.assertEqual(d.unknown, [])
+
+
+class MikroMk3Test(Base):
+    def test_controls_and_leds(self):
+        d = self.make("mikromk3")
+        d.attach()
+        self.assertEqual(self.sent[-1], ni.ni_return_from_host("mikromk3"))
+        self.assertNotIn("Shift", [c.label for c in d.controls])  # emulated by the core with Stop
+        nav = self.key(d, "Navigation")
+        d.touch_encoder(nav, True)
+        d.turn_encoder(nav, -3)
+        d.press_button(self.key(d, "Navigation Push"))
+        d.press_button(self.key(d, "Star"))
+        d.move_strip(0, 10)
+        d.touch_strip(0, False)
+        self.assertEqual(self.sent[1:], [b"\xB0\x09\x7F", b"\xB0\x07\x7D", b"\xB0\x08\x7F", b"\xB0\x27\x7F",
+                                         b"\xB0\x02\x7F", b"\xB0\x01\x0A", b"\xB0\x02\x00"])
+        d.receive(b"\x90\x33\x06")
+        self.assertEqual(d.led_rgb(self.key(d, "Pad16")), (255, 0, 0))
+        d.receive(b"\xB0\x01\x40")
+        self.assertEqual(d.touchstrip, 64)
 
 
 if __name__ == "__main__":

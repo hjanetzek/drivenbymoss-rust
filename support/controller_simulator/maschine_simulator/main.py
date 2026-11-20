@@ -17,14 +17,17 @@ SIM_SUFFIX = " (sim)"
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(prog="maschine_simulator", description="NI Maschine Mk2/JAM simulator for DrivenByMoss "
-                                     "(the MIDI of dbm-nihost / NI's driver with the DrivenByMoss templates)")
+    parser = argparse.ArgumentParser(prog="maschine_simulator", description="NI Maschine Mk2/JAM/Mk3/Mikro Mk3 simulator for "
+                                     "DrivenByMoss (the MIDI of dbm-nihost / NI's driver with the DrivenByMoss templates)")
     parser.add_argument("--model", choices=layout.MODELS, default="mk2")
     parser.add_argument("--suffix", default=None,
                         help="appended to the client and port names (default: none, or \" (sim)\" if a client with the "
                              "original name exists, e.g. dbm-nihost's)")
     parser.add_argument("--input-port-name", default=None, help="override the name of the port the DAW reads from")
     parser.add_argument("--output-port-name", default=None, help="override the name of the port the DAW writes to")
+    parser.add_argument("--send-disabled", action="store_true",
+                        help="Mk3: also send the controls the NI template disables (the touch strip touch, as CC 2 which "
+                             "the core binds); NI's driver doesn't send them")
     parser.add_argument("--detached", action="store_true",
                         help="start without the device: no hello, no answer to the query (as dbm-nihost without the device)")
     sim_app.add_common_args(parser)
@@ -60,7 +63,7 @@ def main(argv=None) -> int:
             except Exception as ex:  # noqa: BLE001 - shown in the monitor, the app goes on
                 sim.log(f"MIDI send failed: {ex}")
 
-    device = MaschineDevice(args.model, send=send)
+    device = MaschineDevice(args.model, send=send, send_disabled=args.send_disabled)
     sim = MaschineSimulator(device)
     sim.monitorVisible = args.monitor
 
@@ -71,10 +74,14 @@ def main(argv=None) -> int:
             if suffix:
                 sim.log(f"MIDI: '{layout.PORT_NAMES[args.model][0]}' exists (dbm-nihost?), using the suffix '{suffix}'")
         client, daw_in, daw_out = layout.midi_names(args.model, suffix)
-        seq, port_ids = sim_app.open_ports(sim, args.client_name or client,
-                                           {IN_PORT: (args.input_port_name or daw_in, READ_CAPS),
-                                            OUT_PORT: (args.output_port_name or daw_out, WRITE_CAPS)},
-                                           IN_PORT, OUT_PORT, args.connect)
+        daw_in, daw_out = args.input_port_name or daw_in, args.output_port_name or daw_out
+        if daw_in == daw_out:
+            # One duplex port (Mk3, Mikro Mk3: NI's driver names in- and output alike)
+            seq, port_ids = sim_app.open_ports(sim, args.client_name or client, {IN_PORT: daw_in}, IN_PORT, IN_PORT, args.connect)
+        else:
+            seq, port_ids = sim_app.open_ports(sim, args.client_name or client,
+                                               {IN_PORT: (daw_in, READ_CAPS), OUT_PORT: (daw_out, WRITE_CAPS)},
+                                               IN_PORT, OUT_PORT, args.connect)
     if not args.detached:
         device.attach()
 

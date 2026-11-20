@@ -13,7 +13,7 @@ controller).
 
 from dataclasses import dataclass
 
-MODELS = ("mk2", "jam")
+MODELS = ("mk2", "jam", "mk3", "mikromk3")
 
 
 @dataclass
@@ -39,12 +39,17 @@ class Control:
                 "cc": self.key, "note": self.key, "rgb": self.rgb, "index": self.index}
 
 
-SURFACE = {"mk2": (322.0, 200.0), "jam": (262.0, 252.0)}
+SURFACE = {"mk2": (322.0, 200.0), "jam": (262.0, 252.0), "mk3": (350.0, 220.0), "mikromk3": (262.0, 168.0)}
 
 # The client and port names of NI's driver and dbm-nihost: (client, DAW input, DAW output)
 PORT_NAMES = {
     "mk2": ("Maschine MK2", "Maschine MK2 In", "Maschine MK2 Out"),
     "jam": ("Maschine Jam - 1", "Maschine Jam - 1 Input", "Maschine Jam - 1 Output"),
+    # NI's driver (Windows) names the in- and output of the Mk3 and the Mikro Mk3 alike; the core's
+    # discovery uses these names on Linux too. There is no dbm-nihost for them, the simulator
+    # creates one duplex port.
+    "mk3": ("Maschine MK3", "Maschine MK3 Ctrl MIDI", "Maschine MK3 Ctrl MIDI"),
+    "mikromk3": ("Maschine Mikro MK3", "Maschine Mikro MK3", "Maschine Mikro MK3"),
 }
 
 
@@ -152,10 +157,104 @@ def _jam() -> list[Control]:
     return c
 
 
+def _pads_and_column(c: list[Control], button, column_x, column_w, pad_x, pad_y, pad_w, pad_h, pitch_x, pitch_y, step):
+    """The column left of the pads (Scene .. Mute) and the 16 pads (Pad1 at the bottom left)."""
+    for i, (label, template) in enumerate((("Scene", "Scene"), ("Pattern", "Pattern"), ("Events", "Events"),
+                                          ("Variation", "Variation"), ("Duplicate", "Duplicate"), ("Select", "Select"),
+                                          ("Solo", "Solo"), ("Mute", "Mute"))):
+        button(label, template, column_x, pad_y + i * step, column_w, step - 3)
+    for n in range(16):
+        row, col = divmod(n, 4)
+        c.append(Control("pad", f"{n + 1}", pad_x + col * pitch_x, pad_y + (3 - row) * pitch_y, pad_w, pad_h,
+                         template=f"Pad{n + 1}", rgb=True))
+
+
+PAD_MODE_ROW = (("Fixed Vel", "FixedVel"), ("Pad Mode", "PadMode"), ("Keyboard", "Keyboard"), ("Chords", "Chords"),
+                ("Step", "Step"))
+
+
+def _mk3() -> list[Control]:
+    c: list[Control] = []
+
+    def button(label, template, x, y, w=26.0, h=8.0, rgb=False):
+        c.append(Control("button", label, x, y, w, h, template=template, rgb=rgb))
+
+    # Top left: the mode buttons and the file buttons
+    for i, ((l1, t1), (l2, t2)) in enumerate(((("Channel", "Channel"), ("Plug-in", "Plugin")),
+                                              (("Arranger", "Arranger"), ("Mixer", "Mixer")),
+                                              (("Browser", "Browser"), ("Sampling", "Sampling")),
+                                              (("◀", "Left"), ("▶", "Right")),
+                                              (("File", "File"), ("Settings", "Setting")))):
+        button(l1, t1, 4, 4 + i * 10)
+        button(l2, t2, 32, 4 + i * 10)
+    # The 8 buttons above the displays, the displays, the 8 touch-sensitive knobs
+    for i in range(8):
+        button(f"{i + 1}", f"Button{i + 1}", 64 + i * 30.5, 4, 26, 6)
+        c.append(Control("encoder", "", 64 + i * 30.5 + 6, 48, 14, 14, template=f"Knob{i + 1}", touch=f"KnobCap{i + 1}"))
+    c.append(Control("display", "", 64, 12, 118, 32, index=0))
+    c.append(Control("display", "", 186.5, 12, 118, 32, index=1))
+    # The 4-D encoder: turn (and touch), push, tilt in four directions
+    button("▲", "EncoderUp", 319, 2, 14, 6)
+    button("◀", "EncoderLeft", 309, 9, 8, 14)
+    c.append(Control("encoder", "", 319, 9, 14, 14, template="Encoder", touch="EncoderCap"))
+    button("▶", "EncoderRight", 335, 9, 8, 14)
+    button("▼", "EncoderDown", 319, 24, 14, 6)
+    button("Push", "EncoderPush", 319, 32, 14, 6)
+    for i, (label, template) in enumerate((("Volume", "Volume"), ("Swing", "Swing"), ("Tempo", "Tempo"))):
+        button(label, template, 304 + i * 15, 42, 14, 8)
+    # Left: performance, groups, transport (Shift: NI's SysEx, not in the template)
+    for i, ((l1, t1), (l2, t2)) in enumerate(((("Macro", "Macro"), ("Note Rep.", "NoteRep")),
+                                              (("Auto", "Auto"), ("Lock", "Lock")),
+                                              (("Pitch", "Pitch"), ("Mod", "Mod")),
+                                              (("Perform", "Perform"), ("Notes", "Notes")))):
+        button(l1, t1, 4, 56 + i * 10)
+        button(l2, t2, 32, 56 + i * 10)
+    for i in range(8):
+        button(chr(ord("A") + i), "Group" + chr(ord("A") + i), 4 + (i % 4) * 14.5, 100 + (i // 4) * 14, 13, 12, rgb=True)
+    for i, ((l1, t1), (l2, t2)) in enumerate(((("Restart", "Restart"), ("Erase", "Erase")),
+                                              (("Tap", "Tap"), ("Follow", "Follow")),
+                                              (("Play", "Play"), ("Rec", "Rec")),
+                                              (("Stop", "Stop"), ("Shift", "")))):
+        button(l1, t1, 4, 132 + i * 14, 26, 12)
+        button(l2, t2, 32, 132 + i * 14, 26, 12)
+    # The touch strip and the pad mode buttons above the pads
+    c.append(Control("strip", "", 110, 68, 96, 8, template="Touchstrip", touch="TouchstripCap", index=0))
+    for i, (label, template) in enumerate(PAD_MODE_ROW):
+        button(label, template, 212 + i * 27, 67, 25, 10)
+    _pads_and_column(c, button, 66, 38, 110, 82, 56, 31, 60, 34, 16.5)
+    return c
+
+
+def _mikro_mk3() -> list[Control]:
+    c: list[Control] = []
+
+    def button(label, template, x, y, w=24.0, h=8.0, rgb=False):
+        c.append(Control("button", label, x, y, w, h, template=template, rgb=rgb))
+
+    for i, (label, template) in enumerate((("Maschine", "Maschine"), ("★", "Star"), ("Browser", "Browser"),
+                                          ("Volume", "Volume"), ("Swing", "Swing"), ("Tempo", "Tempo"),
+                                          ("Plug-in", "Plugin"), ("Sampling", "Sampling"))):
+        button(label, template, 4 + (i % 3) * 26, 4 + (i // 3) * 10)
+    # The navigation encoder: turn (and touch), push
+    c.append(Control("encoder", "", 88, 4, 20, 20, template="Navigation", touch="Navigation Touch"))
+    button("Push", "Navigation Push", 86, 27, 24, 6)
+    c.append(Control("strip", "", 4, 40, 104, 8, template="Touchstrip", touch="TouchstripCap", index=0))
+    for i, (label, template) in enumerate((("Group", "Group"), ("Auto", "Auto"), ("Lock", "Lock"), ("Note Rep.", "NoteRep"),
+                                          ("Pitch", "Pitch"), ("Mod", "Mod"), ("Perform", "Perform"), ("Notes", "Notes"))):
+        button(label, template, 4 + (i % 4) * 26.5, 54 + (i // 4) * 12, 24, 10)
+    for i, (label, template) in enumerate((("Restart", "Restart"), ("Erase", "Erase"), ("Tap", "Tap"), ("Follow", "Follow"),
+                                          ("Play", "Play"), ("Rec", "Rec"), ("Stop", "Stop"))):
+        button(label, template, 4 + (i % 4) * 26.5, 86 + (i // 4) * 15, 24, 12)
+    for i, (label, template) in enumerate(PAD_MODE_ROW):
+        button(label, template, 152 + i * 21.5, 4, 19.5, 10)
+    _pads_and_column(c, button, 116, 32, 152, 20, 24, 33, 26.5, 36, 18)
+    return c
+
+
 def build_controls(model: str) -> list[Control]:
     if model not in MODELS:
         raise ValueError(f"unknown model {model!r}")
-    controls = _mk2() if model == "mk2" else _jam()
+    controls = {"mk2": _mk2, "jam": _jam, "mk3": _mk3, "mikromk3": _mikro_mk3}[model]()
     for key, control in enumerate(controls):
         control.key = key
     return controls

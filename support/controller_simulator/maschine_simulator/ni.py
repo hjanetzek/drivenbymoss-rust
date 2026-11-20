@@ -72,6 +72,26 @@ def jam_shift(down: bool) -> bytes:
     return JAM_HEADER + bytes([JAM_SHIFT, 0x01 if down else 0x00, 0xF7])
 
 
+# NI's SysEx header of a device by its USB product ID (the core's Maschine::maschine_id): F0 00 21
+# 09 <id low> <id high> 4D 50 00 01; the JAM 15 00, the Mk3 16 00, the Mikro Mk3 17 00
+DEVICE_IDS = {"jam": (0x15, 0x00), "mk3": (0x16, 0x00), "mikromk3": (0x17, 0x00)}
+
+
+def ni_header(model: str) -> bytes:
+    low, high = DEVICE_IDS[model]
+    return bytes([0xF0, 0x00, 0x21, 0x09, low, high, 0x4D, 0x50, 0x00, 0x01])
+
+
+def ni_shift(model: str, down: bool) -> bytes:
+    """The Shift SysEx of NI's driver (the Mk2's Shift goes through dbm-nihost instead)."""
+    return ni_header(model) + bytes([JAM_SHIFT, 0x01 if down else 0x00, 0xF7])
+
+
+def ni_return_from_host(model: str) -> bytes:
+    """NI's "return from host": the device is in MIDI mode (again); the core refreshes it."""
+    return ni_header(model) + bytes([JAM_RETURN_FROM_HOST, 0x01, 0xF7])
+
+
 # Mackie MCU display text: F0 00 00 66 <device> 12 <position> <characters> F7
 MCU_HEADER = bytes([0xF0, 0x00, 0x00, 0x66])
 MCU_DISPLAY = 0x12

@@ -8,6 +8,8 @@ touchscreen controller (a tablet), so they may differ from the hardware where th
 | --- | --- | --- |
 | Maschine Mk2 (`mk2`) | `maschine_simulator` | the MIDI of dbm-nihost / NI's driver with the DrivenByMoss template, the two MCU text displays, the button labels, the hello/Shift handshake |
 | Maschine JAM (`jam`) | `maschine_simulator` | the template MIDI, the touch strips (setup, values, dual values), the level meters, NI's Shift SysEx and hello |
+| Maschine Mk3 (`mk3`) | `maschine_simulator` | what NI's driver sends with the DrivenByMoss template: 8 touch-sensitive knobs, the 4-D encoder (turn, touch, push, tilt), the touch strip, NI's Shift SysEx and "return from host", the MCU text displays |
+| Maschine Mikro Mk3 (`mikromk3`) | `maschine_simulator` | the same for the Mikro: the navigation encoder, the touch strip with touch, no knobs, displays, group buttons or Shift |
 | Akai APC40 mkII (`apc40mk2`) | `midi_simulator` | Ableton Live mode: RGB clip pads and scene buttons with the animation channels, single LEDs, the knobs with their LED rings, faders, crossfader |
 | Novation Launchpad Pro Mk3 (`lppromk3`) | `midi_simulator` | programmer mode: pads with aftertouch, all buttons, LEDs by note/CC with flashing and pulsing, the SysEx LED update with RGB, the logo |
 | Novation Launch Control XL (`lcxl`) | `midi_simulator` | the 16 templates with the template-change handshake and a template selector, 24 knobs with their two-colour LEDs, 8 faders, 24 buttons with LEDs, flashing, the SysEx LED update |
@@ -23,6 +25,8 @@ Licensed under LGPLv3.
 ```sh
 support/controller_simulator/run.sh --model mk2
 support/controller_simulator/run.sh --model jam --monitor
+support/controller_simulator/run.sh --model mk3
+support/controller_simulator/run.sh --model mikromk3
 support/controller_simulator/run.sh --model apc40mk2
 support/controller_simulator/run.sh --model lppromk3
 support/controller_simulator/run.sh --model lcxl
@@ -40,6 +44,7 @@ cd support/controller_simulator && python3 -m midi_simulator --help
 | `--client-name`, `--input-port-name`, `--output-port-name` | override the ALSA names |
 | `--connect PORT` | connect the simulator to another ALSA port (name or `client:port`, repeatable): our "In" port sends to it, it sends to our "Out" port. Use it for a `snd-virmidi` port for Bitwig |
 | `--detached` | start "without the device": no hello, no answer to the query (as dbm-nihost without the device) |
+| `--send-disabled` | Mk3: also send the controls the NI template disables (the touch strip touch, as CC 2, which the core binds) |
 | `--monitor` | open the MIDI monitor (F2 toggles it) |
 | `--no-alsa` | no ports |
 | `--quit-after S`, `--screenshot PNG`, `--size WxH` | for automated runs (`QT_QPA_PLATFORM=offscreen`) |
@@ -131,6 +136,24 @@ The tables come from dbm-nihost (`support/linux/ni_host/src/template_map.h`, gen
 DrivenByMoss NI templates). `tools/gen_maschine_templates.py` turns them into
 `maschine_simulator/templates.py`, and a test checks that the two agree.
 
+### The Mk3 and the Mikro Mk3
+
+There is no dbm-nihost for them; the simulator emulates NI's driver (Windows/macOS) directly.
+
+| Direction | Messages |
+| --- | --- |
+| Port | one duplex port named as NI's driver names its in- and output on Windows: `Maschine MK3 Ctrl MIDI` (client `Maschine MK3`), `Maschine Mikro MK3`. These are the core's (and Java's) discovery names for Linux too. On macOS NI's driver names them `Maschine MK3 Virtual Input`/`Output` |
+| Controls → DAW | the MIDI of the DrivenByMoss NI templates (`resources/Maschine Mk3/DrivenByMoss.ncm3`, `resources/Maschine Mikro Mk3/DrivenByMoss.ncmm3` of the Java DrivenByMoss): the same CCs as the core's `surface.rs` (the Mk2's template was made to match them). Mk3: knobs CC 70..77 (relative) with touch CC 60..67, the 4-D encoder CC 7 (relative), touch CC 9, push CC 8, tilt up/right/down/left CC 30..33, the touch strip CC 1, Button 7 a note (28). Mikro: the navigation encoder CC 7/8/9, the touch strip CC 1 with touch CC 2 |
+| Touch strip touch (Mk3) | **disabled** in the Mk3 template (and as poly aftertouch on note 2, while the core binds CC 2): NI's driver sends no touch for the Mk3's strip. The simulator does the same; `--send-disabled` sends CC 2 |
+| Shift | Mk3: NI's SysEx `F0 00 21 09 16 00 4D 50 00 01 4D 01/00 F7` (Maschine+ 18 20); the Mikro has none in MIDI mode, the core uses Stop as Shift |
+| Hello | NI's "return from host" (`... 46 01 F7`) on start, as NI's driver sends it when it enters MIDI mode; no "gone", and dbm-nihost's query is ignored |
+| DAW → LEDs | pads (notes 36..51), groups (Mk3, CC 100..107): NI's palette; the other buttons with their own CC as a brightness; the touch strip's LEDs with CC 1 (a bar) |
+| DAW → displays (Mk3) | the MCU text (2 × 56 characters, half of each line on a display), as for the Mk2; no button labels (they are dbm-nihost's) |
+
+`tools/gen_maschine_templates.py` reads these two templates from a DrivenByMoss checkout (the
+parser of `support/linux/ni_host/tools/gen_template_map.py`, plus the `<disabled/>` flag), and
+a test keeps them in sync with the checkout and with the core's CC constants.
+
 ### Values side channel
 
 There is none for the Maschines. The Push gets one (`DBMV` on its display socket) because its
@@ -219,8 +242,15 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   pads with pressure, JAM strips), LED feedback (palette, brightness, channel rules), the Mk2
   displays, the JAM strip types and meters, the handshake, the layout, and that `templates.py`
   agrees with dbm-nihost's `template_map.h`.
-- `test_maschine_alsa.py`: an ALSA loopback with one-way ports named with the suffix ` (test)`.
-- `test_maschine_smoke.py`: both simulators offscreen with the suffix ` (smoke)`, fed by
+  The Mk3 and the Mikro Mk3: the return from host, NI's Shift, the knobs with touch, the 4-D and
+  navigation encoders, the touch strip (with and without the disabled touch), the LEDs and the
+  display, and the sync with the NI templates and the core's CC constants.
+- `test_maschine_core.py`: the real core in-process for all four models (dbm_host's bridge, no
+  ALSA): everything the core sends is understood, every control works without a core error
+  (skipped without the built library).
+- `test_maschine_alsa.py`: an ALSA loopback with one-way ports (Mk3: one duplex port) named with
+  the suffix ` (test)`.
+- `test_maschine_smoke.py`: the four Maschine simulators offscreen with the suffix ` (smoke)`, fed by
   `maschine_feed.py` and grabbed to PNGs (into `MASCHINE_SIM_SCREENSHOTS` if set), checked for the
   fed colours; and that `run.sh` hands Push models to the Push simulator.
 - `test_midi_simulators.py`: the APC40 mkII and Launchpad Pro Mk3 protocol (controls, LEDs and

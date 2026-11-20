@@ -12,7 +12,8 @@ from sim_common.qt_base import SimulatorBase, hex_color
 from . import layout, ni
 from .device import MaschineDevice
 
-TITLES = {"mk2": "Maschine Mk2 Simulator", "jam": "Maschine JAM Simulator"}
+TITLES = {"mk2": "Maschine Mk2 Simulator", "jam": "Maschine JAM Simulator", "mk3": "Maschine Mk3 Simulator",
+          "mikromk3": "Maschine Mikro Mk3 Simulator"}
 
 
 class MaschineSimulator(SimulatorBase):
