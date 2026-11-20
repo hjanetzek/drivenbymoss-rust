@@ -1,7 +1,8 @@
 # Controller simulators: how they are built and what we learned
 
 The repository has desktop simulators of controllers for testing DrivenByMoss without the
-hardware. They emulate the Push 1/2/3 (`support/push_simulator`), the Maschine Mk2 and JAM, the
+hardware. They emulate the Push 1/2/3 (`support/push_simulator`), the Maschine Mk2, JAM, Mk3 and
+Mikro Mk3, the
 Akai APC40 mkII, the Novation Launchpad Pro Mk3 and the Novation Launch Control XL
 (`support/controller_simulator`). This guide is for whoever builds the next one, or the tablet
 touchscreen controller that is meant to grow out of them. It covers the architecture, where to
@@ -120,6 +121,13 @@ drawing), `src/text_display.cpp` (MCU text and button labels), `src/template_map
 from the DrivenByMoss NI Controller Editor templates in Java's resources). The Maschine simulator
 generates its own table from that header (`tools/gen_maschine_templates.py`), and a test keeps
 the two in sync.
+
+**NI Controller Editor templates** (`resources/Maschine */DrivenByMoss.ncm*` of the Java
+DrivenByMoss) are the protocol of the devices behind NI's driver. Only the active page of each
+paged section counts, and an element can be `<disabled/>`: NI's driver sends nothing for it.
+`support/linux/ni_host/tools/gen_template_map.py` ignores that flag (for the Mk2 and the JAM it
+only matters for the JAM's knob touch `CapBrowse`, which dbm-nihost sends anyway); the Maschine
+simulator's generator reads it and lists the disabled controls (`MK3_DISABLED`).
 
 **Then watch the real conversation:** run the core against the simulator with
 `dbm_host_alsa.py --verbose`. Open the simulator's MIDI monitor (F2), which decodes the SysEx it
@@ -268,6 +276,10 @@ tests (`tempfile.mkdtemp(dir=os.environ.get("XDG_RUNTIME_DIR"))`).
 - Set `PUSH_SIM_SCREENSHOT` / `MASCHINE_SIM_SCREENSHOTS` to keep the PNGs, and look at them. Most
   layout and drawing bugs (the indicator rotating around the wrong centre, overlapping buttons)
   were only visible there.
+- A runner killed with SIGINT can lose its output: printed into a pipe, Python's stdout is
+  block-buffered, and a `KeyboardInterrupt` that hits inside a ctypes callback of the core is
+  "ignored" by ctypes, so the loop runs on and the process ends without flushing. Read the
+  simulator's monitor or use `--verbose` into a file; the core was fine.
 - Thin drawings (the LED rings) can fall between sampled pixels: the APC40 smoke test scans every
   pixel of the top of the window for the ring colour instead of every third one.
 - `MIDI_SIM_SCREENSHOTS` keeps the APC40/Launchpad PNGs. Their smoke test starts the simulators
@@ -289,7 +301,7 @@ support/controller_simulator/run.sh --model jam --monitor &
 support/controller_simulator/tools/dbm_host_alsa.py --model jam --library target/debug/libdrivenbymoss.so
 ```
 
-`--model push1|push2|push3|mk2|jam|apc40mk2|lppromk3`, `--controller UUID` for others, `--bindings` and `--library`
+`--model push1|push2|push3|mk2|jam|mk3|mikromk3|apc40mk2|lppromk3|lcxl`, `--controller UUID` for others, `--bindings` and `--library`
 for another checkout (e.g. a port in a worktree), `--verbose` prints the MIDI.
 
 **Bitwig with the Rust extension:**
@@ -345,6 +357,14 @@ the real path sends:
   e.g. `APC_BUTTON_CLIP_TRACK` (0x3A) is "◀ Device" on the mkII and `APC_BUTTON_SEND_C` (0x5A) is
   Metronome. The simulator labels the buttons as printed on the mkII and keeps the Rust names as
   `const` for the sync test.
+- **Maschine Mk3 and Mikro Mk3:** no dbm-nihost, so the simulator is NI's driver: one duplex
+  port with the driver's Windows name (`Maschine MK3 Ctrl MIDI`, also the core's Linux discovery
+  name), NI's "return from host" on start, NI's Shift SysEx with the device's USB ID (16 00; the
+  Mikro has no Shift in MIDI mode, the core uses Stop), the MIDI of the DrivenByMoss NI templates.
+  The Mk3 shows the MCU text like the Mk2 but gets no button labels (those are dbm-nihost's). The
+  template disables the Mk3's touch strip touch (and defines it as poly aftertouch while the core
+  binds CC 2), so with NI's driver the core never sees it; the simulator follows the template
+  and offers `--send-disabled`.
 - **Launch Control XL:** everything depends on the template. Each of the 16 templates has its own
   MIDI channel (user 1-8 on 1-8, factory 1-8 on 9-16) and its own LED memory, so the simulator keeps
   the LEDs per template and shows the active one. The core selects factory template 1 at its start,
@@ -373,6 +393,12 @@ the real path sends:
   bug: hosts that list sequencer ports must offer manual selection or the jack names.
 - **Not bugs, but invisible on hardware:** Java logs dbm-nihost's hello and gone as "Unhandled
   Sysex message", because only the Rust core knows them.
+- **Maschine Mk3 touch strip touch:** the DrivenByMoss NI template disables the touch of the Mk3's
+  strip (`TouchstripCap`, and as poly aftertouch on note 2), but Java and the core bind it as CC 2
+  and need it for the pitch modes: the pitch bend returns to the centre only on the touch's
+  release. With NI's driver the release never comes, so the pitch stays where the finger left it.
+  The Mikro Mk3's template has the touch (CC 2). Fix candidates: enable the touch as CC 2 in the
+  Mk3 template, or reset on a timeout in the core. Not changed.
 - **APC40 mkII and Launchpad Pro Mk3:** the in-process core run found no unknown message and no
   core error. One observation, not checked on hardware: the core (like Java) lights a pressed APC
   button with `BUTTON_STATE_HI` = 2, which is "blinking" for the mkII's single LEDs, so pressed

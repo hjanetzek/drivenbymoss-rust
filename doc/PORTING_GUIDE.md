@@ -83,7 +83,7 @@ listed under "Needs".
 | Akai Fire | `akai/fire` | 6,299 | `FireControllerInstance` | **Ported** (`src/controller/akai/fire/`, OLED with `framework::graphics`; the XoX drum view needs `AbstractDrumXoXView`) | — |
 | NI Kontrol Mk1 (S25–S88) | `ni/kontrol/mki` | part of 7,390 | `KontrolMkIS25/49/61/88ControllerInstance` | USB/HID (`Kontrol1UsbDevice`) | 5 |
 | NI Kontrol Mk2/Mk3 (protocol V1–V3) | `ni/kontrol/mkii` | part of 7,390 | `KontrolProtocolV1/V2/V3ControllerInstance` | — (NI Kontrol MIDI protocol, track/parameter names via sysex) | 2 |
-| NI Maschine Mk3, Mikro Mk3, Plus, Studio | `ni/maschine/mk3` | (ported) | `MaschineMk3/MikroMk3/Plus/StudioControllerInstance` | Mostly done: register in `SUPPORTED_MODELS` (`src/controller/maschine/mk/mod.rs`), add tests; Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU) | 2 |
+| NI Maschine Studio | `ni/maschine/mk3` | (ported, not registered) | `MaschineStudioControllerInstance` | The Mk3, Mikro Mk3 and Plus are **ported and registered** (`tests/maschine_mk3_setup.rs`, the Maschine simulator); the Studio needs the monitor-encoder section (`StudioEncoderModeManager`, MST/GRP/SND/CUE/IN1–4, encoder VU, the cue and metronome volumes in the model) | 2 |
 | Generic Flexi | `generic/**` | 8,759 | `GenericFlexiControllerInstance` | **Ported** (`src/controller/generic/`, see STATUS.md) | — |
 | Ableton Push 1/2/3 | `ableton/push` | 21,260 | `Push1/2/3ControllerInstance` | **Ported** (`src/controller/push/`; Push 2/3 display with `framework::graphics`, frames to the host with `Backend::usb_bulk_out`) | — |
 | OSC | `osc/**` | 3,801 | `OSCControllerInstance` | **Ported** (`src/controller/osc/`, with `framework::osc`: OSC 1.0 codec, writer, UDP polled at the tick) | — |
@@ -377,7 +377,8 @@ The complete list, class by class and by upcoming controller, is in
 
 ## 6. Testing requirements
 
-Controllers with a simulator (Push 1/2/3, Maschine Mk2/JAM) can also be tried without hardware:
+Controllers with a simulator (Push 1/2/3, Maschine Mk2/JAM/Mk3/Mikro Mk3, APC40 mkII, Launchpad Pro
+Mk3, Launch Control XL) can also be tried without hardware:
 run the simulator and the core in the reference host on ALSA (`dbm_host_alsa.py`), or Bitwig. For
 a new controller, a simulator is often the quickest way to see the port working. See
 [CONTROLLER_SIMULATORS.md](CONTROLLER_SIMULATORS.md) for how to build one.

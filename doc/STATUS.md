@@ -5,7 +5,7 @@ As of 2026-11-02 · branch `main`
 ## Summary
 
 Seven controller families are ported: Novation Launchpad (5 models), Novation Launch Control XL,
-NI Maschine Mk2 and Jam, Mackie MCU and HUI (with extenders), Generic Flexi, and the Akai APC mini,
+NI Maschine Mk2, Mk3, Mikro Mk3, Plus and Jam, Mackie MCU and HUI (with extenders), Generic Flexi, and the Akai APC mini,
 APC40, MPC/Force (ACVS) and Fire. The crate has about 90,000 lines of Rust in 315 files. 372 tests
 pass, 2 are ignored, and `cargo clippy --all-targets` reports 0 warnings. The release build
 produces `libdrivenbymoss.so` (about 6.5 MB), which exports the 25 `dbm_*` functions of the
@@ -49,7 +49,7 @@ MIDI mode).
 | Novation Launchpad | MkII, Pro, Pro Mk3, X, Mini MkIII | `src/controller/launchpad/` | `launchpad_smoke.rs` (2), `launchpad_setup.rs` (10), `launchpad_views.rs` (11) |
 | Novation Launch Control XL | XL | `src/controller/launchcontrol/` | `launchcontrol_xl.rs` (12) |
 | Novation Launchkey | Mk3 (25-88), Mini Mk3 | `src/controller/launchkey/` | `launchkey.rs` (13) |
-| NI Maschine | Mk2, Jam (Mk3, Mikro Mk3, Plus, Studio prepared, not registered) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_jam_setup.rs` (12) |
+| NI Maschine | Mk2, Mk3, Mikro Mk3, Plus, Jam (Studio prepared, not registered: its monitor section is missing) | `src/controller/maschine/` | `maschine_mk2_setup.rs` (15), `maschine_mk3_setup.rs` (10), `maschine_jam_setup.rs` (12) |
 | Mackie MCU | MCU with 0-3 extenders (`MCU1..4ControllerInstance`) | `src/controller/mackie/mcu/` | `mackie_mcu.rs` (9) |
 | Mackie HUI | HUI with 0-2 extenders (`HUI1..3ControllerInstance`) | `src/controller/mackie/hui/` | `mackie_hui.rs` (5) |
 | Generic Flexi | Flexi | `src/controller/generic/` | `generic_flexi_setup.rs` (14), `generic_flexi_touch.rs` (2) |
@@ -182,6 +182,20 @@ The Linux guard of the Maschine factories is removed.
 - It installs with CMake, including a systemd user service. See
   `support/linux/ni_host/README.md`.
 
+**Maschine Mk3, Mikro Mk3 and Plus:** registered (`SUPPORTED_MODELS`), with the definitions and
+discovery names of Java (Windows and Linux `Maschine MK3 Ctrl MIDI` / `Maschine Mikro MK3`, macOS
+`Maschine MK3 Virtual Input`/`Output`, `Maschine Plus Virtual`) and the Bitwig definitions. The
+shared setup has the model differences of Java: NI's Shift SysEx (Mk3, Plus) or Shift on Stop
+(Mikro), the cursor keys and page buttons of the 4-D encoder, two foot switches, the MCU display
+(not on the Mikro), 16 tracks per bank and no knobs, group buttons or display buttons on the
+Mikro. Tested with `tests/maschine_mk3_setup.rs` and against the Maschine simulator (in-process
+and over ALSA), not with hardware: there is no dbm-nihost for them, so on Linux they need NI's
+driver's port names from elsewhere (the simulator creates them). The Mk3's touch strip touch is
+disabled in the DrivenByMoss NI template, so with NI's driver the pitch modes don't return to the
+centre (CONTROLLER_SIMULATORS.md §10). The Studio is not registered: its monitor section (the
+monitor encoder with its modes and VU, MST/GRP/SND/CUE/IN1-4, the cue and metronome volumes) is
+not ported.
+
 **Push simulator:** `support/push_simulator` is a PySide6 + QML desktop simulator of Push 2 and
 Push 3 (Push 1 with its text display), for testing the Push port without the hardware. It creates
 ALSA sequencer ports with the device's names (`Ableton Push 2 Live Port` / `User Port`; ctypes on
@@ -199,7 +213,8 @@ HOST_BRIDGE_GUIDE §5a) sends the Push 2/3 encoder state from the display (value
 which the simulator draws as LED rings (Python hosts and Bitwig with `DBM_PUSH_DISPLAY_SOCKET`).
 
 **Maschine simulators:** `support/controller_simulator` has simulators of the Maschine Mk2 and
-JAM in the same style. They speak what DrivenByMoss sees through dbm-nihost: the client and port
+JAM in the same style (and of the Mk3 and Mikro Mk3, which emulate NI's driver directly with the
+MIDI of the DrivenByMoss NI templates). They speak what DrivenByMoss sees through dbm-nihost: the client and port
 names (with the suffix ` (sim)` while dbm-nihost owns them), the template MIDI, the LED feedback
 with NI's palette, the Mk2's MCU text displays and button labels, the JAM's touch strips and level
 meters, and the hello/query/gone handshake, including the Mk2's Shift. They share `sim_common`
@@ -361,8 +376,8 @@ that was formatted on one side and parsed on the other.
    (Mk2, JAM) in more depth. Compare the behaviour with the Java version.
 2. Verify the Windows and macOS CMake builds, and update or remove the Visual Studio, Xcode and
    Eclipse project files.
-3. Register and test Maschine Mk3, Mikro Mk3 and Plus, and port the Studio monitor-encoder
-   section.
+3. Test the Maschine Mk3, Mikro Mk3 and Plus with hardware (registered and tested with the
+   simulator), and port the Studio monitor-encoder section.
 4. Port the remaining controllers, following [PORTING_GUIDE.md](PORTING_GUIDE.md).
 5. Extract `rust/` into its own repository.
 
