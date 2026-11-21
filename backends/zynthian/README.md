@@ -95,3 +95,27 @@ The drivers talk to the core in the binary protocol only (doc/TYPED_PROTOCOL_PLA
 of records per report and per call, exact doubles), as `dbm_host`. The handled commands are
 passed to the core, which derives the command features from them: the transport and the clip
 launcher only with zynseq.
+
+## Parameter values: polling, and zynthian's CC feedback broker
+
+Checked 2026-11-21 against zynthian-ui on upstream tomita 3dbab929 (main 84de173ff).
+
+- The driver reads parameter values itself on its tick thread (`dbm_zynthian/model.py`:
+  `zctrl.value`, `zctrl.get_value2label()`), and the core compares them with what the device
+  shows, as with Bitwig. That stays the model: no push notifications needed.
+- Don't use `zctrl.is_dirty` for this: zynthian's UIs reset that flag when they redraw, so whoever
+  reads it first consumes the change.
+- zynthian no longer has per-controller value callbacks: upstream added a callback list
+  (91d51107) and replaced it with the CC feedback broker (`zyngine/zynthian_cc_feedback.py`,
+  d6d08865, 6f18babb). `zctrl.feedback` is the broker while the controller is bound to a
+  registered device.
+- The broker sends the values of MIDI-learned bindings (and bindings a driver sets with
+  `set_bindings()`) back to devices that register their MIDI input with
+  `register(zmip, cb, value)`; `cb(zctrl, chan, cc)` runs in whatever thread set the value. It
+  doesn't fit DBM: it is keyed by MIDI input, so HID devices without a MIDI port (the Maschines)
+  can't register, and DBM shows pages of parameters and the mixer rather than CC bindings.
+- **Don't register a DBM-driven device with the broker.** It would send CC values to the device
+  and compete with DBM's own LEDs and displays. The drivers don't register now.
+- Possible later use: if a DBM-driven MIDI controller should also show a binding the user made by
+  MIDI learn (an LED ring on a learned knob), registering with a `value` function that gives that
+  device's representation is the built-in way to do it.
