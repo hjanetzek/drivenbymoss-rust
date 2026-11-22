@@ -34,6 +34,8 @@ SND_SEQ_ADDRESS_UNKNOWN = 253
 POLLIN = 1
 EVENT_SIZE = 64  # sizeof(snd_seq_event_t) is 28 on 64 bit Linux; some room
 BUFFER_SIZE = 1 << 16
+# The input pool in events (SNDRV_SEQ_MAX_CLIENT_EVENTS)
+INPUT_POOL = 2000
 
 DUPLEX_CAPS = (SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ | SND_SEQ_PORT_CAP_WRITE
                | SND_SEQ_PORT_CAP_SUBS_WRITE | SND_SEQ_PORT_CAP_DUPLEX)
@@ -92,6 +94,9 @@ class AlsaSeq:
         if self.lib.snd_seq_open(ctypes.byref(self.seq), b"default", SND_SEQ_OPEN_DUPLEX, SND_SEQ_NONBLOCK) != 0:
             raise AlsaError("can't open the ALSA sequencer")
         self.lib.snd_seq_set_client_name(self.seq, client_name.encode())
+        # The largest input pool the kernel allows: the default (200 cells of 28 bytes) loses
+        # the end of a SysEx message of more than about 5 KB, e.g. the Electra's page view
+        self.lib.snd_seq_set_client_pool_input(self.seq, INPUT_POOL)
         self.client_id = self.lib.snd_seq_client_id(self.seq)
         if port_type is None:
             port_type = SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_HARDWARE | SND_SEQ_PORT_TYPE_PORT
