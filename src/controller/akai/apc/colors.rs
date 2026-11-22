@@ -5,7 +5,8 @@
 //! The colors of the APC40 Mk1 and Mk2 (former `APCColorManager`).
 
 use crate::daw::color::{ColorEx, DawColor};
-use crate::framework::color::{ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
+use crate::controller::push::colors::DEFAULT_PALETTE;
+use crate::framework::color::{palette_from_rgb255, ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::*;
 use crate::framework::feature::BUTTON_COLOR_OFF;
 use crate::framework::grid::GRID_OFF;
@@ -236,6 +237,10 @@ pub fn create_color_manager(is_mk2: bool) -> ColorManager {
     }
     // Note: the simulator colors of the buttons (former getColor (colorIndex, buttonID)) are
     // not ported
+    if is_mk2 {
+        // The direct path (not Bitwig): the fixed palette of the pads' velocities
+        cm.set_palette_rgb(&palette_from_rgb255(&DEFAULT_PALETTE));
+    }
     cm
 }
 

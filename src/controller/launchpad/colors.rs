@@ -4,7 +4,8 @@
 
 //! The colors of the Launchpad (former `LaunchpadColorManager`).
 
-use crate::framework::color::{ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
+use crate::controller::push::colors::DEFAULT_PALETTE;
+use crate::framework::color::{palette_from_rgb255, ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::*;
 use crate::framework::feature::BUTTON_COLOR_OFF;
 use crate::framework::grid::GRID_OFF;
@@ -185,5 +186,7 @@ pub fn create_color_manager() -> ColorManager {
     cm.register_color_index(BUTTON_STATE_OFF, LAUNCHPAD_COLOR_BLACK);
     cm.register_color_index(BUTTON_STATE_ON, LAUNCHPAD_COLOR_YELLOW_LO);
     cm.register_color_index(BUTTON_STATE_HI, LAUNCHPAD_COLOR_YELLOW_HI);
+    // The direct path (not Bitwig): Novation's palette of the LED velocities
+    cm.set_palette_rgb(&palette_from_rgb255(&DEFAULT_PALETTE));
     cm
 }

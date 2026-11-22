@@ -222,7 +222,7 @@ impl DrumLaneBase {
                 if col >= num_columns {
                     y += self.lanes;
                 }
-                let color = seq.step_color(Some(step_info), col == hi_step, drum_pad_color, position.channel, col, position.note, &edit_notes);
+                let color = seq.step_color(&ctx.colors, Some(step_info), col == hi_step, drum_pad_color, position.channel, col, position.note, &edit_notes);
                 lights.push((x, y, PadLight::Id(color)));
             }
         }

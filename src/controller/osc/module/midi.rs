@@ -103,7 +103,7 @@ impl MidiModule {
             return if ctx.model.has_recording_state() { ColorEx::RED } else { ColorEx::GREEN };
         }
         let cursor_track = ctx.model.cursor_track();
-        let color_id = replace_octave_color_with_track_color(Some(cursor_track), shared.key_manager.color(ctx.model.scales(), note));
+        let color_id = replace_octave_color_with_track_color(&ctx.colors, Some(cursor_track), shared.key_manager.color(ctx.model.scales(), note));
         let (red, green, blue) = ctx.colors.color(ctx.colors.color_index(color_id));
         ColorEx::new(red, green, blue)
     }

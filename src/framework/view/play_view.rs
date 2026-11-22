@@ -384,7 +384,7 @@ pub fn draw_piano_grid(ctx: &mut Ctx, key_manager: &crate::scale::KeyManager, st
     let track = ctx.model.cursor_track();
     let play_key_color = ctx.colors.color_index(if is_recording { COLOR_RECORD } else { COLOR_PLAY });
     let white_key_color = ctx.colors.color_index(Scales::SCALE_COLOR_NOTE);
-    let black_key_color = ctx.colors.color_index(replace_octave_color_with_track_color(Some(track), Scales::SCALE_COLOR_OCTAVE));
+    let black_key_color = ctx.colors.color_index(replace_octave_color_with_track_color(&ctx.colors, Some(track), Scales::SCALE_COLOR_OCTAVE));
     let off_key_color = ctx.colors.color_index(Scales::SCALE_COLOR_OFF);
 
     let grid = ctx.surface.grid();

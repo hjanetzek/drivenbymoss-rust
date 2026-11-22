@@ -9,7 +9,6 @@ use crate::controller::launchpad::command::view_select::set_session_view_tempora
 use crate::controller::launchpad::surface as lp;
 use crate::daw::bank::BankItem;
 use crate::daw::clip::SessionAlternative;
-use crate::daw::color::DawColor;
 use crate::framework::commands::mv_helper;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View, BUTTON_COLOR_OFF};
@@ -256,7 +255,7 @@ impl View for SessionView {
         if let Some(index) = scene_index(button) {
             let scene = ctx.model.current_track_bank().scene_bank().item(index);
             if scene.does_exist() {
-                return DawColor::color_id(scene.color());
+                return ctx.colors.color_id(scene.color());
             }
         }
         BUTTON_COLOR_OFF

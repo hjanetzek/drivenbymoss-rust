@@ -48,7 +48,6 @@ use crate::config::values::REAPER_ARP_MODES;
 use crate::config::{Configuration, LaunchpadConfiguration, SettingId};
 use crate::controller::{ControllerSetup, InstanceParts, MidiPorts};
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::events::ModelEvent;
 use crate::daw::model::Model;
 use crate::daw::model_setup::ModelSetup;
@@ -746,7 +745,7 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         Rc::new(|ctx: &Ctx| {
             let cursor_track = ctx.model.cursor_track();
             if cursor_track.does_exist() {
-                ctx.colors.color_index(DawColor::color_id(cursor_track.color()))
+                ctx.colors.index_for_color(cursor_track.color())
             } else {
                 0
             }
@@ -903,7 +902,7 @@ pub fn track_mode_color_index(ctx: &Ctx, index: usize) -> i32 {
                 LAUNCHPAD_COLOR_ROSE
             }
         }
-        _ => ctx.colors.color_index(DawColor::color_id(track.color())),
+        _ => ctx.colors.index_for_color(track.color()),
     }
 }
 

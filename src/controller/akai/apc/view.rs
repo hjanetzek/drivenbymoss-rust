@@ -10,7 +10,6 @@ use super::command::start_browser;
 use super::mode::ApcMode;
 use crate::daw::bank::BankItem;
 use crate::daw::clip::{NotePosition, StepState};
-use crate::daw::color::DawColor;
 use crate::daw::constants::{ChannelType, Resolution};
 use crate::framework::color::{BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::abstract_session_view::{COLOR_SCENE, COLOR_SCENE_OFF, COLOR_SELECTED_SCENE};
@@ -320,7 +319,7 @@ impl View for ApcSessionView {
             return COLOR_SELECTED_SCENE;
         }
         if self.session.use_clip_color {
-            DawColor::color_id(s.color())
+            ctx.colors.color_id(s.color())
         } else {
             COLOR_SCENE
         }

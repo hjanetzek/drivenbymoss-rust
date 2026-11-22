@@ -8,7 +8,6 @@ use super::{base_on_grid_note, pad_xy, ExecuteFunction};
 use crate::controller::maschine::core::colors::{COLOR_GREEN, COLOR_GREEN_LO, COLOR_RED, COLOR_RED_LO};
 use crate::daw::bank::BankItem;
 use crate::daw::clip::SessionAlternative;
-use crate::daw::color::DawColor;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{View, BUTTON_COLOR_OFF};
 use crate::framework::ids::ButtonId;
@@ -122,7 +121,7 @@ impl View for ClipView {
                 } else if item.is_stop_queued() {
                     grid.light_ex(x, y, COLOR_GREEN_LO);
                 } else {
-                    grid.light_ex_id(colors, x, y, DawColor::color_id(item.color()));
+                    grid.light_ex_id(colors, x, y, colors.color_id(item.color()));
                 }
             } else {
                 grid.light_ex_id(colors, x, y, BUTTON_COLOR_OFF);

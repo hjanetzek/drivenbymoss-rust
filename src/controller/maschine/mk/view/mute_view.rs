@@ -7,7 +7,6 @@
 use super::{base_on_grid_note, pad_xy, ExecuteFunction};
 use crate::controller::maschine::core::colors::COLOR_DARK_GREY;
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{View, BUTTON_COLOR_OFF};
 use crate::framework::ids::ButtonId;
@@ -54,7 +53,7 @@ impl View for MuteView {
             let item = tb.item(i);
             let (x, y) = pad_xy(i as i32);
             if item.does_exist() {
-                let color_index = colors.color_index(DawColor::color_id(item.color()));
+                let color_index = colors.index_for_color(item.color());
                 if item.is_mute() {
                     grid.light_ex_blink(x, y, color_index, COLOR_DARK_GREY, false);
                 } else {

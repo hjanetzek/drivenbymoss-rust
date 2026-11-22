@@ -13,7 +13,7 @@ use std::rc::Rc;
 use super::abstract_sequencer_view::{selected_track_index, SequencerBase};
 use crate::daw::bank::BankItem;
 use crate::daw::clip::{NotePosition, StepInfo, StepState};
-use crate::daw::color::{ColorEx, DawColor};
+use crate::daw::color::ColorEx;
 use crate::daw::constants::Resolution;
 use crate::daw::device::{DrumPadBank, SpecificDevice};
 use crate::daw::events::ModelEvent;
@@ -526,7 +526,7 @@ impl DrumBase {
         }
 
         if self.seq.use_daw_colors && !self.fixed_pad_content_color {
-            DawColor::color_id(drum_pad.color())
+            ctx.colors.color_id(drum_pad.color())
         } else {
             COLOR_PAD_HAS_CONTENT
         }
@@ -709,7 +709,7 @@ impl DrumBase {
             let x = col % self.num_columns;
             let y = col / self.num_columns;
             let color = if is_active {
-                self.seq.step_color(Some(step_info), col == hi_step, row_color, note_position.channel, col, note_row, &edit_notes)
+                self.seq.step_color(&ctx.colors, Some(step_info), col == hi_step, row_color, note_position.channel, col, note_row, &edit_notes)
             } else {
                 COLOR_NO_CONTENT
             };

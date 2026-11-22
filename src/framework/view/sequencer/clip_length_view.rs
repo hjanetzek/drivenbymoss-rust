@@ -5,7 +5,6 @@
 //! Edit the loop of a clip with the pads (former `ClipLengthView`).
 
 use super::abstract_sequencer_view::SequencerBase;
-use crate::daw::color::DawColor;
 use crate::framework::color_ids::abstract_sequencer_view::{COLOR_RESOLUTION, COLOR_RESOLUTION_OFF, COLOR_RESOLUTION_SELECTED};
 use crate::framework::color_ids::clip_length_view::{COLOR_OUTSIDE, COLOR_PART};
 use crate::framework::ctx::Ctx;
@@ -100,7 +99,8 @@ impl View for ClipLengthView {
         let max_quarters = quarters_per_pad * 64.0;
         let loop_start_pad = (start.max(0.0) / quarters_per_pad).floor() as i32;
         let loop_end_pad = ((start + clip.loop_length()).min(max_quarters) / quarters_per_pad).ceil() as i32;
-        let clip_color = if self.seq.use_daw_colors { DawColor::color_id(clip.color()) } else { COLOR_PART };
+        let clip_rgb = clip.color();
+        let clip_color = if self.seq.use_daw_colors { ctx.colors.color_id(clip_rgb) } else { COLOR_PART };
 
         let Ctx { surface, colors, .. } = ctx;
         let grid = surface.grid();

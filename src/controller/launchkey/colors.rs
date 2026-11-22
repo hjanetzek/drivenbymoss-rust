@@ -8,7 +8,8 @@
 //! Not ported: the RGB values of the palette and the `getColor` override (both only used by the
 //! simulator GUI).
 
-use crate::framework::color::{ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
+use crate::controller::push::colors::DEFAULT_PALETTE;
+use crate::framework::color::{palette_from_rgb255, ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::*;
 use crate::framework::feature::BUTTON_COLOR_OFF;
 use crate::framework::grid::GRID_OFF;
@@ -151,6 +152,8 @@ pub fn create_color_manager(is_mini: bool) -> ColorManager {
     cm.register_color_index(BUTTON_STATE_OFF, 0);
     cm.register_color_index(BUTTON_STATE_ON, 1);
     cm.register_color_index(BUTTON_STATE_HI, 127);
+    // The direct path (not Bitwig): Novation's palette of the LED velocities
+    cm.set_palette_rgb(&palette_from_rgb255(&DEFAULT_PALETTE));
     cm
 }
 

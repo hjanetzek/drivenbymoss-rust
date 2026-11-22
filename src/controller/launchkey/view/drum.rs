@@ -159,7 +159,7 @@ impl View for DrumView {
                 let step_info = clip.step(&NotePosition::new(channel, col, note_row));
                 let x = col % GRID_COLUMNS;
                 let y = col / GRID_COLUMNS;
-                lights.push((x, y, self.base.seq.step_color(Some(step_info), col == hi_step, row_color, channel, col, note_row, &edit_notes)));
+                lights.push((x, y, self.base.seq.step_color(&ctx.colors, Some(step_info), col == hi_step, row_color, channel, col, note_row, &edit_notes)));
             }
         }
         let Ctx { surface, colors, .. } = ctx;

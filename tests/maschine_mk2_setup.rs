@@ -434,10 +434,11 @@ fn group_buttons_select_tracks() {
     cc(&mut app, mk::BANK_1 + 1, 0);
     let calls = backend.take_calls();
     assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelSelect { .. })), "{calls:?}");
-    // The selected track is lit white
+    // The selected track is lit in its color: not Bitwig (App::new), so the nearest entry of NI's
+    // palette (255, 0, 16), not the DAW color table's red 6
     app.update_model("track/0/color 217 46 36\n");
     app.tick();
-    assert_eq!(led(&backend.take_calls(), mk::BANK_1), Some(6));
+    assert_eq!(led(&backend.take_calls(), mk::BANK_1), Some(66));
 }
 
 #[test]
@@ -568,9 +569,10 @@ fn all_views_modes_and_buttons() {
 #[test]
 fn pad_leds_and_blinking() {
     let (mut app, backend) = start();
-    // The play view lights the pads (the octave note in the track color (dark grey), notes white)
+    // The play view lights the pads (the octave note in the track color (dark grey: the nearest
+    // grey of NI's palette, not Bitwig), notes white)
     let calls = backend.take_calls();
-    assert!(calls.iter().any(|c| matches!(c, BackendCall::SendMidi(OUT, d) if d == &vec![0x90, 36, 76])), "{calls:?}");
+    assert!(calls.iter().any(|c| matches!(c, BackendCall::SendMidi(OUT, d) if d == &vec![0x90, 36, 68])), "{calls:?}");
     assert!(calls.iter().any(|c| matches!(c, BackendCall::SendMidi(OUT, d) if d == &vec![0x90, 37, 78])), "{calls:?}");
 
     // The select view of the parameters blinks the selected parameter

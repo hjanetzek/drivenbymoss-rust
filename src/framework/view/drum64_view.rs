@@ -5,7 +5,6 @@
 //! A drum view which plays 64 drum pads arranged in 4x4 blocks (former `AbstractDrum64View`).
 
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::device::DrumPadBank;
 use crate::daw::events::ModelEvent;
 use crate::framework::color_ids::abstract_drum_view::{COLOR_PAD_MUTED, COLOR_PAD_NO_CONTENT, COLOR_PAD_OFF, COLOR_PAD_PLAY, COLOR_PAD_RECORD, COLOR_PAD_SELECTED};
@@ -186,7 +185,7 @@ impl Drum64ViewBase {
         }
 
         // Former getPadContentColor
-        DawColor::color_id(drum_pad.color())
+        ctx.colors.color_id(drum_pad.color())
     }
 
     pub fn clear_pressed_keys(&mut self) {

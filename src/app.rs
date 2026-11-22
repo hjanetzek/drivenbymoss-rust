@@ -14,6 +14,7 @@ use crate::config::properties::Properties;
 use crate::config::reaper::{apply_document_settings, document_tag, format_document_settings, parse_document_settings, ControllerConfigFile};
 use crate::config::{Scope, SettingId, SettingKind};
 use crate::controller::{all_factories, find_factory, ControllerFactory, ControllerSetup, MidiPorts, OperatingSystem};
+use crate::framework::color::ColorSource;
 use crate::framework::ctx::Ctx;
 use crate::host::{Host, MemoryLog, StderrLog, LogSink};
 use crate::parser::{Parser, ParserEvent, UPDATE_NOTE_MAPPING_DELAY_MS};
@@ -94,6 +95,9 @@ pub struct App {
     fixed_time: bool,
     /// The time 0 of [`App::set_time_ms`]: the creation of the application.
     epoch: Instant,
+    /// Where the RGB colors of the host come from (Bitwig or another host), by its application
+    /// name: the path of the colors to the palettes of the controllers.
+    color_source: ColorSource,
 }
 
 impl App {
@@ -113,6 +117,7 @@ impl App {
         crate::script::set_config_folder(Path::new(config_path));
         let factory = find_factory(uuid)?;
         let mut app = Self::create(backend, config_path, true);
+        app.color_source = ColorSource::for_host(app_version);
         app.host.println(&format!("DrivenByMoss (Rust) starting {}, {app_version}", factory.info()));
         app.add_instance(factory);
         Some(app)
@@ -135,6 +140,8 @@ impl App {
             single,
             fixed_time: false,
             epoch: Instant::now(),
+            // Reaper (dbm_create), and by default: see new_single
+            color_source: ColorSource::Direct,
         }
     }
 
@@ -431,6 +438,7 @@ impl App {
         let sender = if usb_devices.is_empty() { self.sender.clone() } else { Sender::new(Rc::new(crate::backend::UsbInstanceBackend::new(backend.clone(), index as i32, usb_devices))) };
         match instance.factory.create_with_extra_ports(self.host.clone(), sender, &ports, &extra_inputs, &extra_outputs, configuration) {
             Ok(mut parts) => {
+                parts.ctx.colors.set_color_source(self.color_source);
                 parts.setup.init(&mut parts.ctx);
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
                     parts.ctx.model.note_clip(cols, rows);

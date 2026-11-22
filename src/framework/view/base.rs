@@ -4,8 +4,8 @@
 
 //! Functions shared by all views (former `AbstractView` and `AbstractFeatureGroup`).
 
+use crate::framework::color::ColorManager;
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::track::Track;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, Views};
@@ -40,17 +40,17 @@ impl ViewBase {
     /// Get the color ID of a pad from the key manager, replacing the octave color with the
     /// color of the track (former `getPadColor`).
     pub fn pad_color(&self, ctx: &Ctx, pad: i32, track: Option<&Track>) -> &'static str {
-        replace_octave_color_with_track_color(track, self.key_manager.color(ctx.model.scales(), pad))
+        replace_octave_color_with_track_color(&ctx.colors, track, self.key_manager.color(ctx.model.scales(), pad))
     }
 }
 
 /// Replace the octave color with the DAW color of the track (if any).
-pub fn replace_octave_color_with_track_color(track: Option<&Track>, color_id: &'static str) -> &'static str {
+pub fn replace_octave_color_with_track_color(colors: &ColorManager, track: Option<&Track>, color_id: &'static str) -> &'static str {
     if color_id != Scales::SCALE_COLOR_OCTAVE {
         return color_id;
     }
     match track {
-        Some(track) if track.does_exist() => DawColor::color_id(track.color()),
+        Some(track) if track.does_exist() => colors.color_id(track.color()),
         _ => Scales::SCALE_COLOR_OCTAVE,
     }
 }

@@ -9,10 +9,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::drum_view::{DrumView, CLIP_KEY, NUM_STEPS};
+use crate::framework::color::ColorManager;
 use crate::config::SettingId;
 use crate::controller::maschine::core::colors::{COLOR_BLACK, COLOR_BLUE, COLOR_GREEN, COLOR_MAGENTA, COLOR_MAGENTA_LO, COLOR_ROSE, COLOR_SKIN};
 use crate::daw::clip::{NotePosition, StepInfo, StepState};
-use crate::daw::color::{ColorEx, DawColor};
+use crate::daw::color::ColorEx;
 use crate::daw::constants::Resolution;
 use crate::framework::color_ids::abstract_sequencer_view::{
     COLOR_CONTENT, COLOR_CONTENT_CONT, COLOR_NO_CONTENT, COLOR_STEP_HILITE_CONTENT, COLOR_STEP_HILITE_NO_CONTENT, COLOR_STEP_MUTED, COLOR_STEP_MUTED_CONT,
@@ -95,7 +96,7 @@ impl PlayView {
             }
             let step_info = clip.step(&note_position);
             let hilite = col == hi_step;
-            lights.push((x, y, Self::step_color(is_active, step_info, hilite, &note_position, &edit_notes, track_color)));
+            lights.push((x, y, Self::step_color(&ctx.colors, is_active, step_info, hilite, &note_position, &edit_notes, track_color)));
         }
         let Ctx { surface, colors, .. } = ctx;
         let grid = surface.grid();
@@ -105,7 +106,7 @@ impl PlayView {
     }
 
     /// Former `getStepColor`.
-    fn step_color(is_active: bool, step_info: &StepInfo, hilite: bool, note_position: &NotePosition, edit_notes: &[NotePosition], track_color: Option<ColorEx>) -> &'static str {
+    fn step_color(colors: &ColorManager, is_active: bool, step_info: &StepInfo, hilite: bool, note_position: &NotePosition, edit_notes: &[NotePosition], track_color: Option<ColorEx>) -> &'static str {
         if !is_active {
             return COLOR_NO_CONTENT;
         }
@@ -120,7 +121,7 @@ impl PlayView {
                 if step_info.is_muted() {
                     return COLOR_STEP_MUTED;
                 }
-                track_color.map(|c| DawColor::color_id(ColorEx::darker(c))).unwrap_or(COLOR_CONTENT)
+                track_color.map(|c| colors.color_id(ColorEx::darker(c))).unwrap_or(COLOR_CONTENT)
             }
             StepState::Continue => {
                 if hilite {
@@ -132,7 +133,7 @@ impl PlayView {
                 if step_info.is_muted() {
                     return COLOR_STEP_MUTED_CONT;
                 }
-                track_color.map(|c| DawColor::color_id(ColorEx::darker(c))).unwrap_or(COLOR_CONTENT_CONT)
+                track_color.map(|c| colors.color_id(ColorEx::darker(c))).unwrap_or(COLOR_CONTENT_CONT)
             }
             StepState::Off => {
                 if hilite {

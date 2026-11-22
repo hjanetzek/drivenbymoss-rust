@@ -4,9 +4,10 @@
 
 //! The state and functions shared by all sequencer views (former `AbstractSequencerView`).
 
+use crate::framework::color::ColorManager;
 use crate::daw::bank::BankItem;
 use crate::daw::clip::{CursorClip, NotePosition, StepInfo, StepState};
-use crate::daw::color::{ColorEx, DawColor};
+use crate::daw::color::ColorEx;
 use crate::daw::constants::Resolution;
 use crate::framework::color_ids::abstract_sequencer_view::*;
 use crate::framework::ctx::Ctx;
@@ -402,7 +403,7 @@ impl SequencerBase {
             }
             return pad_color;
         }
-        self.step_color(step_info, highlight, None, channel, step, note, edit_notes)
+        self.step_color(&ctx.colors, step_info, highlight, None, channel, step, note, edit_notes)
     }
 
     /// Get the color for a step.
@@ -411,6 +412,7 @@ impl SequencerBase {
     #[allow(clippy::too_many_arguments)]
     pub fn step_color(
         &self,
+        colors: &ColorManager,
         step_info: Option<&StepInfo>,
         highlight: bool,
         row_color: Option<ColorEx>,
@@ -433,7 +435,7 @@ impl SequencerBase {
                     return COLOR_STEP_MUTED;
                 }
                 match row_color {
-                    Some(color) if self.use_daw_colors => DawColor::color_id(color),
+                    Some(color) if self.use_daw_colors => colors.color_id(color),
                     _ => COLOR_CONTENT,
                 }
             }
@@ -448,7 +450,7 @@ impl SequencerBase {
                     return COLOR_STEP_MUTED_CONT;
                 }
                 match row_color {
-                    Some(color) if self.use_daw_colors => DawColor::color_id(ColorEx::darker(color)),
+                    Some(color) if self.use_daw_colors => colors.color_id(ColorEx::darker(color)),
                     _ => COLOR_CONTENT_CONT,
                 }
             }

@@ -224,6 +224,80 @@ impl ColorEx {
         dr.abs() + dg.abs() + db.abs()
     }
 
+    /// The color in CIE L*a*b* (sRGB with the D65 white point; L in 0..100).
+    pub fn to_lab(&self) -> [f64; 3] {
+        fn linear(c: f64) -> f64 {
+            let c = c.clamp(0.0, 1.0);
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        fn f(t: f64) -> f64 {
+            if t > 216.0 / 24389.0 {
+                t.cbrt()
+            } else {
+                (24389.0 / 27.0 * t + 16.0) / 116.0
+            }
+        }
+        let (r, g, b) = (linear(self.red), linear(self.green), linear(self.blue));
+        let x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+        let y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
+        let z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+        let (fx, fy, fz) = (f(x), f(y), f(z));
+        [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+    }
+
+    /// The perceptual difference of two colors in CIE L*a*b* (CIEDE2000, ΔE00): about 1 is
+    /// just noticeable. Unlike a distance in RGB it weighs a difference of the hue more than one
+    /// of the lightness, so that the nearest entry of a palette keeps the hue (orange stays
+    /// orange, a dark color keeps its hue) and the greys stay grey.
+    pub fn perceptual_distance(lab1: [f64; 3], lab2: [f64; 3]) -> f64 {
+        let [l1, a1, b1] = lab1;
+        let [l2, a2, b2] = lab2;
+        let pow7 = |v: f64| v.powi(7);
+        let c_mean = (a1.hypot(b1) + a2.hypot(b2)) / 2.0;
+        let g = 0.5 * (1.0 - (pow7(c_mean) / (pow7(c_mean) + pow7(25.0))).sqrt());
+        let (a1, a2) = ((1.0 + g) * a1, (1.0 + g) * a2);
+        let (c1, c2) = (a1.hypot(b1), a2.hypot(b2));
+        let hue = |a: f64, b: f64, c: f64| if c == 0.0 { 0.0 } else { b.atan2(a).to_degrees().rem_euclid(360.0) };
+        let (h1, h2) = (hue(a1, b1, c1), hue(a2, b2, c2));
+        let dl = l2 - l1;
+        let dc = c2 - c1;
+        let dh = if c1 * c2 == 0.0 {
+            0.0
+        } else if h2 - h1 > 180.0 {
+            h2 - h1 - 360.0
+        } else if h2 - h1 < -180.0 {
+            h2 - h1 + 360.0
+        } else {
+            h2 - h1
+        };
+        let dh = 2.0 * (c1 * c2).sqrt() * (dh / 2.0).to_radians().sin();
+        let l_mean = (l1 + l2) / 2.0;
+        let c_mean = (c1 + c2) / 2.0;
+        let h_mean = if c1 * c2 == 0.0 {
+            h1 + h2
+        } else if (h1 - h2).abs() <= 180.0 {
+            (h1 + h2) / 2.0
+        } else if h1 + h2 < 360.0 {
+            (h1 + h2 + 360.0) / 2.0
+        } else {
+            (h1 + h2 - 360.0) / 2.0
+        };
+        let cos = |deg: f64| deg.to_radians().cos();
+        let t = 1.0 - 0.17 * cos(h_mean - 30.0) + 0.24 * cos(2.0 * h_mean) + 0.32 * cos(3.0 * h_mean + 6.0) - 0.20 * cos(4.0 * h_mean - 63.0);
+        let d_theta = 30.0 * (-((h_mean - 275.0) / 25.0).powi(2)).exp();
+        let rc = 2.0 * (pow7(c_mean) / (pow7(c_mean) + pow7(25.0))).sqrt();
+        let sl = 1.0 + 0.015 * (l_mean - 50.0).powi(2) / (20.0 + (l_mean - 50.0).powi(2)).sqrt();
+        let sc = 1.0 + 0.045 * c_mean;
+        let sh = 1.0 + 0.015 * c_mean * t;
+        let rt = -(2.0 * d_theta).to_radians().sin() * rc;
+        let (l, c, h) = (dl / sl, dc / sc, dh / sh);
+        (l * l + c * c + h * h + rt * c * h).max(0.0).sqrt()
+    }
+
     pub fn calc_contrast_color(c: ColorEx) -> ColorEx {
         let l = 0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue;
         if l > 0.179 {
@@ -371,6 +445,25 @@ impl DawColor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn perceptual_distance() {
+        // Reference values of Sharma, Wu, Dalal: "The CIEDE2000 color-difference formula"
+        let pairs = [
+            ([50.0, 2.6772, -79.7751], [50.0, 0.0, -82.7485], 2.0425),
+            ([50.0, 2.5, 0.0], [50.0, 0.0, -2.5], 4.3065),
+            ([50.0, 2.5, 0.0], [73.0, 25.0, -18.0], 27.1492),
+            ([60.2574, -34.0099, 36.2677], [60.4626, -34.1751, 39.4387], 1.2644),
+            ([22.7233, 20.0904, -46.6940], [23.0331, 14.9730, -42.5619], 2.0373),
+        ];
+        for (lab1, lab2, expected) in pairs {
+            let d = ColorEx::perceptual_distance(lab1, lab2);
+            assert!((d - expected).abs() < 1e-3, "{lab1:?} {lab2:?}: {d} != {expected}");
+        }
+        let white = ColorEx::WHITE.to_lab();
+        assert!((white[0] - 100.0).abs() < 1e-3 && white[1].abs() < 1e-3 && white[2].abs() < 1e-3, "{white:?}");
+        assert_eq!(ColorEx::BLACK.to_lab(), [0.0, 0.0, 0.0]);
+    }
 
     #[test]
     fn color_ids() {

@@ -13,7 +13,7 @@ use super::screen_item::{mpc, ScreenItem};
 use super::surface::{self as acvs};
 use crate::config::acvs as config;
 use crate::daw::bank::BankItem;
-use crate::daw::color::{ColorEx, DawColor};
+use crate::daw::color::ColorEx;
 use crate::daw::constants::{ChannelType, LaunchQuantization};
 use crate::daw::events::ParameterBankId;
 use crate::daw::slot::Slot;
@@ -221,7 +221,7 @@ impl ControlMode {
             }
             for scene_index in 0..8 {
                 let scene = scene_bank.item(scene_index);
-                let scene_color = if scene.does_exist() { ctx.colors.color_index(DawColor::color_id(scene.color())) } else { COLOR_BLACK };
+                let scene_color = if scene.does_exist() { ctx.colors.index_for_color(scene.color()) } else { COLOR_BLACK };
                 let offset = if scene_index < 4 { 0 } else { 4 };
                 update.item(ScreenItem::MpcPadState(offset + scene_index), 2);
                 update.item(ScreenItem::MpcPadColor(offset + scene_index), scene_color);
@@ -322,7 +322,7 @@ fn send_additional_force_parameters(ctx: &Ctx, update: &mut Update) {
         } else if track.is_selected() {
             COLOR_SILVER
         } else {
-            ctx.colors.color_index(DawColor::color_id(track.color()))
+            ctx.colors.index_for_color(track.color())
         };
         update.item(ScreenItem::ForceTrackColor(track_index), color);
 
@@ -448,7 +448,7 @@ fn convert_slot_state_to_color(ctx: &Ctx, slot: &Slot) -> i32 {
     if !slot.does_exist() || !slot.has_content() {
         return COLOR_BLACK;
     }
-    ctx.colors.color_index(DawColor::color_id(slot.color()))
+    ctx.colors.index_for_color(slot.color())
 }
 
 /// Former `calcNumberOfSends`.

@@ -12,7 +12,6 @@ use super::abstract_fader_view::{self, FaderView, FaderViewBase, BUTTON_COLOR};
 use super::session_view::session_scroll_states;
 use crate::daw::bank::BankItem;
 use crate::daw::clip::SessionAlternative;
-use crate::daw::color::DawColor;
 use crate::controller::launchpad::surface as lp;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
@@ -60,7 +59,7 @@ impl VirtualFaderView for PanView {
 impl FaderView for PanView {
     fn setup_fader(&self, ctx: &mut Ctx, index: usize) {
         let track = ctx.model.current_track_bank().item(index);
-        let color = if track.does_exist() { ctx.colors.color_index(DawColor::color_id(track.color())) } else { 0 };
+        let color = if track.does_exist() { ctx.colors.index_for_color(track.color()) } else { 0 };
         let value = track.pan();
         lp::setup_fader(ctx, index, color, true);
         lp::set_fader_value(ctx, index, value);
@@ -82,7 +81,7 @@ impl View for PanView {
             return BUTTON_COLOR;
         };
         let track = ctx.model.master_track();
-        let color = if track.does_exist() { ctx.colors.color_index(DawColor::color_id(track.color())) } else { 0 };
+        let color = if track.does_exist() { ctx.colors.index_for_color(track.color()) } else { 0 };
         let mut master_fader = self.master_fader.borrow_mut();
         master_fader.setup(color, true);
         master_fader.set_value(None, track.pan());

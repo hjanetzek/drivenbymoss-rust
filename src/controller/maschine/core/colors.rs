@@ -45,6 +45,34 @@ pub const COLOR_SKIN: i32 = 11;
 pub const COLOR_YELLOW_LO: i32 = 21;
 pub const COLOR_YELLOW: i32 = 22;
 
+/// NI's color palette of the Maschines (hue * 4 + level; level 0 dim, 1 medium, 2 full, 3 pale)
+/// in RGB, as the devices show it: 0..71 from cabl's JAM palette (ni-usb/cabl
+/// `MaschineJamHelper.cpp`, (C) 2015 Vincenzo Pacella, MIT license), 72..79 greys and white (as
+/// support/linux/ni_host/src/palette.cpp). The nearest entry is the color of an RGB color which
+/// does not come from Bitwig ([`ColorManager::set_palette_rgb`]).
+pub const NI_PALETTE: [(u8, u8, u8); 80] = [
+    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
+    (32, 0, 0), (64, 0, 0), (255, 0, 0), (255, 32, 16),
+    (32, 16, 0), (64, 16, 0), (255, 32, 0), (255, 64, 32),
+    (32, 48, 8), (64, 64, 0), (255, 96, 0), (255, 128, 48),
+    (40, 56, 0), (64, 96, 0), (255, 224, 0), (128, 255, 64),
+    (24, 40, 0), (96, 176, 0), (96, 255, 0), (112, 255, 64),
+    (16, 40, 0), (56, 112, 0), (72, 255, 0), (64, 255, 64),
+    (0, 40, 0), (0, 96, 0), (0, 255, 0), (48, 255, 48),
+    (0, 40, 16), (0, 112, 32), (0, 255, 48), (56, 255, 40),
+    (0, 40, 40), (0, 112, 96), (0, 255, 226), (64, 255, 255),
+    (0, 24, 48), (0, 64, 112), (0, 96, 255), (40, 160, 255),
+    (0, 0, 40), (0, 0, 128), (0, 0, 255), (40, 104, 255),
+    (8, 0, 44), (32, 0, 128), (40, 0, 255), (48, 88, 255),
+    (24, 0, 40), (72, 0, 128), (104, 0, 255), (88, 80, 255),
+    (32, 0, 48), (96, 0, 96), (255, 0, 128), (255, 64, 160),
+    (32, 0, 16), (90, 0, 48), (255, 0, 64), (255, 40, 104),
+    (40, 0, 8), (112, 0, 16), (255, 0, 16), (255, 48, 56),
+    (40, 40, 40), (96, 96, 96), (226, 226, 226), (160, 255, 255),
+    (40, 40, 40), (96, 96, 96), (226, 226, 226), (255, 255, 255),
+    (24, 24, 24), (64, 64, 64), (255, 255, 255), (255, 255, 255),
+];
+
 /// The colors of the 8 parameters.
 pub const PARAM_COLORS: [i32; 8] = [COLOR_RED, COLOR_AMBER, COLOR_YELLOW, COLOR_GREEN, COLOR_LIME, COLOR_SKY, COLOR_PURPLE, COLOR_PINK];
 
@@ -141,14 +169,23 @@ pub fn create_color_manager() -> ColorManager {
     for (color, index) in daw_colors {
         cm.register_color_index(color.id(), index);
     }
+    let palette: Vec<(i32, ColorEx)> = NI_PALETTE.iter().enumerate().map(|(i, &(r, g, b))| (i as i32, ColorEx::from_rgb(r.into(), g.into(), b.into()))).collect();
+    cm.set_palette_rgb(&palette);
     cm
 }
 
 /// Get the dimmed or highlighted color index of a DAW color (former `dimOrHighlightColor`).
+/// On the direct path (not Bitwig) the dimmed color is the medium level of the same hue, the
+/// greys a dark grey: Java's `index / 8 * 8 + 5` is meant for its DAW color table and would
+/// change the hue of other entries (yellow 18 to the green 21).
 pub fn dim_or_highlight_color(colors: &ColorManager, color: ColorEx, is_selected: bool) -> i32 {
-    let color_index = colors.color_index(DawColor::color_id(color));
+    let color_index = colors.index_for_color(color);
     if is_selected {
-        return if color_index == COLOR_DARK_GREY { COLOR_WHITE } else { color_index };
+        let is_dark_grey = color_index == COLOR_DARK_GREY || colors.is_direct() && matches!(color_index, 68 | 72);
+        return if is_dark_grey { COLOR_WHITE } else { color_index };
+    }
+    if colors.is_direct() {
+        return if color_index >= 68 { COLOR_DARK_GREY } else { color_index / 4 * 4 + 1 };
     }
     color_index / 8 * 8 + 5
 }

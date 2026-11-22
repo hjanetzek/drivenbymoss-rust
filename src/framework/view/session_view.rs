@@ -9,7 +9,6 @@
 //! called while the view state is borrowed).
 
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::slot::Slot;
 use crate::framework::ctx::Ctx;
 use crate::framework::grid::LightInfo;
@@ -357,7 +356,7 @@ impl SessionViewBase {
 
     /// Get the light of a pad for a slot (former `getPadColor`).
     pub fn pad_light(&self, ctx: &Ctx, slot: &Slot, is_armed: bool) -> LightInfo {
-        let color_id = DawColor::color_id(slot.color());
+        let color_id = ctx.colors.color_id(slot.color());
         let colors = &self.clip_colors;
         if slot.is_recording_queued() {
             return colors.is_recording_queued;

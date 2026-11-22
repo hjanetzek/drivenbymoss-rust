@@ -19,7 +19,7 @@
 
 use crate::config::push::PushVersion;
 use crate::daw::color::{ColorEx, DawColor};
-use crate::framework::color::{ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
+use crate::framework::color::{palette_from_rgb255, ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::*;
 use crate::framework::feature::{BUTTON_COLOR2_HI, BUTTON_COLOR2_ON, BUTTON_COLOR_HI, BUTTON_COLOR_OFF, BUTTON_COLOR_ON};
 use crate::framework::grid::GRID_OFF;
@@ -78,7 +78,10 @@ pub const PUSH_BUTTON_STATE_INSERT_SCENE_ON: &str = "PUSH_BUTTON_STATE_INSERT_SC
 pub const PUSH_BUTTON_STATE_INSERT_SCENE_HI: &str = "PUSH_BUTTON_STATE_INSERT_SCENE_HI";
 
 /// The default color palette as RGB (0-255), like fixed on Push 1. The indices 70 to 96 are
-/// replaced by the DAW colors in the Push 2/3 palette (see [`palette_color_rgb`]).
+/// replaced by the DAW colors in the Push 2/3 palette (see [`palette_color_rgb`]). It is also the
+/// fixed palette of the LED velocities of the APC40 mkII, the Launchpads (MkII, Pro, Pro Mk3, X,
+/// Mini MkIII) (support/controller_simulator/sim_common/palettes.py) and, as Novation's standard
+/// palette, of the Launchkey Mk3.
 #[rustfmt::skip]
 pub const DEFAULT_PALETTE: [[i32; 3]; 128] = [
     [0x00, 0x00, 0x00], [0x1E, 0x1E, 0x1E], [0x7F, 0x7F, 0x7F],
@@ -575,6 +578,13 @@ pub fn create_color_manager(version: PushVersion) -> ColorManager {
 
     for i in 0..128 {
         cm.register_color(i, rgb(palette_color(i)));
+    }
+    // The direct path (not Bitwig): the palette of the device, Push 2/3 with the DAW colors
+    // which the core writes to it (70..96), Push 1 the fixed one
+    if is_modern {
+        cm.set_palette_rgb(&(0..128).map(|i| (i, palette_color(i))).collect::<Vec<_>>());
+    } else {
+        cm.set_palette_rgb(&palette_from_rgb255(&DEFAULT_PALETTE));
     }
     cm
 }

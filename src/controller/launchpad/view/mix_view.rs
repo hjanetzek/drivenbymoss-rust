@@ -12,7 +12,6 @@ use std::rc::Rc;
 use super::session_view::session_scroll_states;
 use crate::controller::launchpad::colors::*;
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::track::Track;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
@@ -141,7 +140,7 @@ impl View for MixView {
                     // Panning
                     if is_selected { LAUNCHPAD_COLOR_SKY_HI } else { LAUNCHPAD_COLOR_GREY_LO },
                     // Volume
-                    ctx.colors.color_index(DawColor::color_id(track.color())),
+                    ctx.colors.index_for_color(track.color()),
                 ]
             } else {
                 [LAUNCHPAD_COLOR_BLACK; 8]

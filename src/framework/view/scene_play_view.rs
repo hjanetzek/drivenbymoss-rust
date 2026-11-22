@@ -5,7 +5,6 @@
 //! A view which displays one scene per pad (former `ScenePlayView`).
 
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::framework::color_ids::abstract_sequencer_view::COLOR_RESOLUTION_OFF;
 use crate::framework::color_ids::scene_play_view::COLOR_SELECTED_PLAY_SCENE;
 use crate::framework::ctx::Ctx;
@@ -65,7 +64,7 @@ impl View for ScenePlayView {
                         if scene.is_selected() {
                             COLOR_SELECTED_PLAY_SCENE
                         } else if scene.does_exist() {
-                            DawColor::color_id(scene.color())
+                            ctx.colors.color_id(scene.color())
                         } else {
                             GRID_OFF
                         }

@@ -189,8 +189,10 @@ fn mk3_daw_mode_handshake() {
     advance(&mut app, &mut t, 250);
     advance(&mut app, &mut t, 50);
     let calls = backend.take_calls();
-    // The pads (session mapping), Play (off) and the DAW online light
-    assert_eq!(last_out(&calls, 0x90, 96), Some(1), "{calls:?}");
+    // The pads (session mapping), Play (off) and the DAW online light. The first slot has the
+    // grey (51, 51, 51): not Bitwig (App::new), so the nearest entry of the palette (0x40
+    // grey, 117), not the DAW color table's dark grey 1
+    assert_eq!(last_out(&calls, 0x90, 96), Some(117), "{calls:?}");
     assert_eq!(last_out(&calls, 0xBF, 0x73), Some(1));
     assert_eq!(last_out(&calls, 0x9F, 0x0C), Some(127));
 
@@ -473,7 +475,7 @@ fn mini_startup_and_modes() {
     // DAW mode, knob mode volume, pad mode session; the surface is flushed at once
     assert!(out.contains(&vec![0x9F, 0x0C, 0x7F]), "{out:?}");
     assert!(out.contains(&vec![0xBF, 0x09, 1]) && out.contains(&vec![0xBF, 0x03, 2]));
-    assert_eq!(last_out(&calls, 0x90, 96), Some(1), "{calls:?}");
+    assert_eq!(last_out(&calls, 0x90, 96), Some(117), "{calls:?}");
     assert!(ctx(&mut app).text_display.is_none());
 
     // The knobs control the volume

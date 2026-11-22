@@ -10,7 +10,6 @@ use super::session_view::session_scroll_states;
 use crate::controller::launchpad::colors::*;
 use crate::controller::launchpad::surface as lp;
 use crate::daw::clip::SessionAlternative;
-use crate::daw::color::DawColor;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{ScrollStates, View};
 use crate::framework::ids::ButtonId;
@@ -49,7 +48,7 @@ impl VirtualFaderView for SendsView {
 impl FaderView for SendsView {
     fn setup_fader(&self, ctx: &mut Ctx, index: usize) {
         let track = ctx.model.current_track_bank().item(index);
-        let color = ctx.colors.color_index(DawColor::color_id(track.color()));
+        let color = ctx.colors.index_for_color(track.color());
         let value = track.send_bank().item(self.selected_send).value();
         lp::setup_fader(ctx, index, color, false);
         lp::set_fader_value(ctx, index, value);

@@ -7,7 +7,6 @@
 use super::{base_on_grid_note, pad_xy, ExecuteFunction};
 use crate::controller::maschine::core::colors::COLOR_WHITE;
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::framework::commands::mv_helper::notify_selected_track;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{View, BUTTON_COLOR_OFF};
@@ -56,7 +55,7 @@ impl View for SelectView {
             let item = tb.item(i);
             let (x, y) = pad_xy(i as i32);
             if item.does_exist() {
-                let color_index = colors.color_index(DawColor::color_id(item.color()));
+                let color_index = colors.index_for_color(item.color());
                 if item.is_selected() {
                     grid.light_ex_blink(x, y, color_index, COLOR_WHITE, false);
                 } else {

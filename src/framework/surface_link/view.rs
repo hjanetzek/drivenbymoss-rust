@@ -7,12 +7,15 @@
 //! encoders), registers the view and the mode, polls the client at its tick and wires its
 //! buttons (e.g. the main encoder) to the client. See doc/SURFACE_LINK.md.
 //!
-//! The RGB colors of the provider go to the controller's palette through its color manager
-//! (the closest DAW color, as for track colors).
+//! The RGB colors of the provider go to the controller's palette through its color manager:
+//! always the perceptually nearest palette entry ([`ColorManager::direct_color_id`]), since they
+//! never come from Bitwig; a controller without a palette table takes the closest DAW color.
+//!
+//! [`ColorManager::direct_color_id`]: crate::framework::color::ColorManager::direct_color_id
 
 use super::client::{PadFunction, SharedClient, SurfaceMapping};
 use super::{LinkState, PageModel, Rgb, SlotKind};
-use crate::daw::color::{ColorEx, DawColor};
+use crate::daw::color::ColorEx;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{Mode, View};
 
@@ -21,7 +24,7 @@ pub fn palette_index(ctx: &Ctx, color: Rgb) -> i32 {
     if color.is_black() {
         return 0;
     }
-    let id = DawColor::color_id(ColorEx::from(color));
+    let id = ctx.colors.direct_color_id(ColorEx::from(color));
     if ctx.colors.has_color_index(id) {
         ctx.colors.color_index(id)
     } else {

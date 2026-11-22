@@ -16,6 +16,9 @@ pub mod mackie;
 pub mod osc;
 pub mod push;
 
+#[cfg(test)]
+mod color_tests;
+
 use crate::framework::ctx::Ctx;
 
 /// The operating system, used for the automatic detection of MIDI ports.

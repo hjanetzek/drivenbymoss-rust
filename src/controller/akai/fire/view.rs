@@ -1075,7 +1075,7 @@ impl View for MixView {
             let track = tb.item(i);
             let x = i as i32;
             if track.does_exist() {
-                let color_index = ctx.colors.color_index(DawColor::color_id(track.color()));
+                let color_index = ctx.colors.index_for_color(track.color());
                 lights.push((x, 0, color_index, if track.is_selected() { FIRE_COLOR_WHITE } else { -1 }));
                 lights.push((x, 1, track_state_color(track.is_mute(), color_track_states, FIRE_COLOR_ORANGE, FIRE_COLOR_DARKER_ORANGE), -1));
                 lights.push((x, 2, track_state_color(track.is_solo(), color_track_states, FIRE_COLOR_YELLOW, FIRE_COLOR_DARKER_YELLOW), -1));

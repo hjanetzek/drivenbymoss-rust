@@ -14,7 +14,6 @@
 use crate::config::maschine_jam::MaschineJamConfiguration;
 use crate::controller::maschine::core::colors::{COLOR_AMBER, COLOR_DARK_GREY, COLOR_WHITE, PARAM_COLORS};
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::daw::events::ParameterBankId;
 use crate::framework::commands::mv_helper;
 use crate::framework::ctx::Ctx;
@@ -62,7 +61,7 @@ pub trait MaschineJamMode {
 }
 
 fn track_color(ctx: &Ctx, color: crate::daw::color::ColorEx) -> i32 {
-    ctx.colors.color_index(DawColor::color_id(color))
+    ctx.colors.index_for_color(color)
 }
 
 const FADER_OFF_DOT: FaderConfig = FaderConfig::new(FaderConfig::TYPE_DOT, 0, 0);

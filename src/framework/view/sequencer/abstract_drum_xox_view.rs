@@ -206,7 +206,7 @@ impl DrumXoXBase {
             note_position.step = col;
             let step_info = clip.step(&note_position);
             let color = if is_active {
-                self.drum.seq.step_color(Some(step_info), col == hi_step, row_color, note_position.channel, col, note_row, &edit_notes)
+                self.drum.seq.step_color(&ctx.colors, Some(step_info), col == hi_step, row_color, note_position.channel, col, note_row, &edit_notes)
             } else {
                 COLOR_NO_CONTENT
             };

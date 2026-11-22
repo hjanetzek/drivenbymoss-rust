@@ -8,7 +8,6 @@
 use super::colors::{LAUNCHKEY_COLOR_BLACK, LAUNCHKEY_COLOR_GREY_LO, LAUNCHKEY_COLOR_RED};
 use super::surface::{state, state_mut};
 use crate::daw::bank::BankItem;
-use crate::daw::color::DawColor;
 use crate::framework::command::TriggerCommand;
 use crate::framework::commands::channel::RecArmCommand;
 use crate::framework::commands::transport::PlayCommand;
@@ -38,7 +37,7 @@ impl ButtonAreaCommand {
         let color = if !t.does_exist() {
             LAUNCHKEY_COLOR_BLACK
         } else if state(ctx).is_select {
-            ctx.colors.color_index(DawColor::color_id(t.color()))
+            ctx.colors.index_for_color(t.color())
         } else if t.is_rec_arm() {
             LAUNCHKEY_COLOR_RED
         } else {
