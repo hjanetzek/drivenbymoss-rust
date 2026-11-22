@@ -301,8 +301,23 @@ support/controller_simulator/run.sh --model jam --monitor &
 support/controller_simulator/tools/dbm_host_alsa.py --model jam --library target/debug/libdrivenbymoss.so
 ```
 
-`--model push1|push2|push3|mk2|jam|mk3|mikromk3|apc40mk2|lppromk3|lcxl`, `--controller UUID` for others, `--bindings` and `--library`
+`--model push1|push2|push3|mk2|jam|mk3|mikromk3|apc40mk2|lppromk3|lcxl|electra|electramini`, `--controller UUID` for others, `--bindings` and `--library`
 for another checkout (e.g. a port in a worktree), `--verbose` prints the MIDI.
+
+**The Electra One** has no simulator of ours: the emulator of its real firmware (the electra-one
+project, `build/electra`, an ALSA client "Electra Controller") stands in for it. The runner then
+has two ports, for Port 1 (the controls) and CTRL (the SysEx API), and adds a small project (a
+synth with remote controls, an EQ+, clips, scenes, markers):
+
+```sh
+build/electra --headless --port 5402 --card /tmp/card --load data/DrivenByMoss.eproj --slot 1 &   # in electra-one
+support/controller_simulator/tools/dbm_host_alsa.py --model electra --library target/debug/libdrivenbymoss.so \
+    --electra-client 130     # the emulator's client number, from its log (if several run)
+tools/electra_ctl.py --port 5402 screenshot /tmp/mixer.png                                         # in electra-one
+```
+
+`support/controller_simulator/tests/test_electra_emulator.py` runs the same headless, over the
+emulator's virtual cables (`--no-alsa`), and is skipped without the emulator.
 
 **Bitwig with the Rust extension:**
 

@@ -50,8 +50,10 @@ value the reference bridge reads or calls.
   fire-and-forget commands; their effect comes back as reported values.
 - **One instance per controller.** Create it with `dbm_create_controller(callbacks,
   controller_id, config_path, app_version, flags)`: exactly one controller, its MIDI input and
-  output are device ID `0`, no main configuration, no port discovery (`get_midi_inputs/outputs`
-  are not used). `controller_id` is the UUID from `dbm_list_controllers()` (JSON: `uuid`,
+  output are device ID `0` (a controller with more ports, `numMidiInPorts`/`numMidiOutPorts` > 1,
+  uses the device IDs `1..n` for the further ones, e.g. the CTRL port of the Electra One; the
+  reference host's `Bridge` opens them all), no main configuration, no port discovery
+  (`get_midi_inputs/outputs` are not used). `controller_id` is the UUID from `dbm_list_controllers()` (JSON: `uuid`,
   `vendor`, `model`, `numMidiInPorts`, `numMidiOutPorts`, `discovery`). Returns null if the
   controller is not supported. (`dbm_create` is the Reaper variant: several controllers from
   `DrivenByMoss4Reaper.config`, ports found by name through `get_midi_inputs/outputs`.) The

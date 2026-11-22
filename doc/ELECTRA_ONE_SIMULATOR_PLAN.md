@@ -608,6 +608,17 @@ Its tests add the oracle comparison with (b).
 
 ## 5. The Rust port of the DBM controller
 
+**Status (2026-11-22): ported** (`src/controller/electra/`, normal and Mini; doc/STATUS.md). Of
+the framework pieces below, `MasterVolumeMode` turned out not to be needed (the Electra modes only
+share its focused-parameter error text); the others were added as listed (the JSON reader is
+`json::JsonValue`, the second port pair a further MIDI input and output of the instance). The port
+was tested against the emulator of the real firmware (the electra-one project), which this plan
+proposed as (b): `dbm_host_alsa.py --model electra` and
+`support/controller_simulator/tests/test_electra_emulator.py`. Findings of those runs: the faders of
+the DBM preset have `"relative"` messages, which the emulator reads as the mk1 firmware's `relcc`,
+so the CC values from the host do not move their bars (the value texts show the values).
+
+
 - **Size:** 5,441 Java lines, an estimated 3,500–4,000 lines of Rust:
   - base: surface, SysEx, PageCache, colour manager;
   - the mk1/mk2 controller: 7 modes and 38 touch-combination commands;

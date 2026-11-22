@@ -565,3 +565,24 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   - **Pads** stay bound to MIDI channel 1 in MPE mode (Java's `PushPadGrid` returns channel -1,
     which its pad grid sends on channel 1 as well).
 
+- **Electra One Mk1/Mk2 and Mini** (ported 2026-11-22, `src/controller/electra/`):
+  - **Handshake errors** (a firmware below 3.4.3 / 5.0.4, another model, JSON which cannot be
+    parsed, no `DrivenByMoss` preset in the list) are logged as errors; Java throws a
+    `FrameworkException` from the MIDI callback, which Bitwig logs. The handshake stops there in
+    both.
+  - **Going offline while offline** (switching between two other presets) keeps the mode of the
+    DrivenByMoss preset; Java remembers DUMMY and, back online, selects the page -1 (a byte 0xFF
+    inside the SysEx; candidate S).
+  - **Pot touch of the Mini with a knob above 8:** ignored; Java throws an
+    `ArrayIndexOutOfBoundsException` (candidate S).
+  - **Note inputs:** one per MIDI channel 1-15 as in Java; their filters are the channel messages
+    8X-EX of the channel (Java's mask `?X????` also matches the system messages FX).
+  - **Knob sensitivity:** the settings are activated but not applied to the knobs (a framework
+    gap, PORTING_GUIDE.md §5); the emulated Shift sets the slow sensitivity of the surface, which
+    the play position and tempo parameters use, as in Java.
+  - **Re-binding:** the bank size reports re-activate the active mode in the Rust core
+    (`ParserEvent::RebindKnobs`); the Electra modes send their page again only on a real mode
+    switch (Java's `onActivate` runs only then).
+  - **The CTRL port** is the further MIDI input and output of the instance
+    (`ControllerFactory::num_extra_midi_inputs` / `num_extra_midi_outputs`), the ports 1 of the
+    Bitwig definition, as in Java.

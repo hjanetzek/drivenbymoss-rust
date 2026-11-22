@@ -485,6 +485,43 @@ Found while porting the OSC controller; the port keeps them.
 - **Confidence:** high for the pad curve, medium for the others. **Ready:** the pad curve fix is
   a one-liner; it needs a Push 3 to verify.
 
+#### S. Electra One: bugs found while porting the Electra One and Mini
+
+Found while porting `controller/electra/one`; the port keeps them unless noted.
+
+- **The knob touch Shift does nothing** (`ElectraOneControlSurface`). The default
+  configuration assigns "Shift Button" to Corner Left 1, 2, 7 and Corner Right 5, 6, 12, but
+  `updateTouchCombinationCommandsCache` puts those patterns into `shiftPatterns` (with 2 for "any
+  state"), and `matchStates` only looks at `commandPatterns`; `shiftPatterns` is never read.
+  Even a matched Shift command would be executed with DOWN and UP at once, which sets and clears
+  Shift in the same call. Fix: match the Shift patterns in `matchStates` (2 = don't care), set
+  Shift while they are held and clear it when they are released.
+- **The Mini's footswitch functions are shifted by 6** (`ElectraOneMiniTouchCombinationCommand`).
+  `getSetting` returns the setting minus 10, copied from the normal model, whose footswitch
+  functions start at option 10; the Mini's start at option 4 (`FOOTSWITCH_CMDS_OFFSET =
+  ELECTRA_ONE_FUNC_MODE_TRANSPORT + 1`). So "Function: Toggle Play" (option 4, the default of
+  Triangle 2, 5, 7) calls the footswitch function -6 ("Unknown footswitch command"), and option
+  10 "Function: New Button" toggles play. "Action" is option 19, but
+  `ELECTRA_ONE_FUNC_MODE_ACTION` is 25, so the action is never invoked. Fix: subtract
+  `FOOTSWITCH_CMDS_OFFSET` (4) and set the Mini's `ELECTRA_ONE_FUNC_MODE_ACTION` to 19.
+- **The Mini's pot touch with a knob above 8 throws** (`AbstractElectraOneControlSurface`): the
+  range check is `potID >= 12` for both models, but the Mini has 8 knob states
+  (`ArrayIndexOutOfBoundsException` for the pots 9-12, which the Mini's buttons are in its
+  Lua). Fix: check against `knobStates.length`. The port ignores those events.
+- **Offline twice selects the page -1 later** (`setOffline`): going offline while offline
+  remembers DUMMY as the active mode; back online, `selectPage (modes.indexOf (DUMMY))` sends
+  `09 0A FF`, a byte above 127 inside a SysEx message. Fix: remember the mode only if it is not
+  DUMMY. The port does that.
+- **Group labels are not escaped** (`updateGroupLabel`): `sgt(%s,"%s")` with a track name which
+  contains `"` or `\` is invalid Lua (the firmware logs the error, the label is not set).
+  Fix: escape `\` and `"`.
+- **The Mini's device page has no colors** (`ElectraOneMiniDeviceMode`): `MAIN_COLORS` has the
+  keys of the mixer (VOLUME, PAN, TRACK), so the label of the parameter target (SEL. DEVICE,
+  PROJECT, TRACK) is updated with the color `null`. Fix: colors for DEVICE_PARAMS,
+  PROJECT_PARAMETERS and TRACK_PARAMETERS.
+- **Confidence:** high for all. **Ready:** yes; the Mini ones need a Mini (the emulator runs
+  the mk1 firmware) or a unit test.
+
 ### 1.4 Checked, but not bugs (or not clearly)
 
 | Topic | Java | Verdict |
@@ -747,6 +784,7 @@ Options:
 | O | Launchkey Mk3: "Optional[...]" on the display, non-Latin-1 letters break the sysex | `LaunchkeyMk3ParameterMode.java:59`, `LaunchkeyMk3Display.java:108` | bug | high | ready |
 | P | Launchkey Mini: swapped octave pad lights, startup mode ignored, "Missing mode name" | `mini/view/DrumConfigView.java:105`, `LaunchkeyMiniMk3ControllerSetup.java:381` | bug (small) | high | device check |
 | Q | OSC: `/playbutton` does nothing, `/scene/{n}/launchAlt` not alternative, `/clip/name` and `/clip/color` unknown | `TransportModule.java`, `SceneModule.java`, `ClipModule.java` | bug (small) | high | ready |
+| S | Electra One: knob touch Shift never matched, Mini footswitch functions shifted by 6 and no Action, Mini pot touch above 8 throws, offline twice selects page -1, `sgt` labels not escaped, Mini device page without colors | `ElectraOneControlSurface.java`, `ElectraOneMiniTouchCombinationCommand.java`, `AbstractElectraOneControlSurface.java`, `ElectraOneMiniDeviceMode.java` | bug | high | ready (Mini: unit test or device) |
 | – | XL EQ type knob with catch, Device + Track Select, Layer Mix LED | `XLEqMode`, `XLBaseNoteEditMode` | design / unclear | – | not for a PR |
 | – | Mk2 label sysex, OSC browse/addDevice, action list | Rust port, `conformance-osc` | port-only additions | – | maybe, if upstream wants it |
 | – | OSC conformance module, restart sysex | `conformance-osc` | test scaffolding | – | not for upstream |

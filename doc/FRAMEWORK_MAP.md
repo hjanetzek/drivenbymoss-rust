@@ -39,7 +39,7 @@ class.
 | SL MkIII | `MonitorCommand`, `ColorView`, `FeatureGroupButtonColorSupplier` |
 | Yaeltex Turn | `AbstractMonophonicSequencerView` |
 | Faderfox EC4 | mute/solo/crossfade as parameters (+ providers), `DummyView` |
-| Electra One | `MasterVolumeMode` (only inside the MCU port), `DummyView` |
+| Electra One | - (ported 2026-11-22: a JSON reader, further MIDI outputs, `PlayPositionParameter`/`TempoParameter`; `MasterVolumeMode` was not needed, the Electra shares only its error text; `DummyView` was already in the framework) |
 | OSC | - (ported: `framework::osc`) |
 
 Used by several controllers, but ported only inside one, so move them to the framework first:
@@ -277,7 +277,8 @@ Model gaps which affect behaviour on Bitwig:
 | ChordIdentifier | `framework::chord_identifier` | full | |
 | KeyManager | `scale::KeyManager` | full | |
 | ScrollStates | `framework::feature::ScrollStates` | full | |
-| StringUtils | `framework::string_utils`, `framework::display::pad` | partial | Only `format_percentage`, `format_measures`, `pad` |
+| StringUtils | `framework::string_utils`, `framework::display::pad`, `config::values::fix_ascii`, `daw::util::{optimize_name, limit}` | partial | `formatColor` is `controller::electra::colors::format_color` |
+| (Jackson ObjectMapper/JsonNode, JsonGenerator) | `json::{JsonValue, JsonWriter}` | partial | A minimal reader (parse, `get`, `elements`, `as_text`, `as_int`) and writer, no dependency |
 | OperatingSystem | `controller::OperatingSystem` | full | |
 | Timeout | `framework::commands::channel::Timeout` | full | |
 | TimerCallback | `Ctx::schedule` (closure) | n/a | Replaced by closures |
@@ -393,7 +394,7 @@ Model gaps which affect behaviour on Bitwig:
 | Java | Rust | Status | Divergences |
 | --- | --- | --- | --- |
 | IMidiAccess, IMidiInput, MidiShortCallback, MidiSysExCallback | `midi::{MidiInput, MidiDispatch}` | full | Callbacks replaced by dispatch enum. `createInput (index > 0, ...)` of one port pair: `ControllerFactory::num_extra_midi_inputs` (Launchkey), their MIDI goes to `ControllerSetup::handle_extra_input_midi` |
-| IMidiOutput, AbstractMidiOutput | `midi::MidiOutput` | partial | MPE config is in `controller::generic::setup::configure_mpe` |
+| IMidiOutput, AbstractMidiOutput | `midi::MidiOutput` | partial | MPE config is in `controller::generic::setup::configure_mpe`. `createOutput (index > 0)` of one port pair: `ControllerFactory::num_extra_midi_outputs` and `create_with_extra_ports` (Electra One CTRL) |
 | INoteInput, AbstractNoteInput | `midi::NoteInput` | full | Key/velocity translation tables; filters as hex masks |
 | INoteRepeat | `midi::NoteRepeat` | partial | No octaves, latch, shuffle, free-running (BD §5) |
 | ArpeggiatorMode | `config::*` (per-controller) | partial | Reaper mode list only |
@@ -426,11 +427,13 @@ Model gaps which affect behaviour on Bitwig:
 | IParameter, AbstractParameterImpl | `daw::parameter::Parameter`; `ParamRef` | full | Providers return `ParamRef`, resolved when used |
 | AbstractParameterWrapper, AbstractStaticParameter, StaticIntegerRangeParameter, StaticPercentageParameter | `framework::parameterprovider::CustomParameter` (trait) | partial | No generic static classes; OXI One uses them |
 | IFocusedParameter | `framework::commands::general` | full | |
-| TempoParameter | `daw::transport::TempoParameter` | full | |
+| TempoParameter | `parameterprovider::transport::TempoParameter` (a `CustomParameter`); the model's tempo is `daw::transport::TempoParameter` | full | No value (Java throws on `getValue`; 0 here) |
 | AutomationModeParameter | `daw::transport::Transport` (automation-mode label/change) | full | Methods, not a parameter |
 | NoteParameter, NoteAttribute | `framework::mode::note_parameter`; controller-local (e.g. `controller::launchcontrol::mode::note_parameter::XlNoteParameter`) | partial | Re-implemented per controller |
 | ZoomParameter | `framework::commands::general` (zoom command) | partial | Command, not a parameter |
-| PlayPositionParameter, LoopStartParameter | inline in `controller::maschine::core::encoder_mode_manager` | partial | No reusable parameter |
+| PlayPositionParameter | `parameterprovider::transport::PlayPositionParameter` (a `CustomParameter`) | full | No value (Java throws on `getValue`; 0 here). The Maschine still has its own inline copy |
+| LoopStartParameter | inline in `controller::maschine::core::encoder_mode_manager` | partial | No reusable parameter |
+| IProject.getCueVolumeParameter, IGroove.getParameter | `parameterprovider::transport::{CueVolumeParameter, GrooveParameter}` | full | As `CustomParameter`s, since `ParamRef` has no variant for them |
 | MuteParameter, SoloParameter | — | missing | Needed by Faderfox EC4 |
 | ResetParameter | — | missing | |
 
@@ -493,7 +496,7 @@ Rust paths in this part are relative to `src/framework/`.
 | AbstractParameterMode / AbstractMode (in framework/featuregroup) | mode::parameter_mode::ParameterModeBase, ParameterBinding, ModeBank | full | ParamRefs are resolved when a value arrives, so there are no parameter observers or re-binding on scroll |
 | AbstractNoteParameterMode | mode::note_parameter::{NoteAttribute, note_value, set_note_value, change_note_value} | partial | No base mode, only the functions. NoteAttribute has no occurrence/recurrence. Used by Fire and Oxi |
 | DummyMode | mode::dummy::DummyMode | full | |
-| MasterVolumeMode | controller::mackie::mcu::mode (local port) | partial | Not in the framework. Electra One needs it, so move it there |
+| MasterVolumeMode | controller::mackie::mcu::mode (local port) | partial | Not in the framework (the Electra One does not need it after all; only its focused parameter error text is shared) |
 | Modes (IDs + helpers) | ids::Modes | partial | Only the enum. isTrackMode/isLayerMode/... and the names exist only in controllers, commands::mode::is_send_mode |
 | INoteEditor, INoteEditorMode, NoteEditor | mode::note_editor::NoteEditor, View/Mode::note_editor(_mut) | full | Notes are keyed by ClipKey (cols, rows), not by the clip object |
 | sequencer/AbstractSequencerMode | mode::sequencer::SequencerModeBase | full | Embed it and call on_activate yourself |
@@ -524,7 +527,7 @@ Rust paths in this part are relative to `src/framework/`.
 | ScenePlayView | view::scene_play_view::ScenePlayView | full | |
 | TransposeView | view::transpose_view::TransposeView (trait) | full | |
 | ColorView, ColorSelectMode | view::color_view::ColorView, view::color_select_mode::ColorSelectMode | full | `View::set_color_select_mode` replaces the cast |
-| DummyView | ctrl launchkey (`view::misc::DummyView`) | full | Only in the Launchkey port (also needed by Electra One, EC4) |
+| DummyView | `framework::view::dummy_view::DummyView` | full | Used by the Launchkey and the Electra One |
 | Views (IDs + helpers) | ids::Views | partial | Only the enum. isSequencerView/isSessionView/isNoteView and the names are missing |
 | (none) | view::deferred::{activate_preferred_view_later, restore_view_later} | n/a | Rust only: a view switch requested by the view itself runs after the current event |
 

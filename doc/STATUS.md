@@ -6,7 +6,7 @@ As of 2026-11-02 · branch `main`
 
 Seven controller families are ported: Novation Launchpad (5 models), Novation Launch Control XL,
 NI Maschine Mk2, Mk3, Mikro Mk3, Plus and Jam, Mackie MCU and HUI (with extenders), Generic Flexi, and the Akai APC mini,
-APC40, MPC/Force (ACVS) and Fire. The crate has about 90,000 lines of Rust in 315 files. 372 tests
+APC40, MPC/Force (ACVS) and Fire, and the Electra One (Mk1/Mk2, Mini). The crate has about 90,000 lines of Rust in 315 files. 372 tests
 pass, 2 are ignored, and `cargo clippy --all-targets` reports 0 warnings. The release build
 produces `libdrivenbymoss.so` (about 6.5 MB), which exports the 25 `dbm_*` functions of the
 handle-based C ABI.
@@ -58,6 +58,7 @@ MIDI mode).
 | Akai MPC/Force (ACVS) | MPC Live I/II, One, X, Force | `src/controller/akai/acvs/` | `akai_acvs.rs` (4) |
 | Akai Fire | Fire (with the OLED display) | `src/controller/akai/fire/` | `akai_fire.rs` (4) |
 | Arturia Beatstep | Beatstep (also the Beatstep Pro, same MIDI) | `src/controller/arturia/beatstep/` | `arturia_beatstep.rs` (9) |
+| Electra One | Mk1, Mk2 (one definition), Mini | `src/controller/electra/` | `electra_one.rs` (13); against the emulator: `support/controller_simulator/tests/test_electra_emulator.py` (2) |
 | Open Sound Control | OSC (`OSCControllerInstance`) | `src/controller/osc/` | `osc_controller.rs` (1, over localhost UDP), Python `test_osc.py` |
 | Ableton Push | Push 1, Push 2, Push 3 | `src/controller/push/` | `push_setup.rs`, `push_modes_track.rs`, `push_modes_misc.rs`, `push_views.rs`, `push_sim_values.rs`, `ffi.rs` (USB callback), Python `test_usb.py`, `test_simulator_data.py`, Zynthian `test_push.py` |
 
@@ -162,6 +163,30 @@ input names of a discovery pair, numbered after the pairs on Bitwig; their MIDI 
 `ControllerSetup::handle_extra_input_midi`), as the ACVS does for its pads port. Not
 tested with hardware yet. Not ported: the simulator lights and layout. The Launchkey Mk4 has no Java implementation.
 See the module documentation of `src/controller/launchkey/` and BITWIG_DIVERGENCES.md §9.
+
+**Electra One (2026-11-22):** the Electra One Mk1/Mk2 and the Electra One Mini, as one setup with
+the variant as a parameter (the Java `base` package with `normal` and `mini`). Ported: the
+conversation on the CTRL port (device information with the firmware and model checks, the event
+subscription, the preset list with the `DrivenByMoss` / `DrivenByMoss Mini` preset, the preset
+switch, online/offline with the Dummy mode, SysEx chunks joined until F7, the device's log lines),
+the page cache (values as CCs on channel 16, names/colors/visibility as JSON, value texts, group
+labels with the preset's Lua `sgt`, every flush framed by a repaint pause), the 7 modes of the
+Mk1/Mk2 (mixer, sends, device, equalizer, transport, session with its function and navigation
+layers, project/track parameters) and the 3 of the Mini, the knob touches (the parameter is
+touched) and the 38 (Mini: 16) knob touch combinations with the configurable functions, the pads
+and the Mini's knob pushes and buttons (Shift on button 4). New generic parts: a JSON reader
+(`json::JsonValue`), further MIDI outputs of an instance (`ControllerFactory::
+num_extra_midi_outputs`, `create_with_extra_ports`, next to the further inputs; the CTRL port is
+the further input and output), the play position, tempo, cue volume and groove parameters
+(`parameterprovider::transport`), an emulated Shift (`Surface::shift_pressed_override`) and the
+note input filter `?X????` (all channel messages of a channel). `MasterVolumeMode` is not needed:
+the Electra only shares the error text of its focused parameter check. Tested against the
+**Electra One emulator** (the real mk1 firmware on Linux, `~/bastel/github/electra-one`, mk1 and
+mk2 replies): `dbm_host_alsa.py --model electra` drives it over ALSA (both port pairs), and
+`test_electra_emulator.py` runs it headless over its virtual cables (handshake, screen pixels, knob
+turn and touch, pad touch, all 7 pages). The Mini is tested with unit tests only (the emulator
+runs the mk1 firmware). Not tested with hardware. Java bugs kept: UPSTREAM_CANDIDATES.md S;
+deviations: BITWIG_DIVERGENCES.md §9.
 
 Commits:
 

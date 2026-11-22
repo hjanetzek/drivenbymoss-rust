@@ -78,7 +78,7 @@ listed under "Needs".
 | Mackie HUI | `mackie/hui` | 2,969 | `HUI1/2/3ControllerInstance` | Ported (`src/controller/mackie/hui/`) | — |
 | Mackie MCU | `mackie/mcu` | 7,654 | `MCU1/2/3/4ControllerInstance` | Ported (`src/controller/mackie/mcu/`) | — |
 | Akai ACVS (MPC/Force) | `akai/acvs` | 3,866 | `ACVSLiveControllerInstance` | **Ported** (`src/controller/akai/acvs/`; the pads port is a further MIDI input) | — |
-| Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | Sysex/Lua protocol | 3 |
+| Electra One / One Mini | `electra/one` | 5,441 | `ElectraOne`, `ElectraOneMiniControllerInstance` | **Ported** (`src/controller/electra/`; the CTRL port is a further MIDI input and output; tested against the emulator of the real firmware, the Mini with unit tests only) | — |
 | Oxi One Mk1/Mk2 | `oxi/one` | 6,215 | `OxiOneMk1/Mk2ControllerInstance` | Graphics display (bitmap → sysex): `framework::graphics` exists, the Oxi components are missing | 4 |
 | Akai Fire | `akai/fire` | 6,299 | `FireControllerInstance` | **Ported** (`src/controller/akai/fire/`, OLED with `framework::graphics`; the XoX drum view needs `AbstractDrumXoXView`) | — |
 | NI Kontrol Mk1 (S25–S88) | `ni/kontrol/mki` | part of 7,390 | `KontrolMkIS25/49/61/88ControllerInstance` | USB/HID (`Kontrol1UsbDevice`) | 5 |
@@ -263,6 +263,7 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 | `framework::graphics` | Graphics displays without dependencies: `Bitmap` (RGB, `encode_bgra`, `to_ascii_art`, `to_ppm`, `fnv1a_hash`), `GraphicsContext` (rectangles, rounded/gradient rectangles, lines, triangles, circles, icons, text; anti-aliased with `GraphicsConfiguration::is_antialias_enabled`), the 5x8 bitmap `font` and the DejaVu `vector_font`, `GraphicsConfiguration::{chromatic, push_default}`, `GraphicsDimensions`, `Component` (the small components and the Push large-display ones in `canvas`) and `GraphicDisplay` (all `IGraphicDisplay` methods, renders only on changes, `has_changed`, notifications); `Ctx::graphics_display` shows the notifications |
 | `framework::setup_helpers` | Scale, deactivated items and note repeat settings, `BrowserObserver`, track change handling |
 | `framework::string_utils` | `format_percentage`, `format_measures`, `pad` |
+| `json` | `JsonWriter` and the reader `JsonValue` (former Jackson `JsonNode`) |
 | `framework::virtual_fader` | Virtual faders on pad columns |
 | `framework::clip_launcher_navigator` | `IClipLauncherNavigator` (Reaper `ClipLauncherNavigatorImpl`): track/scene/clip navigation which keeps the selected slot |
 | `framework::chord_identifier` | Chord names from notes |
@@ -291,6 +292,8 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 - `CustomParameter`, `ParameterProvider`, `FnParameterProvider`.
 - Providers: Empty, Fixed, Combined, RangeFilter, Bank, Volume, Pan, Send, SelectedTrack,
   LayerOrDrumPad.
+- Custom parameters of the transport (`parameterprovider::transport`): `PlayPositionParameter`,
+  `TempoParameter` (former `framework.parameter`), `CueVolumeParameter`, `GrooveParameter`.
 
 ### Modes
 
@@ -359,6 +362,10 @@ The complete list, class by class and by upcoming controller, is in
 - ~~A second MIDI input~~: done for one port pair (`ControllerFactory::num_extra_midi_inputs`,
   used by the Launchkey for its keyboard port; their MIDI goes to
   `ControllerSetup::handle_extra_input_midi`), and by the ACVS for its "Pads (Remote MIDI Port)".
+  ~~A second MIDI output~~: done the same way (`num_extra_midi_outputs`, the device IDs in
+  `create_with_extra_ports`), used with a further input by the Electra One for its CTRL port.
+- ~~A JSON reader~~: done (`json::JsonValue::parse`, `get`, `elements`, `as_text`, `as_int`;
+  used by the Electra One).
 - USB: bulk OUT is done (`ControllerFactory::usb_devices`, `Backend::usb_bulk_out`, C ABI
   `dbm_set_usb_callback`; HOST_BRIDGE_GUIDE §5a). HID (Kontrol Mk1) is missing.
 - ~~OSC~~: done (`framework::osc`, used by `src/controller/osc/`).
@@ -378,7 +385,7 @@ The complete list, class by class and by upcoming controller, is in
 ## 6. Testing requirements
 
 Controllers with a simulator (Push 1/2/3, Maschine Mk2/JAM/Mk3/Mikro Mk3, APC40 mkII, Launchpad Pro
-Mk3, Launch Control XL) can also be tried without hardware:
+Mk3, Launch Control XL; the Electra One with the emulator of its firmware) can also be tried without hardware:
 run the simulator and the core in the reference host on ALSA (`dbm_host_alsa.py`), or Bitwig. For
 a new controller, a simulator is often the quickest way to see the port working. See
 [CONTROLLER_SIMULATORS.md](CONTROLLER_SIMULATORS.md) for how to build one.
