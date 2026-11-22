@@ -27,3 +27,4 @@ pub mod multi_surface;
 pub mod clip_launcher_navigator;
 pub mod graphics;
 pub mod osc;
+pub mod surface_link;
