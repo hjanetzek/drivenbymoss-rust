@@ -171,6 +171,10 @@ pub struct Surface {
     /// The button which acts as the Shift button (e.g. the Maschine Mk2 uses Stop), see
     /// [`Surface::is_shift_pressed`].
     pub shift_button: ButtonId,
+    /// The state of an emulated Shift button, which replaces the one of [`Self::shift_button`]
+    /// if set (former overrides of `isShiftPressed`, e.g. the Electra One, whose Shift is a knob
+    /// touch combination or a function button which is handled by the modes).
+    pub shift_pressed_override: Option<bool>,
     /// The buttons which are pressed on the other surfaces of the instance, if they share their
     /// button states (see [`crate::framework::ctx::Ctx::share_button_states`]).
     pub(crate) pressed_on_other_surfaces: std::collections::BTreeSet<ButtonId>,
@@ -193,6 +197,7 @@ impl Surface {
             last_notification: None,
             button_press_count: 0,
             shift_button: ButtonId::Shift,
+            shift_pressed_override: None,
             pressed_on_other_surfaces: std::collections::BTreeSet::new(),
         }
     }
@@ -327,7 +332,10 @@ impl Surface {
     }
 
     pub fn is_shift_pressed(&self) -> bool {
-        self.is_pressed(self.shift_button)
+        match self.shift_pressed_override {
+            Some(is_pressed) => is_pressed,
+            None => self.is_pressed(self.shift_button),
+        }
     }
 
     pub fn is_select_pressed(&self) -> bool {

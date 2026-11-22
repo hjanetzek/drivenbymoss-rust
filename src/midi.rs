@@ -206,6 +206,17 @@ impl NoteInput {
             if filter.len() != 6 {
                 return Err("Filter must be 6 characters long!".into());
             }
+            // Any message of one MIDI channel ("?X????", e.g. the Electra One's note inputs per
+            // channel): the channel messages 8X to EX
+            if let Some(channel) = filter.strip_prefix('?').and_then(|rest| rest.chars().next()).filter(|c| c.is_ascii_hexdigit()) {
+                if filter[2..].chars().any(|c| c != '?') {
+                    return Err("A filter for any status of a channel cannot filter the data bytes!".into());
+                }
+                for status in 0x8..=0xE {
+                    backend_filters.insert(format!("{status:X}{}", channel.to_ascii_uppercase()));
+                }
+                continue;
+            }
             let part = |range: std::ops::Range<usize>| filter[range].replace('?', " ").trim().to_string();
             let status = part(0..2);
             let data1 = part(2..4);
@@ -473,6 +484,10 @@ mod tests {
         assert!(filters.contains("B040"));
         assert_eq!(filters.len(), 18);
         assert!(NoteInput::create_backend_filters(&["80??"]).is_err());
+        // Any channel message of one channel
+        let filters = NoteInput::create_backend_filters(&["?a????"]).unwrap();
+        assert_eq!(filters.into_iter().collect::<Vec<_>>(), ["8A", "9A", "AA", "BA", "CA", "DA", "EA"]);
+        assert!(NoteInput::create_backend_filters(&["?A40??"]).is_err());
     }
 
     #[test]

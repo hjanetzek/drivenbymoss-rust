@@ -21,6 +21,7 @@
 pub mod device;
 pub mod special;
 pub mod track;
+pub mod transport;
 
 use std::fmt;
 use std::rc::Rc;
@@ -36,6 +37,7 @@ use crate::framework::ctx::Ctx;
 pub use device::{BankParameterProvider, LayerOrDrumPadParameterProvider, LayerParameter};
 pub use special::{CombinedParameterProvider, EmptyParameterProvider, FixedParameterProvider, RangeFilterParameterProvider};
 pub use track::{PanParameterProvider, SelectedTrackParameterProvider, SendParameterProvider, VolumeParameterProvider};
+pub use transport::{CueVolumeParameter, GrooveParameter, PlayPositionParameter, TempoParameter};
 
 /// A parameter which is not part of the model (e.g. the attributes of a note in a clip). All
 /// values are in the range of the value changer of the model.

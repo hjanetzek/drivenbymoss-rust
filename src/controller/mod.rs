@@ -166,6 +166,31 @@ pub trait ControllerFactory {
     ) -> Result<InstanceParts, String> {
         self.create_with_ports(host, sender, ports, configuration)
     }
+
+    /// The number of further MIDI outputs of an instance, after the outputs of the port pairs
+    /// (e.g. the CTRL port of the Electra One, Java `createOutput (1)`). The default is 0. They
+    /// are configured as `MIDI_OUTPUT<n>` after the outputs of the pairs, detected with the
+    /// further output names of a discovery pair, and numbered after the pairs on a host with its
+    /// own ports (Bitwig), as the further inputs ([`Self::num_extra_midi_inputs`]).
+    fn num_extra_midi_outputs(&self) -> usize {
+        0
+    }
+
+    /// Create a controller instance with all its port pairs and the device IDs of the further
+    /// MIDI inputs and outputs ([`Self::num_extra_midi_inputs`] and
+    /// [`Self::num_extra_midi_outputs`] many, `None` if one was not found). The default ignores
+    /// the outputs and calls [`Self::create_with_extra_inputs`].
+    fn create_with_extra_ports(
+        &self,
+        host: crate::host::Host,
+        sender: crate::backend::Sender,
+        ports: &[MidiPorts],
+        extra_inputs: &[Option<i32>],
+        _extra_outputs: &[Option<i32>],
+        configuration: crate::config::Configuration,
+    ) -> Result<InstanceParts, String> {
+        self.create_with_extra_inputs(host, sender, ports, extra_inputs, configuration)
+    }
 }
 
 /// A USB device which a controller uses besides MIDI (former `UsbMatcher` of

@@ -53,6 +53,9 @@ struct Running {
     ports: Vec<MidiPorts>,
     /// The further MIDI inputs (`ControllerFactory::num_extra_midi_inputs`), `None` if not found.
     extra_inputs: Vec<Option<i32>>,
+    /// The further MIDI outputs (`ControllerFactory::num_extra_midi_outputs`), `None` if not
+    /// found.
+    extra_outputs: Vec<Option<i32>>,
     /// When `startup` of the setup is called (delayed like in the Java version).
     startup_due: Option<Instant>,
 }
@@ -321,45 +324,55 @@ impl App {
         None
     }
 
-    /// Get the further MIDI inputs of an instance (see
-    /// [`ControllerFactory::num_extra_midi_inputs`]): configured as `MIDI_INPUT<n>` after the
-    /// inputs of the port pairs, otherwise detected with the further input names of the discovery
-    /// pair whose first input is the one of the first port pair. `None` for an input which is not
-    /// found; the instance runs without it.
-    fn resolve_extra_inputs(&mut self, index: usize, ports: &[MidiPorts]) -> Vec<Option<i32>> {
-        let extra = self.instances[index].factory.num_extra_midi_inputs();
+    /// Get the further MIDI inputs or outputs of an instance (see
+    /// [`ControllerFactory::num_extra_midi_inputs`] and
+    /// [`ControllerFactory::num_extra_midi_outputs`]): configured as `MIDI_INPUT<n>` /
+    /// `MIDI_OUTPUT<n>` after the ones of the port pairs, otherwise detected with the further
+    /// names of the discovery pair whose first input is the one of the first port pair. `None`
+    /// for a port which is not found; the instance runs without it.
+    fn resolve_extra_ports(&mut self, index: usize, ports: &[MidiPorts], outputs: bool) -> Vec<Option<i32>> {
+        let factory = &self.instances[index].factory;
+        let extra = if outputs { factory.num_extra_midi_outputs() } else { factory.num_extra_midi_inputs() };
         if extra == 0 {
             return Vec::new();
         }
-        let count = self.instances[index].factory.num_port_pairs().max(1);
+        let count = factory.num_port_pairs().max(1);
         if self.single {
-            // The host's inputs are numbered 0..count for the pairs, the further ones follow
+            // The host's ports are numbered 0..count for the pairs, the further ones follow
             return (0..extra).map(|i| Some((count + i) as i32)).collect();
         }
         let inputs = self.sender.backend().midi_inputs();
+        let available = if outputs { self.sender.backend().midi_outputs() } else { inputs.clone() };
         let first_input = ports.first().map(|p| p.input);
         let instance = &mut self.instances[index];
         let name = instance.factory.info().to_string();
         let pairs = instance.factory.midi_discovery_pairs(OperatingSystem::current());
+        let kind = if outputs { "output" } else { "input" };
         let mut result = Vec::with_capacity(extra);
         for i in 0..extra {
             let key = count + i;
-            let mut id = instance.config_file.midi_input(key).and_then(|input| Self::find_port(&inputs, input));
+            let configured = if outputs { instance.config_file.midi_output(key) } else { instance.config_file.midi_input(key) };
+            let mut id = configured.and_then(|port| Self::find_port(&available, port));
             if id.is_none() {
-                for (input_names, _) in &pairs {
-                    if input_names.len() <= key || Self::find_port(&inputs, &input_names[0]) != first_input {
+                for (input_names, output_names) in &pairs {
+                    let names = if outputs { output_names } else { input_names };
+                    if names.len() <= key || input_names.is_empty() || Self::find_port(&inputs, &input_names[0]) != first_input {
                         continue;
                     }
-                    if let Some(found) = Self::find_port(&inputs, &input_names[key]) {
-                        self.host.println(&format!("{name}: Detected MIDI input {}", input_names[key]));
-                        instance.config_file.set_midi_input(key, &input_names[key]);
+                    if let Some(found) = Self::find_port(&available, &names[key]) {
+                        self.host.println(&format!("{name}: Detected MIDI {kind} {}", names[key]));
+                        if outputs {
+                            instance.config_file.set_midi_output(key, &names[key]);
+                        } else {
+                            instance.config_file.set_midi_input(key, &names[key]);
+                        }
                         id = Some(found);
                         break;
                     }
                 }
             }
             if id.is_none() {
-                self.host.println(&format!("{name}: MIDI input {} not configured.", key + 1));
+                self.host.println(&format!("{name}: MIDI {kind} {} not configured.", key + 1));
             }
             result.push(id);
         }
@@ -387,11 +400,18 @@ impl App {
             self.host.error(&format!("{name}: Could not open the MIDI ports."));
             return;
         }
-        let mut extra_inputs = self.resolve_extra_inputs(index, &ports);
+        let mut extra_inputs = self.resolve_extra_ports(index, &ports, false);
         for input in &mut extra_inputs {
             if input.is_some_and(|id| !backend.open_midi_input(id)) {
                 self.host.println(&format!("{name}: Could not open the further MIDI input {id}.", id = input.unwrap_or(-1)));
                 *input = None;
+            }
+        }
+        let mut extra_outputs = self.resolve_extra_ports(index, &ports, true);
+        for output in &mut extra_outputs {
+            if output.is_some_and(|id| !backend.open_midi_output(id)) {
+                self.host.println(&format!("{name}: Could not open the further MIDI output {id}.", id = output.unwrap_or(-1)));
+                *output = None;
             }
         }
 
@@ -409,7 +429,7 @@ impl App {
         // (`Backend::usb_bulk_out_to`); the other instances share the backend unchanged
         let usb_devices = instance.factory.usb_devices();
         let sender = if usb_devices.is_empty() { self.sender.clone() } else { Sender::new(Rc::new(crate::backend::UsbInstanceBackend::new(backend.clone(), index as i32, usb_devices))) };
-        match instance.factory.create_with_extra_inputs(self.host.clone(), sender, &ports, &extra_inputs, configuration) {
+        match instance.factory.create_with_extra_ports(self.host.clone(), sender, &ports, &extra_inputs, &extra_outputs, configuration) {
             Ok(mut parts) => {
                 parts.setup.init(&mut parts.ctx);
                 for (cols, rows) in crate::daw::clip::take_requested_note_clips() {
@@ -421,7 +441,7 @@ impl App {
                 parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
-                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, startup_due });
+                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due });
                 self.host.println(&format!("{name}: Running."));
             }
             Err(error) => {
@@ -434,6 +454,9 @@ impl App {
                 }
                 for input in extra_inputs.iter().flatten() {
                     backend.close_midi_input(*input);
+                }
+                for output in extra_outputs.iter().flatten() {
+                    backend.close_midi_output(*output);
                 }
             }
         }
@@ -460,6 +483,9 @@ impl App {
         }
         for input in running.extra_inputs.iter().flatten() {
             backend.close_midi_input(*input);
+        }
+        for output in running.extra_outputs.iter().flatten() {
+            backend.close_midi_output(*output);
         }
         self.host.println(&format!("{}: Exited.", instance.factory.info()));
     }
