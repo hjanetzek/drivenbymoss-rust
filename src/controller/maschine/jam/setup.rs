@@ -472,8 +472,11 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         (ButtonId::ArrowDown, "DOWN", jam::NAV_DOWN),
     ];
     for (id, label, control) in arrows {
-        // Up and down select the rows of the surface link (not part of Java)
+        // Up and down select the rows of the surface link, left and right the value of the
+        // selected slot (not part of Java)
         let command = match id {
+            ButtonId::ArrowLeft => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::ValuePrev)),
+            ButtonId::ArrowRight => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::ValueNext)),
             ButtonId::ArrowUp => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::RowUp)),
             ButtonId::ArrowDown => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::RowDown)),
             _ => shared(MaschineJamViewButtonCommand::new(id)),

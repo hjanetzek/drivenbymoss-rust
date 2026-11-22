@@ -19,6 +19,9 @@
 //!    (`09 08 bank slot`). The other presets are remembered by their names.
 //! 4. The device reports the selected preset (`7E 02 bank slot`): the controller goes online with
 //!    the DrivenByMoss preset, otherwise offline (Dummy mode, no MIDI to the pads).
+//!    Offline on a device with the page view and the knob input (the Mk2 emulator), the
+//!    controller provides the other preset's pages to the surface link (`generic`, not part
+//!    of Java).
 //! 5. Online, a page switch on the device (`7E 06 page`) selects the mode of the page and a knob
 //!    touch (`7E 0A pot control touched`) touches the parameter of the control and checks the
 //!    knob touch combinations.
@@ -325,6 +328,10 @@ fn handle_sysex_commands_controller(ctx: &mut Ctx, command: u8, data: &[u8]) {
         // Change modes if the extension is online
         EVENT_PAGE_SWITCH => {
             if !is_online(ctx) {
+                // The generic provider fetches the new page (not part of Java)
+                if link::is_generic(ctx) {
+                    super::generic::on_switched(ctx);
+                }
                 return;
             }
             let page = byte(data, SUB_CMD_START_POS + 1) as usize;
@@ -455,6 +462,12 @@ fn handle_sysex_commands_info(ctx: &mut Ctx, command: u8, data: &[u8]) {
     } else {
         if let Err(error) = find_and_select_driven_by_moss_preset(ctx, &content) {
             ctx.host.error(&error);
+            // Without the DrivenByMoss preset, the active preset's pages can still be provided
+            // (not part of Java)
+            if state(ctx).link.capability.generic() {
+                set_offline(ctx);
+                super::generic::enter(ctx);
+            }
             return;
         }
         select_driven_by_moss_preset(ctx);
@@ -559,9 +572,17 @@ fn content(ctx: &Ctx, data: &[u8]) -> Option<JsonValue> {
 fn handle_online_status(ctx: &mut Ctx, bank: i32, preset: i32) {
     let state = state(ctx);
     if state.bank_index == bank && state.preset_index == preset {
+        super::generic::leave(ctx);
         set_online(ctx);
     } else {
         set_offline(ctx);
+        // Another preset: the generic provider of the surface link gives its pages to the
+        // surfaces, if the device can (not part of Java)
+        if link::is_generic(ctx) {
+            super::generic::on_switched(ctx);
+        } else {
+            super::generic::enter(ctx);
+        }
     }
 }
 

@@ -16,7 +16,8 @@
 //!   the distance (relative, no jumps); with Shift in fine steps.
 //! - **Strip 7:** the selected slot, in fine steps; **strip 8:** the first extra of the provider.
 //! - **Main encoder:** the selected slot (`selected.turn`), with Shift fine; its push resets it.
-//! - **PAGE LEFT/RIGHT:** the previous / next page, **up / down:** the previous / next row.
+//! - **PAGE LEFT/RIGHT:** the previous / next page, **up / down:** the previous / next row,
+//!   **left / right:** the previous / next value of the selected slot (an envelope's handle).
 //! - Without a provider the grid shows a red cross.
 
 use std::rc::Rc;
@@ -218,6 +219,9 @@ pub enum SurfaceButton {
     RowUp,
     RowDown,
     Reset,
+    /// The previous / next value of the selected slot (e.g. an envelope's handle).
+    ValuePrev,
+    ValueNext,
 }
 
 /// A button command which does something else on the surface.
@@ -249,6 +253,8 @@ impl<C: TriggerCommand> TriggerCommand for SurfaceOr<C> {
             SurfaceButton::RowUp => client.step_row(-1),
             SurfaceButton::RowDown => client.step_row(1),
             SurfaceButton::Reset => client.send(crate::framework::surface_link::Input::SelectedReset),
+            SurfaceButton::ValuePrev => client.step_value(-1),
+            SurfaceButton::ValueNext => client.step_value(1),
         }
     }
 }

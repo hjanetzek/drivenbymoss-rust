@@ -11,7 +11,11 @@
 //! The active row and the selected slot are state of this provider; the device learns about
 //! them through [`super::surface_ext`] (optional: a real Electra only switches the control set).
 //! Only the normal model provides; the Mini has another grid.
+//!
+//! While another preset is active on a device with the page view and the knob input (the Mk2
+//! emulator), [`super::generic`] provides that preset's pages instead.
 
+use super::generic::{self, GenericProvider};
 use super::definition::{ctrl_cc, ElectraVariant, ELECTRA_MIDI_CHANNEL, ELECTRA_ROW_1, SUBSCRIBED_EVENTS};
 use super::mode::with_normal_mode;
 use super::preset_layout::{PAGES, PAGE_NAMES};
@@ -39,6 +43,8 @@ pub struct ElectraLink {
     /// What the device can do beyond the standard API.
     pub capability: Capability,
     pending: Pending,
+    /// The generic provider, for the other presets.
+    pub generic: GenericProvider,
 }
 
 impl ElectraLink {
@@ -55,7 +61,7 @@ impl ElectraLink {
             },
             ElectraVariant::Mini => LinkProvider::inactive(),
         };
-        ElectraLink { provider, active_row: 0, selected: None, capability: Capability::default(), pending: Pending::default() }
+        ElectraLink { provider, active_row: 0, selected: None, capability: Capability::default(), pending: Pending::default(), generic: GenericProvider::default() }
     }
 }
 
@@ -76,6 +82,11 @@ fn active_page(ctx: &Ctx) -> Option<usize> {
     state(ctx).variant.modes().iter().position(|m| *m == mode)
 }
 
+/// True while the generic provider gives the pages of another preset.
+pub fn is_generic(ctx: &Ctx) -> bool {
+    generic::is_active(ctx)
+}
+
 /// The control ID on the device of a slot of the current page.
 fn control_id(page: usize, slot: usize) -> i32 {
     (page * NUM_SLOTS + slot + 1) as i32
@@ -89,9 +100,11 @@ pub fn poll(ctx: &mut Ctx) {
     if !link(ctx).provider.is_providing() {
         return;
     }
+    generic::tick(ctx);
     let events = link_mut(ctx).provider.poll();
     for event in events {
         match event {
+            ProviderEvent::Input { input, .. } if generic::is_active(ctx) => generic::apply_input(ctx, input),
             ProviderEvent::Input { input, .. } => apply_input(ctx, input),
             ProviderEvent::Attached { .. } => ctx.host.println("Surface link: a surface attached."),
             ProviderEvent::Detached { .. } => ctx.host.println("Surface link: a surface detached."),
@@ -106,7 +119,7 @@ pub fn publish(ctx: &mut Ctx) {
     if !link(ctx).provider.is_providing() {
         return;
     }
-    let model = build_model(ctx);
+    let model = if generic::is_active(ctx) { link(ctx).generic.model() } else { build_model(ctx) };
     let provider = &mut link_mut(ctx).provider;
     *provider.model_mut() = model;
     provider.publish();
@@ -202,8 +215,8 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
                 reset(ctx, id);
             }
         }
-        // The Electra pages have no extras
-        Input::ExtraTurn { .. } => {}
+        // The Electra pages have no extras and no controls with several values
+        Input::ExtraTurn { .. } | Input::ValueNext | Input::ValuePrev => {}
     }
 }
 
@@ -330,6 +343,10 @@ pub fn handle_device_sysex(ctx: &mut Ctx, data: &[u8]) -> bool {
     let Some(report) = ext::parse(data) else {
         return false;
     };
+    if generic::is_active(ctx) {
+        generic::on_report(ctx, report);
+        return true;
+    }
     let page = active_page(ctx);
     let slot_of = |control_id: i32| -> Option<Option<usize>> {
         if control_id == 0 {
@@ -343,6 +360,8 @@ pub fn handle_device_sysex(ctx: &mut Ctx, data: &[u8]) -> bool {
     match report {
         // Nearly every command is acknowledged; the own changes are confirmed by their events
         Report::Ack => {}
+        // The messages of the generic provider (not active)
+        Report::PageView(_) | Report::PageViewChanged | Report::ValueChanged(_) => {}
         Report::Nack => {
             if let Some(row) = link.pending.row.take() {
                 // The device does not have the rows after all: back to the control sets

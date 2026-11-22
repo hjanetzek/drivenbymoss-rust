@@ -6,8 +6,8 @@
 //! Electra One as the provider and the Maschine JAM as the surface, each in its own App (as two
 //! Bitwig extensions or two controllers of the Python host). Both start orders, the snapshot and
 //! the changes on the JAM, the JAM's input as typed commands and as MIDI/SysEx to the Electra,
-//! pages and rows, detach and re-attach, and the Electra-side extension (electra-one
-//! `docs/surface-link.md` §6b).
+//! pages and rows, detach and re-attach, the Electra-side extension (electra-one
+//! `docs/surface-link.md` §6b), and the generic provider for other presets (§6c).
 //!
 //! The registry is process-wide, so the tests of this file run one after the other.
 
@@ -42,6 +42,8 @@ const JAM_KNOB_TURN: u8 = 57;
 const JAM_KNOB_PUSH: u8 = 58;
 const JAM_LEVEL: u8 = 37;
 const JAM_NAV_DOWN: u8 = 42;
+const JAM_NAV_LEFT: u8 = 43;
+const JAM_NAV_RIGHT: u8 = 44;
 const JAM_RIGHT: u8 = 93;
 const JAM_FADER1: u8 = 8;
 const JAM_FADER_TOUCH1: u8 = 20;
@@ -52,6 +54,9 @@ track/0/send/count 2\ntrack/0/send/0/name FX1\ntrack/0/send/1/name FX2\nplay 0\n
 
 const INFO: &str = r#"{"versionText":"v5.0.6","versionSeq":500000600,"model":"mk2"}"#;
 const INFO_SURFACE: &str = r#"{"versionText":"v5.0.6","versionSeq":500000600,"model":"mk2","surface":{"rows":true,"selection":true}}"#;
+const INFO_GENERIC: &str = r#"{"versionText":"v5.0.6","versionSeq":500000600,"model":"mk2","surface":{"rows":true,"selection":true,"view":true,"input":true}}"#;
+/// The page view of another preset (electra-one's fixture `surface-view.epr`).
+const PAGE_VIEW: &str = include_str!("fixtures/electra_page_view.json");
 
 fn sysex(command: &[u8], content: &[u8]) -> Vec<u8> {
     let mut data = vec![0xF0, 0x00, 0x21, 0x45];
@@ -98,7 +103,7 @@ impl Rig {
         self.advance(1100);
         let app = self.electra_app();
         app.on_midi_event(E_CTRL_IN, &sysex(&[0x01, 0x7F], info.as_bytes()));
-        let presets = r#"{"version":1,"presets":[{"slot":3,"bankNumber":1,"name":"DrivenByMoss"}]}"#;
+        let presets = r#"{"version":1,"presets":[{"slot":3,"bankNumber":1,"name":"DrivenByMoss"},{"slot":4,"bankNumber":1,"name":"SURFACE VIEW"}]}"#;
         app.on_midi_event(E_CTRL_IN, &sysex(&[0x01, 0x04], presets.as_bytes()));
         app.on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 3]));
         assert!(electra::is_online(self.electra_ctx()));
@@ -523,4 +528,274 @@ fn capability_nack() {
     rig.jam_pad(0, 5);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0B], &[2])]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The generic provider for other presets (electra-one docs/surface-link.md §6c)
+
+/// The page view message of the fixture, with some replacements.
+fn page_view(replacements: &[(&str, &str)]) -> Vec<u8> {
+    let mut json = PAGE_VIEW.trim().to_string();
+    for (from, to) in replacements {
+        assert!(json.contains(from), "{from}");
+        json = json.replacen(from, to, 1);
+    }
+    sysex(&[0x01, 0x52], json.as_bytes())
+}
+
+fn jam_model(rig: &mut Rig) -> drivenbymoss::framework::surface_link::PageModel {
+    jam_surface::client(rig.jam_ctx()).borrow().model().clone()
+}
+
+/// The JAM on the surface, the Electra on the other preset (slot 1-4) with its page view.
+fn generic_rig() -> Rig {
+    let mut rig = Rig::new();
+    rig.start_electra(INFO_GENERIC);
+    rig.start_jam();
+    rig.toggle_surface();
+    rig.electra_backend().take_calls();
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 4]));
+    rig.advance(30);
+    let ctrl = ctrl_sent(&rig);
+    assert!(ctrl.contains(&sysex(&[0x14, 0x79], &[0x3B, 0x01])), "{ctrl:02X?}");
+    assert_eq!(ctrl.iter().filter(|m| **m == sysex(&[0x02, 0x52], &[])).count(), 1, "{ctrl:02X?}");
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[]));
+    rig.advance(60);
+    rig
+}
+
+#[test]
+fn generic_mode_switch() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = generic_rig();
+    // Offline for the DAW, the pages of the other preset on the JAM
+    assert!(!electra::is_online(rig.electra_ctx()));
+    assert!(rig.electra_ctx().modes.is_active(Modes::Dummy));
+    assert!(jam_surface::is_active(rig.jam_ctx()));
+    let model = jam_model(&mut rig);
+    assert_eq!((model.pages.clone(), model.page), (vec!["VIEW".to_string(), "OTHER".to_string()], 0));
+    assert_eq!(model.slots[0].name, "ENV · Attack");
+    assert_eq!(model.slots[8].value_text, "Cut 64");
+    assert_eq!(rig.jam_pad_color(1, 1), palette_index(rig.jam_ctx(), Rgb::new(0x03, 0xA5, 0x98)));
+
+    // Another non-DrivenByMoss preset: the page view again
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 5]));
+    rig.advance(30);
+    assert!(ctrl_sent(&rig).contains(&sysex(&[0x02, 0x52], &[])));
+
+    // The DrivenByMoss preset: the value changes off, the mixer page again
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 3]));
+    rig.advance(60);
+    assert!(electra::is_online(rig.electra_ctx()));
+    assert!(ctrl_sent(&rig).contains(&sysex(&[0x14, 0x79], &[0x3B, 0x00])));
+    let model = jam_model(&mut rig);
+    assert_eq!((model.page_name(), model.slots[0].name.as_str()), ("Mixer", "VOLUME"));
+    // A page view now is not for the surfaces
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[]));
+    rig.advance(30);
+    assert_eq!(jam_model(&mut rig).page_name(), "Mixer");
+}
+
+#[test]
+fn generic_needs_the_capability() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = linked_with(INFO_SURFACE);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 4]));
+    rig.advance(60);
+    assert!(!ctrl_sent(&rig).iter().any(|m| m[4..6] == [0x02, 0x52] || m[4..6] == [0x14, 0x79]));
+    assert_eq!(jam_model(&mut rig).page_name(), "Offline");
+}
+
+#[test]
+fn generic_without_the_drivenbymoss_preset() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = Rig::new();
+    rig.start_jam();
+    let backend = Rc::new(RecordingBackend {
+        inputs: vec![(E_IN, "Electra Controller Electra Port".into()), (E_CTRL_IN, "Electra Controller Electra CTRL".into())],
+        outputs: vec![(E_OUT, "Electra Controller Electra Port".into()), (E_CTRL_OUT, "Electra Controller Electra CTRL".into())],
+        ..Default::default()
+    });
+    let mut app = App::new(backend.clone(), &config_dir("electra", "de.mossgrabers.reaper.controller.electra.one.ElectraOneControllerInstance"), 7, 22);
+    app.start_infrastructure();
+    rig.electra = Some((app, backend));
+    rig.advance(1100);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x01, 0x7F], INFO_GENERIC.as_bytes()));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x01, 0x04], br#"{"version":1,"presets":[{"slot":4,"bankNumber":1,"name":"SURFACE VIEW"}]}"#));
+    rig.advance(30);
+    assert!(ctrl_sent(&rig).contains(&sysex(&[0x02, 0x52], &[])));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[]));
+    rig.advance(60);
+    assert_eq!(jam_model(&mut rig).slots[2].name, "WAVE");
+}
+
+#[test]
+fn generic_input() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = generic_rig();
+    rig.electra_backend().take_calls();
+    let json = |c: &[u8], text: &str| sysex(c, text.as_bytes());
+
+    // Strip 1: the envelope's knob 1, touched, turned by 4 (16 fine steps), let go
+    rig.jam_cc(JAM_FADER_TOUCH1, 127);
+    rig.jam_cc(JAM_FADER1, 60);
+    rig.jam_cc(JAM_FADER1, 64);
+    rig.jam_cc(JAM_FADER_TOUCH1, 0);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x54], &[1, 1]), sysex(&[0x14, 0x53], &[1, 16, 0, 1]), sysex(&[0x14, 0x54], &[1, 0])]);
+    // Down by 1: two's complement
+    rig.jam_cc(JAM_FADER1, 64);
+    rig.jam_cc(JAM_FADER1, 63);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[1, 0x7C, 0x7F, 1])]);
+
+    // Select the envelope; left / right switch its handle, the push resets the handle's value
+    rig.jam_pad(1, 1);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x51], &[1, 0])]);
+    rig.jam_press(JAM_NAV_RIGHT);
+    rig.jam_press(JAM_NAV_LEFT);
+    rig.jam_press(JAM_KNOB_PUSH);
+    rig.advance(30);
+    assert_eq!(
+        ctrl_sent(&rig),
+        [
+            json(&[0x14, 0x56], r#"{"controlId":1,"next":true}"#),
+            json(&[0x14, 0x56], r#"{"controlId":1,"prev":true}"#),
+            json(&[0x14, 0x55], r#"{"controlId":1,"valueId":"attack","default":true}"#)
+        ]
+    );
+    // The device switched the handle: 7E 62, the page view again
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x62], &[1]));
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x02, 0x52], &[])]);
+    rig.electra_app().on_midi_event(
+        E_CTRL_IN,
+        &page_view(&[(r#""activeValueId":"attack""#, r#""activeValueId":"decay""#), (r#"{"potId":1,"controlId":1,"valueId":"attack"}"#, r#"{"potId":1,"controlId":1,"valueId":"decay"}"#), (r#""selectedControlId":0"#, r#""selectedControlId":1"#)]),
+    );
+    rig.advance(60);
+    let model = jam_model(&mut rig);
+    assert_eq!((model.slots[0].name.as_str(), model.slots[0].value_text.as_str(), model.selected_slot), ("ENV · Decay", "20", Some(0)));
+    // The main encoder turns the selected handle, with Shift fine
+    rig.jam_cc(JAM_KNOB_TURN, 1);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[1, 4, 0, 1])]);
+    // A control with one value has no handles
+    rig.jam_pad(3, 2);
+    rig.jam_press(JAM_NAV_RIGHT);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[2]), sysex(&[0x14, 0x51], &[3, 0])]);
+
+    // A list: selected and stepped to the next item; after the last item the first one
+    rig.jam_pad(3, 1);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[1]), sysex(&[0x14, 0x51], &[2, 0]), json(&[0x14, 0x55], r#"{"controlId":2,"valueId":"value","step":1}"#)]);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &json(&[0x7E, 0x0D], r#"{"controlId":2,"valueId":"value","value":3,"midiValue":96,"origin":"internal","text":"Sine"}"#));
+    rig.advance(30);
+    assert_eq!(jam_model(&mut rig).slots[2].value_text, "Sine");
+    rig.jam_pad(3, 1);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [json(&[0x14, 0x55], r#"{"controlId":2,"valueId":"value","value":0}"#)]);
+
+    // A Custom control: each knob its own value (strip 5 = knob 5, value b)
+    rig.jam_cc(JAM_FADER1 + 4, 10);
+    rig.jam_cc(JAM_FADER1 + 4, 11);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[5, 4, 0, 1])]);
+    // A covered cell of the envelope selects the envelope
+    rig.jam_pad(2, 2);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x51], &[1, 0])]);
+
+    // A toggle pad of control set 3 (row 5, value 1): off, with the row first
+    rig.jam_pad(2, 5);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [json(&[0x14, 0x55], r#"{"controlId":10,"valueId":"value","value":0}"#)]);
+
+    // Select the fader of control set 2: its row first; the main encoder then turns its knob 1
+    rig.jam_pad(1, 3);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[3]), sysex(&[0x14, 0x51], &[8, 0])]);
+    rig.jam_cc(JAM_KNOB_TURN, 127);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[1, 0x7C, 0x7F, 1])]);
+    // The device goes back to row 1 (a button): the next turn of the selection switches first
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x60], &[1, 0]));
+    rig.advance(30);
+    assert_eq!(jam_model(&mut rig).active_row, 0);
+    rig.jam_cc(JAM_KNOB_TURN, 1);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[3]), sysex(&[0x14, 0x53], &[1, 4, 0, 1])]);
+    // The row selectors and the hidden slot (knob 11 of set 1) is not turned
+    rig.jam_pad(0, 2);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[2])]);
+    rig.jam_cc(JAM_FADER1 + 4, 20);
+    rig.jam_cc(JAM_FADER1 + 4, 30);
+    rig.advance(30);
+    assert!(ctrl_sent(&rig).is_empty());
+
+    // The next page: 09 0A with the page index
+    rig.jam_press(JAM_RIGHT);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0A], &[1])]);
+}
+
+#[test]
+fn generic_events_and_pages() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = generic_rig();
+    rig.electra_backend().take_calls();
+
+    // A value change: the slot and the strip follow
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x0D], br#"{"controlId":1,"valueId":"attack","value":127,"midiValue":127,"origin":"midi","text":"127"}"#));
+    rig.advance(60);
+    assert_eq!((jam_model(&mut rig).slots[0].value, jam_model(&mut rig).slots[0].value_text.as_str().to_string()), (1.0, "127".to_string()));
+    assert_eq!(jam_surface::fader_configs(rig.jam_ctx()).unwrap()[0].value, 127);
+    // Of a value no slot shows (the envelope's release): nothing changes on the slots
+    let before = jam_model(&mut rig);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x0D], br#"{"controlId":1,"valueId":"release","value":1,"midiValue":1,"origin":"midi","text":"1"}"#));
+    rig.advance(60);
+    assert_eq!(jam_model(&mut rig), before);
+
+    // 7E 62 twice: one request, the second after the answer
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x62], &[1]));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x62], &[1]));
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x02, 0x52], &[])]);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[(r#""name":"CUTOFF""#, r#""name":"FREQ""#)]));
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x02, 0x52], &[])]);
+    assert_eq!(jam_model(&mut rig).slots[8].name, "FREQ");
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[]));
+    rig.advance(30);
+    assert!(ctrl_sent(&rig).is_empty());
+    // An answer which does not come is asked for again (three times)
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x62], &[1]));
+    rig.advance(1200);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x02, 0x52], &[]), sysex(&[0x02, 0x52], &[])]);
+    rig.advance(5000);
+    assert_eq!(ctrl_sent(&rig).len(), 2);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[]));
+    rig.advance(1200);
+    assert!(ctrl_sent(&rig).is_empty());
+
+    // A page switch on the device: the page view of page 2
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x06], &[1]));
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x02, 0x52], &[])]);
+    rig.electra_app().on_midi_event(E_CTRL_IN, &page_view(&[(r#""page":{"id":1,"name":"VIEW"}"#, r#""page":{"id":2,"name":"OTHER"}"#)]));
+    rig.advance(60);
+    let model = jam_model(&mut rig);
+    assert_eq!((model.page, model.page_name()), (1, "OTHER"));
+    // The page list of the JAM: page 1 is VIEW
+    rig.jam_pad(7, 0);
+    rig.advance(30);
+    assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0A], &[0])]);
+    // Rows and selections of the device (origin 0) reach the surface
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x60], &[5, 0]));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x61], &[3, 0, 0]));
+    rig.advance(60);
+    let model = jam_model(&mut rig);
+    assert_eq!((model.active_row, model.selected_slot), (4, Some(8)));
 }

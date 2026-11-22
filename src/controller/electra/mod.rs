@@ -14,6 +14,9 @@
 //! with its modes, and updates its controls with JSON (name, color, visibility), value texts and
 //! the Lua function `sgt` of the preset (group labels). See `surface` for the conversation.
 //!
+//! Not part of Java: the provider of the surface link (`link`, `surface_ext`), for the
+//! DrivenByMoss pages and, on the Mk2 emulator, for any other preset (`generic`, `page_view`).
+//!
 //! Deviations from Java (see also `doc/BITWIG_DIVERGENCES.md` §9 and the module documentation of
 //! `surface` and `setup`): errors of the handshake are logged instead of thrown; going offline
 //! twice keeps the mode of the DrivenByMoss preset; the note inputs filter the channel messages
@@ -22,9 +25,11 @@
 pub mod colors;
 pub mod command;
 pub mod definition;
+pub mod generic;
 pub mod link;
 pub mod mode;
 pub mod page_cache;
+pub mod page_view;
 pub mod preset_layout;
 pub mod setup;
 pub mod surface;

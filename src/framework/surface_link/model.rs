@@ -32,7 +32,8 @@ impl Version {
 }
 
 /// The version of this build.
-pub const PROTOCOL_VERSION: Version = Version::new(1, 0);
+/// 1.1: `Input::ValueNext` / `ValuePrev`.
+pub const PROTOCOL_VERSION: Version = Version::new(1, 1);
 
 /// An RGB color (8 bits per channel); the surface maps it to its palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -273,6 +274,11 @@ pub enum Input {
     PagePrev,
     SelectedTurn { delta: i32, fine: bool },
     SelectedReset,
+    /// The next / previous value of the selected slot's control, for a control with several
+    /// values on one knob (e.g. the handle of an envelope). Since 1.1; a provider without such
+    /// controls ignores them.
+    ValueNext,
+    ValuePrev,
     ExtraTurn { index: usize, delta: i32, fine: bool },
 }
 

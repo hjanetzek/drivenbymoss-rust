@@ -281,6 +281,14 @@ impl SurfaceLinkClient {
         }
     }
 
+    /// The next (+1) or previous (-1) value of the selected slot's control (e.g. the handle of
+    /// an envelope).
+    pub fn step_value(&self, step: i32) {
+        if self.model.selected_slot.is_some() && step != 0 {
+            self.send(if step > 0 { Input::ValueNext } else { Input::ValuePrev });
+        }
+    }
+
     /// The touch of an encoder: an absolute one starts again; a touch-sensitive slot is
     /// touched.
     pub fn on_encoder_touch(&mut self, index: usize, touched: bool) {
