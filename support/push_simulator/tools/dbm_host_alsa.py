@@ -24,6 +24,13 @@ The APC40 mkII, Launchpad Pro Mk3 and Launch Control XL simulators (``--model
 apc40mk2|lppromk3|lcxl``): one duplex port, "APC40 mkII MIDI 1" / "Launchpad Pro MK3 LPProMK3 MIDI" /
 "Launch Control XL Launch Contro" (with " (sim)" first, then without). The Maschine Mk3 and Mikro
 Mk3 simulators (``--model mk3|mikromk3``) too: "Maschine MK3 Ctrl MIDI" / "Maschine Mikro MK3".
+
+The Electra One (``--model electra``, the Mk1/Mk2 controller; ``electramini`` for the Mini): the
+emulator of the real firmware (the electra-one project, ``build/electra``) is the ALSA client
+"Electra Controller". The runner has two ports, "DrivenByMoss" for the core's port 0 (connected
+with "Electra Port 1", the controls) and "DrivenByMoss CTRL" for its port 1 (with "Electra
+CTRL", the SysEx API). ``--electra-client N`` picks the emulator by its ALSA client number (its
+log says it) when several run; its ports 0 and 2 are Port 1 and CTRL.
 """
 
 import argparse
@@ -52,7 +59,13 @@ CONTROLLERS = {
     "lcxl": "5AFA5045-FF92-4737-A091-5B371CD5E529",
     "mk3": "9055C36B-0A41-48AD-8675-4D3F133E53AC",
     "mikromk3": "E87516A3-5401-44B1-9952-B4F821ED3DD5",
+    "electra": "24342204-B891-4F62-BC43-8ABA1DE1D690",
+    "electramini": "610CBC4D-E7D0-4D62-BCEB-97E91419C73F",
 }
+# The Electra One (emulator): the ports of the core's port 0 (Port 1) and port 1 (CTRL), and their
+# numbers in the emulator's client
+ELECTRA_PORTS = (("Electra Port 1", 0), ("Electra CTRL", 2))
+ELECTRA_MODELS = ("electra", "electramini")
 # The plain MIDI simulators (support/controller_simulator, midi_simulator): the duplex port the
 # core opens (also searched with the suffixes of MASCHINE_SUFFIXES; the Launchpad also by its
 # older kernel name)
@@ -110,9 +123,30 @@ class DisplayWriter:
             return False
 
 
+def electra_project(daw) -> None:
+    """Something for each page of the Electra One: a synth with remote controls on the first
+    track, an EQ+ on the second, clips, scene names and cue markers."""
+    from dbm_host.device import Device, RemoteControl, eq_plus
+    from dbm_host.parameter import Parameter
+
+    names = ["Cutoff", "Resonance", "Env Amt", "Drive", "Attack", "Decay", "Sustain", "Release",
+             "Osc 1", "Osc 2", "Detune", "Noise", "LFO Rate", "LFO Amt", "Glide", "Volume"]
+    controls = [RemoteControl(name, Parameter(daw.preferences, value=(i % 8) / 8, name=name)) for i, name in enumerate(names)]
+    daw.tracks[0].devices.add(Device("Polysynth", pages=["Filter", "Osc"], remote_controls=controls))
+    daw.tracks[1].devices.add(eq_plus(daw.preferences))
+    for track, slot, name in ((0, 0, "Intro"), (0, 1, "Lead"), (1, 0, "Beat"), (2, 2, "Bassline")):
+        clip = daw.tracks[track].slots[slot]
+        clip.create_clip(4.0)
+        clip.name = name
+    for index, name in enumerate(("Verse", "Chorus", "Bridge")):
+        daw.scenes[index].name = name
+    for index, name in enumerate(("Start", "Drop", "Outro")):
+        daw.markers.add(name, index * 16.0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", choices=layout.MODELS + tuple(MASCHINE_PORTS) + tuple(MIDI_PORTS), default="push2")
+    parser.add_argument("--model", choices=layout.MODELS + tuple(MASCHINE_PORTS) + tuple(MIDI_PORTS) + ELECTRA_MODELS, default="push2")
     parser.add_argument("--controller", default=None, help="controller UUID (default: the one of the model)")
     parser.add_argument("--bindings", default=os.path.join(REPO, "bindings", "python"),
                         help="directory with the packages drivenbymoss and dbm_host")
@@ -125,6 +159,7 @@ def main() -> int:
     parser.add_argument("--suffix", default=None, help='Maschine: the suffix of the simulator\'s port names (default: " (sim)", '
                                                        'else none)')
     parser.add_argument("--no-values", action="store_true", help="do not send the encoder state (the side channel)")
+    parser.add_argument("--electra-client", type=int, default=None, help="Electra One: the ALSA client number of the emulator")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
 
@@ -139,8 +174,16 @@ def main() -> int:
     if known and controller.upper() not in known:
         sys.exit(f"the library has no controller {controller} (is it the build of the Push port? --library)")
 
-    seq = alsa_seq.AlsaSeq("DrivenByMoss dbm_host", ["DrivenByMoss"])
-    if args.model in MASCHINE_PORTS:
+    is_electra = args.model in ELECTRA_MODELS
+    seq = alsa_seq.AlsaSeq("DrivenByMoss dbm_host", ["DrivenByMoss", "DrivenByMoss CTRL"] if is_electra else ["DrivenByMoss"])
+    if is_electra:
+        for port, (name, number) in enumerate(ELECTRA_PORTS):
+            target = (args.electra_client, number) if args.electra_client is not None else seq.find_port(name)
+            if target is None:
+                sys.exit(f"the emulator port {name!r} was not found; is build/electra running (without --no-alsa)?")
+            seq.connect_both(port, port, target)
+            print(f"connected port {port} to {target[0]}:{target[1]} '{name}'")
+    elif args.model in MASCHINE_PORTS:
         # Two ports as NI's driver and dbm-nihost: the DAW reads "... In(put)", writes "... Out(put)"
         daw_in, daw_out = MASCHINE_PORTS[args.model]
         suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
@@ -198,20 +241,22 @@ def main() -> int:
         scenes=8,
     )
     daw.tracks[0].select()
+    if is_electra:
+        electra_project(daw)
     config = args.config or tempfile.mkdtemp(prefix="dbm-push-sim-")
     bridge = AlsaBridge(daw, controller, config, "Bitwig Studio 5.3")
 
-    def to_device(data: bytes) -> None:
+    def to_device(port: int, data: bytes) -> None:
         if args.verbose:
-            print("->", data.hex(" "))
-        seq.send(data, 0)
+            print(f"->{port}", data.hex(" "))
+        seq.send(data, port if is_electra else 0)
 
-    bridge.on_midi_out = to_device
+    bridge.on_port_midi_out = to_device
 
-    def from_device(data: bytes, _port: int) -> None:
+    def from_device(data: bytes, port: int) -> None:
         if args.verbose:
-            print("<-", data.hex(" "))
-        bridge.receive(data)
+            print(f"<-{port}", data.hex(" "))
+        bridge.receive(data, port if is_electra else 0)
 
     seq.start_reader(from_device)
     bridge.start()

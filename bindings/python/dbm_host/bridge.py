@@ -18,6 +18,12 @@ pending MIDI, ticks the core, reports the changes and calls ``update_model``. No
 core's own timers (the 1 s startup delay, the 75 ms selection after a page change, long presses,
 blinking) run on the simulated clock too.
 
+Ports: the controller's MIDI ports are the device IDs 0..n (``numMidiInPorts`` /
+``numMidiOutPorts`` of its definition, as Bitwig's ports in DbmExtension), e.g. Port 1 and CTRL
+of the Electra One. ``receive(data, port)`` takes MIDI from a port, ``on_port_midi_out(port,
+data)`` gets every message with its port; ``midi_out`` and ``on_midi_out`` keep all messages
+without the port. The note inputs are the ones of port 0.
+
 USB: the USB bulk writes of the core (the Push 2/3 display) go to ``usb_output``, by default
 ``UsbOutput.from_environment()`` (created on the first write): with ``DBM_PUSH_DISPLAY_SOCKET``
 to the Push simulator's socket, else on Linux to the device through usbdevfs
@@ -44,7 +50,8 @@ TICK_MS = 30
 STARTUP_DELAY_MS = 1000
 STARTUP_MARGIN_MS = 60
 
-# The device ID of the controller's MIDI ports (dbm_create_controller)
+# The device ID of the controller's first MIDI port pair (dbm_create_controller); further ports
+# are numbered after it
 DEVICE = 0
 
 
@@ -70,12 +77,18 @@ class Bridge(drivenbymoss.Backend):
         self.commands = self.command_handler_class(daw, self.banks, self.reporter, clock=lambda: self.clock_ms)
         self.reporter.features = self.commands.host_features
         self.app: drivenbymoss.App | None = None
-        self.midi_in: list[bytes] = []
-        """MIDI from the controller, sent to the core with the next tick."""
+        self.midi_in: list[tuple[int, bytes]] = []
+        """MIDI from the controller (port, data), sent to the core with the next tick."""
         self.midi_out: list[bytes] = []
         """All MIDI the core sent to the controller."""
+        self.midi_out_ports: list[tuple[int, bytes]] = []
+        """All MIDI the core sent to the controller, with the port (device ID)."""
         self.on_midi_out: Callable[[bytes], None] | None = None
         """Called with every message to the controller (e.g. a device stub which answers)."""
+        self.on_port_midi_out: Callable[[int, bytes], None] | None = None
+        """Called with the port and every message to the controller."""
+        self.num_midi_in_ports = 1
+        self.num_midi_out_ports = 1
         self.played_notes: list[tuple[int, int, int]] = []
         """The MIDI the core played into the DAW (process_midi_arg)."""
         self.note_inputs: dict[int, "NoteInput"] = {}
@@ -92,6 +105,10 @@ class Bridge(drivenbymoss.Backend):
 
     def start(self) -> "Bridge":
         """Create the controller, start it, size the banks and send the first (complete) report."""
+        for definition in drivenbymoss.list_controllers():
+            if str(definition.get("uuid", "")).upper() == self.controller_id.upper():
+                self.num_midi_in_ports = max(1, int(definition.get("numMidiInPorts", 1)))
+                self.num_midi_out_ports = max(1, int(definition.get("numMidiOutPorts", 1)))
         self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
         self.app.set_time(int(self.clock_ms))
         if not self.app.use_binary_commands(self.commands.handled_commands()):
@@ -131,14 +148,15 @@ class Bridge(drivenbymoss.Backend):
 
     # The loop
 
-    def receive(self, data: bytes | Iterable[int]) -> None:
-        """MIDI from the controller (sent to the core with the next step). A short message has
-        three bytes, as Bitwig's MIDI callback gives it to DbmExtension (``(status, data1,
-        data2)``: a program change ``C0 05`` arrives as ``C0 05 00``)."""
+    def receive(self, data: bytes | Iterable[int], port: int = DEVICE) -> None:
+        """MIDI from the controller (sent to the core with the next step), from the given port.
+        A short message has three bytes, as Bitwig's MIDI callback gives it to DbmExtension
+        (``(status, data1, data2)``: a program change ``C0 05`` arrives as ``C0 05 00``); a SysEx
+        chunk (not starting with F0, the rest of a long message) is passed as it is."""
         data = bytes(data)
-        if data and data[0] != 0xF0 and len(data) < 3:
+        if data and data[0] != 0xF0 and data[0] & 0x80 and len(data) < 3:
             data = data + bytes(3 - len(data))
-        self.midi_in.append(data)
+        self.midi_in.append((port, data))
 
     def report(self) -> bool:
         """Collect the changes of the DAW and send them to the core; True if there were any."""
@@ -161,9 +179,10 @@ class Bridge(drivenbymoss.Backend):
         """One loop pass: MIDI in -> tick -> report changes -> update_model."""
         self.app.set_time(int(self.clock_ms))
         pending, self.midi_in = self.midi_in, []
-        for data in pending:
-            self.app.on_midi_event(DEVICE, data)
-            self.to_note_inputs(data)
+        for port, data in pending:
+            self.app.on_midi_event(port, data)
+            if port == DEVICE:
+                self.to_note_inputs(data)
         self.app.tick()
         self.report()
         self.notifications.extend(self.app.take_notifications())
@@ -185,9 +204,9 @@ class Bridge(drivenbymoss.Backend):
         """Advance the simulated time until the core ran the delayed startup of the controller."""
         self.advance(STARTUP_DELAY_MS + STARTUP_MARGIN_MS)
 
-    def send(self, data: bytes | Iterable[int], ms: float = TICK_MS) -> None:
+    def send(self, data: bytes | Iterable[int], ms: float = TICK_MS, port: int = DEVICE) -> None:
         """Receive a MIDI message from the controller and advance the time."""
-        self.receive(data)
+        self.receive(data, port)
         self.advance(ms)
 
     def core_errors(self) -> list[str]:
@@ -203,13 +222,16 @@ class Bridge(drivenbymoss.Backend):
         self.commands.process_commands(buffer)
 
     def open_midi_input(self, device_id: int) -> bool:
-        return device_id == DEVICE
+        return 0 <= device_id < self.num_midi_in_ports
 
     def open_midi_output(self, device_id: int) -> bool:
-        return device_id == DEVICE
+        return 0 <= device_id < self.num_midi_out_ports
 
     def send_midi_data(self, device_id: int, data: bytes) -> None:
         self.midi_out.append(data)
+        self.midi_out_ports.append((device_id, data))
+        if self.on_port_midi_out is not None:
+            self.on_port_midi_out(device_id, data)
         if self.on_midi_out is not None:
             self.on_midi_out(data)
 
