@@ -42,6 +42,7 @@ use std::rc::Rc;
 use super::command::TouchCombinationCommand;
 use super::colors::format_color;
 use super::definition::*;
+use super::link::{self, ElectraLink};
 use crate::config::electra as config;
 use crate::daw::color::ColorEx;
 use crate::framework::ctx::Ctx;
@@ -86,10 +87,12 @@ pub struct ElectraState {
     /// The patterns assigned to Shift, with 2 for "don't care" (former `shiftPatterns`). As in
     /// Java they are collected but not used (see doc/UPSTREAM_CANDIDATES.md).
     pub shift_patterns: Vec<Vec<i32>>,
+    /// The provider of the surface link (not part of Java, see `link`).
+    pub link: ElectraLink,
 }
 
 impl ElectraState {
-    pub fn new(variant: ElectraVariant, ctrl_output: MidiOutput) -> Self {
+    pub fn new(variant: ElectraVariant, ctrl_output: MidiOutput, link: ElectraLink) -> Self {
         let touch_commands = (0..variant.touch_patterns().len()).map(|i| TouchCombinationCommand::new(variant, i)).collect();
         ElectraState {
             variant,
@@ -106,6 +109,7 @@ impl ElectraState {
             touch_commands,
             command_patterns: Vec::new(),
             shift_patterns: Vec::new(),
+            link,
         }
     }
 
@@ -294,6 +298,10 @@ fn process_sysex(ctx: &mut Ctx, data: &[u8]) {
     if data.len() <= SUB_CMD_START_POS || data[..SYSEX_HEADER.len()] != SYSEX_HEADER {
         return;
     }
+    // The messages of the surface link (row, selection, ACK/NACK; not part of Java)
+    if link::handle_device_sysex(ctx, data) {
+        return;
+    }
     let sub_command = data[SUB_CMD_START_POS];
     match data[CMD_START_POS] {
         CMD_INFO => handle_sysex_commands_info(ctx, sub_command, data),
@@ -323,6 +331,7 @@ fn handle_sysex_commands_controller(ctx: &mut Ctx, command: u8, data: &[u8]) {
             if let Some(&mode) = state(ctx).variant.modes().get(page) {
                 ctx.host.println(&format!("Switching to mode: {}", mode_name(mode)));
                 ctx.set_active_mode(mode);
+                link::on_page_switched(ctx);
             }
         }
 
@@ -363,7 +372,7 @@ fn mode_name(mode: Modes) -> &'static str {
 
 /// Former `AbstractElectraOneBaseMode.setEditing`: the knob of a control is touched; for the
 /// active Electra mode (not the Dummy mode).
-fn set_editing(ctx: &mut Ctx, control_id: i32, is_touched: bool) {
+pub(crate) fn set_editing(ctx: &mut Ctx, control_id: i32, is_touched: bool) {
     if ctx.modes.is_active(Modes::Dummy) {
         return;
     }
@@ -439,7 +448,9 @@ fn handle_sysex_commands_info(ctx: &mut Ctx, command: u8, data: &[u8]) {
             ctx.host.error(&error);
             return;
         }
-        send_sysex(ctx, &SYSEX_RUNTIME_SUBSCRIBE_EVENTS, &[SUBSCRIBED_EVENTS]);
+        // The surface link adds the control set events if the device shows rows (not in Java)
+        let events = link::on_device_info(ctx, &content);
+        send_sysex(ctx, &SYSEX_RUNTIME_SUBSCRIBE_EVENTS, &[events]);
         request_preset_list(ctx);
     } else {
         if let Err(error) = find_and_select_driven_by_moss_preset(ctx, &content) {
@@ -576,4 +587,6 @@ fn set_online(ctx: &mut Ctx) {
     let mode = state.active_mode.unwrap_or(Modes::Volume);
     let page = state.variant.modes().iter().position(|m| *m == mode).map_or(-1, |p| p as i32);
     select_page(ctx, page);
+    link::on_page_switched(ctx);
+    link::request_initial_state(ctx);
 }

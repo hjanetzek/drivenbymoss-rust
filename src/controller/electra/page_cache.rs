@@ -31,6 +31,17 @@ impl Control {
     }
 }
 
+/// The wanted state of a control, as the modes wrote it (for the surface link).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CachedControl<'a> {
+    /// The value (0..127), negative after a reset.
+    pub value: i32,
+    pub value_label: Option<&'a str>,
+    pub label: Option<&'a str>,
+    pub color: Option<ColorEx>,
+    pub exists: Option<bool>,
+}
+
 /// The cache of a preset page (former `PageCache`).
 pub struct PageCache {
     page: usize,
@@ -189,6 +200,23 @@ impl PageCache {
 
         self.is_dirty = false;
         surface::set_repaint_enabled(ctx, true);
+    }
+
+    /// The wanted state of a control (not part of Java; read by the surface link).
+    pub fn control(&self, row: usize, column: usize) -> CachedControl<'_> {
+        let control = &self.wanted[self.index(row, column)];
+        CachedControl {
+            value: control.value,
+            value_label: control.value_label.as_deref(),
+            label: control.label.as_deref(),
+            color: control.color,
+            exists: control.exists,
+        }
+    }
+
+    /// The index of the page.
+    pub fn page(&self) -> usize {
+        self.page
     }
 
     /// The ID of a control on the device (former `getControlID`): counted from 1 over all pages.

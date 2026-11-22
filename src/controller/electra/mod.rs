@@ -22,10 +22,13 @@
 pub mod colors;
 pub mod command;
 pub mod definition;
+pub mod link;
 pub mod mode;
 pub mod page_cache;
+pub mod preset_layout;
 pub mod setup;
 pub mod surface;
+pub mod surface_ext;
 
 use crate::backend::Sender;
 use crate::config::Configuration;

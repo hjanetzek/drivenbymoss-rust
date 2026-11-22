@@ -266,6 +266,21 @@ impl TrackInfo {
     }
 }
 
+/// The Electra part of a mode of the normal model, for the surface link (not part of Java):
+/// `f` gets the [`ElectraModeBase`] of the mode, `None` for another mode (Dummy).
+pub fn with_normal_mode<R>(mode: &dyn crate::framework::feature::Mode, f: impl FnOnce(&ElectraModeBase) -> R) -> Option<R> {
+    let any = mode.as_any();
+    macro_rules! try_mode {
+        ($($t:ty),*) => {
+            $(if let Some(m) = any.downcast_ref::<$t>() {
+                return Some(f(&m.base.electra));
+            })*
+        };
+    }
+    try_mode!(mixer::MixerMode, mixer::SendsMode, device::DeviceMode, device::EqualizerMode, transport::TransportMode, session::SessionMode, device::ProjectTrackMode);
+    None
+}
+
 /// Former `DefaultTrackMode.getTrack`: true if the track at the index of the page exists.
 pub fn track_exists(ctx: &Ctx, index: usize) -> bool {
     ctx.model.current_track_bank().item(index).does_exist()

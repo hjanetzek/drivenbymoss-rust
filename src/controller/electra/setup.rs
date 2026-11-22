@@ -102,7 +102,8 @@ pub fn create(
     let ctrl_output = MidiOutput::new(sender.clone(), ctrl_output);
 
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, colors);
-    let state = ElectraState::new(variant, ctrl_output);
+    let link = super::link::ElectraLink::new(variant, &ctx.host);
+    let state = ElectraState::new(variant, ctrl_output, link);
     // Only send MIDI to the pads if the DrivenByMoss preset is selected (former setTrigger)
     let online = state.online.clone();
     let trigger_sender = ctx.surface.trigger_sender.clone();
@@ -166,6 +167,15 @@ impl ControllerSetup for ElectraSetup {
             electra::update_touch_combination_commands_cache(ctx);
         }
         ctx.dispatch_setting_changes_to_views(&changed);
+
+        // The input of the surfaces of the surface link (not part of Java)
+        super::link::poll(ctx);
+    }
+
+    fn flush(&mut self, ctx: &mut Ctx) {
+        ctx.flush_surface();
+        // The page model of the surface link, after the modes updated their page caches
+        super::link::publish(ctx);
     }
 
     fn exit(&mut self, ctx: &mut Ctx) {
