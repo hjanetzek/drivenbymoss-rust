@@ -381,6 +381,11 @@ impl TriggerCommand for MaschineJamSessionViewCommand {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, _velocity: i32) {
         match event {
             ButtonEvent::Up => {
+                // Select + SONG: the surface link (not part of Java)
+                if ctx.surface.is_pressed(ButtonId::Select) {
+                    super::surface_link::toggle(ctx);
+                    return;
+                }
                 if ctx.surface.is_shift_pressed() {
                     let application = ctx.model.application_mut();
                     let is_arrange = application.panel_layout() == PANEL_LAYOUT_ARRANGE;

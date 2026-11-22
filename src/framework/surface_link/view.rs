@@ -57,6 +57,8 @@ impl SurfaceLinkView {
         let mapping: &SurfaceMapping = client.mapping();
         let model = client.model();
         let state = client.state();
+        let ui = mapping.ui_colors;
+        let ui_color = |index: Option<i32>, default: Rgb| index.unwrap_or_else(|| palette_index(ctx, default));
         let mut colors = Vec::with_capacity(mapping.columns * mapping.rows);
         for y in 0..mapping.rows {
             for x in 0..mapping.columns {
@@ -67,8 +69,8 @@ impl SurfaceLinkView {
                         PadFunction::Slot(id) => {
                             let (row, column) = (id / 6, id % 6);
                             let on_cross = row == column || row + column == 5;
-                            let color = if state == LinkState::Incompatible { INCOMPATIBLE } else { NO_PROVIDER };
-                            (if on_cross { palette_index(ctx, color) } else { 0 }, -1)
+                            let color = if state == LinkState::Incompatible { ui_color(ui.incompatible, INCOMPATIBLE) } else { ui_color(ui.no_provider, NO_PROVIDER) };
+                            (if on_cross { color } else { 0 }, -1)
                         }
                         _ => (0, -1),
                     }
@@ -79,9 +81,9 @@ impl SurfaceLinkView {
                             Some(slot) if slot.kind != SlotKind::Empty && slot.enabled => {
                                 let color = palette_index(ctx, slot.color);
                                 // Black slots (e.g. a pad which is off) are still visible
-                                let color = if color == 0 { palette_index(ctx, NAVIGATION) } else { color };
+                                let color = if color == 0 { ui_color(ui.black_slot, NAVIGATION) } else { color };
                                 if model.selected_slot == Some(id) {
-                                    (color, palette_index(ctx, SELECTED))
+                                    (color, ui_color(ui.selected, SELECTED))
                                 } else {
                                     (color, -1)
                                 }
@@ -90,23 +92,23 @@ impl SurfaceLinkView {
                         },
                         PadFunction::Row(row) => {
                             let color = if row == model.active_row {
-                                ROW_ACTIVE
+                                ui_color(ui.row_active, ROW_ACTIVE)
                             } else if model.control_set(row).is_multiple_of(2) {
-                                ROW_SET_A
+                                ui_color(ui.row_set_a, ROW_SET_A)
                             } else {
-                                ROW_SET_B
+                                ui_color(ui.row_set_b, ROW_SET_B)
                             };
-                            (palette_index(ctx, color), -1)
+                            (color, -1)
                         }
                         PadFunction::Page(page) => {
                             if page >= model.pages.len() {
                                 (0, -1)
                             } else {
-                                (palette_index(ctx, if page == model.page { PAGE_ACTIVE } else { PAGE }), -1)
+                                (if page == model.page { ui_color(ui.page_active, PAGE_ACTIVE) } else { ui_color(ui.page, PAGE) }, -1)
                             }
                         }
-                        PadFunction::PagePrev => (if model.page > 0 { palette_index(ctx, NAVIGATION) } else { 0 }, -1),
-                        PadFunction::PageNext => (if model.page + 1 < model.pages.len() { palette_index(ctx, NAVIGATION) } else { 0 }, -1),
+                        PadFunction::PagePrev => (if model.page > 0 { ui_color(ui.navigation, NAVIGATION) } else { 0 }, -1),
+                        PadFunction::PageNext => (if model.page + 1 < model.pages.len() { ui_color(ui.navigation, NAVIGATION) } else { 0 }, -1),
                     }
                 };
                 colors.push((x, y, color, blink));

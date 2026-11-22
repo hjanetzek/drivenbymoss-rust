@@ -51,6 +51,27 @@ pub enum EncoderKind {
     Absolute,
 }
 
+/// Palette indices of the controller for the parts of the surface which are not slots; `None`
+/// takes the closest color of the palette to a default RGB color (which is often too dark, a
+/// controller with a fixed palette sets them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UiColors {
+    pub row_active: Option<i32>,
+    /// The rows of the even and the odd control sets.
+    pub row_set_a: Option<i32>,
+    pub row_set_b: Option<i32>,
+    pub page_active: Option<i32>,
+    pub page: Option<i32>,
+    pub navigation: Option<i32>,
+    /// The blink color of the selected slot.
+    pub selected: Option<i32>,
+    /// The cross without a provider.
+    pub no_provider: Option<i32>,
+    pub incompatible: Option<i32>,
+    /// A slot whose color is black (e.g. a pad which is off).
+    pub black_slot: Option<i32>,
+}
+
 /// What a controller supplies: the layout of its grid and its encoders.
 #[derive(Debug, Clone)]
 pub struct SurfaceMapping {
@@ -64,6 +85,7 @@ pub struct SurfaceMapping {
     pub main_encoder: Option<RelativeEncoding>,
     pub touch_encoders: bool,
     pub color_depth: super::ColorDepth,
+    pub ui_colors: UiColors,
 }
 
 impl SurfaceMapping {
@@ -78,6 +100,7 @@ impl SurfaceMapping {
             main_encoder: None,
             touch_encoders: false,
             color_depth: super::ColorDepth::Palette,
+            ui_colors: UiColors::default(),
         }
     }
 

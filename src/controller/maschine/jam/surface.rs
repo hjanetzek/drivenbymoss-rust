@@ -103,6 +103,8 @@ pub struct JamExt {
     pub encoder_manager: SharedEncoderModeManager,
     /// The last seen active state of the browser (replaces the browser observer).
     pub browser_active: bool,
+    /// The surface of the surface link (not part of Java).
+    pub surface: super::surface_link::JamSurface,
 }
 
 impl Default for JamExt {
@@ -117,6 +119,7 @@ impl JamExt {
             current_fader_configs: [FaderConfig::new(-1, -1, -1); 8],
             encoder_manager: Rc::new(RefCell::new(EncoderModeManager::new())),
             browser_active: false,
+            surface: super::surface_link::JamSurface::new(),
         }
     }
 

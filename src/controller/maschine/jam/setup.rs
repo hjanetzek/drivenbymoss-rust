@@ -18,6 +18,7 @@ use std::rc::Rc;
 use super::command::*;
 use super::mode::*;
 use super::surface::{self as jam, FaderConfig, JamExt};
+use super::surface_link::{SurfaceButton, SurfaceOr, SurfaceOrEncoder};
 use super::view::accent_view::AccentView;
 use super::view::drum_views::{Drum64View, DrumLaneView, DrumView};
 use super::view::note_repeat_view::NoteRepeatView;
@@ -99,6 +100,8 @@ impl ControllerSetup for MaschineJamSetup {
         create_views(ctx);
         register_trigger_commands(ctx);
         register_continuous_commands(ctx);
+        // The surface link (not part of Java)
+        super::surface_link::register(ctx);
     }
 
     fn startup(&mut self, ctx: &mut Ctx) {
@@ -157,6 +160,9 @@ impl ControllerSetup for MaschineJamSetup {
                 manager.borrow_mut().disable_temporary_encode_mode(ctx);
             }
         }
+
+        // The surface link (not part of Java)
+        super::surface_link::poll(ctx);
     }
 
     fn exit(&mut self, ctx: &mut Ctx) {
@@ -323,7 +329,7 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
 
 /// Update the touch strips from the active mode (former `updateFaders`).
 fn update_faders(ctx: &mut Ctx) {
-    let configs: Option<[FaderConfig; 8]> = setup_faders_of_active_mode(ctx);
+    let configs: Option<[FaderConfig; 8]> = super::surface_link::fader_configs(ctx).or_else(|| setup_faders_of_active_mode(ctx));
     if let Some(configs) = configs {
         jam::setup_faders(ctx, &configs);
     }
@@ -370,8 +376,8 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         jam::RECORD,
         bool_supplier(|ctx| crate::framework::commands::transport::ConfiguredRecordCommand::is_lit(ctx, ctx.surface.is_shift_pressed())),
     );
-    add_button(ctx, ButtonId::PageLeft, "PAGE LEFT", Some(shared(MaschineJamPageCommand::new_left())), jam::LEFT, None);
-    add_button(ctx, ButtonId::PageRight, "PAGE RIGHT", Some(shared(MaschineJamPageCommand::new_right())), jam::RIGHT, None);
+    add_button(ctx, ButtonId::PageLeft, "PAGE LEFT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_left(), SurfaceButton::PagePrev))), jam::LEFT, None);
+    add_button(ctx, ButtonId::PageRight, "PAGE RIGHT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_right(), SurfaceButton::PageNext))), jam::RIGHT, None);
     add_button(ctx, ButtonId::Solo, "SOLO", Some(shared(MaschineJamSoloCommand)), jam::SOLO, None);
     add_button(ctx, ButtonId::Mute, "MUTE", Some(shared(MaschineJamMuteCommand)), jam::MUTE, None);
 
@@ -466,11 +472,17 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         (ButtonId::ArrowDown, "DOWN", jam::NAV_DOWN),
     ];
     for (id, label, control) in arrows {
+        // Up and down select the rows of the surface link (not part of Java)
+        let command = match id {
+            ButtonId::ArrowUp => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::RowUp)),
+            ButtonId::ArrowDown => shared(SurfaceOr::new(MaschineJamViewButtonCommand::new(id), SurfaceButton::RowDown)),
+            _ => shared(MaschineJamViewButtonCommand::new(id)),
+        };
         add_button(
             ctx,
             id,
             label,
-            Some(shared(MaschineJamViewButtonCommand::new(id))),
+            Some(command),
             control,
             bool_supplier(move |ctx| MaschineJamViewButtonCommand::can_scroll(ctx, id)),
         );
@@ -512,7 +524,7 @@ pub fn register_continuous_commands(ctx: &mut Ctx) {
         ContinuousId::MasterKnob,
         "Encoder",
         ContinuousKind::RelativeKnob,
-        Rc::new(std::cell::RefCell::new(EncoderModeCommand::new(manager.clone()))),
+        Rc::new(std::cell::RefCell::new(SurfaceOrEncoder::new(EncoderModeCommand::new(manager.clone())))),
         BindType::Cc,
         0,
         jam::KNOB_TURN,
@@ -543,7 +555,7 @@ pub fn register_continuous_commands(ctx: &mut Ctx) {
         ctx,
         ButtonId::Enter,
         "ENC_PRESS",
-        Some(shared(FnTrigger(move |ctx: &mut Ctx, event: ButtonEvent, _velocity: i32| {
+        Some(shared(SurfaceOr::new(FnTrigger(move |ctx: &mut Ctx, event: ButtonEvent, _velocity: i32| {
             if event != ButtonEvent::Down {
                 return;
             }
@@ -554,7 +566,7 @@ pub fn register_continuous_commands(ctx: &mut Ctx) {
             } else {
                 push_manager.borrow_mut().toggle_function(ctx);
             }
-        }))),
+        }), SurfaceButton::Reset))),
         jam::KNOB_PUSH,
         None,
     );
