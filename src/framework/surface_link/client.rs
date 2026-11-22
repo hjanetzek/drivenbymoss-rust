@@ -161,6 +161,20 @@ impl SurfaceMapping {
         }
     }
 
+    /// The number of encoders which turn the slots of the active row (and of the rows below it:
+    /// `RowSlot(6..11)` is the next row).
+    pub fn slot_encoders(&self) -> usize {
+        self.encoders.iter().filter(|f| matches!(f, EncoderFunction::RowSlot(_))).count()
+    }
+
+    /// True if the slot encoders cover a whole control set of `rows_per_set` rows (12 encoders
+    /// for the 2 rows of the Electra's sets): only then the grouping of the rows into control
+    /// sets matters for the surface (the row selectors show it). A surface with one row of
+    /// encoders (the JAM's 6 strips) selects each row on its own.
+    pub fn covers_control_set(&self, rows_per_set: usize) -> bool {
+        rows_per_set > 1 && self.slot_encoders() >= rows_per_set * GRID_SIZE
+    }
+
     /// The capabilities sent on attach.
     pub fn capabilities(&self) -> Capabilities {
         Capabilities {

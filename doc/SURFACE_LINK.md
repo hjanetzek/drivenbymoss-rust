@@ -136,6 +136,13 @@ Plus, optionally, `touch_encoders` and `ui_colors`: palette indices for the row 
 pages, navigation, selection and the "no provider" cross. Without them, the closest palette
 color of a default RGB color is used, which is too dark on fixed palettes.
 
+**Row selectors:** the active row is white (`row_active`). The inactive rows alternate between
+`row_set_a` and `row_set_b` per control set (rows 1/2, 3/4, 5/6) only if the surface's slot
+encoders (`RowSlot`) cover a whole control set, i.e. 12 or more for the 2 rows of a set
+(`SurfaceMapping::covers_control_set`): the colors then show which two rows the encoders turn
+together. A surface with one row of encoders (the JAM's 6 strips) selects each row on its own,
+so all its inactive rows have the `row_set_a` color (`view::row_color`).
+
 Then:
 
 1. Create a `SurfaceLinkClient` (shared, attaches at once) and register
@@ -332,7 +339,7 @@ sequencer client receives it only with a larger input pool than the default (200
 | JAM | Surface |
 | --- | --- |
 | Grid centre 6x6 (columns 2-7, rows 2-7) | the slots in their colors; a press selects a knob slot or presses a pad slot; the selected slot blinks white |
-| Column 1, rows 2-7 | the row selectors: the active row white, the control sets blue and turquoise |
+| Column 1, rows 2-7 | the row selectors: the active row white, the others blue (one color: the strips cover one row, the grouping into control sets does not matter) |
 | Column 1, top / bottom pad | previous / next page |
 | Column 8 | the page list (up to 8 pages), the current one orange |
 | Strips 1-6 | the slots of the active row; the LEDs show their values in the slot colors. A swipe turns by its distance (no jumps), with Shift in single steps; the strip touch is the slot touch |

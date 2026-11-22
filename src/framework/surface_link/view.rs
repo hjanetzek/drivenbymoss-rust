@@ -11,7 +11,7 @@
 //! (the closest DAW color, as for track colors).
 
 use super::client::{PadFunction, SharedClient, SurfaceMapping};
-use super::{LinkState, Rgb, SlotKind};
+use super::{LinkState, PageModel, Rgb, SlotKind};
 use crate::daw::color::{ColorEx, DawColor};
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{Mode, View};
@@ -39,6 +39,31 @@ const NAVIGATION: Rgb = Rgb::new(90, 90, 90);
 const NO_PROVIDER: Rgb = Rgb::new(128, 0, 0);
 const INCOMPATIBLE: Rgb = Rgb::new(255, 80, 0);
 const SELECTED: Rgb = Rgb::WHITE;
+
+/// The color of a row selector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowColor {
+    Active,
+    /// An inactive row of an even control set, and every inactive row of a surface whose
+    /// encoders cover only one row.
+    SetA,
+    /// An inactive row of an odd control set (surfaces whose encoders cover a whole set).
+    SetB,
+}
+
+/// The color of the selector of a row: the active row white; the others alternate per control
+/// set only if the surface's slot encoders drive a whole control set at once
+/// ([`SurfaceMapping::covers_control_set`]), otherwise the grouping does not matter and they all
+/// have the same color.
+pub fn row_color(mapping: &SurfaceMapping, model: &PageModel, row: usize) -> RowColor {
+    if row == model.active_row {
+        RowColor::Active
+    } else if !mapping.covers_control_set(model.rows_per_set) || model.control_set(row).is_multiple_of(2) {
+        RowColor::SetA
+    } else {
+        RowColor::SetB
+    }
+}
 
 /// The view of the grid.
 pub struct SurfaceLinkView {
@@ -91,12 +116,10 @@ impl SurfaceLinkView {
                             _ => (0, -1),
                         },
                         PadFunction::Row(row) => {
-                            let color = if row == model.active_row {
-                                ui_color(ui.row_active, ROW_ACTIVE)
-                            } else if model.control_set(row).is_multiple_of(2) {
-                                ui_color(ui.row_set_a, ROW_SET_A)
-                            } else {
-                                ui_color(ui.row_set_b, ROW_SET_B)
+                            let color = match row_color(mapping, model, row) {
+                                RowColor::Active => ui_color(ui.row_active, ROW_ACTIVE),
+                                RowColor::SetA => ui_color(ui.row_set_a, ROW_SET_A),
+                                RowColor::SetB => ui_color(ui.row_set_b, ROW_SET_B),
                             };
                             (color, -1)
                         }
@@ -210,5 +233,35 @@ pub fn state_text(state: LinkState, provider: &str, page: &str) -> String {
         }
         LinkState::Detached => "Surface: provider detached".to_string(),
         LinkState::Incompatible => "Surface: provider has another version".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::framework::surface_link::client::{EncoderFunction, EncoderKind};
+
+    fn rows(mapping: &SurfaceMapping, model: &PageModel) -> Vec<RowColor> {
+        (0..6).map(|row| row_color(mapping, model, row)).collect()
+    }
+
+    #[test]
+    fn row_colors_group_only_for_a_whole_control_set() {
+        let model = PageModel { active_row: 2, ..PageModel::default() };
+        // One row of encoders (the JAM: 6 strips for the row, 2 others): all inactive rows alike
+        let mut encoders: Vec<EncoderFunction> = (0..6).map(EncoderFunction::RowSlot).collect();
+        encoders.push(EncoderFunction::Selected { fine: true });
+        encoders.push(EncoderFunction::Extra(0));
+        let one_row = SurfaceMapping::new(8, 8).row_selectors_at(0, 1).encoders(EncoderKind::Absolute, encoders);
+        assert!(!one_row.covers_control_set(model.rows_per_set));
+        use RowColor::*;
+        assert_eq!(rows(&one_row, &model), vec![SetA, SetA, Active, SetA, SetA, SetA]);
+        // 12 slot encoders drive the 2 rows of a control set: the sets alternate
+        let two_rows = SurfaceMapping::new(8, 8).row_selectors_at(0, 1).encoders(EncoderKind::Absolute, (0..12).map(EncoderFunction::RowSlot).collect());
+        assert!(two_rows.covers_control_set(model.rows_per_set));
+        assert_eq!(rows(&two_rows, &model), vec![SetA, SetA, Active, SetB, SetA, SetA]);
+        // Sets of one row: no grouping
+        let single = PageModel { rows_per_set: 1, ..model.clone() };
+        assert!(!two_rows.covers_control_set(single.rows_per_set));
     }
 }

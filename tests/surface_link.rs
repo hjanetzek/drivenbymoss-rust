@@ -242,6 +242,10 @@ fn check_linked(rig: &mut Rig) {
     let white = drivenbymoss::controller::maschine::core::colors::COLOR_WHITE;
     assert_eq!(rig.jam_pad_color(0, 1), white);
     assert_ne!(rig.jam_pad_color(0, 2), white);
+    // The JAM's strips cover one row: the inactive rows have one color, not one per control set
+    // (rows 2 and 3 are in different sets)
+    assert_eq!(rig.jam_pad_color(0, 2), rig.jam_pad_color(0, 3));
+    assert_eq!(rig.jam_pad_color(0, 2), drivenbymoss::controller::maschine::core::colors::COLOR_BLUE_LO);
     assert_ne!(rig.jam_pad_color(7, 6), 0);
     assert_eq!(rig.jam_pad_color(7, 7), 0);
 
