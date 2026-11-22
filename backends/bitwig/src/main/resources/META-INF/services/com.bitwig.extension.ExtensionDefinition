@@ -9,6 +9,8 @@ de.mossgrabers.dbm.bitwig.definitions.AkaiAPCminiMk2Definition
 de.mossgrabers.dbm.bitwig.definitions.AkaiFireDefinition
 de.mossgrabers.dbm.bitwig.definitions.AkaiMPCLiveIIIOneForceDefinition
 de.mossgrabers.dbm.bitwig.definitions.ArturiaBeatstepDefinition
+de.mossgrabers.dbm.bitwig.definitions.ElectraElectraOneDefinition
+de.mossgrabers.dbm.bitwig.definitions.ElectraElectraOneMiniDefinition
 de.mossgrabers.dbm.bitwig.definitions.GenericFlexiDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface1ExtenderDefinition
 de.mossgrabers.dbm.bitwig.definitions.MackieHUIHumanUserInterface2ExtendersDefinition

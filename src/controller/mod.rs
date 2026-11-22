@@ -6,6 +6,7 @@
 
 pub mod akai;
 pub mod arturia;
+pub mod electra;
 pub mod generic;
 pub mod launchcontrol;
 pub mod launchkey;
@@ -217,6 +218,7 @@ pub fn all_factories() -> Vec<Box<dyn ControllerFactory>> {
     factories.extend(arturia::factories());
     factories.extend(osc::factories());
     factories.extend(push::factories());
+    factories.extend(electra::factories());
     // The controllers written in Lua: built in and <ini folder>/DrivenByMoss/controllers
     #[cfg(feature = "lua")]
     factories.extend(crate::script::factories());

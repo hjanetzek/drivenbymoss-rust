@@ -11,6 +11,7 @@ pub mod apcmini;
 pub mod beatstep;
 pub mod fire;
 pub mod configuration;
+pub mod electra;
 pub mod hui;
 pub mod launchkey;
 pub mod launchcontrol;
