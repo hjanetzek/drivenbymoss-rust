@@ -202,7 +202,13 @@ in one process ([SURFACE_LINK.md](SURFACE_LINK.md)).
   also sets the active row and the selection highlight on the device (`surface_ext.rs`);
   otherwise it only switches the control set.
 - **The Maschine JAM** is the first surface: Select + SONG, the 6x6 slots on the grid, the rows
-  and pages on the outer columns, the strips for the active row.
+  and pages on the outer columns, the strips for the active row, left/right for the value
+  (handle) of the selected slot.
+- **The generic provider** (Electra One Mk2 emulator only, electra-one §6c): while another preset
+  than DrivenByMoss's is active, the Electra provides that preset's current page (`02 52`, one
+  slot per cell = knob, `7E 62`/`7E 0D`) and the surfaces turn its knobs (`14 53`-`14 56`); the
+  DAW side is offline meanwhile. Tested end to end with the emulator (Acid Machine, Euclidean and
+  the emulator's surface-view fixture) and the JAM simulator.
 - **Tests:** unit tests, `tests/surface_link.rs` (both controllers as two `App`s in one test),
   and end to end with the emulator, the JAM simulator and `dbm_host_alsa.py --model electra
   --model jam`. `Views::SurfaceLink` and `Modes::SurfaceLink` are appended to the generated ID

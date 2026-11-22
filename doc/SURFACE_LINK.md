@@ -3,12 +3,12 @@
 A generic link between two controller instances of the core (not part of Java): a **provider**
 publishes a 6x6 page model and executes input; **surfaces** (any controller with a grid of at
 least 6x6 and some encoders) render it and send input back. The first provider is the Electra
-One (its DrivenByMoss pages), the first surface the Maschine JAM. Nothing in the link knows a
-concrete controller.
+One (its DrivenByMoss pages, and on the Mk2 emulator the pages of any other preset), the first
+surface the Maschine JAM. Nothing in the link knows a concrete controller.
 
 The design was written in the emulator project: electra-one `docs/surface-link.md` (option A,
-made generic; §6a the standard SysEx API, §6b the rows/selection contract). This document is the
-design as built.
+made generic; §6a the standard SysEx API, §6b the rows/selection contract, §6c the generic
+provider). This document is the design as built.
 
 ## 1. Roles and states
 
@@ -50,6 +50,8 @@ Typed Rust enums, no strings.
 - `SlotTurn { id, delta, fine }`, `SlotPress`, `SlotRelease`, `SlotTouch { id, on }`;
 - `RowSelect`, `PageSelect`, `PageNext`, `PagePrev`;
 - `SelectedTurn { delta, fine }`, `SelectedReset`;
+- `ValueNext`, `ValuePrev` (1.1): the next / previous value of the selected slot's control, for a
+  control with several values on one knob (an envelope's or XY pad's handle);
 - `ExtraTurn { index, delta, fine }`.
 
 Deltas are steps of the provider: the provider applies its ranges and its acceleration, so that
@@ -58,7 +60,7 @@ every surface behaves the same. `fine` asks for its fine resolution.
 **Capabilities** (surface → provider, with the attach): grid size, number of encoders,
 touch-sensitive or not, a main encoder or not, color depth (RGB, palette, mono).
 
-**Versioning:** `PROTOCOL_VERSION` (1.0) goes with the attach and the welcome. The same major
+**Versioning:** `PROTOCOL_VERSION` (1.1; 1.0 without `ValueNext`/`ValuePrev`) goes with the attach and the welcome. The same major
 version works together; a newer minor version only adds messages or fields which the other
 side ignores. Another major version: the provider refuses the surface (`Incompatible`).
 
@@ -143,6 +145,7 @@ Then:
 3. Wire what is not a grid pad or a mode knob:
    - the main encoder → `on_main_encoder`;
    - row and page buttons → `step_row`, `send(Input::PageNext)`;
+   - buttons for the value of the selected slot → `step_value(±1)`;
    - encoder touches → `on_encoder_touch`;
    - LEDs → `encoder_value(index)`.
 4. Decide the entry gesture, and leave the surface on `Detached`.
@@ -227,15 +230,92 @@ one is pending undoes it:
 A NACK of another command while a change is pending would undo it too. This is rare; the
 contract only NACKs IDs which are not on the current page, and the provider never sends those.
 
-**Not used:** the `02 41` parameter map dump and the value-change event `7E 0D` (subscribed with
-a second flags byte of `14 79`; electra-one §6a). This provider's values come from the DAW
-through its own page cache, and the device's knob turns already arrive as relative CCs on Port
-1. They are the way for a provider over the standard SysEx API, for any preset:
-- `02 41` → `01 41 {"version":1,"parameters":[…]}` (the emulator's format);
-- `7E 0D {"controlId":…,"value":…,"origin":"internal|midi|lua|modulation|file"}`, 20 ms rate
-  limit.
+**Not used for the DrivenByMoss pages:** the `02 41` parameter map dump and the value-change
+event `7E 0D`. This provider's values come from the DAW through its own page cache, and the
+device's knob turns already arrive as relative CCs on Port 1. The generic provider (§6.2) uses
+`7E 0D`.
 
-`initial_state_requests` is the hook for such an initial state after going online.
+## 6.2 The generic provider (`src/controller/electra/generic.rs`, `page_view.rs`)
+
+For any preset other than DrivenByMoss's, on the Mk2 emulator: electra-one `docs/surface-link.md`
+§6c and `firmware-mk1/SYSEX-API.md` "The generic provider" (master a59929d, firmware 5f425dc).
+The firmware does all the value math (ranges, steps, overlays, relative messages, formatters);
+DrivenByMoss only maps cells to knobs and the input to messages. All bytes are in
+`surface_ext.rs`.
+
+**The mode switch** (in the Electra controller, the normal model):
+
+| Active preset (`7E 02`) | Device | The Electra |
+| --- | --- | --- |
+| DrivenByMoss | any | online, the DrivenByMoss pages as before (§6) |
+| another | `"surface":{"rows","selection","view","input"}` all true | offline for the DAW (the Dummy mode, no MIDI to the pads, the touch combinations as in Java), the generic provider for the preset |
+| another | without them (a real Electra, an older emulator) | offline, the page "Offline" as before |
+
+- Entering: `14 79 [flags] 01` (the value changes) and `02 52`. Leaving (the DrivenByMoss preset
+  again): `14 79 [flags] 00`, then online as usual.
+- Without the DrivenByMoss preset in the preset list, a capable device goes straight to the
+  generic provider (the error is logged as before).
+- **Bitwig meanwhile:** the Electra controller does nothing for the DAW: the Dummy mode is active,
+  the knobs of the other preset go to the synth (as without the link), and the knob touch
+  combinations work as in Java. Selecting the DrivenByMoss preset (on the device, or with a
+  combination) brings the DAW pages back.
+
+**The model:** `02 52` → `01 52 <JSON>` on entering, on `7E 62` (Lua or SysEx changed the page,
+a handle, the control set, the page or the preset; a page renamed or hidden), on `7E 06` and
+`7E 02`. One request at a time: a change while one is open asks again after the answer; an
+unanswered request is sent again after a second, up to three times.
+
+- **One slot per cell, a cell is a knob:** cell (row r, column c), counted from 1, is knob c
+  (odd r) or 6 + c (even r) of the control set ceil(r/2).
+  - The active set: from the device's knob map (`knobs`).
+  - The other sets, and knobs the map has none for: from the controls' `inputs`. A Custom control
+    listens to all its inputs (each input a slot of its own value); every other control only to
+    its first input, which turns its active value.
+  - A visible control wins over a hidden one.
+- **The slot:**
+
+| Field | From |
+| --- | --- |
+| `kind` | `list` (or a value with `items`) → `List`, `pad` → `Pad`, `relative` → `Relative`, `textBox`/`none` → `Empty`, everything else (faders, knobs, envelopes, XY pads, Custom inputs) → `Fader` |
+| `name` | the control's name, plus " · " and the value id (capitalized) if the control has several values: "ENV · Attack"; a Custom control with several inputs: "GRID · B" |
+| `color` | `color` |
+| `value` | (value - min) / (max - min); a list: index / (items - 1) |
+| `value_text` | `text` (what the panel shows: formatter, override, overlay label) |
+| `steps` | the number of items of a list |
+| `on` | a pad's value above its minimum |
+| `enabled` | `visible` |
+
+- **Covered cells:** a cell which is no knob, but which a visible control covers (`cell` and
+  `span`: an envelope's other three cells, a wide Custom control): an `Empty` slot with that
+  control's name and color, not enabled. The generic view draws it dark (one lit pad per knob,
+  which is how many knobs the control has); a press selects the control's knob slot. Other cells
+  are empty.
+- **Pages:** the `pages` of the page view without the hidden ones (the current page always);
+  `page` is its index in that list.
+- **Values:** `7E 0D` updates the value and its text (also of values no slot shows, e.g. an
+  envelope's other handles, for when they become active).
+- **Row and selection:** from the page view (`row`, `selectedControlId`) and the §6.1 events of
+  origin 0 and 2. The selection is the knob slot of the selected control (of its active value).
+
+**The input:**
+
+| Input | Message |
+| --- | --- |
+| `SlotTurn` | `14 53 [knob] [delta] [01]` for the cell's knob. If the cell's control set is not the active one, `09 50 [row]` first: the device then turns the right knob, and the surfaces only turn the active row anyway. One link step is half a panel step, sent as 4 fine steps (a JAM strip across its length is about the whole range of a fader, as on the DrivenByMoss pages; a list moves an item per 16 link steps); `fine` sends one fine step (1/8 panel step) per link step. The firmware carries the fractions until a touch end |
+| `SlotTouch` | `14 54 [knob] [0\|1]` (after `09 50` as above) |
+| `SlotPress` / `SlotRelease` | a pad: `14 55 {"value": max}`, on the release `min` (momentary), or the other one of min/max on the press (toggle); a list: selects the slot and steps to the next item (`14 55 {"step":1}`, after the last item the first item's value); a fader or relative slot: selects it (`09 50` if needed, `14 51 [control]`); a covered cell: selects its control's knob slot |
+| `SelectedTurn` | as `SlotTurn` for the selected slot |
+| `SelectedReset` | `14 55 {"default":true}` for a fader or list |
+| `ValueNext` / `ValuePrev` | `14 56 {"controlId", "next"\|"prev": true}` for the selected slot's control, if it has several values and is not a Custom control. The device answers with `7E 62`, the new page view names the new handle |
+| `RowSelect` | `09 50 [row]` |
+| `PageSelect`, `PageNext`, `PagePrev` | `09 0A [page id - 1]` |
+
+`14 55` always names the slot's value (`valueId`); lists take the overlay item's value, as the
+firmware expects.
+
+**The test environment:** the emulator answers `02 52` with one SysEx of 10-30 KB. An ALSA
+sequencer client receives it only with a larger input pool than the default (200 cells, about
+5 KB): `sim_common/alsa_seq.py` sets the largest one (2000), so `dbm_host_alsa.py` gets it.
 
 ## 7. The JAM as a surface (`src/controller/maschine/jam/surface_link.rs`)
 
@@ -261,6 +341,7 @@ through its own page cache, and the device's knob turns already arrive as relati
 | Main encoder | `selected.turn`, Shift for fine; its push: `selected.reset` |
 | PAGE LEFT / RIGHT | previous / next page |
 | Up / down | previous / next row |
+| Left / right | previous / next value of the selected slot (an envelope's handle) |
 | No provider | a red cross over the slots, notification "Surface: no provider" |
 
 The JAM attaches at its start (so the surface is there at once when it is switched on) and polls
@@ -291,7 +372,18 @@ support/controller_simulator/tools/dbm_host_alsa.py --model electra --model jam 
   the snapshot and changes, the JAM's input as typed `Cmd`s and as MIDI/SysEx to the Electra,
   pages and rows, detach/re-attach, and the capability present/absent/NACK with the events of
   each origin and the page-switch reset;
+- `tests/surface_link.rs` (generic): the mode switch (DrivenByMoss preset ↔ another, the
+  capability present/absent, without the DrivenByMoss preset), the JAM's input as the exact bytes
+  (strips, touches, selection, handles, reset, lists, pads, Custom inputs, covered cells, other
+  control sets, pages), `7E 0D`, `7E 62` with the request handling, page switches;
+- `page_view.rs` unit tests: the `02 52` → model mapping (a single control, an envelope and its
+  handle, a list, a Custom control, hidden controls, other control sets, hidden pages);
 - `surface_ext.rs` unit tests: the bytes.
+
+**End to end with the generic provider:** load other presets into further slots of the emulator
+(`--load "…/Acid Machine v0.9.3.1 mk2.epr" --slot 2`, electra-one's
+`tests/fixtures/surface/surface-view.epr` for an envelope), switch to one on the device; the JAM
+shows its page.
 
 ## 9. Open questions
 
@@ -302,3 +394,8 @@ support/controller_simulator/tools/dbm_host_alsa.py --model electra --model jam 
   not the surface.
 - The 12-encoder layout (two rows per control set) for surfaces with 12+ encoders, and the Mini
   (2x8) as a provider.
+- The generic provider: the scaling of a link step (half a panel step) makes lists slow on a
+  detented encoder (16 detents per item). A surface-independent answer would be an acceleration
+  in the provider (see above) or `14 55 step` for lists on `SelectedTurn`.
+- The generic view draws covered cells dark; a surface could draw them dim in the control's
+  color (the slot carries it).
