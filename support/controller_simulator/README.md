@@ -115,6 +115,8 @@ speaks the same handshake, so it can stand in for dbm-nihost there. It needs the
 
 ## The Maschine protocol
 
+**Button combinations without a touchscreen:** a right click latches a button (amber frame): it stays pressed until the next click on it. Example on the JAM: right click Select, click SONG, click Select again (the surface link mode).
+
 | Direction | Messages |
 | --- | --- |
 | Buttons, pads → DAW | the template's CC or note on channel 1 (on 127, off 0; a note off as `80 nn 00`). Mk2: the pads are notes 36..51 (pad 1 at the bottom left, velocity from the click height, right button or wheel: poly aftertouch, the template's "Pressure"), the 7th display button is note 28. JAM: the 8×8 pads are notes 92 (top left) .. 43 (bottom right) |

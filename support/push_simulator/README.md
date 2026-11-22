@@ -119,6 +119,8 @@ sends a few test frames over the socket (with some garbage first, to test resync
 
 ## Protocol
 
+**Button combinations without a touchscreen:** a right click latches a button (amber frame): it stays pressed until the next click on it. Example on the JAM: right click Select, click SONG, click Select again (the surface link mode).
+
 | Direction | Messages |
 | --- | --- |
 | Pads → host | notes 36..99 (36 = bottom left) on channel 1. The velocity comes from the click height (Shift: 127, Ctrl: 40). Aftertouch: hold the right button and move up and down, or use the wheel while a pad is held. It is sent as channel pressure, or as poly pressure after SysEx `1E 01`. Push 3 MPE (`1E 02`): one channel per note (2..16), horizontal drag = pitch bend, vertical = CC 74, pressure = channel pressure |

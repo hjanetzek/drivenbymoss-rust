@@ -2,7 +2,9 @@
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
 // A button (SimCommon): the LED colour (sim.buttonColor(c.cc)) fills the cap, the label is
-// printed on it.
+// printed on it. Left mouse button: pressed while held. Right mouse button: latches the button
+// (pressed until the next right or left click), for combinations like Shift or Select + another
+// button without a touchscreen; a latched button has an amber frame.
 
 import QtQuick
 
@@ -12,10 +14,12 @@ Rectangle {
     readonly property real k: Window.window && Window.window.k ? Window.window.k : 1
     property var c: parent.control
     property color led: { sim.revision; return sim.buttonColor(c.cc) }
+    // Held by a right click until the next click
+    property bool latched: false
     radius: 1.0 * k
     color: Qt.rgba(0.11 + 0.89 * led.r, 0.115 + 0.885 * led.g, 0.125 + 0.875 * led.b, 1)
-    border.color: barea.pressed ? "#ffffff" : "#4a4b52"
-    border.width: Math.max(1, 0.3 * k)
+    border.color: latched ? "#ffb000" : (barea.pressed ? "#ffffff" : "#4a4b52")
+    border.width: latched ? Math.max(2, 0.6 * k) : Math.max(1, 0.3 * k)
     Text {
         anchors.fill: parent
         anchors.margins: 0.3 * k
@@ -30,8 +34,35 @@ Rectangle {
     MouseArea {
         id: barea
         anchors.fill: parent
-        onPressed: sim.buttonPress(btn.c.cc)
-        onReleased: sim.buttonRelease(btn.c.cc)
-        onCanceled: sim.buttonRelease(btn.c.cc)
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        // The press of a click which only releases a latch (no second press)
+        property bool unlatching: false
+        onPressed: (mouse) => {
+            if (btn.latched) {
+                // Any click on a latched button releases it
+                btn.latched = false
+                unlatching = true
+                sim.buttonRelease(btn.c.cc)
+            } else if (mouse.button === Qt.RightButton) {
+                btn.latched = true
+                sim.buttonPress(btn.c.cc)
+            } else {
+                sim.buttonPress(btn.c.cc)
+            }
+        }
+        onReleased: (mouse) => {
+            if (unlatching) {
+                unlatching = false
+            } else if (!btn.latched) {
+                sim.buttonRelease(btn.c.cc)
+            }
+        }
+        onCanceled: {
+            if (unlatching) {
+                unlatching = false
+            } else if (!btn.latched) {
+                sim.buttonRelease(btn.c.cc)
+            }
+        }
     }
 }

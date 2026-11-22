@@ -461,3 +461,5 @@ Where a simulator could help:
    Run the core against it with `dbm_host_alsa.py` and read the monitor for "unhandled".
 7. Document the protocol table and the gaps in the simulator's README, and add what you learned
    here.
+
+**Latched buttons:** `SimCommon/LedButton.qml` latches a button on a right click (pressed until the next click, amber frame), so combinations like Shift or Select + another button work with one mouse pointer. New simulators get it for free by using `LedButton`.
