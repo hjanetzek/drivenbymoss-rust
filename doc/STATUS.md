@@ -209,10 +209,25 @@ in one process ([SURFACE_LINK.md](SURFACE_LINK.md)).
   slot per cell = knob, `7E 62`/`7E 0D`) and the surfaces turn its knobs (`14 53`-`14 56`); the
   DAW side is offline meanwhile. Tested end to end with the emulator (Acid Machine, Euclidean and
   the emulator's surface-view fixture) and the JAM simulator.
+- **Colors:** the slots take the nearest entry of the surface's palette (CIEDE2000), not the
+  detour over Bitwig's track colors. The row selectors alternate per control set only on a
+  surface whose encoders cover a whole set (12+), the JAM's inactive rows have one color.
 - **Tests:** unit tests, `tests/surface_link.rs` (both controllers as two `App`s in one test),
   and end to end with the emulator, the JAM simulator and `dbm_host_alsa.py --model electra
   --model jam`. `Views::SurfaceLink` and `Modes::SurfaceLink` are appended to the generated ID
   enums.
+
+**Colors without Bitwig (2026-11-22, not part of Java):** an RGB color which does not come from
+Bitwig goes to the nearest entry of the controller's own palette (CIEDE2000), not over the
+closest of Bitwig's ~25 track colors and Java's table for them (orange F49500 was lime green 22 on
+the NI palette, now an NI orange). "Bitwig" is the host's `app_version` starting with "Bitwig"
+(the Bitwig extension, the conformance runs and their replays): there everything stays as in
+Java, a test checks it for every controller, the conformance suite stays at 195 same. The other
+hosts (reference host, zynthian, Reaper) and the surface link take the direct path. Palette
+tables: NI Maschines, Push 1/2/3, APC40 mkII, Launchpads, Launchkey Mk3; the others keep the DAW
+color path (FRAMEWORK_MAP.md, "framework/controller/color"). Next step: the Java tables from the
+DAW colors to the palette indices (e.g. `DAW_COLOR_LIGHT_ORANGE` → `COLOR_YELLOW` 22), which the
+Bitwig path still uses.
 
 Commits:
 

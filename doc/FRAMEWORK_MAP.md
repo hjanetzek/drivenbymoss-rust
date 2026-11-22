@@ -202,9 +202,42 @@ Model gaps which affect behaviour on Bitwig:
 
 | Java | Rust | Status | Divergences |
 |---|---|---|---|
-| ColorManager | `framework::color::ColorManager` | full | |
-| ColorEx | `daw::color::ColorEx` | full | |
+| ColorManager | `framework::color::ColorManager` | full | Not in Java: the path of RGB colors to the palette (see below) |
+| ColorEx | `daw::color::ColorEx` | full | Not in Java: `to_lab`, `perceptual_distance` (CIEDE2000) |
 | ColorIndexException | - | n/a | Replaced by Rust error handling |
+
+**The path of an RGB color to the palette** (track, clip, scene and drum pad colors, the slots of
+the surface link): `ColorManager::color_id (color)` (a color ID, for the code which passes IDs on)
+and `ColorManager::index_for_color (color)` (its palette index) replace Java's
+`colorManager.getColorIndex (DAWColor.getColorID (color))`. The path depends on the
+`ColorSource` of the color manager, which the app sets by the host before `init`:
+
+- **Bitwig** (`ColorSource::for_host`: the `app_version` of `dbm_create_controller` starts with
+  "Bitwig"; the Bitwig extension gives "Bitwig Studio 5.3.13", the conformance runner, its replays
+  and zynthian's conformance runs give the same): as Java, the closest of Bitwig's track colors
+  (`DawColor::closest`), then the controller's DAW color table. Exact for Bitwig, whose track
+  colors are these entries; unchanged, so the conformance runs and replays stay the same (a test
+  checks every controller).
+- **Direct** (all other hosts: the reference host, zynthian, Reaper's `dbm_create`): the
+  perceptually nearest entry of the controller's own palette (`set_palette_rgb`), CIEDE2000 in
+  CIE L*a*b*, which keeps the hue and lets the lightness count less: orange stays orange (F49500
+  on NI's palette: 15, not the lime green 22 of the table), dark colors keep their hue, greys stay
+  grey. Black entries are no candidates (an RGB color is never off; Bitwig's path makes black a
+  grey too). The color ID is then `PALETTE_<index>`. The lookups are cached per color.
+- **The surface link** always takes the direct path (`direct_color_id`): its colors never come
+  from Bitwig.
+
+Palette tables: NI's Maschines (`maschine::core::colors::NI_PALETTE`, hue × 4 levels, from cabl,
+MIT), Push 1 (`push::colors::DEFAULT_PALETTE`), Push 2/3 (the palette the core writes, with the
+DAW colors at 70..96), the APC40 mkII, the Launchpads and the Launchkey Mk3 (Novation's velocity
+palette, the same `DEFAULT_PALETTE`). The Maschine's dim color (`dim_or_highlight_color`) is the
+medium level of the same hue on the direct path (Java's `index / 8 * 8 + 5` only fits its table).
+Without a table (the DAW color path everywhere): the Fire and the MPC/Force (their indices are a
+virtual palette whose RGB colors are the DAW colors), the APC40 mk1 and the APCmini mk1/mk2, the
+Beatstep, the Launch Control XL, the MCU, the OSC controller, the Electra One (it sends RGB in its
+JSON, its indices only switch pads on and off). Not changed: `selected_channel_color_entry` of
+the track and drum pad banks (the Push display shows the closest DAW color) and the Fire's fixed
+UI colors.
 
 ### framework/controller/display
 

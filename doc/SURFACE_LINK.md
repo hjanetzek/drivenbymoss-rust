@@ -158,7 +158,11 @@ Then:
 4. Decide the entry gesture, and leave the surface on `Detached`.
 
 The view draws the slots in their colors (RGB → the controller's palette through its color
-manager, via the closest DAW color, as for track colors). It also draws the row and page
+manager: always the perceptually nearest entry of the controller's own palette,
+`ColorManager::direct_color_id`, since these colors never come from Bitwig; before, they went
+over the closest of Bitwig's track colors and the controller's table for them, which turned the
+Electra's orange F49500 lime green on the JAM. A controller without a palette table keeps the
+closest DAW color. See FRAMEWORK_MAP.md, "framework/controller/color"). It also draws the row and page
 selectors, the selected slot blinking, and a cross without a provider. The mode turns the slots
 of the active row: relative encoders by their encoding; absolute faders and strips by the
 distance between two positions, anchored on a touch or after 300 ms without movement. Shift
