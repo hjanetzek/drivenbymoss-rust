@@ -27,6 +27,13 @@ class.
   - Interfaces (`I*`) are merged into their struct or trait.
   - Observers became events (`Model::take_events`, `Configuration::take_changed_settings`).
 
+**Rust-only framework parts** (no Java class):
+- `framework::surface_link`: the surface link between two controller instances
+  ([SURFACE_LINK.md](SURFACE_LINK.md)): registry and queues (`mod.rs`), messages (`model.rs`),
+  `LinkProvider` (`provider.rs`), `SurfaceLinkClient` and `SurfaceMapping` (`client.rs`),
+  `SurfaceLinkView` and `SurfaceLinkMode` (`view.rs`).
+- `Views::SurfaceLink` and `Modes::SurfaceLink` are appended to the ID enums.
+
 ## Gaps by upcoming controller
 
 | Controller | Missing in the framework |

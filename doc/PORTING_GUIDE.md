@@ -254,6 +254,7 @@ An overview by Rust module. For the Java class → Rust mapping, see [FRAMEWORK_
 | Module | Contents |
 | --- | --- |
 | `framework::ctx` | `Ctx` |
+| `framework::surface_link` | The surface link between two controller instances (a provider's 6x6 pages on another controller's grid and encoders): `LinkProvider`, `SurfaceLinkClient` + `SurfaceMapping`, `SurfaceLinkView`/`SurfaceLinkMode`; see [SURFACE_LINK.md](SURFACE_LINK.md) |
 | `framework::multi_surface` | Several surfaces per instance (MCU/HUI extenders): `add_surface`, `select_surface`, `with_surface`, `for_each_surface`, `share_button_states`, `connect_surface_mode_managers`; see [MULTI_SURFACE_PLAN.md](MULTI_SURFACE_PLAN.md) |
 | `framework::feature` | `View`/`Mode` traits, managers, `ScrollStates`, `impl_as_any!` |
 | `framework::command` | `TriggerCommand`, `ContinuousCommand`, `AftertouchCommand`, `PitchbendCommand`, `shared`, `FnTrigger`, `FnContinuous` |

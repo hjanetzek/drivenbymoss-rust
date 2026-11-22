@@ -9,7 +9,8 @@ DrivenByMoss preset (``--load DrivenByMoss.eproj``).
 
 Checked: the handshake (online), the names and colors on the screen (pixels of the screenshot
 data), a knob turn and a knob touch reaching the DAW, a pad touch selecting a track, and the pages
-switched on the device selecting the modes.
+switched on the device selecting the modes. The surface link: the JAM in the same process shows the
+Electra's page and turns its knobs (doc/SURFACE_LINK.md).
 
 Skipped without the emulator (``ELECTRA_ONE_BIN``, default ``../electra-one/build/electra`` next
 to this repository), the preset (``ELECTRA_ONE_PRESET``, default the emulator's
@@ -31,6 +32,7 @@ EMULATOR = os.environ.get("ELECTRA_ONE_BIN") or os.path.join(ELECTRA_ONE, "build
 PRESET = os.environ.get("ELECTRA_ONE_PRESET") or os.path.join(ELECTRA_ONE, "data", "DrivenByMoss.eproj")
 LIBRARY = os.environ.get("DBM_LIBRARY") or os.path.join(REPO, "target", "debug", "libdrivenbymoss.so")
 UUID = "24342204-B891-4F62-BC43-8ABA1DE1D690"
+JAM_UUID = "72F32A83-A697-446B-9016-64AA3F9476E4"
 # The virtual cables of the core's ports: 0 = Port 1 (the controls), 1 = CTRL (SysEx)
 CABLES = ("port1", "ctrl")
 TICK_MS = 30
@@ -203,6 +205,64 @@ class ElectraEmulatorTest(unittest.TestCase):
 
     def test_mk2(self):
         self.check_model("mk2")
+
+    def test_surface_link(self):
+        """The surface link end to end: the Electra (emulator) and the JAM (driven in-process) as
+        two controllers of one library on one DAW. The JAM shows the Electra's mixer page and its
+        strips turn the Electra's knobs."""
+        from dbm_host import Bridge, SimDaw
+        daw = SimDaw().build(tracks=[("Synth", "INSTRUMENT"), ("Drums", "INSTRUMENT"), ("Bass", "AUDIO")], scenes=4)
+        daw.tracks[0].select()
+        emulator = Emulator(self.directory, "mk2")
+        self.addCleanup(emulator.close)
+        self.assertEqual(emulator.command("vmidi log on"), "ok")
+        electra = Bridge(daw, UUID, os.path.join(self.directory, "electra"), "Bitwig Studio 5.3")
+        self.addCleanup(electra.close)
+        electra.on_port_midi_out = lambda port, data: emulator.command(f"vmidi send {CABLES[port]} {bytes(data).hex(' ')}")
+        electra.start()
+        jam = Bridge(daw, JAM_UUID, os.path.join(self.directory, "jam"), "Bitwig Studio 5.3")
+        self.addCleanup(jam.close)
+        jam.start()
+
+        def run(seconds, until=None):
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                emulator.poll(TICK_MS / 1000)
+                pending, emulator.midi = emulator.midi, []
+                for port, data in pending:
+                    electra.receive(data, port)
+                # The DAW moves once per tick, both controllers step
+                daw.advance(TICK_MS)
+                for bridge in (electra, jam):
+                    bridge.clock_ms += TICK_MS
+                    bridge.step()
+                if until is not None and until():
+                    return True
+            return until is None
+
+        self.assertTrue(run(10, lambda: any("Switching to mode: VOLUME" in log for log in electra.logs)), electra.logs)
+        self.assertTrue(run(3, lambda: any("Surface link: a surface attached." in log for log in electra.logs)), electra.logs)
+        run(0.5)
+
+        # Select + SONG: the JAM shows the Electra's mixer page
+        for control, value in ((50, 127), (30, 127), (30, 0), (50, 0)):
+            jam.receive(bytes([0xB0, control, value]))
+        self.assertTrue(run(2, lambda: "Surface: Electra One - Mixer" in jam.notifications), jam.notifications)
+
+        # Strip 1 (touched, swiped up): the volume of track 1, through the Electra's knob 1; the
+        # Electra gets the new value (CC 10 on channel 16 of Port 1)
+        volume = daw.tracks[0].volume.value
+        electra.midi_out_ports.clear()
+        jam.receive(bytes([0xB0, 20, 127]))
+        for position in range(40, 80, 4):
+            jam.receive(bytes([0xB0, 8, position]))
+            run(0.03)
+        jam.receive(bytes([0xB0, 20, 0]))
+        self.assertTrue(run(2, lambda: daw.tracks[0].volume.value > volume), (volume, daw.tracks[0].volume.value))
+        run(0.5)
+        self.assertTrue(any(port == 0 and data[:2] == bytes([0xBF, 10]) for port, data in electra.midi_out_ports))
+        self.assertEqual(electra.core_errors(), [])
+        self.assertEqual(jam.core_errors(), [])
 
     def test_mk1(self):
         self.check_model("mk1")

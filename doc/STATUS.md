@@ -188,6 +188,26 @@ turn and touch, pad touch, all 7 pages). The Mini is tested with unit tests only
 runs the mk1 firmware). Not tested with hardware. Java bugs kept: UPSTREAM_CANDIDATES.md S;
 deviations: BITWIG_DIVERGENCES.md §9.
 
+**Surface link (2026-11-22, not part of Java):** a generic link between two controller instances
+in one process ([SURFACE_LINK.md](SURFACE_LINK.md)).
+- **The framework** (`framework::surface_link`):
+  - a process-wide registry, two locked queues per surface (one per direction, each drained on
+    its own tick), explicit states (missing/attached/detached/incompatible) and a protocol
+    version;
+  - typed messages (the 6x6 page model, its changes, the input, the capabilities);
+  - the reusable `LinkProvider`, and a generic surface view and mode (`SurfaceLinkView`,
+    `SurfaceLinkMode`) driven by a `SurfaceMapping`.
+- **The Electra One** (Mk1/Mk2) provides its 7 pages and executes the input as its own knobs,
+  pads and touches. With the emulator's capability (electra-one `docs/surface-link.md` §6b) it
+  also sets the active row and the selection highlight on the device (`surface_ext.rs`);
+  otherwise it only switches the control set.
+- **The Maschine JAM** is the first surface: Select + SONG, the 6x6 slots on the grid, the rows
+  and pages on the outer columns, the strips for the active row.
+- **Tests:** unit tests, `tests/surface_link.rs` (both controllers as two `App`s in one test),
+  and end to end with the emulator, the JAM simulator and `dbm_host_alsa.py --model electra
+  --model jam`. `Views::SurfaceLink` and `Modes::SurfaceLink` are appended to the generated ID
+  enums.
+
 Commits:
 
 - `e00a36ec`: core framework, Reaper DAW layer and Launchpad

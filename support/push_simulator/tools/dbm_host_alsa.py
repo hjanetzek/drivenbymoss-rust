@@ -31,6 +31,11 @@ emulator of the real firmware (the electra-one project, ``build/electra``) is th
 with "Electra Port 1", the controls) and "DrivenByMoss CTRL" for its port 1 (with "Electra
 CTRL", the SysEx API). ``--electra-client N`` picks the emulator by its ALSA client number (its
 log says it) when several run; its ports 0 and 2 are Port 1 and CTRL.
+
+Several controllers in one process (``--model electra --model jam``): each gets its own ALSA
+client ("DrivenByMoss dbm_host MODEL") and its own controller instance of the same library, on
+one simulated DAW. That is how the surface link (doc/SURFACE_LINK.md) is tried: the Electra One
+provides its pages, the JAM shows them (Select + SONG).
 """
 
 import argparse
@@ -144,10 +149,62 @@ def electra_project(daw) -> None:
         daw.markers.add(name, index * 16.0)
 
 
+def connect_model(args, model: str, client_name: str):
+    """The ALSA client of one controller, connected to its simulator (or emulator)."""
+    is_electra = model in ELECTRA_MODELS
+    seq = alsa_seq.AlsaSeq(client_name, ["DrivenByMoss", "DrivenByMoss CTRL"] if is_electra else ["DrivenByMoss"])
+    if is_electra:
+        for port, (name, number) in enumerate(ELECTRA_PORTS):
+            target = (args.electra_client, number) if args.electra_client is not None else seq.find_port(name)
+            if target is None:
+                sys.exit(f"the emulator port {name!r} was not found; is build/electra running (without --no-alsa)?")
+            seq.connect_both(port, port, target)
+            print(f"{model}: connected port {port} to {target[0]}:{target[1]} '{name}'")
+    elif model in MASCHINE_PORTS:
+        # Two ports as NI's driver and dbm-nihost: the DAW reads "... In(put)", writes "... Out(put)"
+        daw_in, daw_out = MASCHINE_PORTS[model]
+        suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
+        found = None
+        for suffix in suffixes:
+            source = seq.find_port(args.port or daw_in + suffix)
+            sink = seq.find_port(daw_out + suffix)
+            if source and sink:
+                found = (source, sink, suffix)
+                break
+        if found is None:
+            sys.exit(f"the simulator ports {daw_in!r}/{daw_out!r} were not found; is the simulator running?")
+        source, sink, suffix = found
+        seq.connect_from(0, *source)
+        seq.connect_to(0, *sink)
+        print(f"{model}: connected to {source[0]}:{source[1]} '{daw_in}{suffix}' and {sink[0]}:{sink[1]} '{daw_out}{suffix}'")
+    elif model in MIDI_PORTS:
+        suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
+        candidates = [args.port] if args.port else [name + suffix for suffix in suffixes for name in MIDI_PORTS[model]]
+        found = next(((name, seq.find_port(name)) for name in candidates if seq.find_port(name)), None)
+        if found is None:
+            sys.exit(f"the simulator port {candidates[0]!r} was not found; is the simulator running?")
+        port_name, target = found
+        seq.connect_to(0, *target)
+        seq.connect_from(0, *target)
+        print(f"{model}: connected to {target[0]}:{target[1]} '{port_name}'")
+    else:
+        _, live, user = layout.midi_names(model, args.port_style)
+        port_name = args.port or (user if model == "push1" else live)
+        target = seq.find_port(port_name)
+        if target is None:
+            sys.exit(f"the simulator port {port_name!r} was not found; is the simulator running?")
+        seq.connect_to(0, *target)
+        seq.connect_from(0, *target)
+        print(f"{model}: connected to {target[0]}:{target[1]} '{port_name}'")
+    return seq, is_electra
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", choices=layout.MODELS + tuple(MASCHINE_PORTS) + tuple(MIDI_PORTS) + ELECTRA_MODELS, default="push2")
-    parser.add_argument("--controller", default=None, help="controller UUID (default: the one of the model)")
+    parser.add_argument("--model", choices=layout.MODELS + tuple(MASCHINE_PORTS) + tuple(MIDI_PORTS) + ELECTRA_MODELS, action="append",
+                        help="the controller (default push2); several --model run several controllers in one process (one "
+                             "library, one simulated DAW), e.g. --model electra --model jam for the surface link")
+    parser.add_argument("--controller", default=None, help="controller UUID (default: the one of the model; with one --model only)")
     parser.add_argument("--bindings", default=os.path.join(REPO, "bindings", "python"),
                         help="directory with the packages drivenbymoss and dbm_host")
     parser.add_argument("--library", default=None, help="libdrivenbymoss.so (sets DBM_LIBRARY)")
@@ -162,6 +219,11 @@ def main() -> int:
     parser.add_argument("--electra-client", type=int, default=None, help="Electra One: the ALSA client number of the emulator")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
+    models = args.model or ["push2"]
+    if len(set(models)) != len(models):
+        sys.exit("each --model only once")
+    if args.controller and len(models) > 1:
+        sys.exit("--controller works with one --model only")
 
     if args.library:
         os.environ["DBM_LIBRARY"] = os.path.abspath(args.library)
@@ -169,56 +231,11 @@ def main() -> int:
     import drivenbymoss
     from dbm_host import Bridge, SimDaw
 
-    controller = args.controller or CONTROLLERS[args.model]
     known = {c.get("id", c.get("uuid", "")).upper() for c in drivenbymoss.list_controllers()}
-    if known and controller.upper() not in known:
-        sys.exit(f"the library has no controller {controller} (is it the build of the Push port? --library)")
-
-    is_electra = args.model in ELECTRA_MODELS
-    seq = alsa_seq.AlsaSeq("DrivenByMoss dbm_host", ["DrivenByMoss", "DrivenByMoss CTRL"] if is_electra else ["DrivenByMoss"])
-    if is_electra:
-        for port, (name, number) in enumerate(ELECTRA_PORTS):
-            target = (args.electra_client, number) if args.electra_client is not None else seq.find_port(name)
-            if target is None:
-                sys.exit(f"the emulator port {name!r} was not found; is build/electra running (without --no-alsa)?")
-            seq.connect_both(port, port, target)
-            print(f"connected port {port} to {target[0]}:{target[1]} '{name}'")
-    elif args.model in MASCHINE_PORTS:
-        # Two ports as NI's driver and dbm-nihost: the DAW reads "... In(put)", writes "... Out(put)"
-        daw_in, daw_out = MASCHINE_PORTS[args.model]
-        suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
-        found = None
-        for suffix in suffixes:
-            source = seq.find_port(args.port or daw_in + suffix)
-            sink = seq.find_port(daw_out + suffix)
-            if source and sink:
-                found = (source, sink, suffix)
-                break
-        if found is None:
-            sys.exit(f"the simulator ports {daw_in!r}/{daw_out!r} were not found; is the simulator running?")
-        source, sink, suffix = found
-        seq.connect_from(0, *source)
-        seq.connect_to(0, *sink)
-        print(f"connected to {source[0]}:{source[1]} '{daw_in}{suffix}' and {sink[0]}:{sink[1]} '{daw_out}{suffix}'")
-    elif args.model in MIDI_PORTS:
-        suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
-        candidates = [args.port] if args.port else [name + suffix for suffix in suffixes for name in MIDI_PORTS[args.model]]
-        found = next(((name, seq.find_port(name)) for name in candidates if seq.find_port(name)), None)
-        if found is None:
-            sys.exit(f"the simulator port {candidates[0]!r} was not found; is the simulator running?")
-        port_name, target = found
-        seq.connect_to(0, *target)
-        seq.connect_from(0, *target)
-        print(f"connected to {target[0]}:{target[1]} '{port_name}'")
-    else:
-        _, live, user = layout.midi_names(args.model, args.port_style)
-        port_name = args.port or (user if args.model == "push1" else live)
-        target = seq.find_port(port_name)
-        if target is None:
-            sys.exit(f"the simulator port {port_name!r} was not found; is the simulator running?")
-        seq.connect_to(0, *target)
-        seq.connect_from(0, *target)
-        print(f"connected to {target[0]}:{target[1]} '{port_name}'")
+    for model in models:
+        controller = args.controller or CONTROLLERS[model]
+        if known and controller.upper() not in known:
+            sys.exit(f"the library has no controller {controller} (is it the build of the Push port? --library)")
 
     writer = DisplayWriter(args.display_socket or display.default_socket_path())
 
@@ -241,37 +258,59 @@ def main() -> int:
         scenes=8,
     )
     daw.tracks[0].select()
-    if is_electra:
+    if any(model in ELECTRA_MODELS for model in models):
         electra_project(daw)
-    config = args.config or tempfile.mkdtemp(prefix="dbm-push-sim-")
-    bridge = AlsaBridge(daw, controller, config, "Bitwig Studio 5.3")
 
-    def to_device(port: int, data: bytes) -> None:
-        if args.verbose:
-            print(f"->{port}", data.hex(" "))
-        seq.send(data, port if is_electra else 0)
+    # One ALSA client and one bridge per controller; all share the library (and with it the
+    # registry of the surface link) and the simulated DAW
+    runners = []
+    for model in models:
+        controller = args.controller or CONTROLLERS[model]
+        client_name = "DrivenByMoss dbm_host" if len(models) == 1 else f"DrivenByMoss dbm_host {model}"
+        seq, is_electra = connect_model(args, model, client_name)
+        config = args.config or tempfile.mkdtemp(prefix=f"dbm-{model}-sim-")
+        if args.config and len(models) > 1:
+            config = os.path.join(args.config, model)
+            os.makedirs(config, exist_ok=True)
+        bridge = AlsaBridge(daw, controller, config, "Bitwig Studio 5.3")
 
-    bridge.on_port_midi_out = to_device
+        def to_device(port: int, data: bytes, seq=seq, is_electra=is_electra, model=model) -> None:
+            if args.verbose:
+                print(f"{model} ->{port}", data.hex(" "))
+            seq.send(data, port if is_electra else 0)
 
-    def from_device(data: bytes, port: int) -> None:
-        if args.verbose:
-            print(f"<-{port}", data.hex(" "))
-        bridge.receive(data, port if is_electra else 0)
+        bridge.on_port_midi_out = to_device
 
-    seq.start_reader(from_device)
-    bridge.start()
-    print(f"controller {controller} running (config {config}); Ctrl+C to stop")
+        def from_device(data: bytes, port: int, bridge=bridge, is_electra=is_electra, model=model) -> None:
+            if args.verbose:
+                print(f"{model} <-{port}", data.hex(" "))
+            bridge.receive(data, port if is_electra else 0)
+
+        seq.start_reader(from_device)
+        bridge.start()
+        print(f"{model}: controller {controller} running (config {config})")
+        runners.append((model, seq, bridge))
+    print("Ctrl+C to stop")
     try:
         next_tick = time.monotonic()
         while True:
             next_tick += TICK_MS / 1000.0
-            bridge.advance(TICK_MS)
-            for line in bridge.notifications:
-                print("notification:", line)
-            bridge.notifications.clear()
-            for line in bridge.logs:
-                print("log:", line)
-            bridge.logs.clear()
+            if len(runners) == 1:
+                runners[0][2].advance(TICK_MS)
+            else:
+                # The DAW moves once per tick, each controller steps once
+                daw.advance(TICK_MS)
+                for _, _, bridge in runners:
+                    bridge.clock_ms += TICK_MS
+                    bridge.step()
+            for model, _, bridge in runners:
+                prefix = "" if len(runners) == 1 else f"{model}: "
+                for line in bridge.notifications:
+                    print(f"{prefix}notification:", line)
+                bridge.notifications.clear()
+                for line in bridge.logs:
+                    print(f"{prefix}log:", line)
+                bridge.logs.clear()
             delay = next_tick - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
@@ -280,8 +319,9 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        bridge.close()
-        seq.close()
+        for _, seq, bridge in runners:
+            bridge.close()
+            seq.close()
     return 0
 
 
