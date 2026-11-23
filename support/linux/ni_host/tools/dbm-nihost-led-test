@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Hannes Janetzek
+# Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+"""LED test of the Maschine JAM through dbm-nihost: which palette levels and single-colour
+values are really bright on the device.
+
+It sends to dbm-nihost's port "Maschine Jam - 1 Output" (the port a DAW writes the LEDs to), as
+DrivenByMoss does: pads as notes, the other buttons as CCs, the velocity/value being NI's palette
+index (hue * 4 + level) for the RGB LEDs and 0..127 for the single-colour LEDs (dbm-nihost maps
+those quadratically). Stop whatever else drives the JAM first (DrivenByMoss in Bitwig, a
+dbm_host), or it overwrites the pattern.
+
+Patterns (--pattern):
+  palette  the 8x8 pads show all 16 hues x 4 levels: each pad row holds two hues, columns 1-4
+           the first hue's levels 0 (dim), 1 (medium), 2 (full), 3 (pale), columns 5-8 the second
+           hue's; the scene buttons the greys/white 68..75, the group buttons 72..79
+  levels   all pads one hue, row by row the levels 0..3 (twice); --hue N (1..16, default 1 red)
+  mono     the single-colour buttons with rising values (the legend is printed)
+  index    all pads and RGB buttons one palette index, --index N (to look at one value)
+
+Usage: dbm-nihost-led-test [--pattern palette|levels|mono|index] [--hue N] [--index N]
+                           [--port CLIENT:PORT]
+It keeps the pattern until Ctrl+C, then turns the LEDs off.
+"""
+
+import argparse
+import ctypes
+import re
+import subprocess
+import sys
+import time
+
+SND_SEQ_OPEN_OUTPUT = 1
+SND_SEQ_PORT_CAP_READ = 1 << 0
+SND_SEQ_PORT_CAP_SUBS_READ = 1 << 5
+SND_SEQ_PORT_TYPE_MIDI_GENERIC = 1 << 1
+SND_SEQ_PORT_TYPE_APPLICATION = 1 << 20
+SND_SEQ_QUEUE_DIRECT = 253
+SND_SEQ_ADDRESS_SUBSCRIBERS = 254
+SND_SEQ_ADDRESS_UNKNOWN = 253
+EVENT_SIZE = 64
+
+HUES = ("off", "red", "orange", "light orange", "warm yellow", "yellow", "lime", "green", "mint",
+        "cyan", "turquoise", "blue", "plum", "violet", "purple", "magenta", "fuchsia")
+LEVELS = ("dim", "medium", "full", "pale")
+
+# The JAM template (support/linux/ni_host/src/template_map.h): pad column A..H, row 1 (top) .. 8
+PAD_NOTE_TOP_LEFT = 92
+SCENE_CCS = range(80, 88)
+GROUP_CCS = range(70, 78)
+# Single-colour buttons (CC): name, CC
+MONO = (("Song", 30), ("Step", 31), ("Pad Mode", 32), ("Clear", 33), ("Duplicate", 34),
+        ("Note Repeat", 35), ("Macro", 36), ("Level", 37), ("Aux", 38), ("Control", 39),
+        ("Auto", 40), ("Perform", 55), ("Notes", 54), ("Lock", 53), ("Tune", 52), ("Swing", 51),
+        ("Select", 50), ("Play", 90), ("Rec", 91), ("Grid", 95), ("Solo", 96), ("Mute", 97),
+        ("Tempo", 94), ("Browse", 56), ("Master", 62), ("Group", 63), ("In", 60), ("Cue", 61))
+MONO_VALUES = (1, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127,
+               127, 127, 127, 127, 127, 127, 127, 127, 127)
+
+
+class Sender:
+    """An ALSA sequencer client with one port, connected to the JAM's output port."""
+
+    def __init__(self, client: int, port: int):
+        self.asound = ctypes.CDLL("libasound.so.2")
+        self.seq = ctypes.c_void_p()
+        if self.asound.snd_seq_open(ctypes.byref(self.seq), b"default", SND_SEQ_OPEN_OUTPUT, 0) != 0:
+            sys.exit("Can't open the ALSA sequencer")
+        self.asound.snd_seq_set_client_name(self.seq, b"JAM LED test")
+        self.port = self.asound.snd_seq_create_simple_port(
+            self.seq, b"JAM LED test", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+            SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION)
+        self.encoder = ctypes.c_void_p()
+        if self.port < 0 or self.asound.snd_midi_event_new(256, ctypes.byref(self.encoder)) != 0:
+            sys.exit("Can't create the sequencer port")
+        if self.asound.snd_seq_connect_to(self.seq, self.port, client, port) < 0:
+            sys.exit(f"Can't connect to {client}:{port}")
+
+    def send(self, *data: int):
+        event = ctypes.create_string_buffer(EVENT_SIZE)
+        self.asound.snd_midi_event_reset_encode(self.encoder)
+        raw = bytes(data)
+        if self.asound.snd_midi_event_encode(self.encoder, ctypes.create_string_buffer(raw), len(raw), event) != len(raw):
+            raise RuntimeError("encode failed")
+        event[3:4] = bytes([SND_SEQ_QUEUE_DIRECT])
+        event[12:14] = bytes([0, self.port])
+        event[14:16] = bytes([SND_SEQ_ADDRESS_SUBSCRIBERS, SND_SEQ_ADDRESS_UNKNOWN])
+        self.asound.snd_seq_event_output_direct(self.seq, event)
+        time.sleep(0.002)
+
+
+def find_jam_output() -> tuple[int, int]:
+    """The client and port of "Maschine Jam - 1 Output" (dbm-nihost, without a simulator suffix)."""
+    text = subprocess.run(["aconnect", "-l"], capture_output=True, text=True).stdout
+    client = None
+    for line in text.splitlines():
+        m = re.match(r"client (\d+): '([^']*)'", line)
+        if m:
+            client = int(m.group(1)) if m.group(2) == "Maschine Jam - 1" else None
+            continue
+        m = re.match(r"\s+(\d+) 'Maschine Jam - 1 Output", line)
+        if m and client is not None:
+            return client, int(m.group(1))
+    sys.exit("No dbm-nihost JAM port 'Maschine Jam - 1 Output' (is dbm-nihost running with the JAM?)")
+
+
+def pad(column: int, row: int) -> int:
+    return PAD_NOTE_TOP_LEFT - row * 8 + column
+
+
+def colour(hue: int, level: int) -> int:
+    return hue * 4 + level
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--pattern", choices=("palette", "levels", "mono", "index"), default="palette")
+    parser.add_argument("--hue", type=int, default=1)
+    parser.add_argument("--index", type=int, default=6)
+    parser.add_argument("--port", help="CLIENT:PORT of the JAM's output port (default: found by name)")
+    args = parser.parse_args()
+    client, port = map(int, args.port.split(":")) if args.port else find_jam_output()
+    out = Sender(client, port)
+
+    def all_off():
+        for row in range(8):
+            for column in range(8):
+                out.send(0x90, pad(column, row), 0)
+        for cc in list(SCENE_CCS) + list(GROUP_CCS) + [m[1] for m in MONO]:
+            out.send(0xB0, cc, 0)
+
+    all_off()
+    if args.pattern == "palette":
+        print("Pads: each row two hues; columns 1-4 = first hue, 5-8 = second; levels dim, medium, full, pale")
+        for row in range(8):
+            for column in range(8):
+                hue = row * 2 + column // 4 + 1
+                out.send(0x90, pad(column, row), colour(hue, column % 4))
+            print(f"  row {row + 1}: {HUES[row * 2 + 1]:13s} | {HUES[row * 2 + 2]}")
+        for i, cc in enumerate(SCENE_CCS):
+            out.send(0xB0, cc, 68 + i)
+        for i, cc in enumerate(GROUP_CCS):
+            out.send(0xB0, cc, 72 + i)
+        print("Scene buttons 1-8: indices 68..75, group buttons A-H: 72..79 (greys and white)")
+    elif args.pattern == "levels":
+        print(f"All pads hue {args.hue} ({HUES[args.hue] if 0 < args.hue < len(HUES) else '?'}); rows 1-4 and 5-8: levels dim, medium, full, pale")
+        for row in range(8):
+            for column in range(8):
+                out.send(0x90, pad(column, row), colour(args.hue, row % 4))
+    elif args.pattern == "mono":
+        print("Single-colour buttons, value -> button:")
+        for (name, cc), value in zip(MONO, MONO_VALUES):
+            out.send(0xB0, cc, value)
+            print(f"  {value:3d}  {name}")
+    else:
+        print(f"All pads, scene and group buttons: palette index {args.index}")
+        for row in range(8):
+            for column in range(8):
+                out.send(0x90, pad(column, row), args.index)
+        for cc in list(SCENE_CCS) + list(GROUP_CCS):
+            out.send(0xB0, cc, args.index)
+    print("Ctrl+C to end (turns the LEDs off)")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    all_off()
+
+
+if __name__ == "__main__":
+    main()

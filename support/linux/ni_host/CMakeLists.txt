@@ -74,7 +74,7 @@ install(FILES packaging/70-dbm-nihost.rules packaging/modprobe-dbm-nihost.conf p
         DESTINATION ${CMAKE_INSTALL_DATADIR}/dbm-nihost)
 # Debugging helpers (Python, need the module "jack"): the ports as zynthian sees them through
 # PipeWire's MIDI bridge
-install(PROGRAMS tools/dbm-nihost-jack-probe tools/dbm-nihost-bridge-test
+install(PROGRAMS tools/dbm-nihost-jack-probe tools/dbm-nihost-bridge-test tools/dbm-nihost-led-test
         DESTINATION ${CMAKE_INSTALL_DATADIR}/dbm-nihost/tools)
 
 enable_testing()

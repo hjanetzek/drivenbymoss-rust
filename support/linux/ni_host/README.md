@@ -126,6 +126,10 @@ virtual MIDI driver bridges the two:
   - `dbm-nihost-jack-probe [--client "Maschine Jam - 1"] [--listen]` connects to the bridge ports
     of a device as zynthian does, sends DrivenByMoss' query and prints what arrives (the hello).
     `--listen` only prints, e.g. while pressing pads.
+  - `dbm-nihost-led-test [--pattern palette|levels|mono|index]` shows NI's palette on the JAM
+    (all 16 hues x 4 levels on the pads, the greys on the scene and group buttons) or a ramp of the
+    single-colour LEDs, through dbm-nihost's output port: to see which values are really bright.
+    Stop whatever else drives the JAM first.
   - `dbm-nihost-bridge-test` sends SysEx messages of every length from its own ALSA client through
     the bridge: when these arrive but dbm-nihost's do not, the bridge's state for dbm-nihost's
     client is the problem, not the messages.
