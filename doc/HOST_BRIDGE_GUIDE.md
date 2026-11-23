@@ -922,6 +922,48 @@ empty otherwise and "touched" means the text is shown. Columns without a single 
 mode's channel with all values, lists, options) send the name without a value. Push 3 takes the
 same code path (no position encoder: its small encoder is tempo/swing); Push 1 sends nothing.
 
+## 5b. Devices driven by the core (the Maschines over libdbm_nihost)
+
+*Code:* `src/nihost/` (selection, the library, the note inputs), `App::start_instance` /
+`tick` / `poll_devices` (`src/app.rs`).
+
+On Linux the core can drive the NI Maschine Mk2 and JAM itself through `libdbm_nihost.so`
+(`support/linux/ni_host`), without the host's MIDI ports. A host opts in per instance:
+
+- **`DBM_FLAG_DEVICE_TRANSPORT` (2)** in the flags of `dbm_create_controller` (not
+  `dbm_create`). Without it the core always uses the host's ports (as before; the replays, the
+  Python `Bridge` by default and the zynthian drivers, which drive the device themselves).
+- **The selection** at the start of the controller (logged, `<model>: drives the device
+  in-process ...` or `<model>: uses the MIDI ports ...: <reason>`): only for a controller with a
+  device (`ControllerFactory::hid_device`), only on Linux. The environment variable
+  `DBM_MASCHINE_TRANSPORT`: `midi` (the ports), `hid` (the library, also while another process
+  holds the device: it waits), `auto` (default): the library unless it is missing (searched at
+  `$DBM_NIHOST_LIBRARY`, `/usr/lib/drivenbymoss`, `/usr/lib/dbm-nihost`,
+  `/usr/local/lib/dbm-nihost`, `~/.local/lib/dbm-nihost`, the repository's builds), a dbm-nihost
+  process drives the device (`/proc`), or the device's hidraw node is locked by another process
+  or not accessible (the udev rule). A device which isn't connected is waited for.
+- **While the device is driven in-process**, the first port pair (device ID 0) is the device:
+  the core doesn't call `open_midi_*` / `close_midi_*` for it and never `send_midi_data(0, …)`.
+  MIDI the host still delivers with `dbm_on_midi_event(0, …)` is handled as before (there is
+  none without a connected port). The host needs no MIDI ports for it (Bitwig: the existing
+  definitions, the ports left unassigned).
+- **Note inputs:** the core still calls `set_note_input_filters` and the key/velocity tables (a
+  host creates its note input as before; Bitwig during `init`), but it applies them itself:
+  each matching message of the device goes to the host as a played note,
+  `process_midi_arg(0, status, data1, data2)`, already translated (a note-off to the key of its
+  note-on). So the host must inject `process_midi_arg` into its default note input (§5), which it
+  does for the chords anyway.
+- **Threading and timing:** the library has its own thread (it reads the device into a queue);
+  the core reads the queue without waiting, under the instance lock, in `dbm_tick` and in
+  **`dbm_poll_devices(app)`**, which only reads the devices and handles their input (the number
+  of messages; -1 if the instance drives no device in-process, then there is no need to call it).
+  Call it every few ms between the ticks so that the pads play without the tick's delay (Bitwig:
+  every 3 ms, `DbmExtension.pollLoop`). The changed LEDs and displays are written after each
+  tick's flush.
+- **Unplug and replug:** the library sends "gone" and the hello (support/linux/ni_host/README.md);
+  the controller keeps running, the core ends the sounding notes on "gone" and sends all states
+  again on the next hello.
+
 ## 6. Behavioural rules learned from the conformance work
 
 1. **Report again after a value command (takeover/pickup).** The core sets the value it sends

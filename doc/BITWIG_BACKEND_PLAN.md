@@ -265,11 +265,40 @@ Reaper backend keeps working:
 5. **Hardware surface:** the Java version builds Bitwig's `HardwareSurface` (on-screen simulator,
    Bitwig mappings). The native core handles MIDI itself; decide whether a surface description is
    exported later.
-6. **USB devices:** the Maschine on Linux goes through `dbm-nihost`. Bitwig has its own USB API
+6. **USB devices:** the Maschine on Linux: the core drives it in-process over
+   `libdbm_nihost` (see "The Maschines on Linux" below), or through `dbm-nihost`. Bitwig has its own USB API
    (`listHardwareDevices`), which the Java version uses for the Push 2/3 displays; native USB
    access from the core may conflict with Bitwig claiming the device.
 7. **One core per extension instance** (simplest) or one shared core for all instances (shared
    model data, less observer load).
+
+## 6a. The Maschines on Linux (in-process HID)
+
+The Maschine Mk2 and JAM have no NI driver on Linux. The extension passes
+`DBM_FLAG_DEVICE_TRANSPORT`: the core loads `libdbm_nihost.so` itself (from Bitwig's process,
+with `dlopen`; the library needs read and write access to the hidraw node, which the udev rule
+`support/linux/ni_host/packaging/70-dbm-nihost.rules` gives to the logged-in user and the group
+`audio`) and drives the device without MIDI ports (`doc/HOST_BRIDGE_GUIDE.md` §5b). When the
+core says it does (`dbm_poll_devices` ≥ 0), the extension logs "The core drives the device
+in-process" and reads the device every 3 ms (`pollLoop`) besides the 30 ms tick.
+
+**No separate definitions.** The existing "Maschine Mk2" and "Maschine JAM" definitions (1 MIDI
+input, 1 output) are used, with their ports left unassigned in Bitwig: the input port is still
+needed as the owner of the note input (`MidiIn.createNoteInput`; only an extension's port can
+create one), into which the core plays the pads (`NoteInput.sendRawMidiEvent`, which bypasses
+Bitwig's filters and tables: the core applies them). Separate "(HID)" definitions with 0 ports
+would have no note input at all, and would have a configuration of their own; the same
+definition works with either transport, chosen at the start:
+
+1. Install the library and the udev rule (`support/linux/ni_host/README.md`), stop and disable
+   dbm-nihost (`systemctl --user disable --now dbm-nihost`: while it drives the device the core
+   uses the ports).
+2. In Bitwig: Settings → Controllers → Add Controller → "DrivenByMoss (Rust)" / Native
+   Instruments → Maschine Mk2 or Maschine JAM. Leave the MIDI input and output unassigned (an
+   earlier `Virtual Raw MIDI` assignment does no harm).
+3. The script console shows `Maschine JAM: drives the device in-process over HID ...`; else
+   the reason why it uses the ports. `DBM_MASCHINE_TRANSPORT=midi` (in Bitwig's environment)
+   keeps the old way; the conformance runs set it (`conformance_all.sh`).
 
 ## 7. Comparison notes
 

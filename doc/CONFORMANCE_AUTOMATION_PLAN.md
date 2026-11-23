@@ -45,7 +45,8 @@ if none are given). Implemented as below; Bitwig's readiness is
    2. Clean up: delete `temp-projects/`, `undo-history/`, `view-settings/` and the lock files
       (left behind by the last kill), so Bitwig starts without the dialog "Recover Projects".
       `temp-projects/` alone was not enough (first run, 2026-11-01).
-   3. Start Bitwig with `DBM_OSC_CONFORMANCE=1` and `DBM_DEV_LIBRARY=<main checkout>/rust/target/debug/libdrivenbymoss.so`,
+   3. Start Bitwig with `DBM_MASCHINE_TRANSPORT=midi` (the runner's MIDI goes through the ports, a
+      connected Maschine must not be driven in-process), `DBM_OSC_CONFORMANCE=1` and `DBM_DEV_LIBRARY=<main checkout>/rust/target/debug/libdrivenbymoss.so`,
       its log into `target/conformance/bitwig-<setup>.log`.
    4. Wait until it is ready: the OSC controller answers on port 9000 (`/refresh`) and the two
       MIDI ports exist, then 10 s for the controllers. Time out after 180 s and record the setup

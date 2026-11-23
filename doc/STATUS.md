@@ -256,18 +256,32 @@ Commits:
 - `a3bb3b89`: Launch Control XL and Maschine Mk2/Jam, with the parameter providers, the
   parameter, device, track and layer modes, the text display and more generic commands
 
-**Maschine on Linux:** NI's driver doesn't exist on Linux. `support/linux/ni_host` (`dbm-nihost`)
-emulates it for the Mk2 and the JAM: hidraw on one side, ALSA ports with NI's names on the other.
-The Linux guard of the Maschine factories is removed.
-- Tested on both devices with the Rust port in Reaper, and with the Java DrivenByMoss in Bitwig.
-  The Java version needed its Linux check removed (local branch `linux-maschine` in the
-  DrivenByMoss repository).
-- Reaper sees the ports through PipeWire's MIDI bridge (`Midi-Bridge:Maschine MK2: In (capture)`);
-  the discovery pairs include these names.
-- Bitwig only opens raw MIDI devices; `dbm-nihost --virmidi` connects the ports to the devices of
-  `snd-virmidi`.
-- It installs with CMake, including a systemd user service. See
-  `support/linux/ni_host/README.md`.
+**Maschine on Linux:** NI's driver doesn't exist on Linux. `support/linux/ni_host` emulates it
+for the Mk2 and the JAM (hidraw on one side, NI's template MIDI on the other), as the library
+`libdbm_nihost.so` and as the daemon `dbm-nihost` with ALSA ports with NI's names. The Linux
+guard of the Maschine factories is removed.
+- **In-process HID is the default** (`src/nihost/`): in a host which allows it
+  (`DBM_FLAG_DEVICE_TRANSPORT`: the Bitwig extension, the Python reference host
+  `dbm_host_alsa.py`) the core loads `libdbm_nihost.so` with `dlopen` and drives the device
+  itself: no dbm-nihost, no snd-virmidi, no MIDI ports to assign. The core reads the device on
+  its tick and on `dbm_poll_devices` (Bitwig: every 3 ms), writes the LEDs and displays after
+  each flush and applies the note inputs itself (the pads play through `process_midi_arg`).
+  `DBM_MASCHINE_TRANSPORT=hid|midi|auto` overrides the choice; auto falls back to the MIDI ports
+  (logged) without the library, while dbm-nihost drives the device, or while the hidraw node is
+  locked by another process or not accessible. The zynthian drivers keep their own in-process
+  path (ctypes, `dbm_zynthian/nihost.py`) and don't pass the flag; the conformance runs set
+  `DBM_MASCHINE_TRANSPORT=midi`. Tested with fakes, the library's test devices and the selection
+  in the Python host (2026-11-23); not yet with a connected Mk2 or JAM, nor in Bitwig.
+- With dbm-nihost (the MIDI ports), as before (Reaper, and Bitwig without the in-process transport):
+  - Tested on both devices with the Rust port in Reaper, and with the Java DrivenByMoss in Bitwig.
+    The Java version needed its Linux check removed (local branch `linux-maschine` in the
+    DrivenByMoss repository).
+  - Reaper sees the ports through PipeWire's MIDI bridge (`Midi-Bridge:Maschine MK2: In (capture)`);
+    the discovery pairs include these names.
+  - Bitwig only opens raw MIDI devices; `dbm-nihost --virmidi` connects the ports to the devices of
+    `snd-virmidi`.
+  - It installs with CMake, including a systemd user service. See
+    `support/linux/ni_host/README.md`.
 
 **Maschine Mk3, Mikro Mk3 and Plus:** registered (`SUPPORTED_MODELS`), with the definitions and
 discovery names of Java (Windows and Linux `Maschine MK3 Ctrl MIDI` / `Maschine Mikro MK3`, macOS

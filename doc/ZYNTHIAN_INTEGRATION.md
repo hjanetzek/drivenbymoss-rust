@@ -519,6 +519,14 @@ zynthian's process. The MIDI between the core and the host is unchanged (templat
 "gone", the query, support/linux/ni_host/README.md); only the transport changes: no dbm-nihost
 daemon, no ALSA sequencer ports, no PipeWire MIDI bridge, no JACK ports for them (Z16).
 
+The core has its own in-process transport for the other hosts since 2026-11-23
+(`doc/HOST_BRIDGE_GUIDE.md` §5b, Bitwig and the Python reference host). The zynthian drivers keep
+this ctypes path and don't pass `DBM_FLAG_DEVICE_TRANSPORT` (so the core never opens the device
+a second time in zynthian's process): their reader thread plays the pads into the chain as they
+arrive (`play_note`, without waiting for a tick), and the driver's dormancy, power save and
+restart on re-attach are tied to zynthian's driver life cycle. Switching to the core's path
+would move none of that out of the driver.
+
 - **Library** `libdbm_nihost.so` (support/linux/ni_host, C interface `include/dbm_nihost.h`,
   `src/c_api.cpp`; the same `Mk2Host`/`JamHost`/`HidrawDevice` as the daemon, no ALSA):
   `dbm_nihost_open(kind)` starts a thread which looks for the hidraw node once a second, opens it

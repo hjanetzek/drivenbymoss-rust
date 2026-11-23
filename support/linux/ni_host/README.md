@@ -14,8 +14,26 @@ The MIDI follows the DrivenByMoss NI Controller Editor templates (`resources/Mas
 these ports as with NI's driver. Background and design: `doc/NI_HOST_LINUX_PLAN.md`.
 
 There is also a library, `libdbm_nihost.so`, with the same host for a process which drives the
-devices itself instead of going through the ports: zynthian's Maschine drivers load it (see
-below and `doc/ZYNTHIAN_INTEGRATION.md` §10).
+devices itself instead of going through the ports. **This is the default way now; the daemon is
+optional:**
+
+- **The DrivenByMoss core (Rust)** loads the library at runtime and drives the Maschine in its
+  own process, in Bitwig and in the Python reference host (`src/nihost/` of the core,
+  `doc/HOST_BRIDGE_GUIDE.md` §5b). Nothing else is needed: no dbm-nihost, no `snd-virmidi`, no
+  MIDI ports to assign in Bitwig. Install the library and the udev rule (below), stop and disable
+  the service (`systemctl --user disable --now dbm-nihost`): while dbm-nihost drives the device,
+  the core falls back to the MIDI ports. `DBM_MASCHINE_TRANSPORT=midi` keeps the core on the ports,
+  `hid` forces the library (`auto`, the default, is the library when it can).
+- **zynthian's Maschine drivers** load it through ctypes (see below and
+  `doc/ZYNTHIAN_INTEGRATION.md` §10).
+- **The daemon** is for everything else: the Java DrivenByMoss, Reaper and other DAWs which
+  expect MIDI ports with NI's names (a setup like NI's driver on Windows and macOS).
+
+The core looks for the library at `$DBM_NIHOST_LIBRARY`, else
+`/usr/lib/drivenbymoss/libdbm_nihost.so` (the drivenbymoss package),
+`/usr/lib/dbm-nihost/libdbm_nihost.so`, `/usr/local/lib/dbm-nihost/libdbm_nihost.so`,
+`~/.local/lib/dbm-nihost/libdbm_nihost.so` (the CMake install below) and the builds in its
+repository (`build-nihost`, `support/linux/ni_host/build`, `target/ci/ni_host`).
 
 ## Build and run
 
@@ -56,7 +74,9 @@ sudo cp ~/.local/share/dbm-nihost/modprobe-dbm-nihost.conf /etc/modprobe.d/dbm-n
 sudo cp ~/.local/share/dbm-nihost/modules-load-dbm-nihost.conf /etc/modules-load.d/dbm-nihost.conf
 ```
 
-Then start the service, and on every login from then on:
+For the in-process use (the core, zynthian) the library and the udev rule are all: the service
+and the `snd-virmidi` files are only for the daemon. For the daemon, start the service, and on
+every login from then on:
 
 ```
 systemctl --user daemon-reload
@@ -181,7 +201,7 @@ the JAM the query and "gone".
 | `F0 7D 44 42 4D 11 F7` | DAW → device | the query whether the device is there: DrivenByMoss's Mk2 asks at its start whether the host sends the Shift button; the zynthian drivers of both Maschines ask at their start. No answer while the device isn't connected |
 | `F0 7D 44 42 4D 11 01 F7` | device → DAW | the Mk2's hello: it is there and the host sends the Shift button. The answer to the query, also sent when the Mk2 is attached and, while it is, when `--virmidi` connects the ports (for a DAW which was started before dbm-nihost). DrivenByMoss then uses the Shift button, and STEP LEFT is only Stop |
 | `F0 00 21 09 15 00 4D 50 00 01 46 01 F7` | device → DAW | the JAM's hello: NI's "return from host" (the core refreshes the device with it), sent when the JAM is attached and as the answer to the query |
-| `F0 7D 44 42 4D 13 F7` | device → DAW | the device is gone (unplugged, or dbm-nihost stops): the zynthian drivers stop their controller until the next hello. DrivenByMoss's core doesn't know it (on Bitwig it logs "Unhandled Sysex message" when a device is unplugged) |
+| `F0 7D 44 42 4D 13 F7` | device → DAW | the device is gone (unplugged, or dbm-nihost stops): the zynthian drivers stop their controller until the next hello; the core's in-process transport logs it and ends the sounding notes, and sends all states again at the next hello. Through the MIDI ports the core doesn't know it (on Bitwig it logs "Unhandled Sysex message" when a device is unplugged) |
 | `F0 7D 44 42 4D 12 <01 down, 00 up> F7` | device → DAW | the Shift button; the Shift LED is lit by dbm-nihost |
 
 `01` and `02` (the markers of the conformance runner) and `03` (its restart) are used by the
