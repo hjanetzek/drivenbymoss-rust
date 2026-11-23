@@ -172,11 +172,14 @@ Mk3, Plus, JAM) have the global setting "LED Brightness" (Hardware Setup; key
 sends the values of the core unchanged, as Java (the conformance runs and replays are unchanged).
 Bright raises the values when they are sent (`maschine::core::brightness`): the RGB LEDs (pads,
 group/bank and scene buttons, the Mk3's cursor buttons, the JAM's touch strips) take an index
-into NI's palette (`hue * 4 + level`), and Bright sends a brighter level of the same hue; the
-single-colour LEDs take a brightness, which Bright raises (0 and 127 stay). It is applied where
+into NI's palette (`hue * 4 + level`), and Bright sends a brighter level of the same hue (dim to
+full, medium and full to pale, which is the brightest level on the JAM; the whites 68..79 stay,
+they look the same on the device); the single-colour LEDs take a brightness, which Bright
+raises (0 and 127 stay, and the core sends only those, so they are unchanged). It is applied where
 the LEDs are sent (the trigger sender of the buttons, the color mapper of the pad grid, the strip
 setup sysex of the JAM), so it covers every mode, view and the surface link, on every host.
-Changing it re-sends all LEDs. The mapping is preliminary until it is checked on the device.
+Changing it re-sends all LEDs. The levels were measured on the real JAM. The JAM drives its LEDs
+in time slices (about 25% duty), so even pale stays dimmer than its startup animation.
 
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
