@@ -17,15 +17,23 @@ Patterns (--pattern):
   levels   all pads one hue, row by row the levels 0..3 (twice); --hue N (1..16, default 1 red)
   mono     the single-colour buttons with rising values (the legend is printed)
   index    all pads and RGB buttons one palette index, --index N (to look at one value)
+  sweep    the 64 pads show the palette indices 64..127 (row 1: 64..71, …, row 8: 120..127), to see
+           whether indices above 79 do anything
+  power    the current limit: one pad (row 4, column 4) stays lit, every 3 s the other 63 pads
+           turn on and off (same index, --index N, default 7 = red pale). If the one pad gets
+           dimmer while all are on, the firmware limits the brightness by the total current
+  row      pad rows to compare the RGB brightness: row 1 red levels 0-3 then white 68-71, row 2
+           green levels 0-3 then 72-75, row 3 blue levels 0-3 then 76-79 (the other rows off)
 
 Usage: dbm-nihost-led-test [--pattern palette|levels|mono|index] [--hue N] [--index N]
                            [--port CLIENT:PORT]
-It keeps the pattern until Ctrl+C, then turns the LEDs off.
+It keeps the pattern until Ctrl+C or SIGTERM, then turns the LEDs off.
 """
 
 import argparse
 import ctypes
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -112,11 +120,18 @@ def colour(hue: int, level: int) -> int:
     return hue * 4 + level
 
 
+def stop(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main():
+    # SIGTERM (and SIGINT, which background processes ignore) end the pattern and turn the LEDs off
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--pattern", choices=("palette", "levels", "mono", "index"), default="palette")
+    parser.add_argument("--pattern", choices=("palette", "levels", "mono", "index", "row", "sweep", "power"), default="palette")
     parser.add_argument("--hue", type=int, default=1)
-    parser.add_argument("--index", type=int, default=6)
+    parser.add_argument("--index", type=int, default=7)
     parser.add_argument("--port", help="CLIENT:PORT of the JAM's output port (default: found by name)")
     args = parser.parse_args()
     client, port = map(int, args.port.split(":")) if args.port else find_jam_output()
@@ -152,6 +167,20 @@ def main():
         for (name, cc), value in zip(MONO, MONO_VALUES):
             out.send(0xB0, cc, value)
             print(f"  {value:3d}  {name}")
+    elif args.pattern == "sweep":
+        for row in range(8):
+            for column in range(8):
+                out.send(0x90, pad(column, row), 64 + row * 8 + column)
+            print(f"  row {row + 1}: indices {64 + row * 8}..{64 + row * 8 + 7}")
+    elif args.pattern == "row":
+        rows = ((1, 68, "red"), (7, 72, "green"), (11, 76, "blue"))
+        for row, (hue, grey, name) in enumerate(rows):
+            for level in range(4):
+                out.send(0x90, pad(level, row), colour(hue, level))
+            for i in range(4):
+                out.send(0x90, pad(4 + i, row), grey + i)
+            print(f"  row {row + 1}: {name} dim, medium, full, pale ({colour(hue, 0)}..{colour(hue, 3)}) | "
+                  f"greys/white {grey}..{grey + 3}")
     else:
         print(f"All pads, scene and group buttons: palette index {args.index}")
         for row in range(8):
@@ -161,6 +190,18 @@ def main():
             out.send(0xB0, cc, args.index)
     print("Ctrl+C to end (turns the LEDs off)")
     try:
+        if args.pattern == "power":
+            print(f"Pad row 4, column 4 stays lit (index {args.index}); the other pads toggle every 3 s")
+            out.send(0x90, pad(3, 3), args.index)
+            on = False
+            while True:
+                on = not on
+                for row in range(8):
+                    for column in range(8):
+                        if (column, row) != (3, 3):
+                            out.send(0x90, pad(column, row), args.index if on else 0)
+                print("  all pads on" if on else "  one pad", flush=True)
+                time.sleep(3)
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
