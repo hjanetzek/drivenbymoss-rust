@@ -18,6 +18,11 @@
 //! are; 80..127 show nothing new. The JAM drives its LEDs in time slices (stripes on a photo,
 //! about 25% duty), so even pale stays dimmer than the firmware's startup animation; a
 //! device-wide brightness setting of the JAM may exist, but it is not known.
+//!
+//! The JAM's feature report 0xF1 is its live pad palette (68 RGB entries, 17 hues x 4 levels,
+//! 0..127), which the device stores in flash (it survives a replug). DrivenByMoss does not
+//! write it; a custom palette (e.g. brighter levels) would be possible, but every write wears
+//! the flash, so it must not be written on every start or setting change.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -45,8 +50,12 @@ pub enum LedBrightness {
 pub type SharedBrightness = Rc<Cell<LedBrightness>>;
 
 /// The level which "Bright" sends for each level of a palette entry (0 dim, 1 medium, 2 full,
-/// 3 pale): dim to full, medium and full to pale (the brightest on the device), pale stays.
-pub const BRIGHT_LEVELS: [i32; 4] = [2, 3, 3, 3];
+/// 3 pale): one step up, so dim becomes medium, medium full and full pale (the brightest on the
+/// device); pale stays. The core tells states apart by the level (the `*_LO` colors are medium
+/// for available or inactive, full for active or selected), so the three steps stay distinct;
+/// only full and pale merge, and pale is rarely used. The trade-off: in Bright the active colors
+/// are pale, the brightest level, but a bit whitish.
+pub const BRIGHT_LEVELS: [i32; 4] = [1, 2, 3, 3];
 
 /// The first entry of the whites and greys (68..79), which all look the same on the device.
 const WHITES: i32 = 68;
@@ -125,16 +134,22 @@ mod tests {
         for black in 0..4 {
             assert_eq!(bright.rgb(black), black);
         }
-        // Each level of a hue: dim to full, medium and full to pale, pale stays
-        assert_eq!(bright.rgb(4), 6);
-        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_ROSE);
+        // Each level of a hue one step up: dim to medium, medium to full, full to pale, pale stays
+        assert_eq!(bright.rgb(4), 5);
+        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_RED);
         assert_eq!(bright.rgb(COLOR_RED), COLOR_ROSE);
         assert_eq!(bright.rgb(COLOR_ROSE), COLOR_ROSE);
-        assert_eq!(bright.rgb(COLOR_GREEN_LO), 31);
-        assert_eq!(bright.rgb(COLOR_BLUE_LO), 47);
-        assert_eq!(bright.rgb(64), 66);
+        assert_eq!(bright.rgb(COLOR_GREEN_LO), COLOR_GREEN);
+        assert_eq!(bright.rgb(COLOR_GREEN), 31);
+        assert_eq!(bright.rgb(COLOR_BLUE_LO), 46);
+        assert_eq!(bright.rgb(64), 65);
         assert_eq!(bright.rgb(66), 67);
         assert_eq!(bright.rgb(67), 67);
+        // The *_LO (medium) and the active (full) colors stay distinct
+        for hue in 1..17 {
+            let (medium, full) = (hue * 4 + 1, hue * 4 + 2);
+            assert_ne!(bright.rgb(medium), bright.rgb(full));
+        }
         // The whites and greys (68..79) look the same on the device and stay
         for white in 68..80 {
             assert_eq!(bright.rgb(white), white);
