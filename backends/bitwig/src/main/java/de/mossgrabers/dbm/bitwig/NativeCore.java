@@ -32,6 +32,11 @@ public final class NativeCore implements AutoCloseable
 {
     /** Do not start the core's own timer thread, the host calls {@link #tick()}. */
     private static final int DBM_FLAG_HOST_TICK = 1;
+    /**
+     * The core may drive the controller's device itself instead of through the MIDI ports: the
+     * Maschine Mk2 and JAM on Linux over libdbm_nihost (DBM_FLAG_DEVICE_TRANSPORT).
+     */
+    private static final int DBM_FLAG_DEVICE_TRANSPORT = 2;
 
     /** The number of pointers in the struct DbmCallbacks (user + 19 functions). */
     private static final int NUM_CALLBACK_FIELDS = 20;
@@ -143,6 +148,8 @@ public final class NativeCore implements AutoCloseable
     private MemorySegment       usbStub;
     /** dbm_set_simulator_callback, null for an older core. */
     private final MethodHandle  setSimulatorCallback;
+    /** dbm_poll_devices, null for an older core. */
+    private final MethodHandle  pollDevices;
     /** The stub of the simulator callback, created on demand. */
     private MemorySegment       simulatorStub;
     /** The stub of the command callback, created on demand. */
@@ -183,6 +190,7 @@ public final class NativeCore implements AutoCloseable
         this.messagesFromText = optionalDowncall (lookup, "dbm_messages_from_text", FunctionDescriptor.of (JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
         this.setUsbCallback = optionalDowncall (lookup, "dbm_set_usb_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS));
         this.setSimulatorCallback = optionalDowncall (lookup, "dbm_set_simulator_callback", FunctionDescriptor.of (JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS));
+        this.pollDevices = optionalDowncall (lookup, "dbm_poll_devices", FunctionDescriptor.of (JAVA_INT, ADDRESS));
 
         final MethodHandle versionHandle = downcall (lookup, "dbm_version", FunctionDescriptor.of (ADDRESS));
         this.version = readString ((MemorySegment) invoke (versionHandle));
@@ -246,9 +254,23 @@ public final class NativeCore implements AutoCloseable
     {
         try (final Arena call = Arena.ofConfined ())
         {
-            this.app = (MemorySegment) invoke (this.createController, this.callbackTable, call.allocateFrom (controllerId), call.allocateFrom (configPath), call.allocateFrom (appVersion), Integer.valueOf (DBM_FLAG_HOST_TICK));
+            this.app = (MemorySegment) invoke (this.createController, this.callbackTable, call.allocateFrom (controllerId), call.allocateFrom (configPath), call.allocateFrom (appVersion), Integer.valueOf (DBM_FLAG_HOST_TICK | DBM_FLAG_DEVICE_TRANSPORT));
         }
         return !this.app.equals (MemorySegment.NULL);
+    }
+
+
+    /**
+     * Read the devices which the core drives in-process (the Maschines over libdbm_nihost on
+     * Linux) and handle their input, without the rest of a tick: for less delay of the pads.
+     *
+     * @return The number of messages, -1 if the core drives no device in-process (or is too old)
+     */
+    public int pollDevices ()
+    {
+        if (this.pollDevices == null || !this.isValid ())
+            return -1;
+        return ((Integer) invoke (this.pollDevices, this.app)).intValue ();
     }
 
 

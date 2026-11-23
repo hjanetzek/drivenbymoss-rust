@@ -37,6 +37,12 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
 {
     /** The interval of the core's update tick in milliseconds (as in the Java version). */
     private static final int                 TICK_INTERVAL      = 30;
+    /**
+     * The interval to read a device which the core drives in-process (the Maschines over
+     * libdbm_nihost on Linux) in milliseconds: its pads play with this delay at most, not the
+     * tick's.
+     */
+    private static final int                 POLL_INTERVAL      = 3;
     /** The interval to check the development library for changes in milliseconds. */
     private static final int                 DEV_CHECK_INTERVAL = 500;
 
@@ -263,6 +269,12 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
         this.println ("DrivenByMoss core " + this.core.getVersion () + " started. Model setup: " + modelSetup);
         this.isRunning = true;
         host.scheduleTask (this::tickLoop, TICK_INTERVAL);
+        // The core drives the device itself (no MIDI ports needed): read it more often
+        if (this.core.pollDevices () >= 0)
+        {
+            this.println ("The core drives the device in-process (libdbm_nihost), the MIDI ports are not used.");
+            host.scheduleTask (this::pollLoop, POLL_INTERVAL);
+        }
     }
 
 
@@ -422,6 +434,15 @@ public class DbmExtension extends ControllerExtension implements NativeCore.Call
                 this.getHost ().showPopupNotification (notification);
         }
         this.getHost ().scheduleTask (this::tickLoop, TICK_INTERVAL);
+    }
+
+
+    private void pollLoop ()
+    {
+        if (!this.isRunning || this.core == null)
+            return;
+        this.core.pollDevices ();
+        this.getHost ().scheduleTask (this::pollLoop, POLL_INTERVAL);
     }
 
 

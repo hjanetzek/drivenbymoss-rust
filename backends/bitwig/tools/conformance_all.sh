@@ -131,7 +131,8 @@ for setup in "${setups[@]}"; do
         # shellcheck disable=SC2054 # the comma belongs to strace's syntax (trace=write,writev)
         launcher=(strace -f -qq -ttt -xx -s 65536 -e trace=write,writev "${devices[@]}" -o "$OUT/strace-$setup.log")
     fi
-    DBM_OSC_CONFORMANCE=1 DBM_DEV_LIBRARY="$RUST/target/debug/libdrivenbymoss.so" \
+    # The runner's MIDI goes through the ports: a connected Maschine must not be driven in-process
+    DBM_MASCHINE_TRANSPORT=midi DBM_OSC_CONFORMANCE=1 DBM_DEV_LIBRARY="$RUST/target/debug/libdrivenbymoss.so" \
         setsid "${launcher[@]}" "$BITWIG" >"$log" 2>&1 </dev/null &
     bitwig_pid=$!
 
