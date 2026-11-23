@@ -163,6 +163,11 @@ virtual MIDI driver bridges the two:
 - The JAM drives its LEDs in time slices (stripes on a camera photo, about 25% duty), so even
   pale stays dimmer than the firmware's startup animation. A device-wide brightness setting
   may exist, but it is not known.
+- **Feature report 0xF1** is the JAM's live pad palette: 68 RGB entries (17 hues × 4 levels,
+  0..127 each). The device stores it in flash (a written palette survived a replug; the
+  original was restored). dbm-nihost and DrivenByMoss don't write it. A custom palette (e.g.
+  brighter levels) is a possible future feature, but each write wears the flash: it would
+  have to be written only on an explicit request, never on every start.
 
 ### DrivenByMoss messages
 

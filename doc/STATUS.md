@@ -234,9 +234,9 @@ compared with the power-on animation: the RGB LEDs only take an index into NI's 
 (`hue * 4 + level`, no brightness byte), and many states use the dim or medium level (Java's
 `*_LO` colors, dark grey, and the nearest palette entry of the direct color path). The global
 setting "LED Brightness" (Hardware Setup, `HARDWARE_SETUP_LED_BRIGHTNESS` in the `.config` file)
-of all Maschines has Normal (default, as Java) and Bright: Bright raises the palette level (dim to
-full, medium and full to pale, the brightest level on the JAM; pale, black and the whites 68..79
-stay) and the single-colour values (0 and 127 stay; the core sends only those) where the LEDs are sent
+of all Maschines has Normal (default, as Java) and Bright: Bright raises the palette level by one step (dim to
+medium, medium to full, full to pale, the brightest level on the JAM but a bit whitish; pale,
+black and the whites 68..79 stay; the medium `*_LO` and the full colors stay distinct) and the single-colour values (0 and 127 stay; the core sends only those) where the LEDs are sent
 (`maschine::core::brightness`, the trigger senders, the pad grid's color mapper, the JAM's strip
 setup), for all modes, views and the surface link. A change re-sends all LEDs. Bitwig shows it in
 the controller preferences; on zynthian it is set in the `.config` file of the model in
@@ -244,6 +244,8 @@ the controller preferences; on zynthian it is set in the `.config` file of the m
 test on the real JAM: pale is the brightest level, full is dimmer, 68..79 are all the same white
 (cabl's grey steps do not exist). The JAM drives its LEDs in time slices (about 25% duty), so
 even pale stays dimmer than its startup animation; a device-wide brightness setting is not known.
+The JAM's feature report 0xF1 is its pad palette, stored in flash: a possible custom palette, not
+written by DrivenByMoss (flash wear).
 dbm-nihost's curve for the JAM's mono LEDs now maps MIDI 1..127 to hardware 2..85 (gamma 1.5;
 1 is off on the device, 85 is full), see `support/linux/ni_host/README.md`. Tests: the mapping
 (unit tests), `led_brightness_raises_the_palette_levels_and_re_sends_all_leds` (JAM, Mk2).
