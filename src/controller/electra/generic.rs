@@ -12,7 +12,7 @@
 //!
 //! - **Model:** fetched with `02 52` on entering, on `7E 62` (the page view changed: Lua, a
 //!   handle, a control set, page or preset switch) and `7E 06`. One request at a time; a change
-//!   while one is open asks again after the answer. The values follow `7E 0D`.
+//!   while one is open asks again after the answer. The values follow `7E 63`.
 //! - **Input:**
 //!
 //! | Input | Message |

@@ -206,7 +206,7 @@ in one process ([SURFACE_LINK.md](SURFACE_LINK.md)).
   (handle) of the selected slot.
 - **The generic provider** (Electra One Mk2 emulator only, electra-one §6c): while another preset
   than DrivenByMoss's is active, the Electra provides that preset's current page (`02 52`, one
-  slot per cell = knob, `7E 62`/`7E 0D`) and the surfaces turn its knobs (`14 53`-`14 56`); the
+  slot per cell = knob, `7E 62`/`7E 63`) and the surfaces turn its knobs (`14 53`-`14 56`); the
   DAW side is offline meanwhile. Tested end to end with the emulator (Acid Machine, Euclidean and
   the emulator's surface-view fixture) and the JAM simulator.
 - **Colors:** the slots take the nearest entry of the surface's palette (CIEDE2000), not the

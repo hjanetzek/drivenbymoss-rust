@@ -242,9 +242,9 @@ A NACK of another command while a change is pending would undo it too. This is r
 contract only NACKs IDs which are not on the current page, and the provider never sends those.
 
 **Not used for the DrivenByMoss pages:** the `02 41` parameter map dump and the value-change
-event `7E 0D`. This provider's values come from the DAW through its own page cache, and the
+event `7E 63`. This provider's values come from the DAW through its own page cache, and the
 device's knob turns already arrive as relative CCs on Port 1. The generic provider (§6.2) uses
-`7E 0D`.
+`7E 63`.
 
 ## 6.2 The generic provider (`src/controller/electra/generic.rs`, `page_view.rs`)
 
@@ -303,7 +303,7 @@ unanswered request is sent again after a second, up to three times.
   are empty.
 - **Pages:** the `pages` of the page view without the hidden ones (the current page always);
   `page` is its index in that list.
-- **Values:** `7E 0D` updates the value and its text (also of values no slot shows, e.g. an
+- **Values:** `7E 63` updates the value and its text (also of values no slot shows, e.g. an
   envelope's other handles, for when they become active).
 - **Row and selection:** from the page view (`row`, `selectedControlId`) and the §6.1 events of
   origin 0 and 2. The selection is the knob slot of the selected control (of its active value).
@@ -386,7 +386,7 @@ support/controller_simulator/tools/dbm_host_alsa.py --model electra --model jam 
 - `tests/surface_link.rs` (generic): the mode switch (DrivenByMoss preset ↔ another, the
   capability present/absent, without the DrivenByMoss preset), the JAM's input as the exact bytes
   (strips, touches, selection, handles, reset, lists, pads, Custom inputs, covered cells, other
-  control sets, pages), `7E 0D`, `7E 62` with the request handling, page switches;
+  control sets, pages), `7E 63`, `7E 62` with the request handling, page switches;
 - `page_view.rs` unit tests: the `02 52` → model mapping (a single control, an envelope and its
   handle, a list, a Custom control, hidden controls, other control sets, hidden pages);
 - `surface_ext.rs` unit tests: the bytes.

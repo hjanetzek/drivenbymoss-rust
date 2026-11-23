@@ -32,7 +32,7 @@
 //!   touch around the turn. Touch: `14 54 [pot] [0|1]`.
 //! - Set a value: `14 55 {"controlId","valueId","value"|"step"|"default"}`; the active value
 //!   (handle): `14 56 {"controlId","valueId"|"next"|"prev"}`.
-//! - Value changes: `7E 0D {"controlId","valueId","value","midiValue","origin","text"}`, with
+//! - Value changes: `7E 63 {"controlId","valueId","value","midiValue","origin","text"}`, with
 //!   the second flags byte of `14 79` (bit 0).
 
 use super::definition::{sysex, CMD_CONTROLLER, CMD_INFO, SYSEX_HEADER, SYSEX_RUNTIME_SUBSCRIBE_EVENTS, SUB_CMD_START_POS};
@@ -52,9 +52,9 @@ pub const SYSEX_SET_VALUE: [u8; 2] = [0x14, 0x55];
 pub const SYSEX_ACTIVE_VALUE: [u8; 2] = [0x14, 0x56];
 
 pub const OBJECT_PAGE_VIEW: u8 = 0x52;
-pub const EVENT_VALUE_CHANGED: u8 = 0x0D;
+pub const EVENT_VALUE_CHANGED: u8 = 0x63;
 pub const EVENT_PAGE_VIEW_CHANGED: u8 = 0x62;
-/// The flag of the value changes (`7E 0D`) in the second flags byte of `14 79`.
+/// The flag of the value changes (`7E 63`) in the second flags byte of `14 79`.
 pub const SUBSCRIBE_VALUE_CHANGES: u8 = 0x01;
 /// `14 53` flags: fine steps, a touch around the turn.
 pub const TURN_FINE: u8 = 0x01;
@@ -109,11 +109,11 @@ pub enum Report {
     PageView(JsonValue),
     /// `7E 62 [page id]`: the page view changed.
     PageViewChanged,
-    /// `7E 0D`: a value changed.
+    /// `7E 63`: a value changed.
     ValueChanged(ValueChange),
 }
 
-/// A value change of the device (`7E 0D`).
+/// A value change of the device (`7E 63`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueChange {
     pub control_id: i32,
@@ -174,7 +174,7 @@ pub struct Capability {
     pub selection: bool,
     /// The page view (`02 52`, `7E 62`).
     pub view: bool,
-    /// The knob and value input (`14 53`-`14 56`) and the value changes (`7E 0D`).
+    /// The knob and value input (`14 53`-`14 56`) and the value changes (`7E 63`).
     pub input: bool,
 }
 
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(parse(&message(&[0x7E, 0x62], &[1])), Some(Report::PageViewChanged));
         let change = br#"{"controlId":3,"valueId":"value","value":65,"midiValue":65,"origin":"internal","text":"Cut 65"}"#;
         assert_eq!(
-            parse(&message(&[0x7E, 0x0D], change)),
+            parse(&message(&[0x7E, 0x63], change)),
             Some(Report::ValueChanged(ValueChange { control_id: 3, value_id: "value".into(), value: 65.0, text: Some("Cut 65".into()) }))
         );
         assert!(matches!(parse(&message(&[0x01, 0x52], br#"{"version":1}"#)), Some(Report::PageView(_))));

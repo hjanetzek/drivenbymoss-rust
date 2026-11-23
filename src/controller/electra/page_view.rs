@@ -206,7 +206,7 @@ impl PageView {
         self.controls.iter().find(|c| c.id == id)
     }
 
-    /// A value change (`7E 0D`); returns false if the page has no such value.
+    /// A value change (`7E 63`); returns false if the page has no such value.
     pub fn set_value(&mut self, control_id: i32, value_id: &str, value: f64, text: Option<&str>) -> bool {
         let Some(value_entry) = self.controls.iter_mut().find(|c| c.id == control_id).and_then(|c| c.values.iter_mut().find(|v| v.id == value_id)) else {
             return false;

@@ -694,7 +694,7 @@ fn generic_input() {
     rig.jam_pad(3, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[1]), sysex(&[0x14, 0x51], &[2, 0]), json(&[0x14, 0x55], r#"{"controlId":2,"valueId":"value","step":1}"#)]);
-    rig.electra_app().on_midi_event(E_CTRL_IN, &json(&[0x7E, 0x0D], r#"{"controlId":2,"valueId":"value","value":3,"midiValue":96,"origin":"internal","text":"Sine"}"#));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &json(&[0x7E, 0x63], r#"{"controlId":2,"valueId":"value","value":3,"midiValue":96,"origin":"internal","text":"Sine"}"#));
     rig.advance(30);
     assert_eq!(jam_model(&mut rig).slots[2].value_text, "Sine");
     rig.jam_pad(3, 1);
@@ -752,13 +752,13 @@ fn generic_events_and_pages() {
     rig.electra_backend().take_calls();
 
     // A value change: the slot and the strip follow
-    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x0D], br#"{"controlId":1,"valueId":"attack","value":127,"midiValue":127,"origin":"midi","text":"127"}"#));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x63], br#"{"controlId":1,"valueId":"attack","value":127,"midiValue":127,"origin":"midi","text":"127"}"#));
     rig.advance(60);
     assert_eq!((jam_model(&mut rig).slots[0].value, jam_model(&mut rig).slots[0].value_text.as_str().to_string()), (1.0, "127".to_string()));
     assert_eq!(jam_surface::fader_configs(rig.jam_ctx()).unwrap()[0].value, 127);
     // Of a value no slot shows (the envelope's release): nothing changes on the slots
     let before = jam_model(&mut rig);
-    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x0D], br#"{"controlId":1,"valueId":"release","value":1,"midiValue":1,"origin":"midi","text":"1"}"#));
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x63], br#"{"controlId":1,"valueId":"release","value":1,"midiValue":1,"origin":"midi","text":"1"}"#));
     rig.advance(60);
     assert_eq!(jam_model(&mut rig), before);
 
