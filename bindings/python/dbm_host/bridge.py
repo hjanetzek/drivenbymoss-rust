@@ -100,6 +100,9 @@ class Bridge(drivenbymoss.Backend):
         """Every batch given to update_model."""
         self.usb_frames = 0
         self.last_usb_frame: bytes | None = None
+        self.device_transport = False
+        """Let the core drive the controller's device itself (the Maschines over libdbm_nihost on
+        Linux, see App.create_controller); set it before start."""
 
     # Lifecycle
 
@@ -109,7 +112,8 @@ class Bridge(drivenbymoss.Backend):
             if str(definition.get("uuid", "")).upper() == self.controller_id.upper():
                 self.num_midi_in_ports = max(1, int(definition.get("numMidiInPorts", 1)))
                 self.num_midi_out_ports = max(1, int(definition.get("numMidiOutPorts", 1)))
-        self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version)
+        self.app = drivenbymoss.App.create_controller(self, self.controller_id, self.config_path, self.app_version,
+                                                      device_transport=self.device_transport)
         self.app.set_time(int(self.clock_ms))
         if not self.app.use_binary_commands(self.commands.handled_commands()):
             raise RuntimeError("The library refused the binary commands (another major protocol version)")

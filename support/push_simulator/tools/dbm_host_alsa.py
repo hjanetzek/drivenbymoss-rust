@@ -20,6 +20,14 @@ from their "... In"/"... Input" port and writes to "... Out"/"... Output" (with 
 " (sim)" which they take next to dbm-nihost, else the plain names). The Mk2's core asks at its
 start whether Shift is sent (F0 7D 44 42 4D 11 F7); the simulator answers with the hello.
 
+The real Maschine Mk2 / JAM on Linux (``--transport``, default ``auto``): the core drives the
+device itself through libdbm_nihost (in-process HID, no dbm-nihost, no ALSA ports), unless the
+simulator's (or dbm-nihost's) ports are there: a running simulator always wins, a connected
+device never takes over a simulator run. ``--transport midi`` needs the ports (as before),
+``--transport hid`` never looks for them (DBM_MASCHINE_TRANSPORT=hid: the core waits for the
+device, also while another process holds it). Without the library, or while dbm-nihost drives
+the device, the core falls back to the ports and logs why.
+
 The APC40 mkII, Launchpad Pro Mk3 and Launch Control XL simulators (``--model
 apc40mk2|lppromk3|lcxl``): one duplex port, "APC40 mkII MIDI 1" / "Launchpad Pro MK3 LPProMK3 MIDI" /
 "Launch Control XL Launch Contro" (with " (sim)" first, then without). The Maschine Mk3 and Mikro
@@ -90,6 +98,8 @@ MASCHINE_PORTS = {
 }
 MASCHINE_SUFFIXES = (" (sim)", "")
 TICK_MS = 30
+# The interval of reading an in-process device (the Maschines over libdbm_nihost)
+POLL_MS = 3
 
 
 class DisplayWriter:
@@ -163,6 +173,9 @@ def connect_model(args, model: str, client_name: str):
     elif model in MASCHINE_PORTS:
         # Two ports as NI's driver and dbm-nihost: the DAW reads "... In(put)", writes "... Out(put)"
         daw_in, daw_out = MASCHINE_PORTS[model]
+        if args.transport == "hid":
+            print(f"{model}: the core drives the device in-process (--transport hid)")
+            return seq, is_electra, True
         suffixes = (args.suffix,) if args.suffix is not None else MASCHINE_SUFFIXES
         found = None
         for suffix in suffixes:
@@ -172,6 +185,11 @@ def connect_model(args, model: str, client_name: str):
                 found = (source, sink, suffix)
                 break
         if found is None:
+            if args.transport == "auto":
+                # No simulator: the real device, through the core's in-process transport
+                print(f"{model}: no simulator ports {daw_in!r}/{daw_out!r}: the core drives the device in-process if it can "
+                      f"(see its log; --transport midi to wait for the ports)")
+                return seq, is_electra, True
             sys.exit(f"the simulator ports {daw_in!r}/{daw_out!r} were not found; is the simulator running?")
         source, sink, suffix = found
         seq.connect_from(0, *source)
@@ -196,7 +214,7 @@ def connect_model(args, model: str, client_name: str):
         seq.connect_to(0, *target)
         seq.connect_from(0, *target)
         print(f"{model}: connected to {target[0]}:{target[1]} '{port_name}'")
-    return seq, is_electra
+    return seq, is_electra, False
 
 
 def main() -> int:
@@ -217,6 +235,9 @@ def main() -> int:
                                                        'else none)')
     parser.add_argument("--no-values", action="store_true", help="do not send the encoder state (the side channel)")
     parser.add_argument("--electra-client", type=int, default=None, help="Electra One: the ALSA client number of the emulator")
+    parser.add_argument("--transport", choices=("auto", "hid", "midi"), default="auto",
+                        help="Maschine Mk2/JAM: auto (default): the simulator's ports if they are there, else the real device "
+                             "in-process (libdbm_nihost); hid: the real device in-process; midi: the ports only")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
     models = args.model or ["push2"]
@@ -267,12 +288,16 @@ def main() -> int:
     for model in models:
         controller = args.controller or CONTROLLERS[model]
         client_name = "DrivenByMoss dbm_host" if len(models) == 1 else f"DrivenByMoss dbm_host {model}"
-        seq, is_electra = connect_model(args, model, client_name)
+        seq, is_electra, in_process = connect_model(args, model, client_name)
+        if in_process and args.transport == "hid":
+            os.environ["DBM_MASCHINE_TRANSPORT"] = "hid"
         config = args.config or tempfile.mkdtemp(prefix=f"dbm-{model}-sim-")
         if args.config and len(models) > 1:
             config = os.path.join(args.config, model)
             os.makedirs(config, exist_ok=True)
         bridge = AlsaBridge(daw, controller, config, "Bitwig Studio 5.3")
+        # The core drives the real device (or falls back to the ports, which are not connected)
+        bridge.device_transport = in_process
 
         def to_device(port: int, data: bytes, seq=seq, is_electra=is_electra, model=model) -> None:
             if args.verbose:
@@ -312,6 +337,13 @@ def main() -> int:
                     print(f"{prefix}log:", line)
                 bridge.logs.clear()
             delay = next_tick - time.monotonic()
+            # An in-process device is read every few ms (its pads play without the tick's delay)
+            polled = [bridge for _, _, bridge in runners if bridge.device_transport and bridge.app is not None]
+            while polled and delay > POLL_MS / 1000.0:
+                time.sleep(POLL_MS / 1000.0)
+                for bridge in polled:
+                    bridge.app.poll_devices()
+                delay = next_tick - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
             else:

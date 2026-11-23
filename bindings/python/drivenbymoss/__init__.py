@@ -41,11 +41,12 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, NamedTuple
 
 from . import _ffi, protocol
-from ._ffi import DBM_FLAG_HOST_TICK
+from ._ffi import DBM_FLAG_DEVICE_TRANSPORT, DBM_FLAG_HOST_TICK
 
 __all__ = [
     "App",
     "Backend",
+    "DBM_FLAG_DEVICE_TRANSPORT",
     "DBM_FLAG_HOST_TICK",
     "MidiDevice",
     "Setting",
@@ -500,17 +501,23 @@ class App:
         self._handle = handle
 
     @classmethod
-    def create_controller(cls, backend: Backend, controller_id: str, config_path: str, app_version: str = "") -> "App":
+    def create_controller(cls, backend: Backend, controller_id: str, config_path: str, app_version: str = "", *,
+                          device_transport: bool = False) -> "App":
         """Create an instance which runs exactly one controller (dbm_create_controller), for hosts
         which declare each controller themselves and assign its MIDI ports. controller_id is the
         UUID of the controller (see list_controllers); its MIDI input and output are the device
         IDs 0. config_path is the folder of the controller's configuration file. There is no main
         configuration and no port discovery.
 
+        device_transport: the core may drive the controller's device itself instead of through
+        the ports (DBM_FLAG_DEVICE_TRANSPORT: the Maschine Mk2 and JAM on Linux over
+        libdbm_nihost); see poll_devices.
+
         Raises ValueError if the controller is not supported.
         """
         library = _ffi.library()
-        return cls(backend, "", app_version, _handle_factory=lambda callbacks: library.dbm_create_controller(callbacks, _bytes(controller_id), _bytes(config_path), _bytes(app_version), DBM_FLAG_HOST_TICK))
+        flags = DBM_FLAG_HOST_TICK | (DBM_FLAG_DEVICE_TRANSPORT if device_transport else 0)
+        return cls(backend, "", app_version, _handle_factory=lambda callbacks: library.dbm_create_controller(callbacks, _bytes(controller_id), _bytes(config_path), _bytes(app_version), flags))
 
     @property
     def backend(self) -> Backend:
@@ -560,6 +567,14 @@ class App:
     def tick(self) -> None:
         """Execute scheduled tasks and update the controllers; call it every 30ms."""
         self._library.dbm_tick(self._app())
+
+    def poll_devices(self) -> int:
+        """Read the devices which the core drives in-process (create_controller with
+        device_transport) and handle their input; tick does it as well. The number of messages, -1
+        if the core drives no device in-process (or the library is too old)."""
+        if not hasattr(self._library, "dbm_poll_devices"):
+            return -1
+        return self._library.dbm_poll_devices(self._app())
 
     def set_time(self, time_ms: int) -> None:
         """Run the instance on the host's time from now on, not on the clock: milliseconds since

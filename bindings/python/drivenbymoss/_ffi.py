@@ -20,6 +20,11 @@ from pathlib import Path
 # regularly (every 30ms is recommended) instead.
 DBM_FLAG_HOST_TICK = 1
 
+# Flag for dbm_create_controller: the core may drive the controller's device itself instead of
+# through the host's MIDI ports (the Maschine Mk2 and JAM on Linux over libdbm_nihost; the
+# environment variable DBM_MASCHINE_TRANSPORT=hid|midi|auto overrides the choice).
+DBM_FLAG_DEVICE_TRANSPORT = 2
+
 # The version of the USB interface (dbm_set_usb_callback, DbmUsbBulkOut).
 DBM_USB_VERSION = 1
 
@@ -153,6 +158,7 @@ _PROTOTYPES = [
     ("dbm_add_device", None, [DbmAppPointer, _char_p, _char_p]),
     ("dbm_start_infrastructure", None, [DbmAppPointer]),
     ("dbm_tick", None, [DbmAppPointer]),
+    ("dbm_poll_devices", _int, [DbmAppPointer]),
     ("dbm_set_time", None, [DbmAppPointer, ctypes.c_uint64]),
     ("dbm_update_model", None, [DbmAppPointer, _char_p]),
     ("dbm_protocol_info", None, [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64)]),
@@ -182,7 +188,7 @@ _PROTOTYPES = [
 
 # Functions a library built before them lacks: the binding still loads it without them
 # (App.use_usb and App.use_simulator_data then return False)
-_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices", "dbm_set_simulator_callback"}
+_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices", "dbm_set_simulator_callback", "dbm_poll_devices"}
 
 
 def _declare(library: ctypes.CDLL) -> None:
