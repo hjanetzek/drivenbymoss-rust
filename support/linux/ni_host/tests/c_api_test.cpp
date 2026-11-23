@@ -7,6 +7,7 @@
 #include "dbm_nihost.h"
 
 // Only for the constants of the HID reports
+#include "jam_host.h"
 #include "maschine_jam.h"
 #include "maschine_mk2.h"
 
@@ -231,7 +232,7 @@ static void testJam()
     const Bytes*       rgb     = findReport( reports, 0x81 );
     CHECK( rgb != nullptr && ( *rgb )[1 + 8] == 6 );
     const Bytes* mono = findReport( reports, 0x80 );
-    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedPlay] == 0x7F );
+    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedPlay] == jamMonoFull );
 
     dbm_nihost_test_attach( device, 0 );
     CHECK( has( readAll( device ), gone ) );

@@ -11,6 +11,15 @@
 
 namespace dbm::nihost
 {
+    // The brightness of the JAM's mono LEDs (report 0x80), measured on the device: 1 is
+    // effectively off, 2 is the lowest visible step, from about 85 on they are fully bright.
+    constexpr int jamMonoLowest = 2, jamMonoFull = 85;
+
+    // The hardware brightness of a mono LED for a MIDI value: 0 is off, 1..127 become
+    // jamMonoLowest..jamMonoFull with a mild gamma (exponent 1.5), which gives the low values,
+    // where the eye is more sensitive, finer steps; every MIDI value above 0 is visible.
+    uint8_t jamMonoBrightness( int value );
+
     // Emulates NI's driver for the Maschine JAM in MIDI mode with the DrivenByMoss template:
     // HID input becomes the template's MIDI, MIDI from the DAW sets the LEDs.
     // Not thread safe: all functions belong to one thread (or are called under one lock).

@@ -371,8 +371,8 @@ class MaschineDevice:
         value = self.leds.get(key, 0)
         if control.rgb:
             return ni.palette_rgb(value)
-        # A brightness (dbm-nihost maps it quadratically for the JAM, whose LEDs are almost full
-        # from 0x30 on; the simulator shows the value itself)
+        # A brightness (dbm-nihost maps MIDI 1..127 to the JAM's hardware 2..85 with a gamma of
+        # 1.5, its LEDs are full from about 85 on; the simulator shows the value itself)
         level = max(0, min(127, value)) / 127.0
         return tuple(int(c * level) for c in (235, 235, 225))
 

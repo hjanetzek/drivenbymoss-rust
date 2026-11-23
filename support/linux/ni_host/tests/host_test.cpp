@@ -179,8 +179,16 @@ static void testJam()
     CHECK( rgb != nullptr && ( *rgb )[1 + 8] == 6 );       // pad top left
     CHECK( rgb != nullptr && ( *rgb )[1 + 72] == 78 );     // group A
     const Bytes* mono = out.find( 0x80 );
-    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedPlay] == 0x7F );
-    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedRec] == 0x30 * 0x30 / 0x7F );
+    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedPlay] == jamMonoFull );
+    CHECK( mono != nullptr && ( *mono )[1 + MaschineJam::LedRec] == jamMonoBrightness( 0x30 ) );
+
+    // The mono curve: 0 off, 1 the lowest visible step (2), 127 full (85), rising in between
+    CHECK( jamMonoBrightness( 0 ) == 0 && jamMonoBrightness( -5 ) == 0 );
+    CHECK( jamMonoBrightness( 1 ) == jamMonoLowest );
+    CHECK( jamMonoBrightness( 127 ) == jamMonoFull && jamMonoBrightness( 200 ) == jamMonoFull );
+    CHECK( jamMonoBrightness( 0x30 ) == 21 && jamMonoBrightness( 64 ) == 31 );
+    for( int v = 2; v <= 127; v++ )
+        CHECK( jamMonoBrightness( v ) >= jamMonoBrightness( v - 1 ) && jamMonoBrightness( v ) >= jamMonoLowest );
 
     // strip setup: single mode, value 127 -> all 11 LEDs in the strip colour
     const uint8_t setup[] = { 0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x05, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xF7 };

@@ -148,6 +148,22 @@ virtual MIDI driver bridges the two:
   displays, see below).
 - **Not yet:** the Mk2 pad pressure as poly aftertouch, the JAM level meters and footswitch.
 
+**JAM LED brightness (measured on the device, 2026-11-23):**
+
+- **Mono LEDs** (report 0x80, 0..0x7F): hardware 1 is effectively off, 2 is the lowest visible
+  step, and from about 85 on they are fully bright (no change above). `jamMonoBrightness`
+  (`jam_host.cpp`) maps MIDI 0 to 0 and MIDI 1..127 to hardware 2..85 with a mild gamma
+  (exponent 1.5: `2 + round(83 * ((v - 1) / 126)^1.5)`, e.g. 0x30 → 21, 64 → 31). The exponent
+  gives the low values, where the eye is more sensitive, finer steps, without wasting the top
+  of the range as the former `v² / 127` did (it turned MIDI 1..12 off and reached full only
+  at MIDI 104).
+- **RGB LEDs** (NI's palette, hue × 4 + level): the pale level (3) is the brightest, full (2) is
+  dimmer; the entries 68..79 all show the same white (the grey steps of cabl's table do not
+  exist), 80..127 show nothing new.
+- The JAM drives its LEDs in time slices (stripes on a camera photo, about 25% duty), so even
+  pale stays dimmer than the firmware's startup animation. A device-wide brightness setting
+  may exist, but it is not known.
+
 ### DrivenByMoss messages
 
 Not part of NI's MIDI mode: system exclusive messages with the header `F0 7D 44 42 4D` (`7D` is

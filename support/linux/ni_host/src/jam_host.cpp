@@ -6,6 +6,7 @@
 #include "template_map.h"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -71,18 +72,6 @@ namespace dbm::nihost
             return L::NoLed;
         }
 
-        // The JAM's mono LEDs are almost fully bright from about 0x30 on (checked on the device),
-        // so the value is mapped quadratically: 0x7F stays full, 0x30 becomes dim (0x12)
-        uint8_t monoBrightness( int value )
-        {
-            if( value <= 0 )
-                return 0;
-            if( value > 0x7F )
-                value = 0x7F;
-            const int brightness = value * value / 0x7F;
-            return (uint8_t)( brightness < 1 ? 1 : brightness );
-        }
-
         // NI's sysex header with the JAM id (17cc:1500) and the commands
         constexpr uint8_t sysexHeader[] = { 0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01 };
         constexpr uint8_t commandShift = 0x4D, commandReturnFromHost = 0x46, commandStripSetup = 0x05, commandStripDualValues = 0x04;
@@ -95,6 +84,17 @@ namespace dbm::nihost
                 throw std::logic_error( std::string( "The JAM template has no control " ) + id );
             return *c;
         }
+    }
+
+
+    uint8_t jamMonoBrightness( int value )
+    {
+        if( value <= 0 )
+            return 0;
+        if( value > 0x7F )
+            value = 0x7F;
+        const double position = ( value - 1 ) / 126.0;
+        return (uint8_t)( jamMonoLowest + std::lround( ( jamMonoFull - jamMonoLowest ) * std::pow( position, 1.5 ) ) );
     }
 
 
@@ -281,7 +281,7 @@ namespace dbm::nihost
         {
             const int led = monoLed( button );
             if( led != L::NoLed )
-                this->jam.setMono( led, monoBrightness( value ) );
+                this->jam.setMono( led, jamMonoBrightness( value ) );
         }
     }
 
