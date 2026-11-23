@@ -166,6 +166,18 @@ MODE alone closes the settings opened with Shift + PAD MODE (play options in the
 scales in the play view) instead of switching to the next view; Java switches the view and
 leaves them open (`pad_mode_closes_the_pad_mode_settings`).
 
+**Maschine LED brightness (not in the Java version, 2026-11-23).** All Maschines (Mk2, Mk3, Mikro
+Mk3, Plus, JAM) have the global setting "LED Brightness" (Hardware Setup; key
+`HARDWARE_SETUP_LED_BRIGHTNESS`) with the values Normal and Bright. Normal is the default and
+sends the values of the core unchanged, as Java (the conformance runs and replays are unchanged).
+Bright raises the values when they are sent (`maschine::core::brightness`): the RGB LEDs (pads,
+group/bank and scene buttons, the Mk3's cursor buttons, the JAM's touch strips) take an index
+into NI's palette (`hue * 4 + level`), and Bright sends a brighter level of the same hue; the
+single-colour LEDs take a brightness, which Bright raises (0 and 127 stay). It is applied where
+the LEDs are sent (the trigger sender of the buttons, the color mapper of the pad grid, the strip
+setup sysex of the JAM), so it covers every mode, view and the surface link, on every host.
+Changing it re-sends all LEDs. The mapping is preliminary until it is checked on the device.
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

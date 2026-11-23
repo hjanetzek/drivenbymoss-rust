@@ -229,6 +229,21 @@ color path (FRAMEWORK_MAP.md, "framework/controller/color"). Next step: the Java
 DAW colors to the palette indices (e.g. `DAW_COLOR_LIGHT_ORANGE` → `COLOR_YELLOW` 22), which the
 Bitwig path still uses.
 
+**Maschine LED brightness (2026-11-23, not part of Java):** on the real JAM the LEDs look dim
+compared with the power-on animation: the RGB LEDs only take an index into NI's palette
+(`hue * 4 + level`, no brightness byte), and many states use the dim or medium level (Java's
+`*_LO` colors, dark grey, and the nearest palette entry of the direct color path). The global
+setting "LED Brightness" (Hardware Setup, `HARDWARE_SETUP_LED_BRIGHTNESS` in the `.config` file)
+of all Maschines has Normal (default, as Java) and Bright: Bright raises the palette level (dim to
+medium, medium to full; full, pale and black stay; the dark grey becomes grey, white stays) and
+the single-colour values (0 and 127 stay) where the LEDs are sent
+(`maschine::core::brightness`, the trigger senders, the pad grid's color mapper, the JAM's strip
+setup), for all modes, views and the surface link. A change re-sends all LEDs. Bitwig shows it in
+the controller preferences; on zynthian it is set in the `.config` file of the model in
+`$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/` (read when the driver starts). The level tables are
+preliminary until an LED test on the real JAM shows which levels are fully bright. Tests: the
+mapping (unit tests), `led_brightness_raises_the_palette_levels_and_re_sends_all_leds` (JAM, Mk2).
+
 Commits:
 
 - `e00a36ec`: core framework, Reaper DAW layer and Launchpad
