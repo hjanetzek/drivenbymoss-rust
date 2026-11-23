@@ -5,12 +5,10 @@
 //! The Maschine Mk2/Mk3/Mikro/Plus/Studio specific parts of the control surface (former
 //! `MaschineControlSurface`).
 
-use std::rc::Rc;
-
 use crate::controller::maschine::core::maschine::Maschine;
-use crate::controller::maschine::core::surface::shift_button;
+use crate::controller::maschine::core::brightness::SharedBrightness;
+use crate::controller::maschine::core::surface::{self as core_surface, shift_button};
 use crate::framework::ctx::Ctx;
-use crate::midi::{BindType, MidiOutput};
 
 // MIDI CC
 pub const TOUCHSTRIP: i32 = 1;
@@ -141,6 +139,8 @@ pub struct MaschineExt {
     pub control_last_param_active: bool,
     /// The last labels sent for the buttons above the display (Mk2 with dbm-nihost).
     pub button_labels: String,
+    /// The LED brightness setting (not in the Java version).
+    pub brightness: SharedBrightness,
 }
 
 impl MaschineExt {
@@ -153,6 +153,7 @@ impl MaschineExt {
             stop_consumed: false,
             control_last_param_active: false,
             button_labels: String::new(),
+            brightness: SharedBrightness::default(),
         }
     }
 }
@@ -194,15 +195,17 @@ pub fn set_stop_consumed(ctx: &mut Ctx) {
 }
 
 /// Install the Maschine specific trigger sender: the 7th mode button is lit with a note, all
-/// other buttons with CCs (former `setTrigger`).
+/// other buttons with CCs (former `setTrigger`). The values are sent with the LED brightness:
+/// the group (bank) buttons and the cursor buttons get palette colors (RGB LEDs), all others
+/// are single-colour LEDs.
 pub fn install_trigger_sender(ctx: &mut Ctx) {
-    ctx.surface.trigger_sender = Rc::new(|output: &MidiOutput, _bind_type: BindType, channel, cc, state| {
-        if cc == MODE_BUTTON_7 {
-            output.send_note_ex(channel, cc, state);
-        } else {
-            output.send_cc_ex(channel, cc, state);
-        }
-    });
+    let brightness = ext(ctx).brightness.clone();
+    core_surface::install_trigger_sender(ctx, &brightness, is_rgb_button, |_bind_type, cc| cc == MODE_BUTTON_7);
+}
+
+/// Has the button with the given CC an RGB LED (a palette color)?
+pub fn is_rgb_button(cc: i32) -> bool {
+    (BANK_1..BANK_1 + 8).contains(&cc) || (CURSOR_UP..=CURSOR_LEFT).contains(&cc)
 }
 
 /// Set the display value of the ribbon on the controller (former `setRibbonValue`).

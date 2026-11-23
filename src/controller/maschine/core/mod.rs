@@ -5,6 +5,7 @@
 //! The parts which are shared by all Maschine models (former package
 //! `controller.ni.maschine.core` and the `Maschine` enumeration).
 
+pub mod brightness;
 pub mod colors;
 pub mod maschine;
 pub mod ribbon_mode;

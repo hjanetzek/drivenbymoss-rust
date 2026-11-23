@@ -36,7 +36,7 @@ use crate::controller::maschine::core::command::group_button::GroupButtonCommand
 use crate::controller::maschine::core::command::note_repeat::FillModeNoteRepeatCommand;
 use crate::controller::maschine::core::encoder_mode_manager::{EncoderMode, EncoderModeCommand, MaschineMonitorEncoderCommand};
 use crate::controller::maschine::core::maschine::Maschine;
-use crate::controller::maschine::core::surface::{create_pad_grid, flush_pad_grid, handle_sysex};
+use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, handle_sysex, install_trigger_sender};
 use crate::controller::{ControllerSetup, InstanceParts, MidiPorts};
 use crate::daw::constants::GrooveParameterId;
 use crate::daw::events::ModelEvent;
@@ -75,10 +75,14 @@ pub fn create(host: Host, sender: Sender, ports: MidiPorts, configuration: Confi
 
     let output = MidiOutput::new(sender.clone(), Some(ports.output));
     let input = MidiInput::new(sender.clone(), Some(ports.input), &["80????", "90????"])?;
-    let surface = Surface::new(output, input, Some(create_pad_grid(&colors, 8, 8)));
+    let brightness = create_brightness(&configuration, MaschineJamConfiguration::LED_BRIGHTNESS);
+    let surface = Surface::new(output, input, Some(create_pad_grid(&colors, 8, 8, &brightness)));
 
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, colors);
-    ctx.ext = Box::new(JamExt::new());
+    let mut ext = JamExt::new();
+    ext.brightness = brightness.clone();
+    ctx.ext = Box::new(ext);
+    install_trigger_sender(&mut ctx, &brightness, jam::is_rgb_button, |bind_type, _cc| bind_type == BindType::Note);
     ctx.sysex_handler = Some(Rc::new(|ctx: &mut Ctx, data: &str| handle_sysex(ctx, Maschine::Jam, data)));
     ctx.create_pads();
 
@@ -242,6 +246,14 @@ pub fn create_views(ctx: &mut Ctx) {
 /// React on a changed setting (former setting observers).
 fn handle_setting_change(ctx: &mut Ctx, id: SettingId) {
     match id {
+        // The LED brightness (not in the Java version)
+        MaschineJamConfiguration::LED_BRIGHTNESS => {
+            let brightness = jam::ext(ctx).brightness.clone();
+            if apply_brightness(ctx, &brightness, id) {
+                jam::ext_mut(ctx).force_faders();
+            }
+        }
+
         // If fixed velocity is active forward it to the note repeat as well
         // (NOTE_REPEAT_USE_PRESSURE_TO_VELOCITY is supported by Reaper)
         SettingId::ACTIVATE_FIXED_ACCENT => {

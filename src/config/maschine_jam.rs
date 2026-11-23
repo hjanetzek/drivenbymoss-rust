@@ -57,6 +57,10 @@ impl MaschineJamConfiguration {
     /// held, instead of the alternative clip and scene functions of Shift + pad; otherwise only a
     /// tap of Shift shows it (not in the Java version, which does not show it while held).
     pub const SHIFT_VIEW_WHILE_HELD: SettingId = SettingId::NEXT_SETTING_ID.offset(1);
+    /// Setting for the brightness of the LEDs: Normal (as Java) or Bright (raised palette levels
+    /// and single-colour values, not in the Java version; see
+    /// [`crate::controller::maschine::core::brightness`]).
+    pub const LED_BRIGHTNESS: SettingId = SettingId::NEXT_SETTING_ID.offset(2);
 
     /// Create the configuration and activate all settings (the former `init`).
     pub fn new(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: NoteRepeatCapabilities, has_drum_device: bool) -> Self {
@@ -109,6 +113,9 @@ impl MaschineJamConfiguration {
         base.activate_enum_setting(Self::SHIFT_VIEW_WHILE_HELD, global, CATEGORY_WORKFLOW, "Shift Pads While Holding Shift", to_options(&ON_OFF_OPTIONS), ON_OFF_OPTIONS[0], false);
         base.activate_footswitch_setting(global, 0, "Footswitch (Tip)", None);
         base.activate_footswitch_setting(global, 1, "Footswitch (Ring)", None);
+
+        // Hardware Setup (not in the Java version)
+        crate::controller::maschine::core::brightness::activate_setting(&mut base, Self::LED_BRIGHTNESS);
 
         MaschineJamConfiguration { base }
     }
@@ -164,5 +171,6 @@ mod tests {
         assert_eq!(c.startup_mode(), Modes::Volume);
         assert_eq!(c.startup_view(), Views::Play);
         assert!(c.is_setting_active(SettingId::FOOTSWITCH_1));
+        assert_eq!(c.value(MaschineJamConfiguration::LED_BRIGHTNESS).as_deref(), Some("Normal"));
     }
 }

@@ -53,7 +53,7 @@ use crate::controller::maschine::core::command::group_button::GroupButtonCommand
 use crate::controller::maschine::core::command::note_repeat::FillModeNoteRepeatCommand;
 use crate::controller::maschine::core::maschine::Maschine;
 use crate::controller::maschine::core::ribbon_mode::RibbonMode;
-use crate::controller::maschine::core::surface::{create_pad_grid, flush_pad_grid, handle_sysex, shift_button};
+use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, handle_sysex, shift_button};
 use crate::controller::{ControllerSetup, InstanceParts, MidiPorts};
 use crate::daw::events::ModelEvent;
 use crate::daw::model::Model;
@@ -147,11 +147,14 @@ pub fn create(definition: MaschineDefinition, host: Host, sender: Sender, ports:
     let output = MidiOutput::new(sender.clone(), Some(ports.output));
     let input = MidiInput::new(sender.clone(), Some(ports.input), &["80????", "90????"])?;
     let display_output = output.clone();
-    let mut surface = Surface::new(output, input, Some(create_pad_grid(&colors, 4, 4)));
+    let brightness = create_brightness(&configuration, MaschineConfiguration::LED_BRIGHTNESS);
+    let mut surface = Surface::new(output, input, Some(create_pad_grid(&colors, 4, 4, &brightness)));
     surface.shift_button = shift_button(maschine, maschine.has_shift());
 
     let mut ctx = Ctx::new(host, sender, model, configuration, surface, colors);
-    ctx.ext = Box::new(MaschineExt::new(maschine));
+    let mut ext = MaschineExt::new(maschine);
+    ext.brightness = brightness;
+    ctx.ext = Box::new(ext);
     if maschine.has_mcu_display() {
         ctx.text_display = Some(McuDisplay::create(display_output, true, false, false, McuDisplayOptions::default()));
         // Do not notify on display!
@@ -424,6 +427,12 @@ pub fn create_views(ctx: &mut Ctx, maschine: Maschine) {
 /// React on a changed setting (former setting observers).
 fn handle_setting_change(ctx: &mut Ctx, id: SettingId) {
     match id {
+        // The LED brightness (not in the Java version)
+        MaschineConfiguration::LED_BRIGHTNESS => {
+            let brightness = ext(ctx).brightness.clone();
+            apply_brightness(ctx, &brightness, id);
+        }
+
         // If fixed velocity is active forward it to the note repeat as well
         // (NOTE_REPEAT_USE_PRESSURE_TO_VELOCITY is supported by Reaper)
         SettingId::ACTIVATE_FIXED_ACCENT => {

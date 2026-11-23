@@ -740,3 +740,53 @@ fn shutdown_clears_the_display() {
     assert!(lines.iter().any(|(row, text)| *row == 0 && text.trim().is_empty()), "{lines:?}");
     assert!(calls.iter().any(|c| matches!(c, BackendCall::SendMidi(OUT, d) if d == &vec![0x90, 36, 0])), "{calls:?}");
 }
+
+/// The last value sent to each LED (CC and note messages, not the touch strip).
+fn led_states(calls: &[BackendCall]) -> std::collections::BTreeMap<(u8, u8), u8> {
+    let mut states = std::collections::BTreeMap::new();
+    for call in calls {
+        if let BackendCall::SendMidi(OUT, d) = call {
+            if d.len() == 3 && (d[0] == 0xB0 && d[1] != mk::TOUCHSTRIP as u8 || d[0] == 0x90) {
+                states.insert((d[0], d[1]), d[2]);
+            }
+        }
+    }
+    states
+}
+
+#[test]
+fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
+    use drivenbymoss::controller::maschine::core::brightness::LedBrightness;
+
+    let (mut app, backend) = start();
+    app.update_model("track/0/color 0.85 0.2 0.2\ntrack/1/color 0.2 0.3 0.8\n");
+    app.tick();
+    let normal_at_start = led_states(&backend.take_calls());
+
+    ctx(&mut app).config.set_value(MaschineConfiguration::LED_BRIGHTNESS, "Bright");
+    app.tick();
+    let bright = led_states(&backend.take_calls());
+    assert!(bright.len() >= 16 + 8 + 10, "all pads and buttons are sent again: {}", bright.len());
+
+    ctx(&mut app).config.set_value(MaschineConfiguration::LED_BRIGHTNESS, "Normal");
+    app.tick();
+    let normal = led_states(&backend.take_calls());
+    assert_eq!(normal.keys().collect::<Vec<_>>(), bright.keys().collect::<Vec<_>>());
+    // Normal sends the same values as before the change
+    for (key, value) in &normal_at_start {
+        if let Some(again) = normal.get(key) {
+            assert_eq!(again, value, "{key:?}");
+        }
+    }
+
+    let mut raised = 0;
+    for (&(status, control), &value) in &normal {
+        let is_rgb = if status == 0x90 { control >= 36 } else { mk::is_rgb_button(control as i32) };
+        let expected = if is_rgb { LedBrightness::Bright.rgb(value as i32) } else { LedBrightness::Bright.mono(value as i32) };
+        assert_eq!(bright[&(status, control)] as i32, expected, "LED {status:02X} {control}: {value}");
+        if expected != value as i32 {
+            raised += 1;
+        }
+    }
+    assert!(raised > 0, "some LEDs are brighter: {normal:?}");
+}

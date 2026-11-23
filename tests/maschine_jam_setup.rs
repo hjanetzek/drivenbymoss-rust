@@ -380,3 +380,71 @@ fn consumed_shift_resets_the_slow_knobs() {
     app.on_midi_event(IN, &SHIFT_UP);
     assert!(!ctx(&mut app).surface.is_knob_sensitivity_slow());
 }
+
+/// The last value sent to each LED by (status, control).
+type LedStates = std::collections::BTreeMap<(u8, u8), u8>;
+
+/// The last value sent to each LED (CC and note messages) and the strip setups.
+fn led_states(calls: &[BackendCall]) -> (LedStates, Vec<Vec<u8>>) {
+    let mut states = std::collections::BTreeMap::new();
+    for call in calls {
+        if let BackendCall::SendMidi(OUT, d) = call {
+            // Not the values of the touch strips and their VU meters
+            let is_strip_value = d[0] == 0xB0 && ((8..16).contains(&d[1]) || d[1] == jam::STRIP_LEFT as u8 || d[1] == jam::STRIP_RIGHT as u8);
+            if d.len() == 3 && (d[0] == 0xB0 || d[0] == 0x90) && !is_strip_value {
+                states.insert((d[0], d[1]), d[2]);
+            }
+        }
+    }
+    let setups = sysex(calls).into_iter().filter(|s| s.len() == 28 && s[10] == 0x05).collect();
+    (states, setups)
+}
+
+#[test]
+fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
+    use drivenbymoss::controller::maschine::core::brightness::LedBrightness;
+
+    let (mut app, backend) = start();
+    // The session view: the group buttons with the (dimmed) track colors, the pads with clips
+    ctx(&mut app).set_active_view(Views::Session);
+    app.update_model("track/0/color 0.85 0.2 0.2\ntrack/1/color 0.2 0.3 0.8\n");
+    app.tick();
+    backend.take_calls();
+
+    // Bright at runtime: all LEDs are sent again, the RGB ones with the raised levels
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::LED_BRIGHTNESS, "Bright");
+    app.tick();
+    let (bright, bright_setups) = led_states(&backend.take_calls());
+    assert!(bright.len() > 64 + 16, "all pads and buttons are sent again: {}", bright.len());
+    assert_eq!(bright_setups.len(), 1, "the touch strips are set up again");
+
+    // Normal again: all LEDs are sent again with the values of the core
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::LED_BRIGHTNESS, "Normal");
+    app.tick();
+    let (normal, normal_setups) = led_states(&backend.take_calls());
+    assert_eq!(normal.keys().collect::<Vec<_>>(), bright.keys().collect::<Vec<_>>());
+
+    let mut raised = 0;
+    for (&(status, control), &value) in &normal {
+        let is_rgb = status == 0x90 || jam::is_rgb_button(control as i32);
+        let expected = if is_rgb { LedBrightness::Bright.rgb(value as i32) } else { LedBrightness::Bright.mono(value as i32) };
+        assert_eq!(bright[&(status, control)] as i32, expected, "LED {status:02X} {control}: {value}");
+        if expected != value as i32 {
+            raised += 1;
+        }
+    }
+    assert!(raised > 0, "some LEDs are brighter: {normal:?}");
+    // The single-colour LEDs: on (127) and off (0) stay
+    assert!(normal.iter().any(|(&(status, control), &value)| status == 0xB0 && !jam::is_rgb_button(control as i32) && value == 127));
+    // The colors of the touch strips
+    for strip in 0..8 {
+        let index = 11 + 2 * strip + 1;
+        assert_eq!(bright_setups[0][index] as i32, LedBrightness::Bright.rgb(normal_setups[0][index] as i32));
+    }
+
+    // Nothing changes without a change of the setting
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::LED_BRIGHTNESS, "Normal");
+    app.tick();
+    let (unchanged, _) = led_states(&backend.take_calls());
+    assert!(unchanged.len() < 8, "{unchanged:?}");
+}

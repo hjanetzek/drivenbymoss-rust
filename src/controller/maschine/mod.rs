@@ -4,6 +4,10 @@
 
 //! Support for the Native Instruments Maschine controllers (former packages
 //! `controller.ni.maschine.*`).
+//!
+//! Not in the Java version: the setting "LED Brightness" of all models (Normal as Java, Bright),
+//! which raises the palette levels and single-colour values where the LEDs are sent, see
+//! [`core::brightness`].
 
 pub mod core;
 pub mod mk;

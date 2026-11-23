@@ -30,6 +30,10 @@ impl MaschineConfiguration {
     /// Setting whether the Shift view (the Shift functions on the pads) is shown while Shift is
     /// held; otherwise only a tap of Shift shows it (not in the Java version).
     pub const SHIFT_VIEW_WHILE_HELD: SettingId = SettingId::NEXT_SETTING_ID.offset(1);
+    /// Setting for the brightness of the LEDs: Normal (as Java) or Bright (raised palette levels
+    /// and single-colour values, not in the Java version; see
+    /// [`crate::controller::maschine::core::brightness`]).
+    pub const LED_BRIGHTNESS: SettingId = SettingId::NEXT_SETTING_ID.offset(2);
 
     /// Create the configuration and activate all settings (the former `init`).
     pub fn new(maschine: Maschine, arpeggiator_modes: &[ArpeggiatorMode], note_repeat: NoteRepeatCapabilities) -> Self {
@@ -88,6 +92,9 @@ impl MaschineConfiguration {
         // Pads
         base.activate_convert_aftertouch_setting(global);
 
+        // Hardware Setup (not in the Java version)
+        crate::controller::maschine::core::brightness::activate_setting(&mut base, Self::LED_BRIGHTNESS);
+
         MaschineConfiguration { base }
     }
 
@@ -137,6 +144,7 @@ mod tests {
         assert_eq!(c.startup_view(), Views::Play);
         assert_eq!(c.scale_layout(), ScaleLayout::SequentUp.name());
         assert!(!c.is_setting_active(SettingId::FOOTSWITCH_1));
+        assert_eq!(c.value(MaschineConfiguration::LED_BRIGHTNESS).as_deref(), Some("Normal"));
         let mut c = c;
         MaschineConfiguration::set_ribbon_mode(&mut c, RibbonMode::Cc11);
         assert_eq!(MaschineConfiguration::ribbon_mode(&c), RibbonMode::Cc11);

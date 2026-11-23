@@ -5,6 +5,7 @@
 //! The pad grid (former `IPadGrid`, `PadGridImpl` and `LightInfo`).
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use super::color::ColorManager;
 use crate::midi::MidiOutput;
@@ -73,6 +74,10 @@ fn default_translation(note: i32) -> (i32, i32) {
 
 const NUM_NOTES: usize = 128;
 
+/// Maps a color of the core to the color which is sent to the controller (e.g. the LED
+/// brightness setting of the Maschines; not in the Java version).
+pub type ColorMapper = Rc<dyn Fn(i32) -> i32>;
+
 /// A grid of pads. The pads are addressed by notes starting at `start_note` (lower left pad).
 pub struct PadGrid {
     pad_states: Vec<LightInfo>,
@@ -87,6 +92,8 @@ pub struct PadGrid {
     pub pending_blinks: BTreeMap<i32, LightInfo>,
     /// The state of the emulated blinking (only used with [`BlinkMode::Emulated`]).
     pub blinking: BlinkingState,
+    /// Maps the colors when they are sent (identity if not set).
+    color_mapper: Option<ColorMapper>,
 }
 
 impl PadGrid {
@@ -102,6 +109,7 @@ impl PadGrid {
             blink_mode: BlinkMode::Channels,
             pending_blinks: BTreeMap::new(),
             blinking: BlinkingState::default(),
+            color_mapper: None,
         }
     }
 
@@ -113,6 +121,20 @@ impl PadGrid {
     pub fn with_blink_mode(mut self, blink_mode: BlinkMode) -> Self {
         self.blink_mode = blink_mode;
         self
+    }
+
+    /// Map the colors with the given function when they are sent to the controller.
+    pub fn with_color_mapper(mut self, mapper: ColorMapper) -> Self {
+        self.color_mapper = Some(mapper);
+        self
+    }
+
+    /// The color which is sent to the controller for a color of the core.
+    fn map_color(&self, color: i32) -> i32 {
+        match &self.color_mapper {
+            Some(mapper) => mapper(color),
+            None => color,
+        }
     }
 
     pub fn rows(&self) -> i32 {
@@ -214,9 +236,10 @@ impl PadGrid {
             }
             return;
         }
-        output.send_note_ex(channel, controller_note, state.color.max(0));
+        output.send_note_ex(channel, controller_note, self.map_color(state.color.max(0)));
         let blink_color = state.blink_color;
         if blink_color > 0 && blink_color < 128 {
+            let blink_color = self.map_color(blink_color);
             match self.blink_mode {
                 BlinkMode::Channels => output.send_note_ex(if state.fast { 14 } else { 10 }, controller_note, blink_color),
                 BlinkMode::Emulated => {}
@@ -224,8 +247,9 @@ impl PadGrid {
                     // The update message sets the pad's normal color too (Java collects both in
                     // LaunchpadPadGrid.sendNoteState/sendBlinkState): without it a blinking pad
                     // flashes or pulses against black
+                    let color = self.map_color(state.color.max(0));
                     let info = self.pending_blinks.entry(controller_note).or_default();
-                    info.color = state.color.max(0);
+                    info.color = color;
                     info.blink_color = blink_color;
                     info.fast = state.fast;
                 }
@@ -240,7 +264,7 @@ impl PadGrid {
     pub fn flush_blinking(&mut self, output: &MidiOutput, now: std::time::Instant) {
         let infos = std::mem::take(&mut self.blinking.pad_infos);
         for (note, info) in infos {
-            Self::send_pad_update(output, note, info.color);
+            self.send_pad_update(output, note, info.color);
             if info.blink_color > 0 {
                 self.blinking.blinking_lights.insert(note, info);
             } else {
@@ -254,7 +278,7 @@ impl PadGrid {
         }
         for (note, info) in &self.blinking.blinking_lights {
             let color_index = if self.blinking.is_blink { info.blink_color } else { info.color };
-            Self::send_pad_update(output, *note, color_index);
+            self.send_pad_update(output, *note, color_index);
         }
     }
 
@@ -271,8 +295,8 @@ impl PadGrid {
         false
     }
 
-    fn send_pad_update(output: &MidiOutput, note: i32, color_index: i32) {
-        output.send_note_ex(0, note, color_index);
+    fn send_pad_update(&self, output: &MidiOutput, note: i32, color_index: i32) {
+        output.send_note_ex(0, note, self.map_color(color_index));
     }
 }
 

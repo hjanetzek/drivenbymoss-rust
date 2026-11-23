@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::controller::maschine::core::brightness::SharedBrightness;
 use crate::controller::maschine::core::encoder_mode_manager::{EncoderModeManager, SharedEncoderModeManager};
 use crate::framework::ctx::Ctx;
 use crate::midi::MidiOutput;
@@ -105,6 +106,8 @@ pub struct JamExt {
     pub browser_active: bool,
     /// The surface of the surface link (not part of Java).
     pub surface: super::surface_link::JamSurface,
+    /// The LED brightness setting (not in the Java version).
+    pub brightness: SharedBrightness,
 }
 
 impl Default for JamExt {
@@ -120,7 +123,14 @@ impl JamExt {
             encoder_manager: Rc::new(RefCell::new(EncoderModeManager::new())),
             browser_active: false,
             surface: super::surface_link::JamSurface::new(),
+            brightness: SharedBrightness::default(),
         }
+    }
+
+    /// Send the configuration of all touch strips again with the next update (e.g. after a
+    /// change of the LED brightness).
+    pub fn force_faders(&mut self) {
+        self.current_fader_configs = [FaderConfig::new(-1, -1, -1); 8];
     }
 
     /// Send the configuration of the touch strips if it changed (former `setupFaders`).
@@ -129,6 +139,7 @@ impl JamExt {
         let mut strip_dual_values = STRIP_DUAL_VALUE;
         let mut has_setup_changed = false;
         let mut has_dual_value_changed = false;
+        let brightness = self.brightness.get();
         for (i, fader_config) in configurations.iter().enumerate() {
             let current = self.current_fader_configs[i];
             let is_dual = fader_config.fader_type == FaderConfig::TYPE_DUAL;
@@ -137,7 +148,7 @@ impl JamExt {
             }
             let pos = i * 2;
             strip_setup[STRIP_VALUE_OFFSET + pos] = fader_config.fader_type as u8;
-            strip_setup[STRIP_VALUE_OFFSET + 1 + pos] = fader_config.color as u8;
+            strip_setup[STRIP_VALUE_OFFSET + 1 + pos] = brightness.rgb(fader_config.color) as u8;
             if is_dual && (fader_config.dual_value != current.dual_value || has_setup_changed) {
                 has_dual_value_changed = true;
             }
@@ -158,6 +169,12 @@ impl JamExt {
 
 /// The configuration to turn off all touch strips (former `EMPTY`).
 pub const EMPTY: [FaderConfig; 8] = [FaderConfig::new(FaderConfig::TYPE_SINGLE, 0, 0); 8];
+
+/// Has the button with the given CC an RGB LED (a palette color)? The group and scene buttons;
+/// all others are single-colour LEDs.
+pub fn is_rgb_button(cc: i32) -> bool {
+    (GROUP_A..GROUP_A + 8).contains(&cc) || (SCENE1..SCENE1 + 8).contains(&cc)
+}
 
 /// Get the Maschine JAM state of the context.
 pub fn ext(ctx: &Ctx) -> &JamExt {
