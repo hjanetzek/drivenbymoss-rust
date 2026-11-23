@@ -17,6 +17,7 @@ use crate::controller::{all_factories, find_factory, ControllerFactory, Controll
 use crate::framework::color::ColorSource;
 use crate::framework::ctx::Ctx;
 use crate::host::{Host, MemoryLog, StderrLog, LogSink};
+use crate::nihost::{DeviceLink, DeviceProvider, LinkEvent, Opened};
 use crate::parser::{Parser, ParserEvent, UPDATE_NOTE_MAPPING_DELAY_MS};
 use crate::protocol::bin::{self, BinError};
 use crate::protocol::Msg;
@@ -59,6 +60,9 @@ struct Running {
     extra_outputs: Vec<Option<i32>>,
     /// When `startup` of the setup is called (delayed like in the Java version).
     startup_due: Option<Instant>,
+    /// The device which the core drives in-process instead of the host's MIDI ports of the
+    /// first port pair (the Maschines over libdbm_nihost, see [`crate::nihost`]).
+    device: Option<DeviceLink>,
 }
 
 /// A configured controller instance.
@@ -98,6 +102,9 @@ pub struct App {
     /// Where the RGB colors of the host come from (Bitwig or another host), by its application
     /// name: the path of the colors to the palettes of the controllers.
     color_source: ColorSource,
+    /// Opens the devices which the core drives in-process (only for a single controller, and
+    /// only if the host allows it: `DBM_FLAG_DEVICE_TRANSPORT`).
+    device_provider: Option<Rc<dyn DeviceProvider>>,
 }
 
 impl App {
@@ -142,6 +149,36 @@ impl App {
             epoch: Instant::now(),
             // Reaper (dbm_create), and by default: see new_single
             color_source: ColorSource::Direct,
+            device_provider: None,
+        }
+    }
+
+    /// Let the controller drive its device in-process if it has one
+    /// ([`ControllerFactory::hid_device`]) and the provider opens it (the system's:
+    /// [`crate::nihost::SystemProvider`]); else it uses the host's MIDI ports. Only for an
+    /// application with one controller ([`Self::new_single`]); before
+    /// [`Self::start_infrastructure`].
+    pub fn enable_device_transport(&mut self, provider: Rc<dyn DeviceProvider>) {
+        if self.single {
+            self.device_provider = Some(provider);
+        }
+    }
+
+    /// The in-process device of an instance, if the provider opens one (logged either way).
+    fn open_device(&self, index: usize) -> Option<(crate::nihost::HidDevice, Rc<dyn crate::nihost::DeviceIo>)> {
+        let device = self.instances[index].factory.hid_device()?;
+        let provider = self.device_provider.as_ref()?;
+        let name = self.instances[index].factory.info().to_string();
+        match provider.open(device) {
+            Opened::Hid(io, description) => {
+                self.host.println(&format!("{name}: drives the device in-process over HID (libdbm_nihost, no MIDI ports: {description})"));
+                Some((device, io))
+            }
+            Opened::Midi(reason) => {
+                self.host.println(&format!("{name}: uses the MIDI ports, not the in-process HID transport: {reason}"));
+                None
+            }
+            Opened::NotApplicable => None,
         }
     }
 
@@ -401,9 +438,13 @@ impl App {
         self.host.println(&format!("{name}: Starting..."));
 
         let backend = self.sender.backend().clone();
+        // A device driven in-process takes the place of the first port pair
+        let opened_device = self.open_device(index);
+        let device_id = opened_device.as_ref().map(|_| ports[0].input);
         // A controller without MIDI outputs (OSC) opens only its inputs
         let has_outputs = self.instances[index].factory.info().num_midi_out_ports > 0;
-        if !ports.iter().all(|p| backend.open_midi_input(p.input) && (!has_outputs || backend.open_midi_output(p.output))) {
+        let is_host_port = |id: i32| Some(id) != device_id;
+        if !ports.iter().all(|p| (!is_host_port(p.input) || backend.open_midi_input(p.input)) && (!has_outputs || !is_host_port(p.output) || backend.open_midi_output(p.output))) {
             self.host.error(&format!("{name}: Could not open the MIDI ports."));
             return;
         }
@@ -435,7 +476,14 @@ impl App {
         // The USB writes of an instance with USB devices go to its instance and device
         // (`Backend::usb_bulk_out_to`); the other instances share the backend unchanged
         let usb_devices = instance.factory.usb_devices();
-        let sender = if usb_devices.is_empty() { self.sender.clone() } else { Sender::new(Rc::new(crate::backend::UsbInstanceBackend::new(backend.clone(), index as i32, usb_devices))) };
+        let mut sender = if usb_devices.is_empty() { self.sender.clone() } else { Sender::new(Rc::new(crate::backend::UsbInstanceBackend::new(backend.clone(), index as i32, usb_devices))) };
+        // The MIDI of the in-process device goes to the library (and its note inputs are
+        // applied by the core)
+        let device = opened_device.map(|(device, io)| {
+            let (link, device_backend) = DeviceLink::new(device, ports[0].input, io, sender.backend().clone());
+            sender = Sender::new(device_backend);
+            link
+        });
         match instance.factory.create_with_extra_ports(self.host.clone(), sender, &ports, &extra_inputs, &extra_outputs, configuration) {
             Ok(mut parts) => {
                 parts.ctx.colors.set_color_source(self.color_source);
@@ -449,12 +497,12 @@ impl App {
                 parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
-                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due });
+                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due, device });
                 self.host.println(&format!("{name}: Running."));
             }
             Err(error) => {
                 self.host.error(&format!("{name}: Could not start controller: {error}"));
-                for port in &ports {
+                for port in ports.iter().filter(|p| is_host_port(p.input)) {
                     backend.close_midi_input(port.input);
                     if has_outputs {
                         backend.close_midi_output(port.output);
@@ -481,9 +529,16 @@ impl App {
         }
         running.setup.exit(&mut running.ctx);
         running.ctx.model.cleanup();
+        // The final LEDs and displays of the exit; the device is closed with the link
+        let device_id = running.device.as_mut().map(|device| {
+            device.release_notes();
+            device.flush();
+            device.device_id
+        });
+        running.device = None;
         let backend = self.sender.backend().clone();
         let has_outputs = instance.factory.info().num_midi_out_ports > 0;
-        for port in &running.ports {
+        for port in running.ports.iter().filter(|p| Some(p.input) != device_id) {
             backend.close_midi_input(port.input);
             if has_outputs {
                 backend.close_midi_output(port.output);
@@ -578,15 +633,31 @@ impl App {
                 }
                 continue;
             };
-            if status == 0xF0 {
-                running.ctx.with_surface(surface, |ctx| ctx.handle_sysex(data));
-            } else if data.len() == 3 {
-                running.ctx.with_surface(surface, |ctx| ctx.handle_midi(status as i32, data[1] as i32, data[2] as i32));
-            } else if !(data.len() == 1 && status == 0xFE) {
-                self.host.println(&format!("Unknown MIDI data of length {}", data.len()));
-            }
+            dispatch_midi(&self.host, &mut running.ctx, surface, status, data);
             return;
         }
+    }
+
+    /// Read the in-process devices (see [`Self::enable_device_transport`]) and handle their
+    /// MIDI, without the rest of a tick: a host may call it more often than the tick, so that
+    /// the pads play with less delay (`dbm_poll_devices`). The number of messages, -1 if no
+    /// instance drives a device in-process.
+    pub fn poll_devices(&mut self) -> i32 {
+        self.enter();
+        let mut count = None;
+        for instance in &mut self.instances {
+            if let Some(running) = &mut instance.running {
+                if running.device.is_some() {
+                    *count.get_or_insert(0) += poll_device(&self.host, &instance.factory.info().to_string(), running);
+                }
+            }
+        }
+        count.map_or(-1, |count| i32::try_from(count).unwrap_or(i32::MAX))
+    }
+
+    /// True if the instance drives its device in-process (tests, the log of the hosts).
+    pub fn drives_device(&self, index: usize) -> bool {
+        self.instances.get(index).and_then(|i| i.running.as_ref()).is_some_and(|r| r.device.is_some())
     }
 
     /// Execute scheduled tasks and update the controllers (called every 30ms).
@@ -597,6 +668,9 @@ impl App {
             let Some(running) = &mut instance.running else {
                 continue;
             };
+            if running.device.is_some() {
+                poll_device(&self.host, &instance.factory.info().to_string(), running);
+            }
             running.ctx.run_due_tasks(now);
             if running.startup_due.is_some_and(|due| due <= now) {
                 running.startup_due = None;
@@ -604,6 +678,9 @@ impl App {
             }
             running.setup.handle_changes(&mut running.ctx);
             running.setup.flush(&mut running.ctx);
+            if let Some(device) = &running.device {
+                device.flush();
+            }
         }
         // Restart the instances which requested it (former IHost.restart)
         let restart: Vec<usize> =
@@ -769,6 +846,43 @@ impl App {
     pub fn instance_ctx(&mut self, index: usize) -> Option<&mut Ctx> {
         self.instances.get_mut(index).and_then(|i| i.running.as_mut()).map(|r| &mut r.ctx)
     }
+}
+
+/// A MIDI message of the device of a surface (its first input): sysex or a short message.
+fn dispatch_midi(host: &Host, ctx: &mut Ctx, surface: usize, status: u8, data: &[u8]) {
+    if status == 0xF0 {
+        ctx.with_surface(surface, |ctx| ctx.handle_sysex(data));
+    } else if data.len() == 3 {
+        ctx.with_surface(surface, |ctx| ctx.handle_midi(status as i32, data[1] as i32, data[2] as i32));
+    } else if !(data.len() == 1 && status == 0xFE) {
+        host.println(&format!("Unknown MIDI data of length {}", data.len()));
+    }
+}
+
+/// Read the in-process device of an instance and handle its MIDI; the number of messages.
+fn poll_device(host: &Host, name: &str, running: &mut Running) -> usize {
+    let Some(device) = &mut running.device else {
+        return 0;
+    };
+    let events = device.take_input(host, name);
+    let count = events.len();
+    for event in events {
+        match event {
+            // The library has the states, but the Mk2's are reset on attach: all again
+            LinkEvent::Reattached => {
+                if let Some(display) = &mut running.ctx.text_display {
+                    display.force_flush();
+                }
+                running.ctx.surface.clear_cache();
+            }
+            LinkEvent::Midi(data) => {
+                if let Some(&status) = data.first() {
+                    dispatch_midi(host, &mut running.ctx, 0, status, &data);
+                }
+            }
+        }
+    }
+    count
 }
 
 /// Handle the events which the parser created for the controller.

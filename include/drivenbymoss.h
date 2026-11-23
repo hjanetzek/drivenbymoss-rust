@@ -39,6 +39,15 @@
 // [`dbm_tick`] regularly (every 30ms is recommended) instead.
 #define DBM_FLAG_HOST_TICK 1
 
+// Flag for [`dbm_create_controller`]: the core may drive the controller's device itself
+// instead of through the host's MIDI ports: the NI Maschine Mk2 and JAM on Linux over
+// `libdbm_nihost.so`, when it is installed and no other process (dbm-nihost) drives the device
+// (the environment variable `DBM_MASCHINE_TRANSPORT=hid|midi|auto` overrides the choice). The
+// device's MIDI then never reaches the host's ports; the core plays the notes of its note
+// inputs into the host's note input with `process_midi_arg`. Call [`dbm_poll_devices`] more
+// often than [`dbm_tick`] for less delay of the pads. Without the flag: the host's ports.
+#define DBM_FLAG_DEVICE_TRANSPORT 2
+
 // An instance of DrivenByMoss (opaque for the host). Created with [`dbm_create`], released
 // with [`dbm_destroy`]. Several instances can be used at the same time.
 typedef struct DbmApp DbmApp;
@@ -197,6 +206,17 @@ void dbm_start_infrastructure(struct DbmApp *app);
 // # Safety
 // `app` must be a valid handle (or null).
 void dbm_tick(struct DbmApp *app);
+
+// Read the devices which the core drives in-process (`DBM_FLAG_DEVICE_TRANSPORT`) and handle
+// their MIDI (buttons, pads; the notes of the note inputs go to the host's note input at once),
+// without the rest of a tick; [`dbm_tick`] does it as well. A host may call it every few
+// milliseconds for less delay of the pads. Returns the number of messages, -1 if the instance
+// drives no device in-process (then there is no need to call it; the host's MIDI ports are
+// used).
+//
+// # Safety
+// `app` must be a valid handle (or null).
+int dbm_poll_devices(struct DbmApp *app);
 
 // Run the instance on the time of the host instead of the clock, for hosts with a simulated
 // or offline time (tests, simulations): `time_ms` is the time in milliseconds since the

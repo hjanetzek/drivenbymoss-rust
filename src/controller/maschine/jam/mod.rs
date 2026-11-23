@@ -39,6 +39,11 @@ impl ControllerFactory for MaschineJamFactory {
         setup::create_configuration()
     }
 
+    /// The JAM over libdbm_nihost on Linux.
+    fn hid_device(&self) -> Option<crate::nihost::HidDevice> {
+        Some(crate::nihost::HidDevice::JAM)
+    }
+
     fn create(&self, host: Host, sender: Sender, ports: MidiPorts, configuration: Configuration) -> Result<InstanceParts, String> {
         setup::create(host, sender, ports, configuration)
     }

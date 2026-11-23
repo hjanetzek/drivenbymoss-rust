@@ -49,6 +49,11 @@ impl ControllerFactory for MaschineFactory {
         setup::create_configuration(self.definition.maschine)
     }
 
+    /// The Mk2 over libdbm_nihost on Linux (the Mk3, Mikro Mk3 and Plus have NI's driver only).
+    fn hid_device(&self) -> Option<crate::nihost::HidDevice> {
+        (self.definition.maschine == Maschine::Mk2).then_some(crate::nihost::HidDevice::MK2)
+    }
+
     fn create(&self, host: Host, sender: Sender, ports: MidiPorts, configuration: Configuration) -> Result<InstanceParts, String> {
         setup::create(self.definition, host, sender, ports, configuration)
     }

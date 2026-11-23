@@ -18,6 +18,7 @@ pub mod framework;
 pub mod host;
 pub mod json;
 pub mod midi;
+pub mod nihost;
 pub mod parser;
 pub mod protocol;
 pub mod scale;

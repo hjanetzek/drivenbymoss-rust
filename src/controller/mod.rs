@@ -147,6 +147,13 @@ pub trait ControllerFactory {
         Vec::new()
     }
 
+    /// The device which the core can drive itself instead of through the host's MIDI ports, on
+    /// a host which allows it (`DBM_FLAG_DEVICE_TRANSPORT`): the Maschine Mk2 and JAM over
+    /// `libdbm_nihost` on Linux (see [`crate::nihost`]). The default is none.
+    fn hid_device(&self) -> Option<crate::nihost::HidDevice> {
+        None
+    }
+
     /// The number of further MIDI inputs of an instance, after the inputs of the port pairs (e.g.
     /// the keyboard port of the Novation Launchkey, Java `createInput (1, ...)`). The default is
     /// 0. They are configured as `MIDI_INPUT<n>` after the inputs of the pairs (as the Java Reaper

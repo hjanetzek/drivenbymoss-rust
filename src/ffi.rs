@@ -380,6 +380,15 @@ const DEVICE_UPDATE_RATE: u64 = 30;
 /// [`dbm_tick`] regularly (every 30ms is recommended) instead.
 pub const DBM_FLAG_HOST_TICK: u32 = 1;
 
+/// Flag for [`dbm_create_controller`]: the core may drive the controller's device itself
+/// instead of through the host's MIDI ports: the NI Maschine Mk2 and JAM on Linux over
+/// `libdbm_nihost.so`, when it is installed and no other process (dbm-nihost) drives the device
+/// (the environment variable `DBM_MASCHINE_TRANSPORT=hid|midi|auto` overrides the choice). The
+/// device's MIDI then never reaches the host's ports; the core plays the notes of its note
+/// inputs into the host's note input with `process_midi_arg`. Call [`dbm_poll_devices`] more
+/// often than [`dbm_tick`] for less delay of the pads. Without the flag: the host's ports.
+pub const DBM_FLAG_DEVICE_TRANSPORT: u32 = 2;
+
 /// The shared state of a handle (also referenced by its timer thread).
 struct Inner {
     app: Mutex<AppHolder>,
@@ -517,7 +526,12 @@ pub unsafe extern "C" fn dbm_create_controller(callbacks: *const DbmCallbacks, c
     new_handle(flags, || {
         let ffi = Rc::new(FfiBackend::new(callbacks));
         let backend: Rc<dyn Backend> = ffi.clone();
-        App::new_single(backend, &config_path, &controller_id, &app_version).map(|app| (app, ffi))
+        App::new_single(backend, &config_path, &controller_id, &app_version).map(|mut app| {
+            if flags & DBM_FLAG_DEVICE_TRANSPORT != 0 {
+                app.enable_device_transport(Rc::new(crate::nihost::SystemProvider));
+            }
+            (app, ffi)
+        })
     })
 }
 
@@ -614,6 +628,20 @@ pub unsafe extern "C" fn dbm_start_infrastructure(app: *mut DbmApp) {
 #[no_mangle]
 pub unsafe extern "C" fn dbm_tick(app: *mut DbmApp) {
     unsafe { with_handle(app, (), |app| app.tick()) };
+}
+
+/// Read the devices which the core drives in-process (`DBM_FLAG_DEVICE_TRANSPORT`) and handle
+/// their MIDI (buttons, pads; the notes of the note inputs go to the host's note input at once),
+/// without the rest of a tick; [`dbm_tick`] does it as well. A host may call it every few
+/// milliseconds for less delay of the pads. Returns the number of messages, -1 if the instance
+/// drives no device in-process (then there is no need to call it; the host's MIDI ports are
+/// used).
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_poll_devices(app: *mut DbmApp) -> c_int {
+    unsafe { with_handle(app, -1, |app| app.poll_devices()) }
 }
 
 /// Run the instance on the time of the host instead of the clock, for hosts with a simulated
