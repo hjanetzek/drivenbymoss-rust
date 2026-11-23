@@ -182,8 +182,11 @@ virtual MIDI driver bridges the two:
   gives the low values, where the eye is more sensitive, finer steps, without wasting the top
   of the range as the former `v² / 127` did (it turned MIDI 1..12 off and reached full only
   at MIDI 104).
-- **RGB LEDs** (NI's palette, hue × 4 + level): the pale level (3) is the brightest, full (2) is
-  dimmer; the entries 68..79 all show the same white (the grey steps of cabl's table do not
+- **RGB LEDs** (NI's palette, hue × 4 + level): all four levels are distinguishable
+  (`dbm-nihost-led-test --pattern rainbow --level N`, 2026-11-23): dim (0) is clearly dimmer than
+  medium (1), medium than full (2), full than pale (3), the brightest; dim is visible (it could
+  be a bit dimmer, only possible with a custom device palette). Full and pale are both bright
+  enough for studio use. The entries 68..79 all show the same white (the grey steps of cabl's table do not
   exist), 80..127 show nothing new.
 - The JAM drives its LEDs in time slices (stripes on a camera photo, about 25% duty), so even
   pale stays dimmer than the firmware's startup animation. A device-wide brightness setting

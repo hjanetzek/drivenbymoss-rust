@@ -424,7 +424,7 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
     let (normal, normal_setups) = led_states(&backend.take_calls());
     assert_eq!(normal.keys().collect::<Vec<_>>(), bright.keys().collect::<Vec<_>>());
 
-    let mut raised = 0;
+    let (mut raised, mut dim) = (0, 0);
     for (&(status, control), &value) in &normal {
         let is_rgb = status == 0x90 || jam::is_rgb_button(control as i32);
         let expected = if is_rgb { LedBrightness::Bright.rgb(value as i32) } else { LedBrightness::Bright.mono(value as i32) };
@@ -432,8 +432,12 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
         if expected != value as i32 {
             raised += 1;
         }
+        if is_rgb && (4..68).contains(&(value as i32)) && value % 4 == 0 {
+            dim += 1;
+        }
     }
-    assert!(raised > 0, "some LEDs are brighter: {normal:?}");
+    // Only the dim level (0) is raised (to medium); medium, full and pale stay
+    assert_eq!(raised, dim, "only the dim LEDs are brighter: {normal:?}");
     // The single-colour LEDs: on (127) and off (0) stay
     assert!(normal.iter().any(|(&(status, control), &value)| status == 0xB0 && !jam::is_rgb_button(control as i32) && value == 127));
     // The colors of the touch strips

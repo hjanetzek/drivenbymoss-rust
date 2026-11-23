@@ -779,7 +779,7 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
         }
     }
 
-    let mut raised = 0;
+    let (mut raised, mut dim) = (0, 0);
     for (&(status, control), &value) in &normal {
         let is_rgb = if status == 0x90 { control >= 36 } else { mk::is_rgb_button(control as i32) };
         let expected = if is_rgb { LedBrightness::Bright.rgb(value as i32) } else { LedBrightness::Bright.mono(value as i32) };
@@ -787,6 +787,10 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
         if expected != value as i32 {
             raised += 1;
         }
+        if is_rgb && (4..68).contains(&(value as i32)) && value % 4 == 0 {
+            dim += 1;
+        }
     }
-    assert!(raised > 0, "some LEDs are brighter: {normal:?}");
+    // Only the dim level (0) is raised (to medium); medium, full and pale stay
+    assert_eq!(raised, dim, "only the dim LEDs are brighter: {normal:?}");
 }

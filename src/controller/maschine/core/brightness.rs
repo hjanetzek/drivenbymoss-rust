@@ -8,14 +8,16 @@
 //! palette (`hue * 4 + level`, level 0 dim, 1 medium, 2 full, 3 pale, see
 //! [`super::colors::NI_PALETTE`]); there is no separate brightness. The single-colour LEDs take
 //! their brightness as the MIDI value (0..127). "Normal" sends the values of the core unchanged
-//! (as Java); "Bright" raises them when they are sent ([`LedBrightness::rgb`],
+//! (as Java); "Bright" raises the dim ones when they are sent ([`LedBrightness::rgb`],
 //! [`LedBrightness::mono`]), so the setting covers all modes, views and the surface link. The
 //! mapping is the table [`BRIGHT_LEVELS`] and [`bright_mono`].
 //!
-//! Measured on the real JAM (2026-11-23): the pale level (3) is the brightest, full (2) is
-//! dimmer. The entries 68..79 all show the same white: the grey steps of the cabl table
-//! ([`super::colors::NI_PALETTE`]) do not exist on the device, so Bright leaves them as they
-//! are; 80..127 show nothing new. The JAM drives its LEDs in time slices (stripes on a photo,
+//! Measured on the real JAM (2026-11-23, `dbm-nihost-led-test --pattern rainbow --level N`):
+//! all four levels are distinguishable (dim clearly dimmer than medium, medium than full, full
+//! than pale); dim is visible. Full (2) and pale (3) are both bright enough for studio use, pale
+//! is the brightest; the dim look comes from the dim and medium levels. The entries 68..79 all
+//! show the same white: the grey steps of the cabl table ([`super::colors::NI_PALETTE`]) do not
+//! exist on the device, so Bright leaves them as they are; 80..127 show nothing new. The JAM drives its LEDs in time slices (stripes on a photo,
 //! about 25% duty), so even pale stays dimmer than the firmware's startup animation; a
 //! device-wide brightness setting of the JAM may exist, but it is not known.
 //!
@@ -50,12 +52,12 @@ pub enum LedBrightness {
 pub type SharedBrightness = Rc<Cell<LedBrightness>>;
 
 /// The level which "Bright" sends for each level of a palette entry (0 dim, 1 medium, 2 full,
-/// 3 pale): one step up, so dim becomes medium, medium full and full pale (the brightest on the
-/// device); pale stays. The core tells states apart by the level (the `*_LO` colors are medium
-/// for available or inactive, full for active or selected), so the three steps stay distinct;
-/// only full and pale merge, and pale is rarely used. The trade-off: in Bright the active colors
-/// are pale, the brightest level, but a bit whitish.
-pub const BRIGHT_LEVELS: [i32; 4] = [1, 2, 3, 3];
+/// 3 pale): only the dimmest level is raised, dim becomes medium; medium, full and pale stay.
+/// The core tells states apart by the level: full for active (the normal colors), pale for a
+/// highlight, medium for inactive or available (the `*_LO` colors). These stay distinct in
+/// Bright, as in Normal; dim and medium merge. Bright is applied after the color mapping, when
+/// the LEDs are sent, so an inactive medium stays medium.
+pub const BRIGHT_LEVELS: [i32; 4] = [1, 1, 2, 3];
 
 /// The first entry of the whites and greys (68..79), which all look the same on the device.
 const WHITES: i32 = 68;
@@ -134,21 +136,25 @@ mod tests {
         for black in 0..4 {
             assert_eq!(bright.rgb(black), black);
         }
-        // Each level of a hue one step up: dim to medium, medium to full, full to pale, pale stays
+        // Only dim goes up (to medium); medium, full and pale stay
         assert_eq!(bright.rgb(4), 5);
-        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_RED);
-        assert_eq!(bright.rgb(COLOR_RED), COLOR_ROSE);
+        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_RED_LO);
+        assert_eq!(bright.rgb(COLOR_RED), COLOR_RED);
         assert_eq!(bright.rgb(COLOR_ROSE), COLOR_ROSE);
-        assert_eq!(bright.rgb(COLOR_GREEN_LO), COLOR_GREEN);
-        assert_eq!(bright.rgb(COLOR_GREEN), 31);
-        assert_eq!(bright.rgb(COLOR_BLUE_LO), 46);
+        assert_eq!(bright.rgb(COLOR_GREEN_LO), COLOR_GREEN_LO);
+        assert_eq!(bright.rgb(COLOR_GREEN), COLOR_GREEN);
+        assert_eq!(bright.rgb(44), COLOR_BLUE_LO);
         assert_eq!(bright.rgb(64), 65);
-        assert_eq!(bright.rgb(66), 67);
+        assert_eq!(bright.rgb(66), 66);
         assert_eq!(bright.rgb(67), 67);
-        // The *_LO (medium) and the active (full) colors stay distinct
+        // Inactive (medium), active (full) and highlight (pale) stay distinct
         for hue in 1..17 {
-            let (medium, full) = (hue * 4 + 1, hue * 4 + 2);
+            let (dim, medium, full, pale) = (hue * 4, hue * 4 + 1, hue * 4 + 2, hue * 4 + 3);
+            assert_eq!(bright.rgb(dim), medium);
             assert_ne!(bright.rgb(medium), bright.rgb(full));
+            assert_ne!(bright.rgb(full), bright.rgb(pale));
+            assert_eq!(bright.rgb(full), full);
+            assert_eq!(bright.rgb(pale), pale);
         }
         // The whites and greys (68..79) look the same on the device and stay
         for white in 68..80 {
