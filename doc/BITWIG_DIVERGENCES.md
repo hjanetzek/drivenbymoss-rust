@@ -182,6 +182,11 @@ setup sysex of the JAM), so it covers every mode, view and the surface link, on 
 Changing it re-sends all LEDs. The levels were measured on the real JAM. The JAM drives its LEDs
 in time slices (about 25% duty), so even pale stays dimmer than its startup animation.
 
+Bright is applied after the colour roles of the direct path (other hosts and the surface link,
+see FRAMEWORK_MAP.md, "Roles"): there an inactive item is medium and stays medium in Bright,
+while a disabled or covered one (dim) becomes medium too, so Bright merges disabled and
+inactive. On Bitwig the roles do not apply (Java's tables).
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

@@ -158,8 +158,11 @@ Then:
 4. Decide the entry gesture, and leave the surface on `Detached`.
 
 The view draws the slots in their colors (RGB → the controller's palette through its color
-manager: always the perceptually nearest entry of the controller's own palette,
-`ColorManager::direct_color_id`, since these colors never come from Bitwig; before, they went
+manager, always on the direct path, `ColorManager::direct_color_id_for_role`, since these colors
+never come from Bitwig. On a palette made of hues × levels (NI's) the slot gives the hue and the
+view the level by role: a normal slot full, the selected slot pale (blinking white), a disabled
+(hidden) or covered slot dim, and the default colors of the inactive row and page selectors
+medium; other palettes take the nearest entry and leave disabled and covered slots off; before, they went
 over the closest of Bitwig's track colors and the controller's table for them, which turned the
 Electra's orange F49500 lime green on the JAM. A controller without a palette table keeps the
 closest DAW color. See FRAMEWORK_MAP.md, "framework/controller/color"). It also draws the row and page
@@ -298,8 +301,9 @@ unanswered request is sent again after a second, up to three times.
 
 - **Covered cells:** a cell which is no knob, but which a visible control covers (`cell` and
   `span`: an envelope's other three cells, a wide Custom control): an `Empty` slot with that
-  control's name and color, not enabled. The generic view draws it dark (one lit pad per knob,
-  which is how many knobs the control has); a press selects the control's knob slot. Other cells
+  control's name and color, not enabled. The generic view draws it dim on a palette with levels (NI's: the
+  dim level of the control's hue, so the knob pads stand out in full) and off on other palettes
+  (one lit pad per knob, which is how many knobs the control has); a press selects the control's knob slot. Other cells
   are empty.
 - **Pages:** the `pages` of the page view without the hidden ones (the current page always);
   `page` is its index in that list.
@@ -342,7 +346,7 @@ sequencer client receives it only with a larger input pool than the default (200
 
 | JAM | Surface |
 | --- | --- |
-| Grid centre 6x6 (columns 2-7, rows 2-7) | the slots in their colors; a press selects a knob slot or presses a pad slot; the selected slot blinks white |
+| Grid centre 6x6 (columns 2-7, rows 2-7) | the slots in the hue of their colors at full level; covered and hidden slots dim; a press selects a knob slot or presses a pad slot; the selected slot is pale and blinks white |
 | Column 1, rows 2-7 | the row selectors: the active row white, the others blue (one color: the strips cover one row, the grouping into control sets does not matter) |
 | Column 1, top / bottom pad | previous / next page |
 | Column 8 | the page list (up to 8 pages), the current one orange |

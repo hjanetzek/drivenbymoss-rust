@@ -218,20 +218,54 @@ and `ColorManager::index_for_color (color)` (its palette index) replace Java's
   (`DawColor::closest`), then the controller's DAW color table. Exact for Bitwig, whose track
   colors are these entries; unchanged, so the conformance runs and replays stay the same (a test
   checks every controller).
-- **Direct** (all other hosts: the reference host, zynthian, Reaper's `dbm_create`): the
+- **Direct** (all other hosts: the reference host, zynthian, Reaper's `dbm_create`): on a hue ×
+  level palette the hue of the color at the level of its role (see "Roles" below); otherwise the
   perceptually nearest entry of the controller's own palette (`set_palette_rgb`), CIEDE2000 in
   CIE L*a*b*, which keeps the hue and lets the lightness count less: orange stays orange (F49500
   on NI's palette: 15, not the lime green 22 of the table), dark colors keep their hue, greys stay
   grey. Black entries are no candidates (an RGB color is never off; Bitwig's path makes black a
   grey too). The color ID is then `PALETTE_<index>`. The lookups are cached per color.
-- **The surface link** always takes the direct path (`direct_color_id`): its colors never come
-  from Bitwig.
+- **The surface link** always takes the direct path (`direct_color_id_for_role`): its colors
+  never come from Bitwig.
 
-Palette tables: NI's Maschines (`maschine::core::colors::NI_PALETTE`, hue × 4 levels, from cabl,
-MIT), Push 1 (`push::colors::DEFAULT_PALETTE`), Push 2/3 (the palette the core writes, with the
+**Roles** (`ColorRole`, `index_for_color_role (color, role)`, `color_id_for_role`;
+`index_for_color` is the normal role). A palette made of hues × levels describes itself with
+`set_palette_hue_levels (hues, levels, whites)` (NI's: the 16 hues at their full level, the level
+offsets `NI_LEVELS` and the whites `NI_WHITES`). On the direct path such a palette takes only the
+**hue** from the RGB color and the **level** from the role the caller knows:
+
+| Role | Meaning | NI level | Achromatic |
+|---|---|---|---|
+| `Disabled` | exists, but disabled, hidden or covered | dim (0) | 76 (dark grey) |
+| `Inactive` | available but not active (Java's `*_LO`) | medium (1) | 77 (grey) |
+| `Normal` | the color itself, active (default) | full (2) | 78 (white) |
+| `Highlight` | highlighted, selected | pale (3) | 79 (white) |
+
+Off stays black at the caller. The hue is the nearest HSV hue angle of the palette's full-level
+colors (`palette_hue`): neither brightness nor saturation counts, so a dark red is red and a
+mid-bright Electra teal (03A598) is teal at full, not a medium or dim entry as with the nearest
+entry; colors with a saturation below 0.25 or near black are achromatic (white/grey; on the JAM
+68..79 are one white). The angle, not CIEDE2000, since NI's table holds LED drive values (the JAM's
+factory palette, feature report 0xF1, `support/linux/ni_host/data/jam-feature-reports-factory.json`),
+whose sRGB hue is not the perceived one. Examples (normal / highlight / inactive / disabled):
+F49500 → 14/15/13/12 (orange), FFFF00 → 18/19/17/16, 03A598 → 38/39/37/36, 529DEC → 42/43/41/40,
+C44795 → 58/59/57/56, 640000 → 6/7/5/4 (before: the nearest entry, 64, a dim red), 808080 and
+202020 → 78/79/77/76. Where roles are used: the surface link (normal slots full, the selected slot
+pale, disabled and covered slots dim, the default colors of inactive row and page selectors
+medium) and the Maschine's `dim_or_highlight_color` on other hosts (the group buttons, the JAM's
+scene buttons: selected full, the others medium); all other callers are normal (full). Palettes
+without the description (the 128 colors of Novation, Push, APC) keep the nearest entry and ignore
+the role; the surface link draws disabled and covered slots off there. The Bitwig path ignores
+the role (Java's tables, conformance). The Maschine's "LED Brightness" Bright is applied after
+this, when the LEDs are sent: it raises only dim (to medium), so in Bright `Disabled` and
+`Inactive` merge (the "brighter, fewer steps" option), while inactive, normal and highlight stay
+distinct.
+
+Palette tables: NI's Maschines (`maschine::core::colors::NI_PALETTE`, hue × 4 levels: the JAM's
+factory palette read from the device, the greys and white from cabl, MIT), Push 1 (`push::colors::DEFAULT_PALETTE`), Push 2/3 (the palette the core writes, with the
 DAW colors at 70..96), the APC40 mkII, the Launchpads and the Launchkey Mk3 (Novation's velocity
 palette, the same `DEFAULT_PALETTE`). The Maschine's dim color (`dim_or_highlight_color`) is the
-medium level of the same hue on the direct path (Java's `index / 8 * 8 + 5` only fits its table).
+inactive role (medium) of the same hue on the direct path (Java's `index / 8 * 8 + 5` only fits its table).
 Without a table (the DAW color path everywhere): the Fire and the MPC/Force (their indices are a
 virtual palette whose RGB colors are the DAW colors), the APC40 mk1 and the APCmini mk1/mk2, the
 Beatstep, the Launch Control XL, the MCU, the OSC controller, the Electra One (it sends RGB in its

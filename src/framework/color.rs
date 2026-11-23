@@ -15,6 +15,13 @@
 //! - [`ColorSource::Direct`]: the perceptually nearest entry of the controller's own palette
 //!   ([`ColorManager::set_palette_rgb`], CIEDE2000), for all other hosts and for the surface
 //!   link. A controller without a palette table keeps the Bitwig path.
+//!
+//! **Roles** ([`ColorRole`]): on the direct path a palette made of hues × levels (NI's Maschine
+//! palette, [`ColorManager::set_palette_hue_levels`]) takes only the hue from the RGB color
+//! (achromatic colors become white or grey) and the level from the role the caller knows:
+//! normal full, highlight pale, inactive medium, disabled dim. Off stays black at the caller
+//! (as before). Palettes without such a description (the 128 colors of Novation, Push, APC)
+//! keep the nearest entry and ignore the role; the Bitwig path ignores it too (as Java).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -36,7 +43,70 @@ pub struct ColorManager {
     palette: Vec<(i32, [f64; 3])>,
     /// The nearest palette index of the RGB colors looked up so far (encoded RGB).
     nearest_cache: RefCell<HashMap<i32, i32>>,
+    /// The hue of the RGB colors looked up so far on a hue × level palette (encoded RGB): the
+    /// first index of the hue, -1 for achromatic.
+    hue_cache: RefCell<HashMap<i32, i32>>,
+    /// The description of a palette made of hues × levels, if the controller gave one.
+    hue_levels: Option<HueLevels>,
 }
+
+/// What an RGB color stands for on the controller, which decides the level of its palette entry
+/// on a palette made of hues × levels (see the module documentation).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorRole {
+    /// Exists, but disabled, hidden or covered (e.g. the covered cells of a spanning control of
+    /// the surface link): the dim level.
+    Disabled,
+    /// Available but not active (the meaning of Java's `*_LO` colors, e.g. an inactive row
+    /// selector, an unselected track): the medium level.
+    Inactive,
+    /// The color itself (active, the default): the full level.
+    #[default]
+    Normal,
+    /// Highlighted or selected: the pale level (the brightest).
+    Highlight,
+}
+
+/// A value per role: the level offsets of a hue, or the indices of the whites.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RoleLevels {
+    pub disabled: i32,
+    pub inactive: i32,
+    pub normal: i32,
+    pub highlight: i32,
+}
+
+impl RoleLevels {
+    pub const fn new(disabled: i32, inactive: i32, normal: i32, highlight: i32) -> Self {
+        RoleLevels { disabled, inactive, normal, highlight }
+    }
+
+    pub fn get(&self, role: ColorRole) -> i32 {
+        match role {
+            ColorRole::Disabled => self.disabled,
+            ColorRole::Inactive => self.inactive,
+            ColorRole::Normal => self.normal,
+            ColorRole::Highlight => self.highlight,
+        }
+    }
+}
+
+/// The description of a palette made of hues × levels ([`ColorManager::set_palette_hue_levels`]).
+#[derive(Debug, Clone)]
+struct HueLevels {
+    /// The first index of each hue and the hue (HSV, 0..1) of its color at the normal level.
+    hues: Vec<(i32, f32)>,
+    /// The offset of the level of each role from the first index of a hue.
+    levels: RoleLevels,
+    /// The index of the white (or grey) for each role.
+    whites: RoleLevels,
+}
+
+/// Below this saturation (HSV) a color is achromatic: white or grey on a hue × level palette
+/// (Bitwig's Silver, 0.22, is grey; its Brown, 0.43, is amber).
+const ACHROMATIC_SATURATION: f32 = 0.25;
+/// Below this brightness (HSV) a color is achromatic (near black has no visible hue).
+const ACHROMATIC_BRIGHTNESS: f32 = 0.06;
 
 /// Where the RGB colors come from, which decides their path to the palette (see the module
 /// documentation).
@@ -68,6 +138,15 @@ impl ColorSource {
 /// The entries of a palette in RGB (0..255) for [`ColorManager::set_palette_rgb`], index i at i.
 pub fn palette_from_rgb255(rgb: &[[i32; 3]]) -> Vec<(i32, ColorEx)> {
     rgb.iter().enumerate().map(|(i, [r, g, b])| (i as i32, ColorEx::from_rgb(*r, *g, *b))).collect()
+}
+
+/// Insert into a cache of looked up colors, which is cleared when it gets large.
+fn cache(cache: &RefCell<HashMap<i32, i32>>, key: i32, value: i32) {
+    let mut cache = cache.borrow_mut();
+    if cache.len() >= 4096 {
+        cache.clear();
+    }
+    cache.insert(key, value);
 }
 
 /// The keys of the palette indices for the direct path ([`ColorManager::color_id`]).
@@ -146,12 +225,44 @@ impl ColorManager {
         self.source == ColorSource::Direct && self.has_palette_rgb()
     }
 
+    /// Describe the palette as hues × levels (after [`Self::set_palette_rgb`]): `hues` are the
+    /// first index of each hue with its color at the normal level, `levels` the offset of each
+    /// role's level from that first index, `whites` the index of the white for each role. The
+    /// direct path then takes only the hue from an RGB color and the level from its role
+    /// ([`Self::palette_index_for_role`]).
+    pub fn set_palette_hue_levels(&mut self, hues: &[(i32, ColorEx)], levels: RoleLevels, whites: RoleLevels) {
+        let roles = [ColorRole::Disabled, ColorRole::Inactive, ColorRole::Normal, ColorRole::Highlight];
+        let mut indices: Vec<i32> = Vec::new();
+        for (first, _) in hues {
+            indices.extend(roles.map(|role| first + levels.get(role)));
+        }
+        indices.extend(roles.map(|role| whites.get(role)));
+        for index in indices {
+            assert!((0..=127).contains(&index), "Color index must be in the range of 0..127!");
+            self.update_color_index(PALETTE_KEYS[index as usize], index);
+        }
+        self.hue_cache.borrow_mut().clear();
+        self.hue_levels = Some(HueLevels { hues: hues.iter().map(|(first, color)| (*first, color.to_hsb()[0])).collect(), levels, whites });
+    }
+
+    /// True if the palette is described as hues × levels (the direct path honours the roles).
+    pub fn has_role_levels(&self) -> bool {
+        self.hue_levels.is_some()
+    }
+
     /// The color ID of an RGB color: on the Bitwig path the ID of the closest DAW color
-    /// ([`DawColor::color_id`]); on the direct path the key of the nearest palette entry
-    /// ([`Self::nearest_palette_index`]). [`Self::color_index`] resolves both.
+    /// ([`DawColor::color_id`]); on the direct path the key of the palette entry
+    /// ([`Self::palette_index_for_role`] with [`ColorRole::Normal`]). [`Self::color_index`]
+    /// resolves both.
     pub fn color_id(&self, color: ColorEx) -> &'static str {
+        self.color_id_for_role(color, ColorRole::Normal)
+    }
+
+    /// The color ID of an RGB color in a role. The role only counts on the direct path with a
+    /// hue × level palette; the Bitwig path is the one of Java.
+    pub fn color_id_for_role(&self, color: ColorEx, role: ColorRole) -> &'static str {
         if self.is_direct() {
-            self.direct_color_id(color)
+            self.direct_color_id_for_role(color, role)
         } else {
             DawColor::color_id(color)
         }
@@ -162,14 +273,70 @@ impl ColorManager {
         self.color_index(self.color_id(color))
     }
 
+    /// The palette index of an RGB color in a role (the index of [`Self::color_id_for_role`]).
+    pub fn index_for_color_role(&self, color: ColorEx, role: ColorRole) -> i32 {
+        self.color_index(self.color_id_for_role(color, role))
+    }
+
     /// The color ID of an RGB color which never comes from Bitwig (the surface link): the
-    /// nearest palette entry if the controller has a palette table, otherwise the closest DAW
-    /// color.
+    /// palette entry if the controller has a palette table, otherwise the closest DAW color.
     pub fn direct_color_id(&self, color: ColorEx) -> &'static str {
-        match self.nearest_palette_index(color) {
+        self.direct_color_id_for_role(color, ColorRole::Normal)
+    }
+
+    /// [`Self::direct_color_id`] in a role.
+    pub fn direct_color_id_for_role(&self, color: ColorEx, role: ColorRole) -> &'static str {
+        match self.palette_index_for_role(color, role) {
             Some(index) => PALETTE_KEYS[index as usize],
             None => DawColor::color_id(color),
         }
+    }
+
+    /// The palette index of an RGB color in a role on the direct path, None without a palette
+    /// table. A hue × level palette ([`Self::set_palette_hue_levels`]): the hue of the color
+    /// ([`Self::palette_hue`]) at the level of the role, the white of the role for achromatic
+    /// colors. Other palettes: the nearest entry ([`Self::nearest_palette_index`]), the role
+    /// does not count.
+    pub fn palette_index_for_role(&self, color: ColorEx, role: ColorRole) -> Option<i32> {
+        let Some(hue_levels) = &self.hue_levels else {
+            return self.nearest_palette_index(color);
+        };
+        Some(match self.palette_hue(color) {
+            Some(first) => first + hue_levels.levels.get(role),
+            None => hue_levels.whites.get(role),
+        })
+    }
+
+    /// The first index of the hue of an RGB color on a hue × level palette, None for an
+    /// achromatic color (saturation below 0.25 or near black) or without a description. The hue
+    /// is the nearest hue angle (HSV) of the palette's colors at the normal level: neither the
+    /// brightness nor the saturation of the color counts, so a dark red is red and a
+    /// mid-bright teal is teal. The HSV angle and not a perceptual metric, since the palette's
+    /// colors are LED drive values (NI's JAM: orange is (105, 14, 0) of 127), whose perceived
+    /// hue differs from their sRGB hue; the angle keeps the order of the hues around the circle
+    /// and has no bias towards the bright or the saturated entries.
+    pub fn palette_hue(&self, color: ColorEx) -> Option<i32> {
+        let hue_levels = self.hue_levels.as_ref()?;
+        let key = color.encode();
+        if let Some(first) = self.hue_cache.borrow().get(&key) {
+            return (*first >= 0).then_some(*first);
+        }
+        let [hue, saturation, brightness] = color.to_hsb();
+        let first = if saturation < ACHROMATIC_SATURATION || brightness < ACHROMATIC_BRIGHTNESS {
+            -1
+        } else {
+            let mut best = (f32::MAX, -1);
+            for (first, entry) in &hue_levels.hues {
+                let difference = (hue - entry).abs();
+                let distance = difference.min(1.0 - difference);
+                if distance < best.0 {
+                    best = (distance, *first);
+                }
+            }
+            best.1
+        };
+        cache(&self.hue_cache, key, first);
+        (first >= 0).then_some(first)
     }
 
     /// The index of the palette entry which is perceptually nearest to the color (CIEDE2000 in
@@ -190,11 +357,7 @@ impl ColorManager {
                 best = (distance, *index);
             }
         }
-        let mut cache = self.nearest_cache.borrow_mut();
-        if cache.len() >= 4096 {
-            cache.clear();
-        }
-        cache.insert(key, best.1);
+        cache(&self.nearest_cache, key, best.1);
         Some(best.1)
     }
 

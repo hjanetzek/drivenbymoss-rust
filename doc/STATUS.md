@@ -249,6 +249,19 @@ and merged with the highlight), now active stays full and highlight pale; 68..79
 even pale stays dimmer than its startup animation; a device-wide brightness setting is not known.
 The JAM's feature report 0xF1 is its pad palette, stored in flash: a possible custom palette, not
 written by DrivenByMoss (flash wear).
+**Colour roles on hue × level palettes (2026-11-23, not part of Java):** on the direct path
+(not Bitwig) NI's palette takes only the hue from an RGB color and the level from the role
+(`framework::color::ColorRole`: normal full, highlight pale, inactive medium, disabled dim;
+achromatic colors white/grey), instead of the nearest entry, which put mid-bright colors (e.g.
+the Electra's 03A598) on medium or dim. The hue is the nearest HSV hue angle of the full levels
+of the JAM's factory palette (read from the device, feature report 0xF1; `NI_PALETTE` 4..67 now
+holds it instead of cabl's estimates). Roles are used by the surface link (selected slot pale,
+disabled and covered slots dim) and the Maschine's `dim_or_highlight_color` (selected full, the
+others medium); Bright (dim → medium) merges disabled and inactive. The Bitwig path and the
+128-colour palettes are unchanged. See FRAMEWORK_MAP.md, "framework/controller/color". Tests:
+`ni_palette_hue_by_color_level_by_role`, `velocity_palette_ignores_the_role`,
+`ni_dim_keeps_the_hue`, `bitwig_path_is_unchanged` (`controller::color_tests`), `jam_slot_roles`
+(tests/surface_link.rs).
 dbm-nihost's curve for the JAM's mono LEDs now maps MIDI 1..127 to hardware 2..85 (gamma 1.5;
 1 is off on the device, 85 is full), see `support/linux/ni_host/README.md`. Tests: the mapping
 (unit tests), `led_brightness_raises_the_palette_levels_and_re_sends_all_leds` (JAM, Mk2).

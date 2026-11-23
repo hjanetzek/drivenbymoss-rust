@@ -7,24 +7,34 @@
 //! encoders), registers the view and the mode, polls the client at its tick and wires its
 //! buttons (e.g. the main encoder) to the client. See doc/SURFACE_LINK.md.
 //!
-//! The RGB colors of the provider go to the controller's palette through its color manager:
-//! always the perceptually nearest palette entry ([`ColorManager::direct_color_id`]), since they
-//! never come from Bitwig; a controller without a palette table takes the closest DAW color.
+//! The RGB colors of the provider go to the controller's palette through its color manager,
+//! always on the direct path ([`ColorManager::direct_color_id_for_role`]), since they never come
+//! from Bitwig; a controller without a palette table takes the closest DAW color. On a palette
+//! made of hues × levels (NI's) the view gives the role of each part ([`ColorRole`]): a normal
+//! slot full, the selected slot pale (highlight), a disabled or covered slot dim, the inactive
+//! row and page selectors medium. Other palettes take the nearest entry and draw disabled and
+//! covered slots off (as before).
 //!
-//! [`ColorManager::direct_color_id`]: crate::framework::color::ColorManager::direct_color_id
+//! [`ColorManager::direct_color_id_for_role`]: crate::framework::color::ColorManager::direct_color_id_for_role
 
 use super::client::{PadFunction, SharedClient, SurfaceMapping};
 use super::{LinkState, PageModel, Rgb, SlotKind};
 use crate::daw::color::ColorEx;
+use crate::framework::color::ColorRole;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::{Mode, View};
 
-/// The palette index of an RGB color.
+/// The palette index of an RGB color (in the normal role).
 pub fn palette_index(ctx: &Ctx, color: Rgb) -> i32 {
+    palette_index_for_role(ctx, color, ColorRole::Normal)
+}
+
+/// The palette index of an RGB color in a role; black is off.
+pub fn palette_index_for_role(ctx: &Ctx, color: Rgb, role: ColorRole) -> i32 {
     if color.is_black() {
         return 0;
     }
-    let id = ctx.colors.direct_color_id(ColorEx::from(color));
+    let id = ctx.colors.direct_color_id_for_role(ColorEx::from(color), role);
     if ctx.colors.has_color_index(id) {
         ctx.colors.color_index(id)
     } else {
@@ -86,7 +96,8 @@ impl SurfaceLinkView {
         let model = client.model();
         let state = client.state();
         let ui = mapping.ui_colors;
-        let ui_color = |index: Option<i32>, default: Rgb| index.unwrap_or_else(|| palette_index(ctx, default));
+        let ui_color = |index: Option<i32>, default: Rgb, role: ColorRole| index.unwrap_or_else(|| palette_index_for_role(ctx, default, role));
+        let has_roles = ctx.colors.has_role_levels();
         let mut colors = Vec::with_capacity(mapping.columns * mapping.rows);
         for y in 0..mapping.rows {
             for x in 0..mapping.columns {
@@ -97,7 +108,7 @@ impl SurfaceLinkView {
                         PadFunction::Slot(id) => {
                             let (row, column) = (id / 6, id % 6);
                             let on_cross = row == column || row + column == 5;
-                            let color = if state == LinkState::Incompatible { ui_color(ui.incompatible, INCOMPATIBLE) } else { ui_color(ui.no_provider, NO_PROVIDER) };
+                            let color = if state == LinkState::Incompatible { ui_color(ui.incompatible, INCOMPATIBLE, ColorRole::Normal) } else { ui_color(ui.no_provider, NO_PROVIDER, ColorRole::Inactive) };
                             (if on_cross { color } else { 0 }, -1)
                         }
                         _ => (0, -1),
@@ -107,22 +118,25 @@ impl SurfaceLinkView {
                         PadFunction::None => (0, -1),
                         PadFunction::Slot(id) => match model.slot(id) {
                             Some(slot) if slot.kind != SlotKind::Empty && slot.enabled => {
-                                let color = palette_index(ctx, slot.color);
+                                let selected = model.selected_slot == Some(id);
+                                let color = palette_index_for_role(ctx, slot.color, if selected { ColorRole::Highlight } else { ColorRole::Normal });
                                 // Black slots (e.g. a pad which is off) are still visible
-                                let color = if color == 0 { ui_color(ui.black_slot, NAVIGATION) } else { color };
-                                if model.selected_slot == Some(id) {
-                                    (color, ui_color(ui.selected, SELECTED))
+                                let color = if color == 0 { ui_color(ui.black_slot, NAVIGATION, ColorRole::Inactive) } else { color };
+                                if selected {
+                                    (color, ui_color(ui.selected, SELECTED, ColorRole::Normal))
                                 } else {
                                     (color, -1)
                                 }
                             }
+                            // Disabled (hidden) and covered slots: dim on a palette with levels
+                            Some(slot) if !slot.enabled && has_roles => (palette_index_for_role(ctx, slot.color, ColorRole::Disabled), -1),
                             _ => (0, -1),
                         },
                         PadFunction::Row(row) => {
                             let color = match row_color(mapping, model, row) {
-                                RowColor::Active => ui_color(ui.row_active, ROW_ACTIVE),
-                                RowColor::SetA => ui_color(ui.row_set_a, ROW_SET_A),
-                                RowColor::SetB => ui_color(ui.row_set_b, ROW_SET_B),
+                                RowColor::Active => ui_color(ui.row_active, ROW_ACTIVE, ColorRole::Normal),
+                                RowColor::SetA => ui_color(ui.row_set_a, ROW_SET_A, ColorRole::Inactive),
+                                RowColor::SetB => ui_color(ui.row_set_b, ROW_SET_B, ColorRole::Inactive),
                             };
                             (color, -1)
                         }
@@ -130,11 +144,11 @@ impl SurfaceLinkView {
                             if page >= model.pages.len() {
                                 (0, -1)
                             } else {
-                                (if page == model.page { ui_color(ui.page_active, PAGE_ACTIVE) } else { ui_color(ui.page, PAGE) }, -1)
+                                (if page == model.page { ui_color(ui.page_active, PAGE_ACTIVE, ColorRole::Normal) } else { ui_color(ui.page, PAGE, ColorRole::Inactive) }, -1)
                             }
                         }
-                        PadFunction::PagePrev => (if model.page > 0 { ui_color(ui.navigation, NAVIGATION) } else { 0 }, -1),
-                        PadFunction::PageNext => (if model.page + 1 < model.pages.len() { ui_color(ui.navigation, NAVIGATION) } else { 0 }, -1),
+                        PadFunction::PagePrev => (if model.page > 0 { ui_color(ui.navigation, NAVIGATION, ColorRole::Inactive) } else { 0 }, -1),
+                        PadFunction::PageNext => (if model.page + 1 < model.pages.len() { ui_color(ui.navigation, NAVIGATION, ColorRole::Inactive) } else { 0 }, -1),
                     }
                 };
                 colors.push((x, y, color, blink));

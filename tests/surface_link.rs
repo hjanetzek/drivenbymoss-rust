@@ -803,3 +803,41 @@ fn generic_events_and_pages() {
     let model = jam_model(&mut rig);
     assert_eq!((model.active_row, model.selected_slot), (4, Some(8)));
 }
+
+/// NI's palette has hues × levels: the slots take the hue of their color and the level of their
+/// role (normal full, selected pale, disabled and covered dim; inactive selectors medium).
+#[test]
+fn jam_slot_roles() {
+    use drivenbymoss::controller::maschine::core::colors::*;
+    use drivenbymoss::framework::color::ColorRole;
+    use drivenbymoss::framework::surface_link::view::palette_index_for_role;
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = generic_rig();
+    // Normal slots: full (ENV teal 03A598 is hue 9, WAVE orange F49500 hue 3, CUTOFF 529DEC hue 10)
+    assert_eq!(rig.jam_pad_color(1, 1), 38, "ENV, teal full");
+    assert_eq!(rig.jam_pad_color(3, 1), 14, "WAVE, orange full");
+    assert_eq!(rig.jam_pad_color(3, 2), 42, "CUTOFF, blue full");
+    assert_eq!(rig.jam_pad_color(4, 1), COLOR_WHITE, "GRID, white");
+    // Covered cells (the envelope's other cells): the dim teal
+    assert!(!rig.jam_slot(1).enabled);
+    assert_eq!(rig.jam_pad_color(2, 1), 36, "covered: teal dim");
+    assert_eq!(rig.jam_pad_color(1, 2), 36);
+    // A hidden control: dim (SPARE F45C51 is hue 2)
+    assert_eq!((rig.jam_slot(10).name.as_str(), rig.jam_slot(10).enabled), ("SPARE", false));
+    assert_eq!(rig.jam_pad_color(5, 2), 8, "disabled: dim");
+    // Empty cells stay off
+    assert_eq!(rig.jam_pad_color(4, 2), 0);
+    // The selected slot: pale, blinking white
+    rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x61], &[3, 0, 0]));
+    rig.advance(60);
+    assert_eq!(jam_model(&mut rig).selected_slot, Some(8));
+    let note = 36 + (7 - 2) * 8 + 3;
+    let info = rig.jam_ctx().surface.grid_ref().light_info(note);
+    assert_eq!((info.color, info.blink_color), (43, COLOR_WHITE), "selected: blue pale");
+    // The roles of an RGB color on the JAM
+    let ctx = rig.jam_ctx();
+    let teal = Rgb::new(0x03, 0xA5, 0x98);
+    let levels = [ColorRole::Disabled, ColorRole::Inactive, ColorRole::Normal, ColorRole::Highlight].map(|role| palette_index_for_role(ctx, teal, role));
+    assert_eq!(levels, [36, 37, 38, 39]);
+    assert_eq!(palette_index_for_role(ctx, Rgb::new(0, 0, 0), ColorRole::Normal), 0, "black is off");
+}

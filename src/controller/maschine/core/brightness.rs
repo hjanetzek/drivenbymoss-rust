@@ -54,9 +54,11 @@ pub type SharedBrightness = Rc<Cell<LedBrightness>>;
 /// The level which "Bright" sends for each level of a palette entry (0 dim, 1 medium, 2 full,
 /// 3 pale): only the dimmest level is raised, dim becomes medium; medium, full and pale stay.
 /// The core tells states apart by the level: full for active (the normal colors), pale for a
-/// highlight, medium for inactive or available (the `*_LO` colors). These stay distinct in
-/// Bright, as in Normal; dim and medium merge. Bright is applied after the color mapping, when
-/// the LEDs are sent, so an inactive medium stays medium.
+/// highlight, medium for inactive or available (the `*_LO` colors); on the direct color path
+/// these are the roles of [`crate::framework::color::ColorRole`] (normal full, highlight pale,
+/// inactive medium, disabled dim). They stay distinct in Bright, as in Normal. Bright is applied
+/// after the color mapping, when the LEDs are sent, so an inactive medium stays medium; dim
+/// becomes medium, so Bright merges disabled and inactive (the "brighter, fewer steps" option).
 pub const BRIGHT_LEVELS: [i32; 4] = [1, 1, 2, 3];
 
 /// The first entry of the whites and greys (68..79), which all look the same on the device.

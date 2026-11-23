@@ -6,7 +6,7 @@
 //! colors of the simulator GUI are not ported.
 
 use crate::daw::color::{ColorEx, DawColor};
-use crate::framework::color::{ColorManager, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
+use crate::framework::color::{ColorManager, ColorRole, RoleLevels, BUTTON_STATE_HI, BUTTON_STATE_OFF, BUTTON_STATE_ON};
 use crate::framework::color_ids::{abstract_drum_view, abstract_play_view, abstract_sequencer_view, browser_view};
 use crate::framework::feature::{BUTTON_COLOR_HI, BUTTON_COLOR_OFF, BUTTON_COLOR_ON};
 use crate::framework::grid::GRID_OFF;
@@ -46,28 +46,31 @@ pub const COLOR_YELLOW_LO: i32 = 21;
 pub const COLOR_YELLOW: i32 = 22;
 
 /// NI's color palette of the Maschines (hue * 4 + level; level 0 dim, 1 medium, 2 full, 3 pale)
-/// in RGB, as the devices show it: 0..71 from cabl's JAM palette (ni-usb/cabl
-/// `MaschineJamHelper.cpp`, (C) 2015 Vincenzo Pacella, MIT license), 72..79 greys and white (as
-/// support/linux/ni_host/src/palette.cpp). The nearest entry is the color of an RGB color which
-/// does not come from Bitwig ([`ColorManager::set_palette_rgb`]).
+/// in RGB, as the devices drive it: 4..67 (hues 1..16) are the JAM's factory pad palette, read
+/// from the device (feature report 0xF1, `support/linux/ni_host/data/jam-feature-reports-factory.json`,
+/// 0..127 scaled to 0..255; LED drive values, not measured light); 68..79 are cabl's greys and
+/// white (ni-usb/cabl `MaschineJamHelper.cpp`, (C) 2015 Vincenzo Pacella, MIT license, as
+/// support/linux/ni_host/src/palette.cpp), which all show the same white on the JAM (the
+/// device's hue 17 is a greenish drive value of that white). The direct path takes the hue of an
+/// RGB color from the full levels ([`ni_hues`], [`ColorManager::set_palette_hue_levels`]).
 pub const NI_PALETTE: [(u8, u8, u8); 80] = [
     (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
-    (32, 0, 0), (64, 0, 0), (255, 0, 0), (255, 32, 16),
-    (32, 16, 0), (64, 16, 0), (255, 32, 0), (255, 64, 32),
-    (32, 48, 8), (64, 64, 0), (255, 96, 0), (255, 128, 48),
-    (40, 56, 0), (64, 96, 0), (255, 224, 0), (128, 255, 64),
-    (24, 40, 0), (96, 176, 0), (96, 255, 0), (112, 255, 64),
-    (16, 40, 0), (56, 112, 0), (72, 255, 0), (64, 255, 64),
-    (0, 40, 0), (0, 96, 0), (0, 255, 0), (48, 255, 48),
-    (0, 40, 16), (0, 112, 32), (0, 255, 48), (56, 255, 40),
-    (0, 40, 40), (0, 112, 96), (0, 255, 226), (64, 255, 255),
-    (0, 24, 48), (0, 64, 112), (0, 96, 255), (40, 160, 255),
-    (0, 0, 40), (0, 0, 128), (0, 0, 255), (40, 104, 255),
-    (8, 0, 44), (32, 0, 128), (40, 0, 255), (48, 88, 255),
-    (24, 0, 40), (72, 0, 128), (104, 0, 255), (88, 80, 255),
-    (32, 0, 48), (96, 0, 96), (255, 0, 128), (255, 64, 160),
-    (32, 0, 16), (90, 0, 48), (255, 0, 64), (255, 40, 104),
-    (40, 0, 8), (112, 0, 16), (255, 0, 16), (255, 48, 56),
+    (54, 0, 0), (78, 0, 0), (255, 0, 0), (255, 30, 30),
+    (60, 14, 0), (106, 22, 0), (211, 28, 0), (255, 80, 30),
+    (48, 24, 0), (66, 50, 0), (251, 112, 0), (255, 137, 30),
+    (68, 72, 0), (90, 90, 0), (247, 221, 0), (211, 255, 60),
+    (42, 60, 0), (82, 102, 0), (181, 231, 0), (151, 235, 60),
+    (26, 90, 0), (58, 151, 0), (84, 255, 0), (70, 255, 50),
+    (0, 52, 0), (0, 102, 0), (0, 255, 0), (50, 255, 40),
+    (0, 84, 12), (0, 110, 30), (0, 255, 62), (54, 255, 104),
+    (0, 64, 52), (0, 110, 98), (0, 255, 241), (50, 255, 255),
+    (0, 44, 84), (0, 70, 110), (0, 96, 255), (40, 151, 255),
+    (0, 0, 60), (0, 0, 110), (0, 0, 255), (40, 100, 255),
+    (16, 0, 76), (40, 0, 131), (56, 0, 255), (70, 80, 255),
+    (24, 0, 80), (66, 0, 126), (100, 0, 255), (100, 80, 255),
+    (72, 0, 40), (102, 0, 90), (255, 0, 124), (255, 60, 153),
+    (48, 0, 14), (90, 0, 36), (255, 0, 60), (255, 40, 100),
+    (84, 0, 6), (110, 0, 22), (255, 0, 20), (255, 50, 48),
     (40, 40, 40), (96, 96, 96), (226, 226, 226), (160, 255, 255),
     (40, 40, 40), (96, 96, 96), (226, 226, 226), (255, 255, 255),
     (24, 24, 24), (64, 64, 64), (255, 255, 255), (255, 255, 255),
@@ -171,21 +174,41 @@ pub fn create_color_manager() -> ColorManager {
     }
     let palette: Vec<(i32, ColorEx)> = NI_PALETTE.iter().enumerate().map(|(i, &(r, g, b))| (i as i32, ColorEx::from_rgb(r.into(), g.into(), b.into()))).collect();
     cm.set_palette_rgb(&palette);
+    cm.set_palette_hue_levels(&ni_hues(), NI_LEVELS, NI_WHITES);
     cm
 }
 
+/// The levels of NI's palette for the roles of the direct path (offsets from the first index of
+/// a hue): disabled dim, inactive medium, normal full, highlight pale. All four are
+/// distinguishable on the JAM (measured 2026-11-23).
+pub const NI_LEVELS: RoleLevels = RoleLevels::new(0, 1, 2, 3);
+
+/// The whites of NI's palette for the roles (cabl's grey steps; on the JAM 68..79 are all the
+/// same white, on other devices they may differ).
+pub const NI_WHITES: RoleLevels = RoleLevels::new(COLOR_DARK_GREY, COLOR_GREY, COLOR_WHITE, 79);
+
+/// The 16 hues of NI's palette (1..16, first index hue * 4) with their full level.
+pub fn ni_hues() -> Vec<(i32, ColorEx)> {
+    (1..17)
+        .map(|hue| {
+            let (r, g, b) = NI_PALETTE[hue * 4 + 2];
+            (hue as i32 * 4, ColorEx::from_rgb(r.into(), g.into(), b.into()))
+        })
+        .collect()
+}
+
 /// Get the dimmed or highlighted color index of a DAW color (former `dimOrHighlightColor`).
-/// On the direct path (not Bitwig) the dimmed color is the medium level of the same hue, the
-/// greys a dark grey: Java's `index / 8 * 8 + 5` is meant for its DAW color table and would
-/// change the hue of other entries (yellow 18 to the green 21).
+/// On the direct path (not Bitwig) the roles of the color manager: a selected item is the color
+/// at its normal (full) level, the others the inactive (medium) level of the same hue, the
+/// achromatic colors white and grey. Java's `index / 8 * 8 + 5` is meant for its DAW color
+/// table and would change the hue of other entries (yellow 18 to the green 21).
 pub fn dim_or_highlight_color(colors: &ColorManager, color: ColorEx, is_selected: bool) -> i32 {
+    if colors.is_direct() {
+        return colors.index_for_color_role(color, if is_selected { ColorRole::Normal } else { ColorRole::Inactive });
+    }
     let color_index = colors.index_for_color(color);
     if is_selected {
-        let is_dark_grey = color_index == COLOR_DARK_GREY || colors.is_direct() && matches!(color_index, 68 | 72);
-        return if is_dark_grey { COLOR_WHITE } else { color_index };
-    }
-    if colors.is_direct() {
-        return if color_index >= 68 { COLOR_DARK_GREY } else { color_index / 4 * 4 + 1 };
+        return if color_index == COLOR_DARK_GREY { COLOR_WHITE } else { color_index };
     }
     color_index / 8 * 8 + 5
 }

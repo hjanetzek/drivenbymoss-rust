@@ -7,7 +7,7 @@
 
 use crate::config::push::PushVersion;
 use crate::daw::color::{ColorEx, DawColor};
-use crate::framework::color::{ColorManager, ColorSource};
+use crate::framework::color::{ColorManager, ColorRole, ColorSource};
 
 /// The color managers of all controllers.
 fn all_color_managers() -> Vec<(&'static str, ColorManager)> {
@@ -86,7 +86,7 @@ fn direct_path_where_there_is_a_palette() {
         cm.set_color_source(ColorSource::Direct);
         for color in test_colors() {
             if with_palette.contains(&name) {
-                let index = cm.nearest_palette_index(color).unwrap();
+                let index = cm.palette_index_for_role(color, ColorRole::Normal).unwrap();
                 assert_eq!(cm.index_for_color(color), index, "{name}: {color:?}");
                 assert_ne!(index, 0, "{name}: an RGB color is never off");
             } else {
@@ -96,50 +96,65 @@ fn direct_path_where_there_is_a_palette() {
     }
 }
 
-/// NI's palette: hue * 4 + level (hue 17 and 72.. are white and the greys).
-fn ni_hue(index: i32) -> i32 {
-    if index >= 68 {
-        17
-    } else {
-        index / 4
-    }
-}
-
 fn rgb(hex: i32) -> ColorEx {
     ColorEx::from_rgb(hex >> 16, (hex >> 8) & 0xFF, hex & 0xFF)
 }
 
 #[test]
-fn ni_palette_nearest() {
+fn ni_palette_hue_by_color_level_by_role() {
     use super::maschine::core::colors::*;
+    use ColorRole::*;
     let mut cm = create_color_manager();
+    assert!(cm.has_role_levels());
     cm.set_color_source(ColorSource::Direct);
-    let index = |hex: i32| cm.index_for_color(rgb(hex));
-    // Orange stays orange (hue 2/3), not the lime green 22 of the DAW color table
-    // (F49500 -> LightOrange -> COLOR_YELLOW)
-    assert!(matches!(ni_hue(index(0xF49500)), 2 | 3), "{}", index(0xF49500));
+    let roles = |hex: i32| [Disabled, Inactive, Normal, Highlight].map(|role| cm.index_for_color_role(rgb(hex), role));
+    // The hue from the color, the level from the role: dim, medium, full, pale
+    assert_eq!(roles(0xF49500), [12, 13, 14, 15], "orange stays orange (hue 3), not the lime green 22 of the DAW color table");
     assert_eq!(cm.color_index(DawColor::color_id(rgb(0xF49500))), COLOR_YELLOW);
-    // Yellow is NI's yellow 18 (255, 224, 0), not 22 (96, 255, 0)
-    assert_eq!(index(0xFFFF00), 18);
-    assert_eq!(index(0xFFE000), 18);
-    // The greys stay grey
-    for grey in [0x202020, 0x404040, 0x606060, 0x808080, 0xA0A0A0, 0xC0C0C0, 0xFFFFFF] {
-        assert_eq!(ni_hue(index(grey)), 17, "{grey:06X}: {}", index(grey));
-        assert_ne!(index(grey), 71, "{grey:06X}: not the pale cyan");
+    assert_eq!(roles(0xFFFF00), [16, 17, 18, 19], "yellow is NI's yellow (hue 4), not 22");
+    assert_eq!(roles(0x03A598), [36, 37, 38, 39], "teal (hue 9)");
+    assert_eq!(roles(0x529DEC), [40, 41, 42, 43], "sky blue (hue 10)");
+    assert_eq!(roles(0xC44795), [56, 57, 58, 59], "magenta pink (hue 14)");
+    assert_eq!(roles(0x640000), [4, 5, 6, 7], "a dark red is red at the level of its role");
+    assert_eq!(roles(0xFF0000), [4, 5, 6, 7]);
+    assert_eq!(roles(0x0000FF), [44, 45, 46, 47]);
+    // Achromatic colors: the whites (dark grey, grey, white, white; all one white on the JAM)
+    for grey in [0x808080, 0x202020, 0x000000, 0xFFFFFF, 0x8C8080] {
+        assert_eq!(roles(grey), [COLOR_DARK_GREY, COLOR_GREY, COLOR_WHITE, 79], "{grey:06X}");
     }
-    // Black (an existing item) is a dark grey, not off
-    assert_eq!(ni_hue(index(0x000000)), 17);
-    // Dark colors keep their hue
-    assert!(matches!(ni_hue(index(0x640000)), 1 | 16), "{}", index(0x640000));
-    assert_eq!(ni_hue(index(0x00005A)), 11);
-    assert_eq!(ni_hue(index(0x783C00)), 2);
-    assert_eq!(ni_hue(index(0x003000)), 7);
-    // Colors of Electra presets
-    assert_eq!(ni_hue(index(0x03A598)), 9, "turquoise");
-    assert_eq!(ni_hue(index(0x529DEC)), 10, "sky blue");
-    assert_eq!(ni_hue(index(0xC44795)), 14, "magenta pink");
-    assert_eq!(index(0xFF0000), COLOR_RED);
-    assert_eq!(index(0x0000FF), 46);
+    // index_for_color is the normal role: the full level of the hue
+    assert_eq!(cm.index_for_color(rgb(0x03A598)), 38);
+    for hex in [0x00005A, 0x783C00, 0x003000, 0x123456, 0xFEDCBA, 0x7F3F1F] {
+        assert_eq!(cm.index_for_color(rgb(hex)) % 4, 2, "{hex:06X}: full");
+    }
+    assert_eq!(cm.index_for_color(rgb(0x00005A)), 46);
+    assert_eq!(cm.index_for_color(rgb(0x783C00)), 14);
+    assert_eq!(cm.index_for_color(rgb(0x003000)), 30);
+    // Bitwig's track colors on other hosts: the hue of the Java table for most of them
+    assert_eq!(cm.index_for_color(DawColor::Red.color()), COLOR_RED);
+    assert_eq!(cm.index_for_color(DawColor::Blue.color()), COLOR_BLUE);
+    assert_eq!(cm.index_for_color(DawColor::Pink.color()), COLOR_PINK);
+    assert_eq!(cm.index_for_color(DawColor::Brown.color()), COLOR_AMBER);
+    assert_eq!(cm.index_for_color(DawColor::Silver.color()), COLOR_WHITE);
+    // The roles are ignored on the Bitwig path (as Java)
+    cm.set_color_source(ColorSource::Bitwig);
+    for role in [Disabled, Inactive, Normal, Highlight] {
+        assert_eq!(cm.index_for_color_role(rgb(0xF49500), role), COLOR_YELLOW);
+    }
+}
+
+/// The 128-colour palettes are no hue × level palette: the nearest entry, whatever the role.
+#[test]
+fn velocity_palette_ignores_the_role() {
+    let mut cm = super::launchpad::colors::create_color_manager();
+    assert!(!cm.has_role_levels());
+    cm.set_color_source(ColorSource::Direct);
+    for hex in [0xF49500, 0x03A598, 0x808080] {
+        let nearest = cm.nearest_palette_index(rgb(hex)).unwrap();
+        for role in [ColorRole::Disabled, ColorRole::Inactive, ColorRole::Normal, ColorRole::Highlight] {
+            assert_eq!(cm.index_for_color_role(rgb(hex), role), nearest);
+        }
+    }
 }
 
 #[test]
@@ -148,10 +163,15 @@ fn ni_dim_keeps_the_hue() {
     let mut cm = create_color_manager();
     // Bitwig: Java's formula
     assert_eq!(dim_or_highlight_color(&cm, DawColor::Red.color(), false), 5);
+    assert_eq!(dim_or_highlight_color(&cm, DawColor::Red.color(), true), COLOR_RED);
+    assert_eq!(dim_or_highlight_color(&cm, DawColor::DarkGray.color(), true), COLOR_WHITE);
+    // Other hosts: selected full, the others medium (the inactive role)
     cm.set_color_source(ColorSource::Direct);
     assert_eq!(dim_or_highlight_color(&cm, rgb(0xFFFF00), true), 18);
     assert_eq!(dim_or_highlight_color(&cm, rgb(0xFFFF00), false), 17, "the medium yellow, not the green 21");
-    assert_eq!(dim_or_highlight_color(&cm, rgb(0x808080), false), COLOR_DARK_GREY);
+    assert_eq!(dim_or_highlight_color(&cm, rgb(0x640000), true), COLOR_RED);
+    assert_eq!(dim_or_highlight_color(&cm, rgb(0x640000), false), COLOR_RED_LO);
+    assert_eq!(dim_or_highlight_color(&cm, rgb(0x808080), false), COLOR_GREY);
     assert_eq!(dim_or_highlight_color(&cm, rgb(0x303030), true), COLOR_WHITE);
 }
 
@@ -182,3 +202,4 @@ fn velocity_palette_nearest() {
         assert_eq!(super::push::colors::palette_color(index).to_int_rgb255(), color.color().to_int_rgb255(), "{color:?} {i}");
     }
 }
+
