@@ -759,7 +759,7 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
     use drivenbymoss::controller::maschine::core::brightness::LedBrightness;
 
     let (mut app, backend) = start();
-    app.update_model("track/0/color 0.85 0.2 0.2\ntrack/1/color 0.2 0.3 0.8\n");
+    app.update_model("track/0/color 217 46 36\ntrack/1/color 51 77 204\n");
     app.tick();
     let normal_at_start = led_states(&backend.take_calls());
 

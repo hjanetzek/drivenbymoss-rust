@@ -10,7 +10,14 @@
 //! their brightness as the MIDI value (0..127). "Normal" sends the values of the core unchanged
 //! (as Java); "Bright" raises them when they are sent ([`LedBrightness::rgb`],
 //! [`LedBrightness::mono`]), so the setting covers all modes, views and the surface link. The
-//! mapping is the two tables [`BRIGHT_LEVELS`] / [`BRIGHT_GREYS`] and [`bright_mono`].
+//! mapping is the table [`BRIGHT_LEVELS`] and [`bright_mono`].
+//!
+//! Measured on the real JAM (2026-11-23): the pale level (3) is the brightest, full (2) is
+//! dimmer. The entries 68..79 all show the same white: the grey steps of the cabl table
+//! ([`super::colors::NI_PALETTE`]) do not exist on the device, so Bright leaves them as they
+//! are; 80..127 show nothing new. The JAM drives its LEDs in time slices (stripes on a photo,
+//! about 25% duty), so even pale stays dimmer than the firmware's startup animation; a
+//! device-wide brightness setting of the JAM may exist, but it is not known.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -38,18 +45,17 @@ pub enum LedBrightness {
 pub type SharedBrightness = Rc<Cell<LedBrightness>>;
 
 /// The level which "Bright" sends for each level of a palette entry (0 dim, 1 medium, 2 full,
-/// 3 pale): dim to medium, medium to full, full and pale stay.
-pub const BRIGHT_LEVELS: [i32; 4] = [1, 2, 2, 3];
+/// 3 pale): dim to full, medium and full to pale (the brightest on the device), pale stays.
+pub const BRIGHT_LEVELS: [i32; 4] = [2, 3, 3, 3];
 
-/// The entries which "Bright" sends for the greys 76..79 (dark grey, grey, white, white): the
-/// dark grey becomes the grey, the others stay.
-pub const BRIGHT_GREYS: [i32; 4] = [77, 77, 78, 79];
-
-/// The first entry of the greys which are not organized in levels.
-const GREYS: i32 = 76;
+/// The first entry of the whites and greys (68..79), which all look the same on the device.
+const WHITES: i32 = 68;
 
 /// The single-colour value which "Bright" sends: off (0) and full (127) stay, the values in
-/// between are raised half way to full.
+/// between are raised half way to full. The core sends only 0 and 127 to the single-colour
+/// LEDs (`BUTTON_STATE_ON` is 0, `BUTTON_STATE_HI` 127), so today this changes nothing; it is
+/// kept for values in between. Their brightness on the device is the curve of dbm-nihost
+/// (`jamMonoBrightness`) or of NI's driver.
 pub fn bright_mono(value: i32) -> i32 {
     if value <= 0 || value >= 127 {
         value
@@ -73,14 +79,11 @@ impl LedBrightness {
         Self::from_index(config.custom_index(id))
     }
 
-    /// The palette index to send to an RGB LED for the given index of the core. Black (0..3)
-    /// and values outside of the palette stay.
+    /// The palette index to send to an RGB LED for the given index of the core. Black (0..3),
+    /// the whites (68..79) and values outside of the palette stay.
     pub fn rgb(self, index: i32) -> i32 {
-        if self == LedBrightness::Normal || !(4..80).contains(&index) {
+        if self == LedBrightness::Normal || !(4..WHITES).contains(&index) {
             return index;
-        }
-        if index >= GREYS {
-            return BRIGHT_GREYS[(index - GREYS) as usize];
         }
         index / 4 * 4 + BRIGHT_LEVELS[(index % 4) as usize]
     }
@@ -122,30 +125,27 @@ mod tests {
         for black in 0..4 {
             assert_eq!(bright.rgb(black), black);
         }
-        // Each level of a hue: dim to medium, medium to full, full and pale stay
-        assert_eq!(bright.rgb(4), 5);
-        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_RED);
-        assert_eq!(bright.rgb(COLOR_RED), COLOR_RED);
+        // Each level of a hue: dim to full, medium and full to pale, pale stays
+        assert_eq!(bright.rgb(4), 6);
+        assert_eq!(bright.rgb(COLOR_RED_LO), COLOR_ROSE);
+        assert_eq!(bright.rgb(COLOR_RED), COLOR_ROSE);
         assert_eq!(bright.rgb(COLOR_ROSE), COLOR_ROSE);
-        assert_eq!(bright.rgb(COLOR_GREEN_LO), COLOR_GREEN);
-        assert_eq!(bright.rgb(COLOR_BLUE_LO), 46);
-        assert_eq!(bright.rgb(64), 65);
+        assert_eq!(bright.rgb(COLOR_GREEN_LO), 31);
+        assert_eq!(bright.rgb(COLOR_BLUE_LO), 47);
+        assert_eq!(bright.rgb(64), 66);
+        assert_eq!(bright.rgb(66), 67);
         assert_eq!(bright.rgb(67), 67);
-        // The whites with levels (68..75)
-        assert_eq!(bright.rgb(68), 69);
-        assert_eq!(bright.rgb(69), 70);
-        assert_eq!(bright.rgb(72), 73);
-        assert_eq!(bright.rgb(75), 75);
-        // The greys: the dark grey becomes grey, white stays white
-        assert_eq!(bright.rgb(COLOR_DARK_GREY), COLOR_GREY);
-        assert_eq!(bright.rgb(COLOR_GREY), COLOR_GREY);
+        // The whites and greys (68..79) look the same on the device and stay
+        for white in 68..80 {
+            assert_eq!(bright.rgb(white), white);
+        }
+        assert_eq!(bright.rgb(COLOR_DARK_GREY), COLOR_DARK_GREY);
         assert_eq!(bright.rgb(COLOR_WHITE), COLOR_WHITE);
-        assert_eq!(bright.rgb(79), 79);
         // Outside of the palette
         assert_eq!(bright.rgb(127), 127);
         assert_eq!(bright.rgb(-1), -1);
         // The hue is kept for all entries with levels
-        for index in 4..76 {
+        for index in 4..68 {
             assert_eq!(bright.rgb(index) / 4, index / 4);
             assert!(bright.rgb(index) % 4 >= index % 4);
         }

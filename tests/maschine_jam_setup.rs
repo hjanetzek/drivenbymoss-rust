@@ -407,7 +407,7 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
     let (mut app, backend) = start();
     // The session view: the group buttons with the (dimmed) track colors, the pads with clips
     ctx(&mut app).set_active_view(Views::Session);
-    app.update_model("track/0/color 0.85 0.2 0.2\ntrack/1/color 0.2 0.3 0.8\n");
+    app.update_model("track/0/color 217 46 36\ntrack/1/color 51 77 204\n");
     app.tick();
     backend.take_calls();
 
