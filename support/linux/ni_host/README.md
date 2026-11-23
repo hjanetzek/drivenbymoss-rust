@@ -146,6 +146,11 @@ virtual MIDI driver bridges the two:
   - `dbm-nihost-jack-probe [--client "Maschine Jam - 1"] [--listen]` connects to the bridge ports
     of a device as zynthian does, sends DrivenByMoss' query and prints what arrives (the hello).
     `--listen` only prints, e.g. while pressing pads.
+  - `dbm-nihost-jam-palette /dev/hidrawN dump|restore|set|scale`: the JAM's colour tables (HID
+    feature reports 0xF1, the live pad palette, and 0xF2). **Stored in flash** on the device: writes
+    stay after a replug and affect NI's software too. `data/jam-feature-reports-factory.json` holds
+    the factory tables of one JAM, `data/jam-feature-reports-dim-halved.json` the same with the dim
+    level halved (chosen on the device, 2026-11-23; restore it with `restore FILE 0xF1`).
   - `dbm-nihost-led-test [--pattern palette|levels|mono|index]` shows NI's palette on the JAM
     (all 16 hues x 4 levels on the pads, the greys on the scene and group buttons) or a ramp of the
     single-colour LEDs, through dbm-nihost's output port: to see which values are really bright.

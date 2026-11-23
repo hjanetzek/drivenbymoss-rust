@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Hannes Janetzek
+# Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
+#
+# The Maschine JAM's colour tables (HID feature reports): 0xF1 is the live pad palette (68 RGB
+# entries: hue 1..17 x level 0 dim, 1 medium, 2 full, 3 pale; values 0..127), 0xF2 a second table
+# of unknown purpose. The device STORES THEM IN FLASH: every write wears it and stays after a
+# replug, also for NI's software. Write only on purpose; keep a dump to restore.
+#   dbm-nihost-jam-palette /dev/hidrawN dump FILE            save 0xD0..0xDD, 0xF1, 0xF2 (read only;
+#                                                            0xD8/0xD9 hold the serial number)
+#   dbm-nihost-jam-palette /dev/hidrawN restore FILE [ID]    write 0xF1/0xF2 back from FILE
+#   dbm-nihost-jam-palette /dev/hidrawN set ID ENTRY R G B   change one RGB entry (0..67)
+#   dbm-nihost-jam-palette /dev/hidrawN scale ID FACTOR      scale every value (clamped to 0x7F)
+# It refuses to write any report other than 0xF1/0xF2 (0xD0..0xDD look like factory data).
+# The factory tables of one JAM: data/jam-feature-reports-factory.json (restore FILE works on it).
+# Find the device: grep -l 17CC:00001500 /sys/class/hidraw/*/device/uevent
+import fcntl, json, os, sys
+
+SIZES = {0xd0: 32, 0xd8: 32, 0xd9: 32, 0xda: 32, 0xdb: 32, 0xdc: 32, 0xdd: 32, 0xf1: 204, 0xf2: 204}
+WRITABLE = (0xf1, 0xf2)
+
+
+def ioc(direction, nr, size):
+    return (direction << 30) | (size << 16) | (ord('H') << 8) | nr
+
+
+def get(fd, rid):
+    buf = bytearray(SIZES[rid] + 1)
+    buf[0] = rid
+    n = fcntl.ioctl(fd, ioc(3, 0x07, len(buf)), buf, True)  # HIDIOCGFEATURE
+    return bytes(buf[1:n])
+
+
+def put(fd, rid, data):
+    assert rid in WRITABLE and len(data) == SIZES[rid] and max(data) <= 0x7F
+    buf = bytearray([rid]) + bytearray(data)
+    fcntl.ioctl(fd, ioc(3, 0x06, len(buf)), buf, True)  # HIDIOCSFEATURE
+    back = get(fd, rid)
+    print(f"0x{rid:02x} written, read back {'equal' if back == bytes(data) else 'DIFFERENT'}")
+
+
+def main():
+    dev, cmd, *args = sys.argv[1:]
+    fd = os.open(dev, os.O_RDWR if cmd != "dump" else os.O_RDONLY)
+    if cmd == "dump":
+        out = {f"0x{rid:02x}": get(fd, rid).hex() for rid in SIZES}
+        json.dump(out, open(args[0], "w"), indent=1)
+        print("saved", args[0])
+    elif cmd == "restore":
+        saved = json.load(open(args[0]))
+        ids = [int(args[1], 0)] if len(args) > 1 else WRITABLE
+        for rid in ids:
+            put(fd, rid, bytes.fromhex(saved[f"0x{rid:02x}"]))
+    elif cmd == "set":
+        rid, entry, r, g, b = (int(a, 0) for a in args)
+        data = bytearray(get(fd, rid))
+        data[entry * 3:entry * 3 + 3] = bytes((r, g, b))
+        put(fd, rid, data)
+    elif cmd == "scale":
+        rid, factor = int(args[0], 0), float(args[1])
+        put(fd, rid, bytes(min(0x7F, round(v * factor)) for v in get(fd, rid)))
+
+
+if __name__ == "__main__":
+    main()
