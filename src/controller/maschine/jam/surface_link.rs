@@ -35,6 +35,7 @@ use crate::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use crate::controller::maschine::core::colors;
 use crate::framework::page_surface::client::{EncoderFunction, EncoderKind, PadFunction, SharedClient, SurfaceClient, SurfaceMapping, UiColors};
 use crate::framework::page_surface::view::{palette_index, state_text, PageSurfaceMode, PageSurfaceView};
+use crate::framework::page_surface::host::HostSource;
 use crate::framework::page_surface::{ColorDepth, LinkState, PageSource};
 use crate::framework::surface_link::{LinkSource, DEFAULT_LINK};
 use crate::framework::value_changer::RelativeEncoding;
@@ -79,9 +80,10 @@ pub fn mapping() -> SurfaceMapping {
     mapping
 }
 
-/// The sources of the JAM, in the order of Select + SONG: the surface link (the Electra One).
+/// The sources of the JAM, in the order of Select + SONG: the surface link (the Electra One),
+/// the host's pages.
 fn sources(mapping: &SurfaceMapping) -> Vec<Box<dyn PageSource>> {
-    vec![Box::new(LinkSource::new(DEFAULT_LINK, mapping.capabilities()))]
+    vec![Box::new(LinkSource::new(DEFAULT_LINK, mapping.capabilities())), Box::new(HostSource::new(mapping.capabilities()))]
 }
 
 impl JamSurface {
