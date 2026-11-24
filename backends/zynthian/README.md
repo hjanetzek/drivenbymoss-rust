@@ -60,6 +60,24 @@ zynthian's UI therefore reach the controller within 250 ms.
 The drivers need zynthian-ui's `dbm` branch (from `nura`): it has the PipeWire port names, the
 `dev_in_2_dev_out` fix, `getTransportState` in `zynseq.h` and `ZYNTHIAN_CTRLDEV_PATH`.
 
+## The host's pages (chain control's grid)
+
+With zynthian-ui's grid module (`zyngui/zynthian_control_grid_data.py` with `chain_pages` and
+`shared_selection`: the `electra-grid` branch) a controller with a grid (the Maschine JAM:
+Select + SONG) shows the active chain's controller pages as zynthian's grid layouts do, and its
+selection is chain control's: a press on a cell selects its page and cell on zynthian's screen,
+a change on the screen moves the controller's highlight (`dbm_zynthian/host_page.py`,
+[doc/HOST_PAGE_PLAN.md §12](../../doc/HOST_PAGE_PLAN.md)). Without that module (a stock zynthian)
+the host-page commands are not declared and the controller has no host source.
+
+## Device IDs from the environment
+
+`ZYNTHIAN_DBM_DEVICE_<MODEL>` (the driver module's model, upper-cased, e.g.
+`ZYNTHIAN_DBM_DEVICE_MASCHINE_JAM`; the JAM also reads `ZYNTHIAN_DBM_JAM_DEVICE`) replaces a
+driver's device IDs: a comma-separated list of zynthian device IDs, e.g. `Maschine Jam - 1 (hp)
+IN 1` for a simulator with a port suffix next to dbm-nihost's JAM. Read when the driver module is
+loaded. The in-process HID matching (`hid_ids`) stays.
+
 ## Running zynthian with the drivers of this checkout
 
 Build the library (`cargo build`), then start zynthian's desktop mode with this folder as an extra

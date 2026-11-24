@@ -589,7 +589,7 @@ Only after `HostPageShow` on (and until off); everything again after `HostPageSh
 | `/hostpage/cell/{c}/kind` | int | `empty` 0, `float`/`integer` 1, `list` 2, `toggle` 3, `trigger` 4, `path` 6 |
 | `/hostpage/cell/{c}/name`, `/text`, `/value` | text, text, f64 | `cell_name`, `cell_value_text`, `cell_fraction` |
 | `/hostpage/cell/{c}/color` | color | the section colour |
-| `/hostpage/cell/{c}/steps` | int | the number of list items (0 otherwise) |
+| `/hostpage/cell/{c}/steps` | int | the number of values of a stepped cell: list items, 2 for a toggle, max − min + 1 for an integer (0 otherwise), as the reference host |
 | `/hostpage/cell/{c}/on` | bool | a toggle: value ≠ min |
 | `/hostpage/cell/{c}/enabled` | bool | `GridCell.enabled` |
 | `/hostpage/cell/{c}/set` | int | the index of the cell's zynthian page among the shown ones (-1 none) |
@@ -636,6 +636,7 @@ without the grid module (a stock zynthian) leave them undeclared, and the JAM ha
 | P4 | The JAM's sources: the surface link, then the host's pages; Select + SONG cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
 | P5 | The simulated host pages (chains per track, sections, grid8x6 / grid4x6, a screen), `dbm_host_alsa.py --host-pages` (SIGUSR1 / SIGUSR2 move the screen's selection) | `bindings/python/dbm_host/host_page.py`, `bindings/python/tests/test_host_page.py`, `support/push_simulator/tools/dbm_host_alsa.py` |
 | JAM strips | The host page strips (§5.1): CONTROL's second slot with host pages, the host's active row on the strips with the grid in its view; `<` `>` sets / pages, Select + `<` `>` rows, Select + strip assign; one `HostPageShow` across the strips and the full surface | `src/controller/maschine/jam/surface_link.rs`, `command/mod.rs`, `Modes::HostStrips`, `SurfaceClient::step_set_or_page`; `tests/host_page.rs`, `tests/surface_link.rs` (`host_page_strips_with_the_electra`) |
+| P6 | zynthian: the shared page list, section colours, the shared selection (page, cell, window, zynsigman signals), `turn_travel` in zynthian-ui `electra-grid` (`zyngui/zynthian_control_grid_data.py`, `zynqt/screens/control.py`, docs/qt-control-grid.md); the adapter's `ZynHostPages` (its own paged `ControlGrid` on the tick thread, reports full / fast, typed 0x8C handlers with the epoch, declared only with the grid module) and `ZYNTHIAN_DBM_DEVICE_<MODEL>` | `backends/zynthian/ctrldev/dbm_zynthian/host_page.py`, `backends/zynthian/tests/test_host_page.py` |
 
 **Try it** (isolated: own suffix, clients by PID):
 

@@ -72,7 +72,7 @@ SLOW_INTERVAL_MS = 250.0
 # names, types, selection; the peak meters), their mixer values and sends, the slots and scenes,
 # the transport, the cursor device with its pages and the first instrument, the cursor clip with
 # its step grids, the browser
-SUBTREES = ("host", "tracks", "mixer", "slots", "transport", "device", "clip", "browser")
+SUBTREES = ("host", "tracks", "mixer", "slots", "transport", "device", "clip", "browser", "page")
 ALL_SUBTREES = frozenset(SUBTREES)
 
 # The values of a slot, in the order of collect_slots
@@ -103,6 +103,7 @@ class ZynReporter(Reporter):
             ZynReporter.collect_clip,
             ZynReporter.collect_browser,
             Reporter.collect_grids,
+            ZynReporter.collect_host_pages,
         ]
         # The subtrees of each collector (collect_subtrees): the track collectors run for any of
         # theirs and check "mixer" and "slots" for those parts
@@ -120,6 +121,7 @@ class ZynReporter(Reporter):
             ZynReporter.collect_clip: {"clip"},
             ZynReporter.collect_browser: {"browser"},
             Reporter.collect_grids: {"clip"},
+            ZynReporter.collect_host_pages: {"page"},
         }
         # The subtrees of the pass being collected
         self.refreshing = ALL_SUBTREES
@@ -128,7 +130,12 @@ class ZynReporter(Reporter):
             ZynReporter.collect_transport,
             ZynReporter.collect_meters,
             ZynReporter.collect_playing_steps,
+            ZynReporter.collect_host_page_values,
         ]
+        self.host_pages = None
+        """The host's pages (host_page.ZynHostPages; set by the command handler with zynthian-ui's
+        grid module): structure in the full pass, the shown cells' values in the fast pass, only
+        while a surface shows them."""
         self._counts = {"track": 0, "fxtrack": 0, "scene": 0}
         self._failed = set()
         self.full_requested = True
@@ -586,6 +593,16 @@ class ZynReporter(Reporter):
         browser = getattr(self.daw, "browser", None)
         if browser is not None:
             browser.collect(self, *self.browser_pages())
+
+    def collect_host_pages(self):
+        """The host's pages (host_page.py, doc/HOST_PAGE_PLAN.md §12.2), while shown"""
+        if self.host_pages is not None:
+            self.host_pages.collect_full(self.put)
+
+    def collect_host_page_values(self):
+        """The values and texts of the host page's shown cells that changed (fast)"""
+        if self.host_pages is not None:
+            self.host_pages.collect_fast(self.put)
 
     def playing_step(self, grid):
         clip = self.daw.cursor_clip()

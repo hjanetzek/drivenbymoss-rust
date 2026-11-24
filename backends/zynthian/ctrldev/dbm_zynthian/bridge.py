@@ -63,12 +63,12 @@ def change_signals():
     note edits of the sequences, the browser's position in zynthian's preset view; the full pass
     every SLOW_INTERVAL_MS covers them."""
     s = zynsigman
-    chains = {"tracks", "mixer", "slots", "device", "clip", "browser"}
+    chains = {"tracks", "mixer", "slots", "device", "clip", "browser", "page"}
     return [
         # zynmixer: level, balance, mute, solo, record arm (also from zynthian's UI)
         (s.S_MIXER, s.SS_ZYNMIXER_SET_VALUE, {"mixer"}),
         (s.S_PROCESSOR, s.SS_PROCESSOR_BYPASS, {"device"}),
-        (s.S_PROCESSOR, s.SS_PROCESSOR_CTRL_SCREENS, {"device"}),
+        (s.S_PROCESSOR, s.SS_PROCESSOR_CTRL_SCREENS, {"device", "page"}),
         # The active chain is the selected track, the cursor device and clip
         (s.S_CHAIN_MAN, s.SS_SET_ACTIVE_CHAIN, chains),
         (s.S_CHAIN_MAN, s.SS_MOVE_CHAIN, chains),
@@ -76,8 +76,8 @@ def change_signals():
         (s.S_CHAIN_MAN, s.SS_REMOVE_CHAIN, chains),
         (s.S_CHAIN_MAN, s.SS_REMOVE_ALL_CHAINS, chains),
         (s.S_CHAIN_MAN, s.SS_RENAME_CHAIN, {"tracks"}),
-        (s.S_CHAIN_MAN, s.SS_ADD_PROCESSOR, {"device", "browser"}),
-        (s.S_CHAIN_MAN, s.SS_REMOVE_PROCESSOR, {"device", "browser"}),
+        (s.S_CHAIN_MAN, s.SS_ADD_PROCESSOR, {"device", "browser", "page"}),
+        (s.S_CHAIN_MAN, s.SS_REMOVE_PROCESSOR, {"device", "browser", "page"}),
         (s.S_STEPSEQ, s.SS_SEQ_PLAY_STATE, {"slots"}),
         (s.S_STEPSEQ, s.SS_SEQ_STATE, {"slots", "clip"}),
         (s.S_STEPSEQ, s.SS_SEQ_SELECT_PHRASE, {"slots", "clip"}),
@@ -85,6 +85,10 @@ def change_signals():
         (s.S_STEPSEQ, s.SS_SEQ_TIMESIG, {"transport", "clip"}),
         (s.S_STEPSEQ, s.SS_SEQ_METRO, {"transport"}),
         (s.S_STATE_MAN, s.SS_LOAD_ZS3, set(ALL_SUBTREES)),
+    ] + [
+        # Chain control's shared selection (zynthian-ui's grid module: host_page.py)
+        (s.S_GUI, getattr(s, name), {"page"})
+        for name in ("SS_GUI_CONTROL_GRID_PAGE", "SS_GUI_CONTROL_GRID_CELL", "SS_GUI_CONTROL_GRID_WINDOW") if hasattr(s, name)
     ]
 
 

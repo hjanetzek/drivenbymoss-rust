@@ -75,6 +75,8 @@ from dbm_host.reporter import NUM_SIBLINGS, M, channel_key
 from drivenbymoss import protocol
 from drivenbymoss.protocol import ChKind, Cmd, Processor
 
+from zyngine.ctrldev.dbm_zynthian.host_page import ZynHostPages, grid_module
+
 logger = logging.getLogger("dbm_zynthian")
 
 # The last commands kept in ``log`` (for tests and debugging; the reference host keeps all)
@@ -98,6 +100,9 @@ GRID_COMMANDS = (Cmd.GRID_STEP_TOGGLE, Cmd.GRID_STEP_SET, Cmd.GRID_STEP_SET_FROM
                  Cmd.GRID_STEP_MOVE_Y, Cmd.GRID_STEP_ATTRIBUTE, Cmd.GRID_STEP_SIZE, Cmd.GRID_CLEAR_ALL, Cmd.GRID_CLEAR_ROW,
                  Cmd.GRID_CLEAR_COLUMN, Cmd.GRID_SCROLL, Cmd.GRID_PAGE)
 # The commands of the browser: the name of the command, column/result, the move
+# The host's pages (host_page.py, doc/HOST_PAGE_PLAN.md §12): only with zynthian-ui's grid module
+HOST_PAGE_COMMANDS = (Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
+                      Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION)
 BROWSER_COMMANDS = (Cmd.BROWSER_REPLACE_DEVICE, Cmd.BROWSER_STOP, Cmd.BROWSER_PREVIEW, Cmd.BROWSER_CONTENT_TYPE, Cmd.BROWSER_COLUMN_STEP,
                     Cmd.BROWSER_COLUMN_PAGE, Cmd.BROWSER_COLUMN_RESET, Cmd.BROWSER_RESULT_STEP, Cmd.BROWSER_RESULT_PAGE)
 
@@ -181,7 +186,8 @@ class ZynCommandHandler(CommandHandler):
         Cmd.NOTE_REPEAT_ACTIVE, Cmd.NOTE_REPEAT_RATE, Cmd.NOTE_REPEAT_NOTE_LENGTH,
         Cmd.NOTE_REPEAT_VELOCITY, Cmd.NOTE_REPEAT_MODE, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT,
         Cmd.GROOVE_PARAM,
-        # The host's pages (doc/HOST_PAGE_PLAN.md §12): with the control grid of zynthian-ui (P6)
+        # The host's pages (doc/HOST_PAGE_PLAN.md §12): handled only with zynthian-ui's grid
+        # module (HOST_PAGE_COMMANDS, host_page.py); a stock zynthian has none
         Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
         Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
         Cmd.HOST_PAGE_CELL_ASSIGN,
@@ -189,7 +195,8 @@ class ZynCommandHandler(CommandHandler):
     """The CmdIds zynthian does not execute with zynseq (no arranger, no automation, no undo, no
     markers, no note repeat, …). A snapshot: the coverage test of TYPED_PROTOCOL_PLAN §2.5
     (test_commands.CommandCoverageTest) keeps it and ``handled_commands`` exact; without zynseq
-    the transport and the clip launcher are not handled either (``ZYNSEQ_COMMANDS``)."""
+    the transport and the clip launcher are not handled either (``ZYNSEQ_COMMANDS``); with
+    zynthian-ui's grid module the host's pages are (``HOST_PAGE_COMMANDS``)."""
 
     def __init__(self, daw, banks, reporter, clock=lambda: 0.0):
         super().__init__(daw, banks, reporter, clock)
@@ -209,6 +216,14 @@ class ZynCommandHandler(CommandHandler):
         r(CLIP_COMMANDS, self._clip)
         r((Cmd.CLIP_DUPLICATE,), lambda view, cmd: self.duplicate_cursor_slot())
         r(BROWSER_COMMANDS, self._browser)
+        # The host's pages: chain control's grid, with zynthian-ui's grid module only
+        self.host_pages = None
+        gd = grid_module()
+        chain_manager = getattr(self.daw, "chain_manager", None)
+        if gd is not None and chain_manager is not None:
+            self.host_pages = ZynHostPages(chain_manager, gd)
+            self.reporter.host_pages = self.host_pages
+            r(HOST_PAGE_COMMANDS, self._host_page)
         transport = self.daw.transport
         if transport is not None and transport.available:
             r((Cmd.TRANSPORT_PLAY, Cmd.TRANSPORT_STOP, Cmd.TRANSPORT_STOP_AND_REWIND, Cmd.TRANSPORT_RESTART, Cmd.TRANSPORT_METRONOME,
@@ -223,6 +238,32 @@ class ZynCommandHandler(CommandHandler):
             if transport is not None and transport.available:
                 r((Cmd.RECORD_TOGGLE,), lambda view, cmd: launcher.toggle_recording())
                 r((Cmd.TRANSPORT_OVERDUB_LAUNCHER,), lambda view, cmd: launcher.set_recording(cmd.flag))
+
+    def _host_page(self, view, cmd):
+        """The host's pages (host_page.py): selecting commands become requests to zynthian's
+        screen (the shared selection), the reports follow its signals"""
+        pages = self.host_pages
+        id_ = view.h[0]
+        if id_ == Cmd.HOST_PAGE_SHOW:
+            if pages.show(view.columns, view.value):
+                self.reporter.forget_host_page()
+        elif id_ == Cmd.HOST_PAGE_CELL_TURN:
+            pages.turn(view.cell, view.epoch, view.unit == protocol.TurnUnit.TRAVEL, view.resolution == protocol.Resolution.FINE,
+                       int(view.value))
+        elif id_ == Cmd.HOST_PAGE_CELL_PRESS:
+            pages.press(view.cell, view.epoch, bool(view.value))
+        elif id_ == Cmd.HOST_PAGE_CELL_RESET:
+            pages.reset(view.cell, view.epoch)
+        elif id_ == Cmd.HOST_PAGE_ROW:
+            pages.select_row(int(view.value))
+        elif id_ == Cmd.HOST_PAGE_PAGE:
+            pages.select_window(int(view.value))
+        elif id_ == Cmd.HOST_PAGE_SET:
+            pages.select_set(int(view.value))
+        elif id_ == Cmd.HOST_PAGE_SECTION:
+            pages.select_section(int(view.value))
+        # HOST_PAGE_CELL_TOUCH: nothing (later: the page's widget on the screen)
+        return True
 
     def configure(self):
         """No clip launcher navigator; one step grid per size of the model setup's ``noteClips``

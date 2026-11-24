@@ -224,12 +224,30 @@ def mixer_controllers(engine, processor, level=0.8):
 
 
 class FakeProcessor:
+    """A mixer strip's processor (MI, MR): one controller screen, as zynthian_engine_audio_mixer's"""
+
     def __init__(self, chain, eng_code, mixer_chan, zynmixer):
         self.chain = chain
         self.eng_code = eng_code
+        self.type = "Audio Effect"
+        self.engine = types.SimpleNamespace(name="Mixer")
         self.mixer_chan = mixer_chan
         self.zynmixer = zynmixer
         self.controllers_dict = {}
+        self.current_screen_index = 0
+
+    def get_ctrl_screens(self):
+        c = self.controllers_dict
+        return {"Mixer": [c.get(s) for s in ("level", "balance", "mute", "solo")]} if "level" in c else {}
+
+    def get_ctrl_screen(self, title):
+        return self.get_ctrl_screens()[title]
+
+    def get_current_screen_index(self):
+        return self.current_screen_index
+
+    def set_current_screen_index(self, index):
+        self.current_screen_index = index
 
 
 class FakeSynthProcessor:
@@ -241,6 +259,7 @@ class FakeSynthProcessor:
         self.eng_code = eng_code
         self.type = type
         self.name = name
+        self.engine = types.SimpleNamespace(name=f"{eng_code}/{name}")
         self.bypassed = False
         self.current_screen_index = 0
         self.controllers_dict = {}
@@ -272,6 +291,9 @@ class FakeSynthProcessor:
 
     def get_ctrl_screens(self):
         return self.ctrl_screens_dict
+
+    def get_ctrl_screen(self, title):
+        return self.ctrl_screens_dict[title]
 
     def get_current_screen_index(self):
         return self.current_screen_index
