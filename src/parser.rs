@@ -661,6 +661,60 @@ impl Parser {
             Msg::QuantizeStrength { value } => self.events.push(ParserEvent::QuantizeAmount(value)),
             Msg::GrooveActive { value } => model.groove_mut().parameter_mut(GrooveParameterId::Enabled).set_internal_value(value),
             Msg::GrooveAmount { value } => model.groove_mut().parameter_mut(GrooveParameterId::ShuffleAmount).set_internal_value(value),
+            // ------------------------------------------------------------------------------
+            // The host's parameter pages (doc/HOST_PAGE_PLAN.md §3.5)
+            Msg::HostPageExists { value } => model.host_page_mut().exists = value,
+            Msg::HostPageTitle { value } => model.host_page_mut().title = value.to_string(),
+            Msg::HostPageEpoch { value } => model.host_page_mut().epoch = value,
+            Msg::HostPageColumns { value } => model.host_page_mut().set_columns(value),
+            Msg::HostPageRows { value } => model.host_page_mut().set_rows(value),
+            Msg::HostPageCount { value } => model.host_page_mut().set_page_count(value),
+            Msg::HostPageSelected { value } => model.host_page_mut().page = value,
+            Msg::HostPageName { page, value } => {
+                if let Some(name) = model.host_page_mut().page_name_mut(page) {
+                    *name = value.to_string();
+                }
+            }
+            Msg::HostCellKind { cell, value } => host_cell(model, cell, |c| c.kind = value),
+            Msg::HostCellName { cell, value } => host_cell(model, cell, |c| c.name = value.to_string()),
+            Msg::HostCellColor { cell, value } => host_cell(model, cell, |c| c.color = value),
+            Msg::HostCellValue { cell, value } => host_cell(model, cell, |c| c.value = value),
+            Msg::HostCellText { cell, value } => host_cell(model, cell, |c| c.text = value.to_string()),
+            Msg::HostCellSteps { cell, value } => host_cell(model, cell, |c| c.steps = value),
+            Msg::HostCellOn { cell, value } => host_cell(model, cell, |c| c.on = value),
+            Msg::HostCellEnabled { cell, value } => host_cell(model, cell, |c| c.enabled = value),
+            Msg::HostCellSet { cell, value } => host_cell(model, cell, |c| c.set = value),
+            Msg::HostSetCount { value } => model.host_page_mut().set_set_count(value),
+            Msg::HostSetName { set, value } => {
+                if let Some(s) = model.host_page_mut().set_mut(set) {
+                    s.name = value.to_string();
+                }
+            }
+            Msg::HostSetSection { set, value } => {
+                if let Some(s) = model.host_page_mut().set_mut(set) {
+                    s.section = value;
+                }
+            }
+            Msg::HostSetColor { set, value } => {
+                if let Some(s) = model.host_page_mut().set_mut(set) {
+                    s.color = value;
+                }
+            }
+            Msg::HostSetSelected { value } => model.host_page_mut().set = value,
+            Msg::HostSectionCount { value } => model.host_page_mut().set_section_count(value),
+            Msg::HostSectionName { section, value } => {
+                if let Some(s) = model.host_page_mut().section_mut(section) {
+                    s.name = value.to_string();
+                }
+            }
+            Msg::HostSectionColor { section, value } => {
+                if let Some(s) = model.host_page_mut().section_mut(section) {
+                    s.color = value;
+                }
+            }
+            Msg::HostSectionSelected { value } => model.host_page_mut().section = value,
+            Msg::HostPageRow { value } => model.host_page_mut().row = value,
+            Msg::HostCellSelected { value } => model.host_page_mut().selected_cell = value,
         }
     }
 
@@ -675,6 +729,13 @@ impl Parser {
 }
 
 /// Apply `f` to the track of a channel report (it is created if necessary).
+/// Change a cell of the host's parameter pages (ignored beyond the largest page).
+fn host_cell(model: &mut Model, cell: usize, f: impl FnOnce(&mut crate::daw::host_page::HostCell)) {
+    if let Some(cell) = model.host_page_mut().cell_mut(cell) {
+        f(cell);
+    }
+}
+
 fn channel(model: &mut Model, ch: Ch, f: impl FnOnce(&mut crate::daw::track::Track)) {
     let (tb, r) = channel_mut(model, ch);
     f(tb.track_mut(r));
@@ -2273,5 +2334,57 @@ mod tests {
                 Cmd::MarkerAdd {},
             ]
         );
+    }
+
+    #[test]
+    fn host_pages() {
+        let (mut model, mut parser, _backend, log) = create(ModelSetup::default());
+        let generation = model.host_page().generation();
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/hostpage/exists 1",
+                "/hostpage/title Host · Synth",
+                "/hostpage/epoch 3",
+                "/hostpage/columns 8",
+                "/hostpage/rows 6",
+                "/hostpage/page/count 2",
+                "/hostpage/page/1/name Helm Voices",
+                "/hostpage/page/selected 1",
+                "/hostpage/cell/9/kind 2",
+                "/hostpage/cell/9/name Wave",
+                "/hostpage/cell/9/color 255 80 0",
+                "/hostpage/cell/9/value 0.5",
+                "/hostpage/cell/9/text Saw",
+                "/hostpage/cell/9/steps 5",
+                "/hostpage/cell/9/on 0",
+                "/hostpage/cell/9/enabled 1",
+                "/hostpage/cell/9/set 2",
+                "/hostpage/cell/99/name Beyond",
+                "/hostpage/set/count 3",
+                "/hostpage/set/2/name Osc 1",
+                "/hostpage/set/2/section 1",
+                "/hostpage/set/2/color 255 80 0",
+                "/hostpage/set/selected 2",
+                "/hostpage/section/count 2",
+                "/hostpage/section/1/name Helm",
+                "/hostpage/section/1/color 255 80 0",
+                "/hostpage/section/selected 1",
+                "/hostpage/row 1",
+                "/hostpage/cell/selected 9",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let page = model.host_page();
+        assert!(page.generation() > generation);
+        assert_eq!((page.exists, page.title.as_str(), page.epoch, page.columns, page.rows), (true, "Host · Synth", 3, 8, 6));
+        assert_eq!((page.pages.len(), page.pages[1].as_str(), page.page), (2, "Helm Voices", 1));
+        let cell = &page.cells[9];
+        assert_eq!((cell.kind, cell.name.as_str(), cell.text.as_str(), cell.steps, cell.enabled, cell.set, cell.value), (2, "Wave", "Saw", 5, true, 2, 0.5));
+        assert_eq!(cell.color, Some([1.0, 80.0 / 255.0, 0.0]));
+        assert_eq!(page.cells.len(), 10, "a cell beyond 8x8 is ignored");
+        assert_eq!((page.sets.len(), page.sets[2].name.as_str(), page.sets[2].section, page.set), (3, "Osc 1", 1, 2));
+        assert_eq!((page.sections[1].name.as_str(), page.section, page.row, page.selected_cell), ("Helm", 1, 1, 9));
     }
 }

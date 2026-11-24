@@ -52,6 +52,8 @@ pub enum Processor {
     Navigator,
     /// The effect tracks (Bitwig's effect track bank; commands as for `track`).
     FxTrack,
+    /// The parameter pages of the host (doc/HOST_PAGE_PLAN.md).
+    HostPage,
 }
 
 impl Processor {
@@ -96,12 +98,13 @@ impl Processor {
             Processor::Primary => "primary",
             Processor::Navigator => "navigator",
             Processor::FxTrack => "fxtrack",
+            Processor::HostPage => "hostpage",
         }
     }
 
     /// All processors. The position is the number of the processor in the binary protocol
     /// (`protocol::bin`): append only.
-    pub const ALL: [Processor; 38] = [
+    pub const ALL: [Processor; 39] = [
         Processor::Transport,
         Processor::Project,
         Processor::Track,
@@ -140,6 +143,7 @@ impl Processor {
         Processor::Primary,
         Processor::Navigator,
         Processor::FxTrack,
+        Processor::HostPage,
     ];
 
     /// The processor with the given name (see [`Processor::id`]).

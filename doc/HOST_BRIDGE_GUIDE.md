@@ -290,6 +290,7 @@ features: the Bitwig extension before it reported its features); a host which re
 | `deviceCommands` | Commands to the device itself instead of the sibling index | `device\|primary\|drum\|eq window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select`, `device sibling/<i+1>/bypass\|remove\|duplicate\|select` (`device <index+1>/…`, `device window <0\|1>`), `drum\|primary pad/<p>/select` (nothing) |
 | `layoutStep` | Previous/next panel layout of the host | `application layout/-\|+` (`application layout <index>`) |
 | `clipLauncherNavigator` | The host's clip launcher navigator (only reported if the model setup has `wantsClipLauncherNavigator`; Bitwig: `ClipLauncherNavigatorImpl` of the Java version, a bank of one track following its own cursor track with one scene, its slot selected, the scene window following its scene) | `navigator selectTrack <position>` (then `track <p>/select`), `navigator tracks\|clips\|scenes/-\|+` (the core selects the slot of the new track itself, as the Reaper version) |
+| `hostPages` | The host provides parameter pages (doc/HOST_PAGE_PLAN.md): a page surface (the Maschine JAM, Select + SONG) shows them; binary hosts only | `hostpage show\|cell/<c>/turn\|press\|touch\|reset\|row\|page\|set\|section` (§4.12; nothing without) |
 
 Features detected from their own reports need no name (table above): paging, the automation and
 overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
@@ -528,6 +529,23 @@ core pages over all reported markers. Reaper reports its project markers (positi
 Bitwig: a cue marker bank of 100 (`arranger.createCueMarkerBank`, only if `numMarkers > 0`):
 `exists` for all 100, the other fields for existing markers (`position` in beats), `count` =
 `itemCount` (at most 100).
+
+### 3.10 The host's parameter pages
+
+*Reference host:* `bindings/python/dbm_host/host_page.py` (`HostPageView.report`).
+
+Only for a binary host with the `hostPages` feature (§2), and only between `hostpage show … 1`
+and `… 0` (§4.12); everything again (a dump) after `show … 1` and after `refresh`. The page the
+host shows: `/hostpage/exists`, `title` (the source's name on the surface), `epoch` (changed
+whenever the cells hold other parameters), `columns`, `rows` (1..8), `/hostpage/page/count`,
+`/hostpage/page/<p>/name`, `/hostpage/page/selected`; per cell (`<c>` = row · columns + column):
+`/hostpage/cell/<c>/kind` (0 empty, 1 fader, 2 list, 3 toggle, 4 trigger, 5 relative, 6 action),
+`name`, `color`, `value` (0..1), `text`, `steps` (list items), `on`, `enabled`, `set` (-1 none);
+the control sets (`/hostpage/set/count`, `/hostpage/set/<s>/name|section|color`,
+`/hostpage/set/selected`), the sections (`/hostpage/section/count`,
+`/hostpage/section/<s>/name|color`, `/hostpage/section/selected`), `/hostpage/row`,
+`/hostpage/cell/selected`. **The selection is the host's**: the core shows only what is reported
+(doc/HOST_PAGE_PLAN.md §D.4, §3.5; the hand-over for zynthian in §12).
 
 ## 4. Command reference (core → host)
 
@@ -769,6 +787,21 @@ version.
 is closed); `delay_updates(processor)`: do not report this area for ~300 ms (sent while
 automation is recorded, so that old values do not jump back). Reaper honours both
 (`DataCollector`); Bitwig ignores them (it only records them). Optional, an optimisation.
+
+### 4.12 The host's parameter pages (`hostpage`, feature `hostPages`)
+
+*Reference host:* `bindings/python/dbm_host/host_page.py`, `CommandHandler._host_page`.
+
+| Command | Host action |
+| --- | --- |
+| `hostpage show/<columns>/<rows>/<encoders>/<rows per set> <0\|1>` | a surface shows (1) or no longer shows (0) the pages; with 1: choose the layout for the shape, report everything |
+| `hostpage cell/<c>/turn/<travel\|detent>/<normal\|fine>/<epoch> <delta>` | turn a cell (the host's value math: `detent` one encoder step, `travel` delta/127 of the range); drop it if the epoch is not the current one |
+| `hostpage cell/<c>/press/<epoch> <0\|1>` | press / release: a toggle switches, a trigger fires, a list steps, a continuous cell is selected (with its set and row) |
+| `hostpage cell/<c>/touch/<epoch> <0\|1>`, `hostpage cell/<c>/reset/<epoch>` | the touch of the cell; its default value |
+| `hostpage row <r>`, `hostpage page <p>`, `hostpage set <s>`, `hostpage section <s>` | select a row, show a page, select a set or a section (its first set) |
+
+Every selecting command changes the host's own selection (its screen), which the host then
+reports.
 
 ## 5. MIDI and note inputs
 

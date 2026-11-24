@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0x767e94b5c9d1a63c
+HASH = 0xeb0827102a1ece56
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -85,6 +85,7 @@ class Processor(IntEnum):
     PRIMARY = 35
     NAVIGATOR = 36
     FX_TRACK = 37
+    HOST_PAGE = 38
 
 
 class Dev(IntEnum):
@@ -216,6 +217,16 @@ class DeviceAction(IntEnum):
     REMOVE = 1
     DUPLICATE = 2
     SELECT = 3
+
+
+class TurnUnit(IntEnum):
+    TRAVEL = 0
+    DETENT = 1
+
+
+class Resolution(IntEnum):
+    NORMAL = 0
+    FINE = 1
 
 
 class NavigatorTarget(IntEnum):
@@ -495,6 +506,34 @@ class Msg(IntEnum):
     QUANTIZE_STRENGTH = 0x0B10
     GROOVE_ACTIVE = 0x0B20
     GROOVE_AMOUNT = 0x0B21
+    HOST_PAGE_EXISTS = 0x0C01
+    HOST_PAGE_TITLE = 0x0C02
+    HOST_PAGE_EPOCH = 0x0C03
+    HOST_PAGE_COLUMNS = 0x0C04
+    HOST_PAGE_ROWS = 0x0C05
+    HOST_PAGE_COUNT = 0x0C08
+    HOST_PAGE_SELECTED = 0x0C09
+    HOST_PAGE_NAME = 0x0C0A
+    HOST_CELL_KIND = 0x0C10
+    HOST_CELL_NAME = 0x0C11
+    HOST_CELL_COLOR = 0x0C12
+    HOST_CELL_VALUE = 0x0C13
+    HOST_CELL_TEXT = 0x0C14
+    HOST_CELL_STEPS = 0x0C15
+    HOST_CELL_ON = 0x0C16
+    HOST_CELL_ENABLED = 0x0C17
+    HOST_CELL_SET = 0x0C18
+    HOST_SET_COUNT = 0x0C20
+    HOST_SET_NAME = 0x0C21
+    HOST_SET_SECTION = 0x0C22
+    HOST_SET_COLOR = 0x0C23
+    HOST_SET_SELECTED = 0x0C24
+    HOST_SECTION_COUNT = 0x0C30
+    HOST_SECTION_NAME = 0x0C31
+    HOST_SECTION_COLOR = 0x0C32
+    HOST_SECTION_SELECTED = 0x0C33
+    HOST_PAGE_ROW = 0x0C40
+    HOST_CELL_SELECTED = 0x0C41
 
 
 class Cmd(IntEnum):
@@ -737,6 +776,15 @@ class Cmd(IntEnum):
     GROOVE_ACTIVE = 0x8B10
     GROOVE_AMOUNT = 0x8B11
     GROOVE_PARAM = 0x8B12
+    HOST_PAGE_SHOW = 0x8C01
+    HOST_PAGE_CELL_TURN = 0x8C02
+    HOST_PAGE_CELL_PRESS = 0x8C03
+    HOST_PAGE_CELL_TOUCH = 0x8C04
+    HOST_PAGE_CELL_RESET = 0x8C05
+    HOST_PAGE_ROW = 0x8C06
+    HOST_PAGE_PAGE = 0x8C07
+    HOST_PAGE_SET = 0x8C08
+    HOST_PAGE_SECTION = 0x8C09
 
 
 class Info(NamedTuple):
@@ -973,6 +1021,34 @@ MSG_INFO: dict[int, Info] = {
     Msg.QUANTIZE_STRENGTH: Info("QuantizeStrength", "/quantize/strength", (), 2, "i32"),
     Msg.GROOVE_ACTIVE: Info("GrooveActive", "/groove/active", (), 3, "f64"),
     Msg.GROOVE_AMOUNT: Info("GrooveAmount", "/groove/amount", (), 3, "f64"),
+    Msg.HOST_PAGE_EXISTS: Info("HostPageExists", "/hostpage/exists", (), 1, "bool"),
+    Msg.HOST_PAGE_TITLE: Info("HostPageTitle", "/hostpage/title", (), 4, "text"),
+    Msg.HOST_PAGE_EPOCH: Info("HostPageEpoch", "/hostpage/epoch", (), 2, "i32"),
+    Msg.HOST_PAGE_COLUMNS: Info("HostPageColumns", "/hostpage/columns", (), 2, "i32"),
+    Msg.HOST_PAGE_ROWS: Info("HostPageRows", "/hostpage/rows", (), 2, "i32"),
+    Msg.HOST_PAGE_COUNT: Info("HostPageCount", "/hostpage/page/count", (), 2, "i32"),
+    Msg.HOST_PAGE_SELECTED: Info("HostPageSelected", "/hostpage/page/selected", (), 2, "i32"),
+    Msg.HOST_PAGE_NAME: Info("HostPageName", "/hostpage/page/{page}/name", ((("page", 0, 16, False),),), 4, "text"),
+    Msg.HOST_CELL_KIND: Info("HostCellKind", "/hostpage/cell/{cell}/kind", ((("cell", 0, 16, False),),), 2, "i32"),
+    Msg.HOST_CELL_NAME: Info("HostCellName", "/hostpage/cell/{cell}/name", ((("cell", 0, 16, False),),), 4, "text"),
+    Msg.HOST_CELL_COLOR: Info("HostCellColor", "/hostpage/cell/{cell}/color", ((("cell", 0, 16, False),),), 5, "color"),
+    Msg.HOST_CELL_VALUE: Info("HostCellValue", "/hostpage/cell/{cell}/value", ((("cell", 0, 16, False),),), 3, "f64"),
+    Msg.HOST_CELL_TEXT: Info("HostCellText", "/hostpage/cell/{cell}/text", ((("cell", 0, 16, False),),), 4, "text"),
+    Msg.HOST_CELL_STEPS: Info("HostCellSteps", "/hostpage/cell/{cell}/steps", ((("cell", 0, 16, False),),), 2, "i32"),
+    Msg.HOST_CELL_ON: Info("HostCellOn", "/hostpage/cell/{cell}/on", ((("cell", 0, 16, False),),), 1, "bool"),
+    Msg.HOST_CELL_ENABLED: Info("HostCellEnabled", "/hostpage/cell/{cell}/enabled", ((("cell", 0, 16, False),),), 1, "bool"),
+    Msg.HOST_CELL_SET: Info("HostCellSet", "/hostpage/cell/{cell}/set", ((("cell", 0, 16, False),),), 2, "i32"),
+    Msg.HOST_SET_COUNT: Info("HostSetCount", "/hostpage/set/count", (), 2, "i32"),
+    Msg.HOST_SET_NAME: Info("HostSetName", "/hostpage/set/{set}/name", ((("set", 0, 16, False),),), 4, "text"),
+    Msg.HOST_SET_SECTION: Info("HostSetSection", "/hostpage/set/{set}/section", ((("set", 0, 16, False),),), 2, "i32"),
+    Msg.HOST_SET_COLOR: Info("HostSetColor", "/hostpage/set/{set}/color", ((("set", 0, 16, False),),), 5, "color"),
+    Msg.HOST_SET_SELECTED: Info("HostSetSelected", "/hostpage/set/selected", (), 2, "i32"),
+    Msg.HOST_SECTION_COUNT: Info("HostSectionCount", "/hostpage/section/count", (), 2, "i32"),
+    Msg.HOST_SECTION_NAME: Info("HostSectionName", "/hostpage/section/{section}/name", ((("section", 0, 16, False),),), 4, "text"),
+    Msg.HOST_SECTION_COLOR: Info("HostSectionColor", "/hostpage/section/{section}/color", ((("section", 0, 16, False),),), 5, "color"),
+    Msg.HOST_SECTION_SELECTED: Info("HostSectionSelected", "/hostpage/section/selected", (), 2, "i32"),
+    Msg.HOST_PAGE_ROW: Info("HostPageRow", "/hostpage/row", (), 2, "i32"),
+    Msg.HOST_CELL_SELECTED: Info("HostCellSelected", "/hostpage/cell/selected", (), 2, "i32"),
 }
 
 CMD_INFO: dict[int, Info] = {
@@ -1213,6 +1289,15 @@ CMD_INFO: dict[int, Info] = {
     Cmd.GROOVE_ACTIVE: Info("GrooveActive", "groove active", (), 3, "value_op"),
     Cmd.GROOVE_AMOUNT: Info("GrooveAmount", "groove amount", (), 3, "value_op"),
     Cmd.GROOVE_PARAM: Info("GrooveParam", "groove {param}", ((("param", 0, 16, False),),), 3, "value_op"),
+    Cmd.HOST_PAGE_SHOW: Info("HostPageShow", "hostpage show/{columns}/{rows}/{encoders}/{rows_per_set}", ((("columns", 0, 16, False),), (("rows", 0, 16, False),), (("encoders", 0, 16, False),), (("rows_per_set", 0, 16, False),),), 1, "bool"),
+    Cmd.HOST_PAGE_CELL_TURN: Info("HostPageCellTurn", "hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),), (("unit", 0, 16, False),), (("resolution", 0, 16, False),),), 2, "i32"),
+    Cmd.HOST_PAGE_CELL_PRESS: Info("HostPageCellPress", "hostpage cell/{cell}/press/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 1, "bool"),
+    Cmd.HOST_PAGE_CELL_TOUCH: Info("HostPageCellTouch", "hostpage cell/{cell}/touch/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 1, "bool"),
+    Cmd.HOST_PAGE_CELL_RESET: Info("HostPageCellReset", "hostpage cell/{cell}/reset/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 0, "none"),
+    Cmd.HOST_PAGE_ROW: Info("HostPageRow", "hostpage row", (), 2, "i32"),
+    Cmd.HOST_PAGE_PAGE: Info("HostPagePage", "hostpage page", (), 2, "i32"),
+    Cmd.HOST_PAGE_SET: Info("HostPageSet", "hostpage set", (), 2, "i32"),
+    Cmd.HOST_PAGE_SECTION: Info("HostPageSection", "hostpage section", (), 2, "i32"),
 }
 
 MSG_IDS = frozenset(MSG_INFO)
@@ -2561,6 +2646,118 @@ class Writer(_WriterBase):
     def groove_amount(self, value):
         """/groove/amount"""
         self.put_f64(2849, 0, 0, 0, 0, value)
+
+    def host_page_exists(self, value):
+        """/hostpage/exists"""
+        self.put_bool(3073, 0, 0, 0, 0, value)
+
+    def host_page_title(self, value):
+        """/hostpage/title"""
+        self.put_text(3074, 0, 0, 0, 0, value)
+
+    def host_page_epoch(self, value):
+        """/hostpage/epoch"""
+        self.put_i32(3075, 0, 0, 0, 0, value)
+
+    def host_page_columns(self, value):
+        """/hostpage/columns"""
+        self.put_i32(3076, 0, 0, 0, 0, value)
+
+    def host_page_rows(self, value):
+        """/hostpage/rows"""
+        self.put_i32(3077, 0, 0, 0, 0, value)
+
+    def host_page_count(self, value):
+        """/hostpage/page/count"""
+        self.put_i32(3080, 0, 0, 0, 0, value)
+
+    def host_page_selected(self, value):
+        """/hostpage/page/selected"""
+        self.put_i32(3081, 0, 0, 0, 0, value)
+
+    def host_page_name(self, page, value):
+        """/hostpage/page/{page}/name"""
+        self.put_text(3082, page, 0, 0, 0, value)
+
+    def host_cell_kind(self, cell, value):
+        """/hostpage/cell/{cell}/kind"""
+        self.put_i32(3088, cell, 0, 0, 0, value)
+
+    def host_cell_name(self, cell, value):
+        """/hostpage/cell/{cell}/name"""
+        self.put_text(3089, cell, 0, 0, 0, value)
+
+    def host_cell_color(self, cell, value):
+        """/hostpage/cell/{cell}/color"""
+        self.put_color(3090, cell, 0, 0, 0, value)
+
+    def host_cell_value(self, cell, value):
+        """/hostpage/cell/{cell}/value"""
+        self.put_f64(3091, cell, 0, 0, 0, value)
+
+    def host_cell_text(self, cell, value):
+        """/hostpage/cell/{cell}/text"""
+        self.put_text(3092, cell, 0, 0, 0, value)
+
+    def host_cell_steps(self, cell, value):
+        """/hostpage/cell/{cell}/steps"""
+        self.put_i32(3093, cell, 0, 0, 0, value)
+
+    def host_cell_on(self, cell, value):
+        """/hostpage/cell/{cell}/on"""
+        self.put_bool(3094, cell, 0, 0, 0, value)
+
+    def host_cell_enabled(self, cell, value):
+        """/hostpage/cell/{cell}/enabled"""
+        self.put_bool(3095, cell, 0, 0, 0, value)
+
+    def host_cell_set(self, cell, value):
+        """/hostpage/cell/{cell}/set"""
+        self.put_i32(3096, cell, 0, 0, 0, value)
+
+    def host_set_count(self, value):
+        """/hostpage/set/count"""
+        self.put_i32(3104, 0, 0, 0, 0, value)
+
+    def host_set_name(self, set, value):
+        """/hostpage/set/{set}/name"""
+        self.put_text(3105, set, 0, 0, 0, value)
+
+    def host_set_section(self, set, value):
+        """/hostpage/set/{set}/section"""
+        self.put_i32(3106, set, 0, 0, 0, value)
+
+    def host_set_color(self, set, value):
+        """/hostpage/set/{set}/color"""
+        self.put_color(3107, set, 0, 0, 0, value)
+
+    def host_set_selected(self, value):
+        """/hostpage/set/selected"""
+        self.put_i32(3108, 0, 0, 0, 0, value)
+
+    def host_section_count(self, value):
+        """/hostpage/section/count"""
+        self.put_i32(3120, 0, 0, 0, 0, value)
+
+    def host_section_name(self, section, value):
+        """/hostpage/section/{section}/name"""
+        self.put_text(3121, section, 0, 0, 0, value)
+
+    def host_section_color(self, section, value):
+        """/hostpage/section/{section}/color"""
+        self.put_color(3122, section, 0, 0, 0, value)
+
+    def host_section_selected(self, value):
+        """/hostpage/section/selected"""
+        self.put_i32(3123, 0, 0, 0, 0, value)
+
+    def host_page_row(self, value):
+        """/hostpage/row"""
+        self.put_i32(3136, 0, 0, 0, 0, value)
+
+    def host_cell_selected(self, value):
+        """/hostpage/cell/selected"""
+        self.put_i32(3137, 0, 0, 0, 0, value)
 
 
 # The views of the reports
@@ -4576,6 +4773,245 @@ class MsgGrooveAmount(Record):
     value = _value("f64")
 
 
+class MsgHostPageExists(Record):
+    """/hostpage/exists"""
+
+    __slots__ = ()
+    KIND = "bool"
+    value = _value("bool")
+
+
+class MsgHostPageTitle(Record):
+    """/hostpage/title"""
+
+    __slots__ = ()
+    KIND = "text"
+    value = _value("text")
+
+
+class MsgHostPageEpoch(Record):
+    """/hostpage/epoch"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageColumns(Record):
+    """/hostpage/columns"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageRows(Record):
+    """/hostpage/rows"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageCount(Record):
+    """/hostpage/page/count"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageSelected(Record):
+    """/hostpage/page/selected"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageName(Record):
+    """/hostpage/page/{page}/name"""
+
+    __slots__ = ()
+    KIND = "text"
+    page = _i0
+    value = _value("text")
+
+
+class MsgHostCellKind(Record):
+    """/hostpage/cell/{cell}/kind"""
+
+    __slots__ = ()
+    KIND = "i32"
+    cell = _i0
+    value = _value("i32")
+
+
+class MsgHostCellName(Record):
+    """/hostpage/cell/{cell}/name"""
+
+    __slots__ = ()
+    KIND = "text"
+    cell = _i0
+    value = _value("text")
+
+
+class MsgHostCellColor(Record):
+    """/hostpage/cell/{cell}/color"""
+
+    __slots__ = ()
+    KIND = "color"
+    cell = _i0
+    value = _value("color")
+
+
+class MsgHostCellValue(Record):
+    """/hostpage/cell/{cell}/value"""
+
+    __slots__ = ()
+    KIND = "f64"
+    cell = _i0
+    value = _value("f64")
+
+
+class MsgHostCellText(Record):
+    """/hostpage/cell/{cell}/text"""
+
+    __slots__ = ()
+    KIND = "text"
+    cell = _i0
+    value = _value("text")
+
+
+class MsgHostCellSteps(Record):
+    """/hostpage/cell/{cell}/steps"""
+
+    __slots__ = ()
+    KIND = "i32"
+    cell = _i0
+    value = _value("i32")
+
+
+class MsgHostCellOn(Record):
+    """/hostpage/cell/{cell}/on"""
+
+    __slots__ = ()
+    KIND = "bool"
+    cell = _i0
+    value = _value("bool")
+
+
+class MsgHostCellEnabled(Record):
+    """/hostpage/cell/{cell}/enabled"""
+
+    __slots__ = ()
+    KIND = "bool"
+    cell = _i0
+    value = _value("bool")
+
+
+class MsgHostCellSet(Record):
+    """/hostpage/cell/{cell}/set"""
+
+    __slots__ = ()
+    KIND = "i32"
+    cell = _i0
+    value = _value("i32")
+
+
+class MsgHostSetCount(Record):
+    """/hostpage/set/count"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostSetName(Record):
+    """/hostpage/set/{set}/name"""
+
+    __slots__ = ()
+    KIND = "text"
+    set = _i0
+    value = _value("text")
+
+
+class MsgHostSetSection(Record):
+    """/hostpage/set/{set}/section"""
+
+    __slots__ = ()
+    KIND = "i32"
+    set = _i0
+    value = _value("i32")
+
+
+class MsgHostSetColor(Record):
+    """/hostpage/set/{set}/color"""
+
+    __slots__ = ()
+    KIND = "color"
+    set = _i0
+    value = _value("color")
+
+
+class MsgHostSetSelected(Record):
+    """/hostpage/set/selected"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostSectionCount(Record):
+    """/hostpage/section/count"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostSectionName(Record):
+    """/hostpage/section/{section}/name"""
+
+    __slots__ = ()
+    KIND = "text"
+    section = _i0
+    value = _value("text")
+
+
+class MsgHostSectionColor(Record):
+    """/hostpage/section/{section}/color"""
+
+    __slots__ = ()
+    KIND = "color"
+    section = _i0
+    value = _value("color")
+
+
+class MsgHostSectionSelected(Record):
+    """/hostpage/section/selected"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostPageRow(Record):
+    """/hostpage/row"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgHostCellSelected(Record):
+    """/hostpage/cell/selected"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
 MSG_VIEWS: dict[int, type] = {
     0x0101: MsgPlay,
     0x0102: MsgStop,
@@ -4799,6 +5235,34 @@ MSG_VIEWS: dict[int, type] = {
     0x0B10: MsgQuantizeStrength,
     0x0B20: MsgGrooveActive,
     0x0B21: MsgGrooveAmount,
+    0x0C01: MsgHostPageExists,
+    0x0C02: MsgHostPageTitle,
+    0x0C03: MsgHostPageEpoch,
+    0x0C04: MsgHostPageColumns,
+    0x0C05: MsgHostPageRows,
+    0x0C08: MsgHostPageCount,
+    0x0C09: MsgHostPageSelected,
+    0x0C0A: MsgHostPageName,
+    0x0C10: MsgHostCellKind,
+    0x0C11: MsgHostCellName,
+    0x0C12: MsgHostCellColor,
+    0x0C13: MsgHostCellValue,
+    0x0C14: MsgHostCellText,
+    0x0C15: MsgHostCellSteps,
+    0x0C16: MsgHostCellOn,
+    0x0C17: MsgHostCellEnabled,
+    0x0C18: MsgHostCellSet,
+    0x0C20: MsgHostSetCount,
+    0x0C21: MsgHostSetName,
+    0x0C22: MsgHostSetSection,
+    0x0C23: MsgHostSetColor,
+    0x0C24: MsgHostSetSelected,
+    0x0C30: MsgHostSectionCount,
+    0x0C31: MsgHostSectionName,
+    0x0C32: MsgHostSectionColor,
+    0x0C33: MsgHostSectionSelected,
+    0x0C40: MsgHostPageRow,
+    0x0C41: MsgHostCellSelected,
 }
 
 
@@ -6927,6 +7391,92 @@ class CmdGrooveParam(Record):
     value = _value("value_op")
 
 
+class CmdHostPageShow(Record):
+    """hostpage show/{columns}/{rows}/{encoders}/{rows_per_set}"""
+
+    __slots__ = ()
+    KIND = "bool"
+    columns = _i0
+    rows = _i1
+    encoders = _i2
+    rows_per_set = _i3
+    value = _value("bool")
+
+
+class CmdHostPageCellTurn(Record):
+    """hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch}"""
+
+    __slots__ = ()
+    KIND = "i32"
+    cell = _i0
+    epoch = _i1
+    unit = _i2
+    resolution = _i3
+    value = _value("i32")
+
+
+class CmdHostPageCellPress(Record):
+    """hostpage cell/{cell}/press/{epoch}"""
+
+    __slots__ = ()
+    KIND = "bool"
+    cell = _i0
+    epoch = _i1
+    value = _value("bool")
+
+
+class CmdHostPageCellTouch(Record):
+    """hostpage cell/{cell}/touch/{epoch}"""
+
+    __slots__ = ()
+    KIND = "bool"
+    cell = _i0
+    epoch = _i1
+    value = _value("bool")
+
+
+class CmdHostPageCellReset(Record):
+    """hostpage cell/{cell}/reset/{epoch}"""
+
+    __slots__ = ()
+    KIND = "none"
+    cell = _i0
+    epoch = _i1
+    value = _value("none")
+
+
+class CmdHostPageRow(Record):
+    """hostpage row"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class CmdHostPagePage(Record):
+    """hostpage page"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class CmdHostPageSet(Record):
+    """hostpage set"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class CmdHostPageSection(Record):
+    """hostpage section"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
 CMD_VIEWS: dict[int, type] = {
     0x8101: CmdTransportPlay,
     0x8102: CmdTransportRestart,
@@ -7165,6 +7715,15 @@ CMD_VIEWS: dict[int, type] = {
     0x8B10: CmdGrooveActive,
     0x8B11: CmdGrooveAmount,
     0x8B12: CmdGrooveParam,
+    0x8C01: CmdHostPageShow,
+    0x8C02: CmdHostPageCellTurn,
+    0x8C03: CmdHostPageCellPress,
+    0x8C04: CmdHostPageCellTouch,
+    0x8C05: CmdHostPageCellReset,
+    0x8C06: CmdHostPageRow,
+    0x8C07: CmdHostPagePage,
+    0x8C08: CmdHostPageSet,
+    0x8C09: CmdHostPageSection,
 }
 
 VIEWS: dict[int, type] = {**MSG_VIEWS, **CMD_VIEWS}

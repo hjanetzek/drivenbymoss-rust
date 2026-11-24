@@ -83,6 +83,17 @@ domain! {
 }
 
 domain! {
+    /// What the delta of a turn of a host page's cell counts (doc/HOST_PAGE_PLAN.md §3.5): the
+    /// travel of a strip or fader (1 = 1/127 of its length) or the clicks of an encoder.
+    TurnUnit { Travel = "travel", Detent = "detent" }
+}
+
+domain! {
+    /// The resolution of a turn of a host page's cell.
+    Resolution { Normal = "normal", Fine = "fine" }
+}
+
+domain! {
     /// The tempo changes of `tempo <step>` (as the Reaper backend defines them).
     TempoStep { Plus = "+", PlusPlus = "++", Minus = "-", MinusMinus = "--" }
 }

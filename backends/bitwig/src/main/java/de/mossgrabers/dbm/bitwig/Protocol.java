@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0x767e94b5c9d1a63cL;
+    public static final long HASH          = 0xeb0827102a1ece56L;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -105,6 +105,7 @@ public final class Protocol
         public static final int PRIMARY = 35;
         public static final int NAVIGATOR = 36;
         public static final int FX_TRACK = 37;
+        public static final int HOST_PAGE = 38;
 
 
         private Processor ()
@@ -401,6 +402,34 @@ public final class Protocol
 
 
         private DeviceAction ()
+        {
+            // Constants only
+        }
+    }
+
+
+    /** The domain TurnUnit. */
+    public static final class TurnUnit
+    {
+        public static final int TRAVEL = 0;
+        public static final int DETENT = 1;
+
+
+        private TurnUnit ()
+        {
+            // Constants only
+        }
+    }
+
+
+    /** The domain Resolution. */
+    public static final class Resolution
+    {
+        public static final int NORMAL = 0;
+        public static final int FINE = 1;
+
+
+        private Resolution ()
         {
             // Constants only
         }
@@ -950,6 +979,62 @@ public final class Protocol
         public static final int GROOVE_ACTIVE = 0x0B20;
         /** /groove/amount; -; f64 */
         public static final int GROOVE_AMOUNT = 0x0B21;
+        /** /hostpage/exists; -; bool */
+        public static final int HOST_PAGE_EXISTS = 0x0C01;
+        /** /hostpage/title; -; text */
+        public static final int HOST_PAGE_TITLE = 0x0C02;
+        /** /hostpage/epoch; -; i32 */
+        public static final int HOST_PAGE_EPOCH = 0x0C03;
+        /** /hostpage/columns; -; i32 */
+        public static final int HOST_PAGE_COLUMNS = 0x0C04;
+        /** /hostpage/rows; -; i32 */
+        public static final int HOST_PAGE_ROWS = 0x0C05;
+        /** /hostpage/page/count; -; i32 */
+        public static final int HOST_PAGE_COUNT = 0x0C08;
+        /** /hostpage/page/selected; -; i32 */
+        public static final int HOST_PAGE_SELECTED = 0x0C09;
+        /** /hostpage/page/{page}/name; page; text */
+        public static final int HOST_PAGE_NAME = 0x0C0A;
+        /** /hostpage/cell/{cell}/kind; cell; i32 */
+        public static final int HOST_CELL_KIND = 0x0C10;
+        /** /hostpage/cell/{cell}/name; cell; text */
+        public static final int HOST_CELL_NAME = 0x0C11;
+        /** /hostpage/cell/{cell}/color; cell; color */
+        public static final int HOST_CELL_COLOR = 0x0C12;
+        /** /hostpage/cell/{cell}/value; cell; f64 */
+        public static final int HOST_CELL_VALUE = 0x0C13;
+        /** /hostpage/cell/{cell}/text; cell; text */
+        public static final int HOST_CELL_TEXT = 0x0C14;
+        /** /hostpage/cell/{cell}/steps; cell; i32 */
+        public static final int HOST_CELL_STEPS = 0x0C15;
+        /** /hostpage/cell/{cell}/on; cell; bool */
+        public static final int HOST_CELL_ON = 0x0C16;
+        /** /hostpage/cell/{cell}/enabled; cell; bool */
+        public static final int HOST_CELL_ENABLED = 0x0C17;
+        /** /hostpage/cell/{cell}/set; cell; i32 */
+        public static final int HOST_CELL_SET = 0x0C18;
+        /** /hostpage/set/count; -; i32 */
+        public static final int HOST_SET_COUNT = 0x0C20;
+        /** /hostpage/set/{set}/name; set; text */
+        public static final int HOST_SET_NAME = 0x0C21;
+        /** /hostpage/set/{set}/section; set; i32 */
+        public static final int HOST_SET_SECTION = 0x0C22;
+        /** /hostpage/set/{set}/color; set; color */
+        public static final int HOST_SET_COLOR = 0x0C23;
+        /** /hostpage/set/selected; -; i32 */
+        public static final int HOST_SET_SELECTED = 0x0C24;
+        /** /hostpage/section/count; -; i32 */
+        public static final int HOST_SECTION_COUNT = 0x0C30;
+        /** /hostpage/section/{section}/name; section; text */
+        public static final int HOST_SECTION_NAME = 0x0C31;
+        /** /hostpage/section/{section}/color; section; color */
+        public static final int HOST_SECTION_COLOR = 0x0C32;
+        /** /hostpage/section/selected; -; i32 */
+        public static final int HOST_SECTION_SELECTED = 0x0C33;
+        /** /hostpage/row; -; i32 */
+        public static final int HOST_PAGE_ROW = 0x0C40;
+        /** /hostpage/cell/selected; -; i32 */
+        public static final int HOST_CELL_SELECTED = 0x0C41;
 
 
         private Msg ()
@@ -960,10 +1045,10 @@ public final class Protocol
 
 
     /** The value types of the reports by ID, -1 for none. */
-    private static final byte [] MSG_TYPES = new byte [2850];
-    private static final String [] MSG_NAMES = new String [2850];
-    private static final String [] MSG_TEMPLATES = new String [2850];
-    private static final String [] MSG_SLOTS = new String [2850];
+    private static final byte [] MSG_TYPES = new byte [3138];
+    private static final String [] MSG_NAMES = new String [3138];
+    private static final String [] MSG_TEMPLATES = new String [3138];
+    private static final String [] MSG_SLOTS = new String [3138];
 
     static
     {
@@ -1192,6 +1277,34 @@ public final class Protocol
             Integer.valueOf (0x0B10), Integer.valueOf (2), "QuantizeStrength", "/quantize/strength", "",
             Integer.valueOf (0x0B20), Integer.valueOf (3), "GrooveActive", "/groove/active", "",
             Integer.valueOf (0x0B21), Integer.valueOf (3), "GrooveAmount", "/groove/amount", "",
+            Integer.valueOf (0x0C01), Integer.valueOf (1), "HostPageExists", "/hostpage/exists", "",
+            Integer.valueOf (0x0C02), Integer.valueOf (4), "HostPageTitle", "/hostpage/title", "",
+            Integer.valueOf (0x0C03), Integer.valueOf (2), "HostPageEpoch", "/hostpage/epoch", "",
+            Integer.valueOf (0x0C04), Integer.valueOf (2), "HostPageColumns", "/hostpage/columns", "",
+            Integer.valueOf (0x0C05), Integer.valueOf (2), "HostPageRows", "/hostpage/rows", "",
+            Integer.valueOf (0x0C08), Integer.valueOf (2), "HostPageCount", "/hostpage/page/count", "",
+            Integer.valueOf (0x0C09), Integer.valueOf (2), "HostPageSelected", "/hostpage/page/selected", "",
+            Integer.valueOf (0x0C0A), Integer.valueOf (4), "HostPageName", "/hostpage/page/{page}/name", "page",
+            Integer.valueOf (0x0C10), Integer.valueOf (2), "HostCellKind", "/hostpage/cell/{cell}/kind", "cell",
+            Integer.valueOf (0x0C11), Integer.valueOf (4), "HostCellName", "/hostpage/cell/{cell}/name", "cell",
+            Integer.valueOf (0x0C12), Integer.valueOf (5), "HostCellColor", "/hostpage/cell/{cell}/color", "cell",
+            Integer.valueOf (0x0C13), Integer.valueOf (3), "HostCellValue", "/hostpage/cell/{cell}/value", "cell",
+            Integer.valueOf (0x0C14), Integer.valueOf (4), "HostCellText", "/hostpage/cell/{cell}/text", "cell",
+            Integer.valueOf (0x0C15), Integer.valueOf (2), "HostCellSteps", "/hostpage/cell/{cell}/steps", "cell",
+            Integer.valueOf (0x0C16), Integer.valueOf (1), "HostCellOn", "/hostpage/cell/{cell}/on", "cell",
+            Integer.valueOf (0x0C17), Integer.valueOf (1), "HostCellEnabled", "/hostpage/cell/{cell}/enabled", "cell",
+            Integer.valueOf (0x0C18), Integer.valueOf (2), "HostCellSet", "/hostpage/cell/{cell}/set", "cell",
+            Integer.valueOf (0x0C20), Integer.valueOf (2), "HostSetCount", "/hostpage/set/count", "",
+            Integer.valueOf (0x0C21), Integer.valueOf (4), "HostSetName", "/hostpage/set/{set}/name", "set",
+            Integer.valueOf (0x0C22), Integer.valueOf (2), "HostSetSection", "/hostpage/set/{set}/section", "set",
+            Integer.valueOf (0x0C23), Integer.valueOf (5), "HostSetColor", "/hostpage/set/{set}/color", "set",
+            Integer.valueOf (0x0C24), Integer.valueOf (2), "HostSetSelected", "/hostpage/set/selected", "",
+            Integer.valueOf (0x0C30), Integer.valueOf (2), "HostSectionCount", "/hostpage/section/count", "",
+            Integer.valueOf (0x0C31), Integer.valueOf (4), "HostSectionName", "/hostpage/section/{section}/name", "section",
+            Integer.valueOf (0x0C32), Integer.valueOf (5), "HostSectionColor", "/hostpage/section/{section}/color", "section",
+            Integer.valueOf (0x0C33), Integer.valueOf (2), "HostSectionSelected", "/hostpage/section/selected", "",
+            Integer.valueOf (0x0C40), Integer.valueOf (2), "HostPageRow", "/hostpage/row", "",
+            Integer.valueOf (0x0C41), Integer.valueOf (2), "HostCellSelected", "/hostpage/cell/selected", "",
         };
         for (int i = 0; i < table.length; i += 5)
         {
@@ -1680,10 +1793,28 @@ public final class Protocol
         /** groove amount */
         GROOVE_AMOUNT(0x8B11, "GrooveAmount", "groove amount", "", 3, "value_op"),
         /** groove {param} */
-        GROOVE_PARAM(0x8B12, "GrooveParam", "groove {param}", "param", 3, "value_op");
+        GROOVE_PARAM(0x8B12, "GrooveParam", "groove {param}", "param", 3, "value_op"),
+        /** hostpage show/{columns}/{rows}/{encoders}/{rows_per_set} */
+        HOST_PAGE_SHOW(0x8C01, "HostPageShow", "hostpage show/{columns}/{rows}/{encoders}/{rows_per_set}", "columns,rows,encoders,rows_per_set", 1, "bool"),
+        /** hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch} */
+        HOST_PAGE_CELL_TURN(0x8C02, "HostPageCellTurn", "hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch}", "cell,epoch,unit,resolution", 2, "i32"),
+        /** hostpage cell/{cell}/press/{epoch} */
+        HOST_PAGE_CELL_PRESS(0x8C03, "HostPageCellPress", "hostpage cell/{cell}/press/{epoch}", "cell,epoch", 1, "bool"),
+        /** hostpage cell/{cell}/touch/{epoch} */
+        HOST_PAGE_CELL_TOUCH(0x8C04, "HostPageCellTouch", "hostpage cell/{cell}/touch/{epoch}", "cell,epoch", 1, "bool"),
+        /** hostpage cell/{cell}/reset/{epoch} */
+        HOST_PAGE_CELL_RESET(0x8C05, "HostPageCellReset", "hostpage cell/{cell}/reset/{epoch}", "cell,epoch", 0, "none"),
+        /** hostpage row */
+        HOST_PAGE_ROW(0x8C06, "HostPageRow", "hostpage row", "", 2, "i32"),
+        /** hostpage page */
+        HOST_PAGE_PAGE(0x8C07, "HostPagePage", "hostpage page", "", 2, "i32"),
+        /** hostpage set */
+        HOST_PAGE_SET(0x8C08, "HostPageSet", "hostpage set", "", 2, "i32"),
+        /** hostpage section */
+        HOST_PAGE_SECTION(0x8C09, "HostPageSection", "hostpage section", "", 2, "i32");
 
 
-        private static final Cmd [] BY_ID = new Cmd [2835];
+        private static final Cmd [] BY_ID = new Cmd [3082];
 
         static
         {
@@ -2737,6 +2868,94 @@ public final class Protocol
             {
                 case 0x8A04, 0x8A05 -> this.idx (0);
                 default -> throw new IllegalStateException ("No field area in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "columns" of the command */
+        public int columns ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C01 -> this.idx (0);
+                default -> throw new IllegalStateException ("No field columns in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "rows" of the command */
+        public int rows ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C01 -> this.idx (1);
+                default -> throw new IllegalStateException ("No field rows in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "encoders" of the command */
+        public int encoders ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C01 -> this.idx (2);
+                default -> throw new IllegalStateException ("No field encoders in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "rows_per_set" of the command */
+        public int rowsPerSet ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C01 -> this.idx (3);
+                default -> throw new IllegalStateException ("No field rows_per_set in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "cell" of the command */
+        public int cell ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C02, 0x8C03, 0x8C04, 0x8C05 -> this.idx (0);
+                default -> throw new IllegalStateException ("No field cell in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "epoch" of the command */
+        public int epoch ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C02, 0x8C03, 0x8C04, 0x8C05 -> this.idx (1);
+                default -> throw new IllegalStateException ("No field epoch in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "unit" of the command */
+        public int unit ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C02 -> this.idx (2);
+                default -> throw new IllegalStateException ("No field unit in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "resolution" of the command */
+        public int resolution ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C02 -> this.idx (3);
+                default -> throw new IllegalStateException ("No field resolution in the command " + Integer.toHexString (this.id ()));
             };
         }
     }

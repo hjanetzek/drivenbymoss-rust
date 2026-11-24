@@ -83,6 +83,8 @@ fn domains() -> Vec<(&'static str, Vec<(String, u16)>)> {
         ("SceneAction", of(SceneAction::ALL, |v| v as u16)),
         ("MarkerAction", of(MarkerAction::ALL, |v| v as u16)),
         ("DeviceAction", of(DeviceAction::ALL, |v| v as u16)),
+        ("TurnUnit", of(TurnUnit::ALL, |v| v as u16)),
+        ("Resolution", of(Resolution::ALL, |v| v as u16)),
         ("NavigatorTarget", of(NavigatorTarget::ALL, |v| v as u16)),
         ("StepAttr", of(StepAttr::ALL, |v| v as u16)),
         ("ChannelType", of(CHANNEL_TYPES, |t| CHANNEL_TYPES.iter().position(|u| *u == t).unwrap_or(0) as u16)),

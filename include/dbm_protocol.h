@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0x767e94b5c9d1a63cULL
+#define DBM_PROTOCOL_HASH 0xeb0827102a1ece56ULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -80,6 +80,7 @@ enum DbmProcessor
     DBM_PROCESSOR_PRIMARY = 35,
     DBM_PROCESSOR_NAVIGATOR = 36,
     DBM_PROCESSOR_FX_TRACK = 37,
+    DBM_PROCESSOR_HOST_PAGE = 38,
 };
 
 /* Dev */
@@ -247,6 +248,20 @@ enum DbmDeviceAction
     DBM_DEVICE_ACTION_REMOVE = 1,
     DBM_DEVICE_ACTION_DUPLICATE = 2,
     DBM_DEVICE_ACTION_SELECT = 3,
+};
+
+/* TurnUnit */
+enum DbmTurnUnit
+{
+    DBM_TURN_UNIT_TRAVEL = 0,
+    DBM_TURN_UNIT_DETENT = 1,
+};
+
+/* Resolution */
+enum DbmResolution
+{
+    DBM_RESOLUTION_NORMAL = 0,
+    DBM_RESOLUTION_FINE = 1,
 };
 
 /* NavigatorTarget */
@@ -756,6 +771,62 @@ enum DbmMsgId
     DBM_MSG_GROOVE_ACTIVE = 0x0B20,
     /* /groove/amount; idx: -; f64 */
     DBM_MSG_GROOVE_AMOUNT = 0x0B21,
+    /* /hostpage/exists; idx: -; bool */
+    DBM_MSG_HOST_PAGE_EXISTS = 0x0C01,
+    /* /hostpage/title; idx: -; text */
+    DBM_MSG_HOST_PAGE_TITLE = 0x0C02,
+    /* /hostpage/epoch; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_EPOCH = 0x0C03,
+    /* /hostpage/columns; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_COLUMNS = 0x0C04,
+    /* /hostpage/rows; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_ROWS = 0x0C05,
+    /* /hostpage/page/count; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_COUNT = 0x0C08,
+    /* /hostpage/page/selected; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_SELECTED = 0x0C09,
+    /* /hostpage/page/{page}/name; idx: page; text */
+    DBM_MSG_HOST_PAGE_NAME = 0x0C0A,
+    /* /hostpage/cell/{cell}/kind; idx: cell; i32 */
+    DBM_MSG_HOST_CELL_KIND = 0x0C10,
+    /* /hostpage/cell/{cell}/name; idx: cell; text */
+    DBM_MSG_HOST_CELL_NAME = 0x0C11,
+    /* /hostpage/cell/{cell}/color; idx: cell; color */
+    DBM_MSG_HOST_CELL_COLOR = 0x0C12,
+    /* /hostpage/cell/{cell}/value; idx: cell; f64 */
+    DBM_MSG_HOST_CELL_VALUE = 0x0C13,
+    /* /hostpage/cell/{cell}/text; idx: cell; text */
+    DBM_MSG_HOST_CELL_TEXT = 0x0C14,
+    /* /hostpage/cell/{cell}/steps; idx: cell; i32 */
+    DBM_MSG_HOST_CELL_STEPS = 0x0C15,
+    /* /hostpage/cell/{cell}/on; idx: cell; bool */
+    DBM_MSG_HOST_CELL_ON = 0x0C16,
+    /* /hostpage/cell/{cell}/enabled; idx: cell; bool */
+    DBM_MSG_HOST_CELL_ENABLED = 0x0C17,
+    /* /hostpage/cell/{cell}/set; idx: cell; i32 */
+    DBM_MSG_HOST_CELL_SET = 0x0C18,
+    /* /hostpage/set/count; idx: -; i32 */
+    DBM_MSG_HOST_SET_COUNT = 0x0C20,
+    /* /hostpage/set/{set}/name; idx: set; text */
+    DBM_MSG_HOST_SET_NAME = 0x0C21,
+    /* /hostpage/set/{set}/section; idx: set; i32 */
+    DBM_MSG_HOST_SET_SECTION = 0x0C22,
+    /* /hostpage/set/{set}/color; idx: set; color */
+    DBM_MSG_HOST_SET_COLOR = 0x0C23,
+    /* /hostpage/set/selected; idx: -; i32 */
+    DBM_MSG_HOST_SET_SELECTED = 0x0C24,
+    /* /hostpage/section/count; idx: -; i32 */
+    DBM_MSG_HOST_SECTION_COUNT = 0x0C30,
+    /* /hostpage/section/{section}/name; idx: section; text */
+    DBM_MSG_HOST_SECTION_NAME = 0x0C31,
+    /* /hostpage/section/{section}/color; idx: section; color */
+    DBM_MSG_HOST_SECTION_COLOR = 0x0C32,
+    /* /hostpage/section/selected; idx: -; i32 */
+    DBM_MSG_HOST_SECTION_SELECTED = 0x0C33,
+    /* /hostpage/row; idx: -; i32 */
+    DBM_MSG_HOST_PAGE_ROW = 0x0C40,
+    /* /hostpage/cell/selected; idx: -; i32 */
+    DBM_MSG_HOST_CELL_SELECTED = 0x0C41,
 };
 
 /* Commands (core -> host): ID = text template; indices; value type */
@@ -1235,6 +1306,24 @@ enum DbmCmdId
     DBM_CMD_GROOVE_AMOUNT = 0x8B11,
     /* groove {param}; idx: param; f64 */
     DBM_CMD_GROOVE_PARAM = 0x8B12,
+    /* hostpage show/{columns}/{rows}/{encoders}/{rows_per_set}; idx: columns, rows, encoders, rows_per_set; bool */
+    DBM_CMD_HOST_PAGE_SHOW = 0x8C01,
+    /* hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch}; idx: cell, epoch, unit, resolution; i32 */
+    DBM_CMD_HOST_PAGE_CELL_TURN = 0x8C02,
+    /* hostpage cell/{cell}/press/{epoch}; idx: cell, epoch; bool */
+    DBM_CMD_HOST_PAGE_CELL_PRESS = 0x8C03,
+    /* hostpage cell/{cell}/touch/{epoch}; idx: cell, epoch; bool */
+    DBM_CMD_HOST_PAGE_CELL_TOUCH = 0x8C04,
+    /* hostpage cell/{cell}/reset/{epoch}; idx: cell, epoch; none */
+    DBM_CMD_HOST_PAGE_CELL_RESET = 0x8C05,
+    /* hostpage row; idx: -; i32 */
+    DBM_CMD_HOST_PAGE_ROW = 0x8C06,
+    /* hostpage page; idx: -; i32 */
+    DBM_CMD_HOST_PAGE_PAGE = 0x8C07,
+    /* hostpage set; idx: -; i32 */
+    DBM_CMD_HOST_PAGE_SET = 0x8C08,
+    /* hostpage section; idx: -; i32 */
+    DBM_CMD_HOST_PAGE_SECTION = 0x8C09,
 };
 
 /* A record of a buffer (the payload points into the buffer). */

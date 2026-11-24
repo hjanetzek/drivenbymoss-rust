@@ -269,6 +269,34 @@ enum class Msg : uint16_t
     QuantizeStrength = DBM_MSG_QUANTIZE_STRENGTH,
     GrooveActive = DBM_MSG_GROOVE_ACTIVE,
     GrooveAmount = DBM_MSG_GROOVE_AMOUNT,
+    HostPageExists = DBM_MSG_HOST_PAGE_EXISTS,
+    HostPageTitle = DBM_MSG_HOST_PAGE_TITLE,
+    HostPageEpoch = DBM_MSG_HOST_PAGE_EPOCH,
+    HostPageColumns = DBM_MSG_HOST_PAGE_COLUMNS,
+    HostPageRows = DBM_MSG_HOST_PAGE_ROWS,
+    HostPageCount = DBM_MSG_HOST_PAGE_COUNT,
+    HostPageSelected = DBM_MSG_HOST_PAGE_SELECTED,
+    HostPageName = DBM_MSG_HOST_PAGE_NAME,
+    HostCellKind = DBM_MSG_HOST_CELL_KIND,
+    HostCellName = DBM_MSG_HOST_CELL_NAME,
+    HostCellColor = DBM_MSG_HOST_CELL_COLOR,
+    HostCellValue = DBM_MSG_HOST_CELL_VALUE,
+    HostCellText = DBM_MSG_HOST_CELL_TEXT,
+    HostCellSteps = DBM_MSG_HOST_CELL_STEPS,
+    HostCellOn = DBM_MSG_HOST_CELL_ON,
+    HostCellEnabled = DBM_MSG_HOST_CELL_ENABLED,
+    HostCellSet = DBM_MSG_HOST_CELL_SET,
+    HostSetCount = DBM_MSG_HOST_SET_COUNT,
+    HostSetName = DBM_MSG_HOST_SET_NAME,
+    HostSetSection = DBM_MSG_HOST_SET_SECTION,
+    HostSetColor = DBM_MSG_HOST_SET_COLOR,
+    HostSetSelected = DBM_MSG_HOST_SET_SELECTED,
+    HostSectionCount = DBM_MSG_HOST_SECTION_COUNT,
+    HostSectionName = DBM_MSG_HOST_SECTION_NAME,
+    HostSectionColor = DBM_MSG_HOST_SECTION_COLOR,
+    HostSectionSelected = DBM_MSG_HOST_SECTION_SELECTED,
+    HostPageRow = DBM_MSG_HOST_PAGE_ROW,
+    HostCellSelected = DBM_MSG_HOST_CELL_SELECTED,
 };
 
 /** The IDs of the commands (core -> host). */
@@ -511,6 +539,15 @@ enum class Cmd : uint16_t
     GrooveActive = DBM_CMD_GROOVE_ACTIVE,
     GrooveAmount = DBM_CMD_GROOVE_AMOUNT,
     GrooveParam = DBM_CMD_GROOVE_PARAM,
+    HostPageShow = DBM_CMD_HOST_PAGE_SHOW,
+    HostPageCellTurn = DBM_CMD_HOST_PAGE_CELL_TURN,
+    HostPageCellPress = DBM_CMD_HOST_PAGE_CELL_PRESS,
+    HostPageCellTouch = DBM_CMD_HOST_PAGE_CELL_TOUCH,
+    HostPageCellReset = DBM_CMD_HOST_PAGE_CELL_RESET,
+    HostPageRow = DBM_CMD_HOST_PAGE_ROW,
+    HostPagePage = DBM_CMD_HOST_PAGE_PAGE,
+    HostPageSet = DBM_CMD_HOST_PAGE_SET,
+    HostPageSection = DBM_CMD_HOST_PAGE_SECTION,
 };
 
 /** A record of a buffer (the payload points into the buffer, valid as long as it). */
@@ -1130,6 +1167,62 @@ public:
     void grooveActive (double value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putDouble (DBM_MSG_GROOVE_ACTIVE, idx, value); }
     /** /groove/amount */
     void grooveAmount (double value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putDouble (DBM_MSG_GROOVE_AMOUNT, idx, value); }
+    /** /hostpage/exists */
+    void hostPageExists (bool value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putBool (DBM_MSG_HOST_PAGE_EXISTS, idx, value); }
+    /** /hostpage/title */
+    void hostPageTitle (const std::string & value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putText (DBM_MSG_HOST_PAGE_TITLE, idx, value); }
+    /** /hostpage/epoch */
+    void hostPageEpoch (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_EPOCH, idx, value); }
+    /** /hostpage/columns */
+    void hostPageColumns (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_COLUMNS, idx, value); }
+    /** /hostpage/rows */
+    void hostPageRows (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_ROWS, idx, value); }
+    /** /hostpage/page/count */
+    void hostPageCount (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_COUNT, idx, value); }
+    /** /hostpage/page/selected */
+    void hostPageSelected (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_SELECTED, idx, value); }
+    /** /hostpage/page/{page}/name */
+    void hostPageName (uint16_t page, const std::string & value) { const uint16_t idx[4] = { page, 0, 0, 0 }; this->putText (DBM_MSG_HOST_PAGE_NAME, idx, value); }
+    /** /hostpage/cell/{cell}/kind */
+    void hostCellKind (uint16_t cell, int32_t value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_CELL_KIND, idx, value); }
+    /** /hostpage/cell/{cell}/name */
+    void hostCellName (uint16_t cell, const std::string & value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putText (DBM_MSG_HOST_CELL_NAME, idx, value); }
+    /** /hostpage/cell/{cell}/color */
+    void hostCellColor (uint16_t cell, Color value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putColor (DBM_MSG_HOST_CELL_COLOR, idx, value); }
+    /** /hostpage/cell/{cell}/value */
+    void hostCellValue (uint16_t cell, double value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putDouble (DBM_MSG_HOST_CELL_VALUE, idx, value); }
+    /** /hostpage/cell/{cell}/text */
+    void hostCellText (uint16_t cell, const std::string & value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putText (DBM_MSG_HOST_CELL_TEXT, idx, value); }
+    /** /hostpage/cell/{cell}/steps */
+    void hostCellSteps (uint16_t cell, int32_t value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_CELL_STEPS, idx, value); }
+    /** /hostpage/cell/{cell}/on */
+    void hostCellOn (uint16_t cell, bool value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putBool (DBM_MSG_HOST_CELL_ON, idx, value); }
+    /** /hostpage/cell/{cell}/enabled */
+    void hostCellEnabled (uint16_t cell, bool value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putBool (DBM_MSG_HOST_CELL_ENABLED, idx, value); }
+    /** /hostpage/cell/{cell}/set */
+    void hostCellSet (uint16_t cell, int32_t value) { const uint16_t idx[4] = { cell, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_CELL_SET, idx, value); }
+    /** /hostpage/set/count */
+    void hostSetCount (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_SET_COUNT, idx, value); }
+    /** /hostpage/set/{set}/name */
+    void hostSetName (uint16_t set, const std::string & value) { const uint16_t idx[4] = { set, 0, 0, 0 }; this->putText (DBM_MSG_HOST_SET_NAME, idx, value); }
+    /** /hostpage/set/{set}/section */
+    void hostSetSection (uint16_t set, int32_t value) { const uint16_t idx[4] = { set, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_SET_SECTION, idx, value); }
+    /** /hostpage/set/{set}/color */
+    void hostSetColor (uint16_t set, Color value) { const uint16_t idx[4] = { set, 0, 0, 0 }; this->putColor (DBM_MSG_HOST_SET_COLOR, idx, value); }
+    /** /hostpage/set/selected */
+    void hostSetSelected (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_SET_SELECTED, idx, value); }
+    /** /hostpage/section/count */
+    void hostSectionCount (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_SECTION_COUNT, idx, value); }
+    /** /hostpage/section/{section}/name */
+    void hostSectionName (uint16_t section, const std::string & value) { const uint16_t idx[4] = { section, 0, 0, 0 }; this->putText (DBM_MSG_HOST_SECTION_NAME, idx, value); }
+    /** /hostpage/section/{section}/color */
+    void hostSectionColor (uint16_t section, Color value) { const uint16_t idx[4] = { section, 0, 0, 0 }; this->putColor (DBM_MSG_HOST_SECTION_COLOR, idx, value); }
+    /** /hostpage/section/selected */
+    void hostSectionSelected (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_SECTION_SELECTED, idx, value); }
+    /** /hostpage/row */
+    void hostPageRow (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_ROW, idx, value); }
+    /** /hostpage/cell/selected */
+    void hostCellSelected (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_CELL_SELECTED, idx, value); }
 
 private:
     void putI64 (uint16_t id, uint8_t type, const uint16_t idx[4], int64_t v)
@@ -3240,6 +3333,99 @@ struct GrooveParam
     Record record;
     uint16_t param () const { return this->record.idx (0); }
     double value () const { return this->record.doubleValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage show/{columns}/{rows}/{encoders}/{rows_per_set} */
+struct HostPageShow
+{
+    static constexpr Cmd id = Cmd::HostPageShow;
+    Record record;
+    uint16_t columns () const { return this->record.idx (0); }
+    uint16_t rows () const { return this->record.idx (1); }
+    uint16_t encoders () const { return this->record.idx (2); }
+    uint16_t rows_per_set () const { return this->record.idx (3); }
+    bool value () const { return this->record.boolValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch} */
+struct HostPageCellTurn
+{
+    static constexpr Cmd id = Cmd::HostPageCellTurn;
+    Record record;
+    uint16_t cell () const { return this->record.idx (0); }
+    uint16_t epoch () const { return this->record.idx (1); }
+    uint16_t unit () const { return this->record.idx (2); }
+    uint16_t resolution () const { return this->record.idx (3); }
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage cell/{cell}/press/{epoch} */
+struct HostPageCellPress
+{
+    static constexpr Cmd id = Cmd::HostPageCellPress;
+    Record record;
+    uint16_t cell () const { return this->record.idx (0); }
+    uint16_t epoch () const { return this->record.idx (1); }
+    bool value () const { return this->record.boolValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage cell/{cell}/touch/{epoch} */
+struct HostPageCellTouch
+{
+    static constexpr Cmd id = Cmd::HostPageCellTouch;
+    Record record;
+    uint16_t cell () const { return this->record.idx (0); }
+    uint16_t epoch () const { return this->record.idx (1); }
+    bool value () const { return this->record.boolValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage cell/{cell}/reset/{epoch} */
+struct HostPageCellReset
+{
+    static constexpr Cmd id = Cmd::HostPageCellReset;
+    Record record;
+    uint16_t cell () const { return this->record.idx (0); }
+    uint16_t epoch () const { return this->record.idx (1); }
+};
+
+/** hostpage row */
+struct HostPageRow
+{
+    static constexpr Cmd id = Cmd::HostPageRow;
+    Record record;
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage page */
+struct HostPagePage
+{
+    static constexpr Cmd id = Cmd::HostPagePage;
+    Record record;
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage set */
+struct HostPageSet
+{
+    static constexpr Cmd id = Cmd::HostPageSet;
+    Record record;
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage section */
+struct HostPageSection
+{
+    static constexpr Cmd id = Cmd::HostPageSection;
+    Record record;
+    int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };
 

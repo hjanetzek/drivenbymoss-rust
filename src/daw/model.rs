@@ -81,6 +81,8 @@ pub struct Model {
     browser: Option<Browser>,
     empty_track: Track,
     empty_slot_bank: SlotBank,
+    /// The host's parameter pages (`/hostpage/…`, doc/HOST_PAGE_PLAN.md).
+    host_page: super::host_page::HostPage,
 }
 
 impl Model {
@@ -146,6 +148,7 @@ impl Model {
             browser: if setup.num_results > 0 { Some(Browser::new(ctx.clone(), setup.num_filter_column_entries, setup.num_results)) } else { None },
             empty_track: Track::empty(&ctx, num_sends),
             empty_slot_bank: SlotBank::new(ctx.muted(), num_scenes, -1),
+            host_page: super::host_page::HostPage::default(),
             track_bank,
             pinned_track: None,
             host_cursor_track_neighbours: None,
@@ -302,6 +305,16 @@ impl Model {
 
     pub fn groove(&self) -> &Groove {
         &self.groove
+    }
+
+    /// The host's parameter pages (doc/HOST_PAGE_PLAN.md).
+    pub fn host_page(&self) -> &super::host_page::HostPage {
+        &self.host_page
+    }
+
+    /// The host's parameter pages, counted as changed.
+    pub fn host_page_mut(&mut self) -> &mut super::host_page::HostPage {
+        self.host_page.touch()
     }
 
     pub fn groove_mut(&mut self) -> &mut Groove {

@@ -16,6 +16,7 @@ pub mod context;
 pub mod device;
 pub mod events;
 pub mod groove;
+pub mod host_page;
 pub mod model;
 pub mod model_setup;
 pub mod parameter;

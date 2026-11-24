@@ -21,6 +21,7 @@
 //! | 0x89 | markers |
 //! | 0x8A | navigator, refresh, update hints |
 //! | 0x8B | note repeat, groove |
+//! | 0x8C | the host's parameter pages (doc/HOST_PAGE_PLAN.md) |
 
 #![allow(clippy::enum_variant_names)]
 
@@ -415,6 +416,32 @@ commands! {
     GrooveAmount = 0x8B11 {} @ Groove ["amount"] => op: ValueOp;
     /// A parameter of the groove of the host (Bitwig).
     GrooveParam = 0x8B12 { param: GrooveParam } @ Groove [param] => op: ValueOp;
+
+    // --------------------------------------------------------------------------------------
+    // 0x8C The host's parameter pages (doc/HOST_PAGE_PLAN.md §3.5). The host owns the values
+    // and the selection: it applies these to its own screen and reports the result.
+
+    /// A surface shows (true) or no longer shows (false) the host's pages, with its shape: the
+    /// columns and rows of cells, the encoders of a row, the rows of a control set. On true the
+    /// host chooses its layout and reports all of the page (a dump); on false it may stop.
+    HostPageShow = 0x8C01 { columns: usize, rows: usize, encoders: usize, rows_per_set: usize } @ HostPage ["show" columns rows encoders rows_per_set] => value: bool, feature = HostPages;
+    /// Turn a cell by `delta` steps of `unit`; the host does the value math. `epoch` is the
+    /// reported `/hostpage/epoch`: the host drops a command of another one.
+    HostPageCellTurn = 0x8C02 { cell: usize, epoch: usize, unit: TurnUnit, resolution: Resolution } @ HostPage ["cell" cell "turn" unit resolution epoch] => delta: i32, feature = HostPages;
+    /// Press (true) or release (false) a cell: a toggle switches, a trigger fires, a list steps,
+    /// a continuous cell is selected (with its control set and row).
+    HostPageCellPress = 0x8C03 { cell: usize, epoch: usize } @ HostPage ["cell" cell "press" epoch] => value: bool, feature = HostPages;
+    HostPageCellTouch = 0x8C04 { cell: usize, epoch: usize } @ HostPage ["cell" cell "touch" epoch] => value: bool, feature = HostPages;
+    /// Reset a cell to its default value.
+    HostPageCellReset = 0x8C05 { cell: usize, epoch: usize } @ HostPage ["cell" cell "reset" epoch], feature = HostPages;
+    /// Select a row (its control set).
+    HostPageRow = 0x8C06 {} @ HostPage ["row"] => row: i32, feature = HostPages;
+    /// Show a page (a window of rows).
+    HostPagePage = 0x8C07 {} @ HostPage ["page"] => page: i32, feature = HostPages;
+    /// Select a control set.
+    HostPageSet = 0x8C08 {} @ HostPage ["set"] => set: i32, feature = HostPages;
+    /// Select a section (its first control set).
+    HostPageSection = 0x8C09 {} @ HostPage ["section"] => section: i32, feature = HostPages;
 }
 
 impl Cmd<'_> {

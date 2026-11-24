@@ -102,11 +102,14 @@ pub enum HostFeature {
     /// for Bitwig: the host keeps the selected slot when another track is selected. Without it
     /// the core moves the slot itself (the Reaper version).
     ClipLauncherNavigator,
+    /// The host provides parameter pages (`hostpage …` commands, `/hostpage/…` reports;
+    /// doc/HOST_PAGE_PLAN.md): a page surface (the JAM) shows them.
+    HostPages,
 }
 
 impl HostFeature {
     /// All features.
-    pub const ALL: [HostFeature; 9] = [
+    pub const ALL: [HostFeature; 10] = [
         HostFeature::ValueInc,
         HostFeature::ValueReset,
         HostFeature::Immediately,
@@ -116,6 +119,7 @@ impl HostFeature {
         HostFeature::DeviceCommands,
         HostFeature::LayoutStep,
         HostFeature::ClipLauncherNavigator,
+        HostFeature::HostPages,
     ];
 
     /// The name of the feature in `/host/features`.
@@ -130,6 +134,7 @@ impl HostFeature {
             HostFeature::DeviceCommands => "deviceCommands",
             HostFeature::LayoutStep => "layoutStep",
             HostFeature::ClipLauncherNavigator => "clipLauncherNavigator",
+            HostFeature::HostPages => "hostPages",
         }
     }
 
@@ -146,7 +151,7 @@ impl HostFeature {
     /// table, a test keeps this in step): a binary host has them if it handles their commands.
     /// The others are value operations, reported with `/host/features` by every host.
     pub fn is_command_feature(self) -> bool {
-        matches!(self, HostFeature::SoloToggle | HostFeature::TransportCommands | HostFeature::DeviceCommands | HostFeature::LayoutStep | HostFeature::ClipLauncherNavigator)
+        matches!(self, HostFeature::SoloToggle | HostFeature::TransportCommands | HostFeature::DeviceCommands | HostFeature::LayoutStep | HostFeature::ClipLauncherNavigator | HostFeature::HostPages)
     }
 }
 

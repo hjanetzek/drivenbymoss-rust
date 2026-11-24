@@ -44,7 +44,7 @@ public final class CommandHandler
      * (dbm_set_command_callback), which logs such a command once. The coverage test
      * (CommandCoverageTest) keeps the set exact.
      */
-    public static final Set<Cmd> UNHANDLED          = EnumSet.of (Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.TRACK_IN_QUANT_RESOLUTION, Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.MASTER_CROSSFADER, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET, Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW, Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT);
+    public static final Set<Cmd> UNHANDLED          = EnumSet.of (Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.TRACK_IN_QUANT_RESOLUTION, Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.MASTER_CROSSFADER, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET, Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW, Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT, Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH, Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION);
 
     /** The panel layouts in the order of the core's layout index. */
     private static final String []    PANEL_LAYOUTS      = { "ARRANGE", "MIX", "EDIT", "PLAY" };
@@ -810,6 +810,10 @@ public final class CommandHandler
             // --- The commands of Reaper which Bitwig does not have (UNHANDLED)
 
             case METRO_VOL_SET, METRO_VOL_STEP, TRACK_IN_QUANT_RESOLUTION, TRACK_RECORD_CLIP, TRACK_PIN, TRACK_OVERDUB, MASTER_CROSSFADER, CLIP_NOTE_TOGGLE, CLIP_NOTE_SET, CLIP_NOTE_UPDATE, CLIP_NOTE_CLEAR, CLIP_NOTE_MOVE_Y, CLIP_NOTE_CLEAR_ROW, CLIP_NOTE_CLEAR_POSITION, GROOVE_ACTIVE, GROOVE_AMOUNT -> this.notHandled (v, cmd);
+
+            // --- The host's parameter pages (doc/HOST_PAGE_PLAN.md; later: the remote control pages)
+
+            case HOST_PAGE_SHOW, HOST_PAGE_CELL_TURN, HOST_PAGE_CELL_PRESS, HOST_PAGE_CELL_TOUCH, HOST_PAGE_CELL_RESET, HOST_PAGE_ROW, HOST_PAGE_PAGE, HOST_PAGE_SET, HOST_PAGE_SECTION -> this.notHandled (v, cmd);
         }
     }
 

@@ -25,6 +25,7 @@
 //! | 0x08 | browser |
 //! | 0x09 | markers |
 //! | 0x0B | note repeat, quantize, groove |
+//! | 0x0C | the host's parameter pages (doc/HOST_PAGE_PLAN.md) |
 
 #![allow(clippy::enum_variant_names)]
 
@@ -776,6 +777,50 @@ messages! {
     /// Reaper's groove (Bitwig's are [`HostParam::Groove`]).
     GrooveActive = 0x0B20 {} ["groove" "active"] => value: f64 = f64;
     GrooveAmount = 0x0B21 {} ["groove" "amount"] => value: f64 = f64;
+
+    // --------------------------------------------------------------------------------------
+    // 0x0C The host's parameter pages (doc/HOST_PAGE_PLAN.md §3.5), reported while a surface
+    // shows them (`hostpage show`). Cells, sets and sections count in the shown page; a cell is
+    // row * columns + column. The selection (page, row, set, cell) is the host's.
+
+    /// The host has a page to show (false: nothing, e.g. no chain).
+    HostPageExists = 0x0C01 {} ["hostpage" "exists"] => value: bool = flag;
+    /// The name of the source on the surfaces (e.g. "zynthian · Synth").
+    HostPageTitle = 0x0C02 {} ["hostpage" "title"] => value: &'a str = text;
+    /// Changed by the host whenever the cells hold other parameters; cell commands carry it.
+    HostPageEpoch = 0x0C03 {} ["hostpage" "epoch"] => value: i32 = int;
+    HostPageColumns = 0x0C04 {} ["hostpage" "columns"] => value: i32 = int;
+    HostPageRows = 0x0C05 {} ["hostpage" "rows"] => value: i32 = int;
+    HostPageCount = 0x0C08 {} ["hostpage" "page" "count"] => value: i32 = int;
+    HostPageSelected = 0x0C09 {} ["hostpage" "page" "selected"] => value: i32 = int;
+    HostPageName = 0x0C0A { page: usize } ["hostpage" "page" page "name"] => value: &'a str = text;
+    /// 0 empty, 1 fader, 2 list, 3 toggle, 4 trigger, 5 relative, 6 action.
+    HostCellKind = 0x0C10 { cell: usize } ["hostpage" "cell" cell "kind"] => value: i32 = int;
+    HostCellName = 0x0C11 { cell: usize } ["hostpage" "cell" cell "name"] => value: &'a str = text;
+    HostCellColor = 0x0C12 { cell: usize } ["hostpage" "cell" cell "color"] => value: Option<[f64; 3]> = color;
+    /// The normalized value (0..1).
+    HostCellValue = 0x0C13 { cell: usize } ["hostpage" "cell" cell "value"] => value: f64 = f64;
+    HostCellText = 0x0C14 { cell: usize } ["hostpage" "cell" cell "text"] => value: &'a str = text;
+    /// The number of items of a list.
+    HostCellSteps = 0x0C15 { cell: usize } ["hostpage" "cell" cell "steps"] => value: i32 = int;
+    HostCellOn = 0x0C16 { cell: usize } ["hostpage" "cell" cell "on"] => value: bool = flag;
+    HostCellEnabled = 0x0C17 { cell: usize } ["hostpage" "cell" cell "enabled"] => value: bool = flag;
+    /// The control set of the cell (-1: none).
+    HostCellSet = 0x0C18 { cell: usize } ["hostpage" "cell" cell "set"] => value: i32 = int;
+    HostSetCount = 0x0C20 {} ["hostpage" "set" "count"] => value: i32 = int;
+    HostSetName = 0x0C21 { set: usize } ["hostpage" "set" set "name"] => value: &'a str = text;
+    HostSetSection = 0x0C22 { set: usize } ["hostpage" "set" set "section"] => value: i32 = int;
+    HostSetColor = 0x0C23 { set: usize } ["hostpage" "set" set "color"] => value: Option<[f64; 3]> = color;
+    /// The selected control set (-1: none shown).
+    HostSetSelected = 0x0C24 {} ["hostpage" "set" "selected"] => value: i32 = int;
+    HostSectionCount = 0x0C30 {} ["hostpage" "section" "count"] => value: i32 = int;
+    HostSectionName = 0x0C31 { section: usize } ["hostpage" "section" section "name"] => value: &'a str = text;
+    HostSectionColor = 0x0C32 { section: usize } ["hostpage" "section" section "color"] => value: Option<[f64; 3]> = color;
+    HostSectionSelected = 0x0C33 {} ["hostpage" "section" "selected"] => value: i32 = int;
+    /// The active row (the one the encoders turn).
+    HostPageRow = 0x0C40 {} ["hostpage" "row"] => value: i32 = int;
+    /// The selected cell (-1: none).
+    HostCellSelected = 0x0C41 {} ["hostpage" "cell" "selected"] => value: i32 = int;
 }
 
 /// The trie of the table.

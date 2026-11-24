@@ -56,7 +56,7 @@ logger = logging.getLogger("dbm_host")
 
 # The order of HostFeature::ALL in src/daw/context.rs
 FEATURE_ORDER = ("valueInc", "valueReset", "immediately", "indication", "soloToggle", "transportCommands",
-                 "deviceCommands", "layoutStep", "clipLauncherNavigator")
+                 "deviceCommands", "layoutStep", "clipLauncherNavigator", "hostPages")
 
 # The commands of a device on the device itself (CommandHandler.handleOwnDevice)
 OWN_DEVICE_COMMANDS = ("window/toggle", "expand/toggle", "parameters/toggle", "bypass", "remove", "duplicate", "select")
@@ -322,6 +322,9 @@ class CommandHandler:
         Cmd.BROWSER_ADD_TO_TRACK, Cmd.BROWSER_ADD_TO_MASTER, Cmd.BROWSER_INSERT_BEFORE,
         Cmd.BROWSER_INSERT_AFTER, Cmd.BROWSER_STOP, Cmd.BROWSER_RESULT_STEP, Cmd.BROWSER_RESULT_PAGE,
         Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT, Cmd.GROOVE_PARAM,
+        # The host's pages: handled only by a SimDaw with host pages (host_page.py)
+        Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
+        Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
     ))
     """The CmdIds without a handler in the model setup of the coverage test (later steps: the
     application and project commands, the browser, groove, the clip notes, …). A snapshot: the
