@@ -81,6 +81,21 @@ MAX_MIDI_OUT_BYTES = 16383
 NIHOST_READ_TIMEOUT_MS = 100
 
 
+DEVICE_VAR_PREFIX = "ZYNTHIAN_DBM_DEVICE_"
+
+
+def device_ids_override(model, aliases=()):
+    """The device IDs of a driver from the environment, None if not set: $ZYNTHIAN_DBM_DEVICE_<MODEL>
+    (the driver module's model, upper-cased: ZYNTHIAN_DBM_DEVICE_MASCHINE_JAM), else the driver's
+    alias variables; a comma-separated list of zynthian device IDs (e.g. "Maschine Jam - 1 (hp)
+    IN 1"), for a simulator or a second dbm-nihost next to the device's own"""
+    for name in (DEVICE_VAR_PREFIX + model.upper(),) + tuple(aliases):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return [part.strip() for part in value.split(",") if part.strip()]
+    return None
+
+
 def launcher_palette():
     """The colors of the MIDI channels (zynthian_gui_config.LAUNCHER_COLOUR) as "#RRGGBB"."""
     try:
@@ -109,6 +124,19 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
     # idev_in None when the device is there.
     hid_ids = []
     nihost_kind = None
+    # Environment variables besides ZYNTHIAN_DBM_DEVICE_<MODEL> that override dev_ids
+    # (device_ids_override)
+    device_id_vars = ()
+
+    def __init_subclass__(cls, **kwargs):
+        """A driver's dev_ids from the environment (device_ids_override), if set"""
+        super().__init_subclass__(**kwargs)
+        prefix = "zynthian_ctrldev_dbm_"
+        if cls.__name__.startswith(prefix):
+            ids = device_ids_override(cls.__name__[len(prefix):], cls.device_id_vars)
+            if ids:
+                logging.info(f"[{cls.__name__}] device IDs from the environment: {ids}")
+                cls.dev_ids = ids
 
     def __init__(self, state_manager, idev_in, idev_out=None):
         super().__init__(state_manager, idev_in, idev_out)

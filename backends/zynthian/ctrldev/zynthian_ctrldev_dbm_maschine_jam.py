@@ -39,7 +39,10 @@ class zynthian_ctrldev_dbm_maschine_jam(zynthian_ctrldev_base_dbm):
     # PipeWire shows them as "Midi-Bridge:Maschine Jam - 1: Input (capture)" / "Output (playback)",
     # the device ID is "Maschine Jam - 1 IN 1". Not the Maschine Mk2's ("Maschine MK2 IN 1").
     # dbm-nihost bridges one JAM ("- 1").
+    # $ZYNTHIAN_DBM_DEVICE_MASCHINE_JAM or $ZYNTHIAN_DBM_JAM_DEVICE (comma-separated) replace it, e.g.
+    # for a simulator or a second dbm-nihost with a port suffix ("Maschine Jam - 1 (hp) IN 1")
     dev_ids = ["Maschine Jam - 1 IN 1"]
+    device_id_vars = ("ZYNTHIAN_DBM_JAM_DEVICE",)
     dbm_controller_id = "72F32A83-A697-446B-9016-64AA3F9476E4"
     driver_name = "DrivenByMoss Maschine JAM"
     driver_description = ("Native Instruments Maschine JAM (in-process or through dbm-nihost), run by DrivenByMoss: the clip launcher "

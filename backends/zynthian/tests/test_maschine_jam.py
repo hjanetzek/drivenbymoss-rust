@@ -109,6 +109,19 @@ class MatchingTest(unittest.TestCase):
         out_uid, _ = ports.pipewire_midi_port_name("Midi-Bridge:Maschine Jam - 1: Output (playback)", PLAYBACK)
         self.assertEqual(ports.dev_out_uid("PW:Maschine Jam - 1/Maschine Jam - 1 IN 1"), out_uid, "dev_in_2_dev_out finds the output")
 
+    def test_device_ids_from_the_environment(self):
+        """$ZYNTHIAN_DBM_DEVICE_<MODEL> (or the JAM's $ZYNTHIAN_DBM_JAM_DEVICE) replaces dev_ids"""
+        import os
+        from unittest import mock
+        names = ("ZYNTHIAN_DBM_DEVICE_MASCHINE_JAM", "ZYNTHIAN_DBM_JAM_DEVICE")
+        for name in names:
+            env = {k: v for k, v in os.environ.items() if k not in names}
+            env[name] = "Maschine Jam - 1 (hp) IN 1, Other IN 1"
+            with mock.patch.dict(os.environ, env, clear=True):
+                cls = type("zynthian_ctrldev_dbm_maschine_jam", (jam,), {})
+            self.assertEqual(cls.dev_ids, ["Maschine Jam - 1 (hp) IN 1", "Other IN 1"], name)
+        self.assertEqual(jam.dev_ids, ["Maschine Jam - 1 IN 1"], "the class of the module as loaded")
+
     def test_each_port_its_driver(self):
         """zynthian_ctrldev_manager: per dev_id the first class with the autoload flag (exact
         match): the JAM driver only on the JAM's port, the Mk2's not there."""
