@@ -808,6 +808,8 @@ class SimDaw:
         self.arranger = Arranger()
         self.mixer = Mixer()
         self.markers = Markers(self.transport)
+        self.host_pages = None
+        """The host's parameter pages (``host_page.HostPages``), None: the host has none."""
         """The cue markers of the arranger (marker.py)."""
         self.master = MasterTrack(self)
         self._time_listeners: list[Callable[[float], None]] = []

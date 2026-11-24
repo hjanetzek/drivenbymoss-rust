@@ -47,6 +47,7 @@ from drivenbymoss.protocol import ChanKind, ChKind, Cmd, Dev, PadKind, ParamOwne
 from .banks import Banks
 from .clip import ATTRIBUTES, NoteGrid, set_attribute, update_from_wire
 from .device import EQ_NUM_BANDS, PARAMS_PER_PAGE, eq_plus
+from .host_page import HOST_PAGE_COMMANDS, HostPageView
 from .model import ARRANGER_TOGGLES, MIXER_TOGGLES, PANEL_LAYOUTS, PREROLLS, Channel, SimDaw, Track, color_from_command
 from .navigator import ClipLauncherNavigator
 from .parameter import Parameter
@@ -348,6 +349,14 @@ class CommandHandler:
         self.typed: dict[int, TypedHandler] = {}
         """The handlers by CmdId (process_commands)."""
         self.register_commands()
+        self.host_page_view: HostPageView | None = None
+        """The host's pages (doc/HOST_PAGE_PLAN.md), if the DAW has them (``SimDaw.host_pages``):
+        their commands are handled only then."""
+        host_pages = getattr(daw, "host_pages", None)
+        if host_pages is not None:
+            self.host_page_view = HostPageView(host_pages)
+            reporter.host_page_view = self.host_page_view
+            self.register_typed(HOST_PAGE_COMMANDS, self._host_page)
 
     def register_commands(self) -> None:
         """Register the handlers of the commands (a host replaces them)."""
@@ -494,6 +503,30 @@ class CommandHandler:
 
     def refresh(self) -> bool:
         self.reporter.request_dump()
+        return True
+
+    def _host_page(self, view, cmd: ViewCommand) -> bool:
+        """The host's parameter pages (HOST_BRIDGE_GUIDE §4.12): the view applies them to the
+        simulated screen, the reporter reports the result."""
+        pages = self.host_page_view
+        id_ = view.h[0]
+        if id_ == Cmd.HOST_PAGE_SHOW:
+            pages.show(view.columns, view.value, self.reporter.forget_host_page)
+        elif id_ == Cmd.HOST_PAGE_CELL_TURN:
+            pages.turn(view.cell, view.epoch, view.unit, view.resolution == protocol.Resolution.FINE, view.value)
+        elif id_ == Cmd.HOST_PAGE_CELL_PRESS:
+            pages.press(view.cell, view.epoch, view.value)
+        elif id_ == Cmd.HOST_PAGE_CELL_RESET:
+            pages.reset(view.cell, view.epoch)
+        elif id_ == Cmd.HOST_PAGE_ROW:
+            pages.select_row(view.value)
+        elif id_ == Cmd.HOST_PAGE_PAGE:
+            pages.select_window(view.value)
+        elif id_ == Cmd.HOST_PAGE_SET:
+            pages.select_set(view.value)
+        elif id_ == Cmd.HOST_PAGE_SECTION:
+            pages.select_section(view.value)
+        # HOST_PAGE_CELL_TOUCH: nothing to do in the simulation
         return True
 
     def _bank_scroll(self, view, cmd: ViewCommand) -> bool:

@@ -24,6 +24,7 @@ from .bridge import Bridge
 from .clip import Clip, Note, NoteGrid
 from .commands import Command, CommandHandler
 from .device import Device, DeviceChain, RemoteControl
+from .host_page import HostPages, HostPageView
 from .layer import Layer
 from .marker import Marker, Markers
 from .model import Application, Arranger, Channel, MasterTrack, Mixer, NoteInput, Scene, Send, SimDaw, Slot, Track, Transport
@@ -38,6 +39,8 @@ __all__ = [
     "Bridge",
     "Channel",
     "Clip",
+    "HostPageView",
+    "HostPages",
     "ClipLauncherNavigator",
     "Command",
     "CommandHandler",

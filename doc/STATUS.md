@@ -461,9 +461,15 @@ All paths are under `rust/`.
 - **Related projects:** the Electra One emulator (`~/bastel/github/electra-one`, the real mk1
   firmware on Linux, mk2 by flag; its session "electra-one-sim" owns it) and the zynthian-ui fork
   (branch `electra-grid`: an Electra-like control grid in zynthian's Qt UI).
-- **Next:** a JAM mode that shows an Electra-like parameter page provided by the host app
-  (zynthian's control grid) instead of over the surface link. Plan in progress; background in
-  electra-one `docs/zynthian-electra-ui-brainstorm.md`.
+- **Host-provided pages** (HOST_PAGE_PLAN.md, P1-P5 done): the page model and the generic
+  surface view/mode are `framework::page_surface`, with a `PageSource` trait: the surface link
+  (the Electra) and the host's pages (`/hostpage/…` reports, `hostpage …` commands, feature
+  `hostPages`; the host owns the values and the selection). The JAM's layout for every source:
+  the page list in grid row 1, the cells in rows 2-7 (up to 8 wide), the sections in row 8;
+  Select + SONG cycles through the sources. The reference host simulates zynthian-like pages
+  (`dbm_host_alsa.py --host-pages`, SIGUSR1/2 move its screen).
+- **Next:** the zynthian adapter for the host pages (P6, by the zynthian-ui session; the
+  hand-over is HOST_PAGE_PLAN.md §12).
 
 **A typed protocol between core and hosts** (decided 2026-11-08; done for all hosts but Reaper, see
 "Status" below). Before it every address

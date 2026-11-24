@@ -48,6 +48,7 @@ provides its pages, the JAM shows them (Select + SONG).
 
 import argparse
 import os
+import signal
 import socket
 import sys
 import tempfile
@@ -238,6 +239,10 @@ def main() -> int:
     parser.add_argument("--transport", choices=("auto", "hid", "midi"), default="auto",
                         help="Maschine Mk2/JAM: auto (default): the simulator's ports if they are there, else the real device "
                              "in-process (libdbm_nihost); hid: the real device in-process; midi: the ports only")
+    parser.add_argument("--host-pages", action="store_true",
+                        help="the host provides parameter pages (dbm_host/host_page.py, doc/HOST_PAGE_PLAN.md): the JAM shows them "
+                             "with Select + SONG; the simulated screen's selection moves with SIGUSR1 (next page) and SIGUSR2 "
+                             "(previous page), and is printed when it changes")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
     models = args.model or ["push2"]
@@ -250,7 +255,7 @@ def main() -> int:
         os.environ["DBM_LIBRARY"] = os.path.abspath(args.library)
     sys.path.insert(0, os.path.abspath(args.bindings))
     import drivenbymoss
-    from dbm_host import Bridge, SimDaw
+    from dbm_host import Bridge, HostPages, SimDaw
 
     known = {c.get("id", c.get("uuid", "")).upper() for c in drivenbymoss.list_controllers()}
     for model in models:
@@ -281,6 +286,14 @@ def main() -> int:
     daw.tracks[0].select()
     if any(model in ELECTRA_MODELS for model in models):
         electra_project(daw)
+    screen_steps = []
+    if args.host_pages:
+        daw.host_pages = HostPages(daw)
+        # The simulated screen of the host: its own encoders move the selection
+        signal.signal(signal.SIGUSR1, lambda *_: screen_steps.append(1))
+        signal.signal(signal.SIGUSR2, lambda *_: screen_steps.append(-1))
+        print(f"host pages: SIGUSR1 / SIGUSR2 to pid {os.getpid()} move the screen's selection")
+    last_screen = None
 
     # One ALSA client and one bridge per controller; all share the library (and with it the
     # registry of the surface link) and the simulated DAW
@@ -328,6 +341,19 @@ def main() -> int:
                 for _, _, bridge in runners:
                     bridge.clock_ms += TICK_MS
                     bridge.step()
+            if daw.host_pages is not None:
+                pages = daw.host_pages
+                while screen_steps:
+                    pages.step_on_screen(screen_steps.pop(0))
+                all_pages = pages.pages()
+                if all_pages:
+                    section, page = all_pages[pages.screen.page]
+                    control = page.controls[pages.screen.slot] if pages.screen.slot < len(page.controls) else None
+                    screen = (pages.chain.name, pages.chain.sections[section].name, page.title, control.name if control else "-",
+                              control.text if control else "")
+                    if screen != last_screen:
+                        last_screen = screen
+                        print("host screen: {} · {} · {} · {} {}".format(*screen))
             for model, _, bridge in runners:
                 prefix = "" if len(runners) == 1 else f"{model}: "
                 for line in bridge.notifications:

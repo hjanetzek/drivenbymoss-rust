@@ -1,6 +1,7 @@
 # Host-provided parameter pages on the surface link: plan
 
-Status: plan (2026-11-24), revised after the owner's review; P1-P5 being built. Goal (from the owner): a mode for the Maschine JAM which
+Status: revised after the owner's review (2026-11-24); P1-P5 built (§13), P6 handed over (§12).
+Goal (from the owner): a mode for the Maschine JAM which
 shows an Electra-like parameter page **provided by the host app** (first host: zynthian, its
 control grid on the zynthian-ui branch `electra-grid`) instead of the Electra controller over the
 surface link. Not JAM-only (any controller with a grid and encoders) and not zynthian-only (any
@@ -589,3 +590,26 @@ resulting state — the core never shows a selection which the host did not repo
 Declare the 0x8C commands handled (the handled-commands bitset): that is the `hostPages` feature;
 without the grid module (a stock zynthian) leave them undeclared, and the JAM has no host source.
 
+
+## 13. Implementation status (2026-11-24)
+
+| Phase | Done | Where |
+| --- | --- | --- |
+| P1 | `framework::page_surface` (model 1.2, `PageSource`, `SurfaceClient` with several sources, `PageSurfaceView`/`Mode`), `surface_link::LinkSource`, the JAM's new layout for the Electra | `src/framework/page_surface/`, `src/framework/surface_link/source.rs`, `src/controller/maschine/jam/surface_link.rs`; `tests/surface_link.rs` (the Electra's bytes unchanged, the JAM's pad positions moved) |
+| P2 | `Msg` 0x0C (29 reports), `Cmd` 0x8C (9 commands), the domains `TurnUnit`, `Resolution`, `Processor::HostPage`, `HostFeature::HostPages`; `daw::host_page::HostPage` and `Parser::apply`; the generated bindings; unhandled in Bitwig, the reference host (without host pages) and the zynthian adapter | `src/protocol/msg.rs`, `cmd.rs`, `types.rs`, `src/daw/host_page.rs`, `src/parser.rs`; HOST_BRIDGE_GUIDE.md §3.10, §4.12 |
+| P3 | `HostSource`: available with `hostPages`, the host page → page model, input → commands (epochs, steps from the reported selection, no local selection) | `src/framework/page_surface/host.rs` |
+| P4 | The JAM's sources: the surface link, then the host's pages; Select + SONG cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
+| P5 | The simulated host pages (chains per track, sections, grid8x6 / grid4x6, a screen), `dbm_host_alsa.py --host-pages` (SIGUSR1 / SIGUSR2 move the screen's selection) | `bindings/python/dbm_host/host_page.py`, `bindings/python/tests/test_host_page.py`, `support/push_simulator/tools/dbm_host_alsa.py` |
+
+**Try it** (isolated: own suffix, clients by PID):
+
+```sh
+cargo build
+support/controller_simulator/run.sh --model jam --suffix " (hp)" &
+support/controller_simulator/tools/dbm_host_alsa.py --model jam --host-pages --suffix " (hp)" \
+    --library target/debug/libdrivenbymoss.so
+# Select + SONG on the simulator; kill -USR1 <the runner's pid> moves the host's screen
+```
+
+With the Electra emulator as well (`--model electra --model jam --electra-client <n>`), Select +
+SONG goes Electra pages → host pages → off.

@@ -317,7 +317,11 @@ class Reporter:
             Reporter.collect_eq,
             Reporter.collect_clip,
             Reporter.collect_grids,
+            Reporter.collect_host_page,
         ]
+        self.host_page_view = None
+        """The host's pages of this bridge (``host_page.HostPageView``; set by the command handler
+        if the DAW has host pages)."""
 
     # Change tracking (ModelReporter)
 
@@ -598,6 +602,16 @@ class Reporter:
             self.collect_channel(base, track)
             self.collect_sends(base, track, with_color=False)
         put(M.EFFECT_TRACK_COUNT, len(self.daw.effect_tracks))
+
+    def collect_host_page(self) -> None:
+        """The host's parameter pages (HOST_BRIDGE_GUIDE §3.10), while a surface shows them."""
+        if self.host_page_view is not None:
+            self.host_page_view.report(self.put)
+
+    def forget_host_page(self) -> None:
+        """Report the host's pages again (a dump of them)."""
+        for k in [k for k in self.last if (k & 0xFFFF) >> 8 == 0x0C]:
+            del self.last[k]
 
     def collect_markers(self) -> None:
         """BitwigModel.collectMarkers (if the model setup has ``numMarkers`` > 0): the markers of
