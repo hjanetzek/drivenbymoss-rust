@@ -444,6 +444,27 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
+**Where to pick up (2026-11-24):**
+- **Done and merged:** the typed binary protocol (all hosts but Reaper); the ports of Beatstep,
+  Launchkey, OSC (typed address table), Push 1/2/3 (USB display: C ABI, Bitwig, usbdevfs, the
+  simulator socket), Maschine Mk3/Mikro Mk3/Plus (registered), Electra One (Mk1/Mk2, Mini); the
+  tests on typed `Cmd`s; the controller simulators (Push, Maschine Mk2/JAM/Mk3/Mikro, APC40 mkII,
+  Launchpad Pro Mk3, LCXL; guide: CONTROLLER_SIMULATORS.md); the Maschines in-process over
+  libdbm_nihost on Linux; the Maschine LED brightness, the JAM palette and the colour roles.
+- **The surface link** (SURFACE_LINK.md): a generic 6×6 page model between two controller
+  instances in one process. Providers: the Electra controller with the DrivenByMoss preset, and
+  the generic provider for any other preset on the Electra Mk2 emulator (electra-one §6b/§6c,
+  agreed and tested live). Surface: the Maschine JAM (Select + SONG; LEFT/RIGHT switch an
+  envelope's value). Test with `dbm_host_alsa.py --model electra --model jam` (isolate test runs:
+  own name suffix, clients picked by PID). Open: acceleration for detented encoders and lists,
+  covered cells drawn dark (SURFACE_LINK.md §9).
+- **Related projects:** the Electra One emulator (`~/bastel/github/electra-one`, the real mk1
+  firmware on Linux, mk2 by flag; its session "electra-one-sim" owns it) and the zynthian-ui fork
+  (branch `electra-grid`: an Electra-like control grid in zynthian's Qt UI).
+- **Next:** a JAM mode that shows an Electra-like parameter page provided by the host app
+  (zynthian's control grid) instead of over the surface link. Plan in progress; background in
+  electra-one `docs/zynthian-electra-ui-brainstorm.md`.
+
 **A typed protocol between core and hosts** (decided 2026-11-08; done for all hosts but Reaper, see
 "Status" below). Before it every address
 (`/track/3/volume`, host → core) and every command (`track 3/mute 1`, core → host) was a string
@@ -505,10 +526,9 @@ Open issues:
   MIDI → `SendMIDIEventsToOutputs`) still reaches the device at that point.
 - [ ] There is no UI. Configuration comes from the `.config` files, and `dbm_display_window` only
   prints the log. Decide whether a UI is needed.
-- [ ] Decide how to support USB/HID (Push 2/3 display, Kontrol Mk1) and whether external crates
-  are allowed for these. Graphics displays are drawn with `src/framework/graphics/` (bitmap font,
-  no anti-aliasing, only the components of the small displays; the Push components, icons and
-  anti-aliased drawing are missing).
+- [ ] USB/HID: the Push 2/3 display (USB bulk: Bitwig's USB API, usbdevfs on Linux, the simulator
+  socket) and the Maschines (hidraw, libdbm_nihost) are done; the Kontrol Mk1 (USB HID) is not
+  ported.
 - [ ] Device browser: presets only, with no filter columns and no device database (DeviceManager).
   This limits device and drum-pad browsing (Maschine).
 - [ ] No parameter renaming or mapping (DeviceManager), and no device layers (Reaper has none).

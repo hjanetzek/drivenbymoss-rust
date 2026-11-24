@@ -414,3 +414,7 @@ shows its page.
   in the provider (see above) or `14 55 step` for lists on `SelectedTurn`.
 - The generic view draws covered cells dark; a surface could draw them dim in the control's
   color (the slot carries it).
+- A provider in the host app instead of a controller: zynthian's Electra-like control grid
+  (zynthian-ui branch `electra-grid`) could provide the page model directly, so the JAM shows it
+  without the Electra. That is the next step, planned separately (STATUS.md, "Where to pick up";
+  electra-one `docs/zynthian-electra-ui-brainstorm.md`).
