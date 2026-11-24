@@ -1,6 +1,6 @@
 # Host-provided parameter pages on the surface link: plan
 
-Status: plan (2026-11-24), nothing built. Goal (from the owner): a mode for the Maschine JAM which
+Status: plan (2026-11-24), revised after the owner's review; P1-P5 being built. Goal (from the owner): a mode for the Maschine JAM which
 shows an Electra-like parameter page **provided by the host app** (first host: zynthian, its
 control grid on the zynthian-ui branch `electra-grid`) instead of the Electra controller over the
 surface link. Not JAM-only (any controller with a grid and encoders) and not zynthian-only (any
@@ -14,39 +14,56 @@ HOST_BRIDGE_GUIDE.md; electra-one `docs/zynthian-electra-ui-brainstorm.md` (path
 **Tags:** **[V path:line]** = verified by reading the code at that place; **[A]** = an
 assumption, not checked in code; **[P]** = proposed here.
 
-## 0. Summary
 
-- **Recommendation: option (a), a host provider in the core.** The host reports a page model with
-  new typed `Msg`s (block 0x0C); a `HostPageProvider` in the core instance turns it into the
-  surface link's `PageModel` and registers it on a second link, `"host"`. The generic
-  `SurfaceLinkView`/`SurfaceLinkMode` and the JAM's surface stay the same code; the surface's
-  input becomes typed `Cmd`s (block 0x8C) to the host. **The host does all the value math**
-  (zynthian: `zctrl.nudge`, list steps, toggles), as the Electra firmware does for `14 53`.
-- **The surface link grows to 1.2** to fit zynthian's grid: a model size up to 8×8 instead of
-  fixed 6×6, explicit **control sets** (a zynthian page = the 4 cells its encoders turn), an
-  optional section list, a `Shown` input (the surface displays the provider: the host reports only
-  then), and a turn unit (a strip's travel vs an encoder's detent). The Electra providers keep
-  working unchanged (their sets derive from `rows_per_set`).
-- **The host owns the layout.** When a surface shows the host's pages, the core sends
-  `HOST_PAGE_SHOW` with the surface's shape (columns, rows, encoders per row, rows per set); the
-  host picks its layout (zynthian: `grid8x6` for the JAM, `grid4x6` or a 2×2-block 6×6 for a
-  6-column surface) and reports it.
-- **The JAM: the same surface mode, another provider.** Select + SONG cycles through the attached
-  providers (off → Electra pages → host pages → off, skipping missing ones; with one provider it
-  behaves as today). For an 8-column model the JAM uses all 8 columns: rows 2-7 the cells, row 1
-  the page list (windows), row 8 the sections (processors), strips 1-8 the active row, LEFT/RIGHT
-  the previous/next control set; the group buttons A-H keep selecting tracks (= chains).
-- **zynthian:** a `host_page.py` collector/handler in `dbm_zynthian` with its own `ControlGrid`
-  instance (the grid model is UI independent but not thread safe), plus three things zynthian-ui
-  lacks: a shared page builder (today in the Qt screen), section colours in Python, and a signal
-  for the selected page. The `electra-grid` branch is based on `main`, not on `dbm`, so the
-  DrivenByMoss drivers cannot run with it yet.
-- **Cost on zynthian:** zero while no surface shows the pages (subscription); while shown about 48
-  value compares per fast pass (the Qt grid measured 5-7 µs per poll) and a page rebuild on
-  structural signals.
-- **Phases:** P1 surface link 1.2 → P2 protocol entries → P3 the core provider → P4 the JAM →
-  P5 the Python reference host's simulated pages (testable end to end with the JAM simulator) →
-  P6 zynthian → optional P7 the Electra as a surface of the host's pages, P8 Bitwig.
+## 0. Summary (revised 2026-11-24 after the owner's review)
+
+- **Option (a), but without a second link.** The host's pages reach the controller in the **same
+  core instance**, so the surface link's registry, queues and attach states add nothing for them.
+  The page model and the generic surface view/mode move out of `surface_link` into a neutral
+  module, `framework::page_surface`. A small trait, **`PageSource`**, gives a surface its model
+  changes and takes its input. Two sources:
+  - **the link source** (`surface_link::LinkSource`): the surface side of the surface link, i.e.
+    the Electra controller providing in another instance — unchanged behaviour;
+  - **the host source** (`page_surface::host::HostSource`): fed directly from the new `Msg`
+    records (block 0x0C) which the parser applies to `daw::host_page::HostPage`, and sending the
+    surface's input straight as `Cmd`s (block 0x8C).
+- **The host owns the selection** (the owner's decision, §D). The page, the row, the control set
+  and the selected cell are what the host's screen shows; the core displays only what the host
+  reports and never applies a selection of its own. JAM input that selects goes to the host as a
+  command; the host applies it to its screen and reports the result. Changes on the host's screen
+  are reported the same way. There is one source of truth, so there is no echo and no ping-pong.
+- **The host does the value math** (zynthian: `zctrl.nudge`, list steps, toggles), as the Electra
+  firmware does for `14 53`. The core sends deltas with a unit (a strip's travel or an encoder's
+  detent) and a resolution (normal or fine).
+- **The page model 1.2** (part of the page model, carried by the link too): sizes up to 8×8, explicit
+  control sets (a zynthian page = the 4 cells its encoders turn), sections, `Shown` (the
+  subscription: the host reports only while a surface shows its pages), the turn unit.
+- **The JAM** (one layout for both sources): row 1 the page list with its last two pads previous /
+  next page; rows 2-7 the cells, left-aligned, up to 8 columns (Electra pages are 6 wide, columns 7-8
+  stay empty); row 8 the sections (zynthian) or nothing; no row-selector column (a fader or list cell
+  press selects it and its row, pads only switch). Strips 1-8 the active row; with 6-wide pages
+  strips 7-8 keep the selected slot / the extra. The main encoder the selected cell. UP/DOWN the row;
+  LEFT/RIGHT the handle of the Electra's generic provider, or the previous / next control set of a
+  model with control sets (zynthian). **Select + SONG cycles** through the available sources
+  (off → the next available → … → off).
+- **Phases:** P1 page_surface + `PageSource` + the new JAM layout for the Electra + model 1.2;
+  P2 the protocol entries; P3 the host source; P4 the JAM with both sources and 8 columns; P5 the
+  simulated host pages in the Python reference host (`dbm_host_alsa.py --host-pages`); P6 zynthian
+  (the zynthian-ui session; hand-over in §12).
+
+## D. Decisions (the owner, 2026-11-24)
+
+1. No second link for the host: one instance, a `PageSource` trait with the link source and the host
+   source; no `HostPageProvider`, no `"host"` link.
+2. The JAM layout of §5 for both sources; the Electra moves to it in P1.
+3. Model 1.2 as part of the page model, not only a link version.
+4. **The selection is shared with zynthian and owned by the host.** zynthian's screen is the display
+   for the names (the JAM grid alone is not useful without it). Page, control set / row and selected
+   cell are host state in both directions: the JAM's selecting input becomes a command, the host
+   applies it to its screen and reports back; changes on the host's screen (touch, its own encoders)
+   are reported and the JAM follows. The core never changes the selection locally.
+5. The zynthian side (P6) is done by the zynthian-ui session; the owner coordinates. zynthian-ui is
+   not modified from here.
 
 ## 1. What exists
 
@@ -194,289 +211,216 @@ makes the grid useful (kinds, sections, the chain); it stays a possible later **
 provider"** in the core for hosts without host pages (Bitwig without P8, Reaper), built from the
 existing model and not part of this plan.
 
+
+The review (§D) kept (a) but replaced "a provider on a second link" by "a source in the same
+instance": the multiple-providers row of the table becomes "the surface has several sources and
+cycles through them".
+
 ## 3. The design
 
 ### 3.1 Overview
 
 ```
- zynthian (host)                         core instance (e.g. the JAM driver's)            surface
- ─────────────────                       ──────────────────────────────────────           ───────
- dbm_zynthian/host_page.py               Parser::apply(Msg 0x0C) → model.host_page
-   own ControlGrid + ValueWatcher   ──►  HostPageProvider (App::tick)
-   reports /hostpage/... (change only)     HostPage → PageModel, LinkProvider("host")  ──► SurfaceLinkClient
-                                           publish() snapshot / diffs                       (JAM: Select+SONG)
-   ZynCommandHandler 0x8C           ◄──    poll() inputs → Cmd 0x8C (with the epoch)   ◄── Input (1.2)
-     grid.turn / press / select ...        Shown → HOST_PAGE_SHOW {shape} on/off
+ host (zynthian, reference host)           core instance (e.g. the JAM driver's)
+ ───────────────────────────────           ─────────────────────────────────────────────────
+ reports /hostpage/... (change only) ──►   Parser::apply(Msg 0x0C) → model.host_page (HostPage)
+                                             HostSource (PageSource) ── PageModel ──┐
+ handles Cmd 0x8C                    ◄──     input → Cmd 0x8C (with the epoch)       │
+   (value math, selection on its screen)                                             ▼
+                                           SurfaceClient (the JAM's) ◄── LinkSource ◄── surface link
+                                             view (grid), mode (strips)               (Electra in
+                                                                                       another instance)
 ```
 
-The provider and the surface may be in different core instances of one process (the registry
-connects them, SURFACE_LINK §4): e.g. the Mk2 driver's instance provides, the JAM's shows.
+### 3.2 `framework::page_surface`
 
-### 3.2 Surface link 1.2 [P]
+- `model.rs`: the page model (moved from `surface_link/model.rs`): `Rgb`, `SlotKind`, `Slot`,
+  `Extra`, `ControlSet`, `Section`, `PageModel`, `ModelChange`, `Input`, `TurnUnit`, `ColorDepth`,
+  `Capabilities`. `surface_link` re-exports them, so the Electra's code keeps its paths.
+- `source.rs`: `LinkState` (Missing, Attached, Detached, Incompatible; moved), `SourceEvent`
+  (`State`, `Model`) and the trait:
 
-Additions only; the Electra providers and their tests stay as they are.
+  ```rust
+  pub trait PageSource {
+      fn state(&self) -> LinkState;
+      fn name(&self) -> &str;                       // for the notifications
+      fn poll(&mut self, ctx: &Ctx) -> Vec<SourceEvent>; // at the controller's tick
+      fn send(&mut self, input: Input);            // the surface's input
+  }
+  ```
+- `client.rs`: `SurfaceClient` (was `SurfaceLinkClient`): the mapping, **several sources** (each
+  with its own mirror of the model), the current one, the gestures. `select_source`,
+  `next_available(after)`.
+- `view.rs`: `SurfaceView`, `SurfaceMode` (were `SurfaceLinkView`/`Mode`), `palette_index`,
+  `state_text`.
+- `host.rs`: `HostSource`.
+- `surface_link` keeps the registry, the provider helper and `LinkSource` (the `SurfaceHandle`
+  as a `PageSource`).
 
-- **Size:** `PageModel.columns`, `rows` (default 6, 6; at most 8, 8). Slot id = row · columns +
-  column. `diff` makes a snapshot when they change. Every `GRID_SIZE` use in client.rs and view.rs
-  becomes the model's size (the places in §1.1).
-- **Control sets** (what the encoders of a surface turn together; Electra: a control set of 2 rows;
-  zynthian: a page of 4 cells):
-  - `Slot.set: Option<u16>` and `PageModel.sets: Vec<ControlSet { name, section: Option<u16>,
-    color }>`, `active_set: Option<usize>`;
-  - without explicit sets (the Electra providers) the sets derive from `rows_per_set` as today, and
-    nothing changes for them;
-  - the view draws the cells of the active set at full level and the other cells one level lower
-    on palettes with levels (NI's roles) — only for models with explicit sets.
-- **Sections** (optional): `PageModel.sections: Vec<Section { name, color }>`, `active_section`
-  (zynthian: "Chain", each processor).
-- **Input:**
-  - `Shown { on }`: the surface displays this provider (the JAM's enter/leave). The provider asks
-    its host for the pages only while one surface shows them.
-  - `SlotTurn { id, delta, fine, unit }`, `SelectedTurn { delta, fine, unit }` with
-    `TurnUnit::{Travel, Detent}`: `Travel` = an absolute control (strip, fader: 1 = 1/127 of its
-    travel), `Detent` = one click of a relative encoder (the JAM's main encoder). The client sets it
-    from the encoder's `EncoderKind` (client.rs:46). The Electra providers ignore it (or use it for
-    their open list problem, SURFACE_LINK §9).
-  - `SetSelect { set }`, `SetStep { delta }`, `SectionSelect { section }`.
-- **Capabilities:** add `slot_area: (columns, rows)` per supported layout (the JAM: 6×6 and 8×6),
-  `row_encoders` (JAM 6 or 8 strips), `rows_per_set` preference (JAM 1, an Electra 2).
-- **Version 1.2.** In one process all sides are one build, so this is about a later transport: a
-  provider sends a model larger than 6×6 only to surfaces of 1.2 or newer (it knows each surface's
-  version, mod.rs `Conn.version`), a 1.1 surface gets it clipped to 6×6.
+### 3.3 The page model 1.2
 
-### 3.3 The host page provider in the core [P]
+- **Size:** `columns`, `rows` (default 6×6, at most 8×8). Slot id = row · columns + column.
+- **Control sets:** `Slot.set: Option<usize>`, `PageModel.sets: Vec<ControlSet { name, section,
+  color }>`, `active_set`. Without explicit sets (the Electra) nothing changes. The view draws the
+  cells outside the active set one level lower (NI's roles: `Inactive`).
+- **Sections:** `sections: Vec<Section { name, color }>`, `active_section`.
+- **Changes:** a snapshot when the size, the sets or the sections change; new changes
+  `ActiveSet`, `ActiveSection`.
+- **Input:** `SlotTurn` and `SelectedTurn` get `unit: TurnUnit` (`Travel`: 1 = 1/127 of a strip's
+  or fader's travel; `Detent`: one click of a relative encoder), set by the client from the encoder
+  kind. New: `Shown { on }`, `SetSelect { set }`, `SetStep { delta }`, `SectionSelect { section }`.
+  The Electra providers ignore the new input.
+- **Capabilities:** `slot_area` (the cells a surface shows: the JAM 8×6) and `row_encoders`.
+- The link's version goes to 1.2 (the model and the input changed).
 
-- **The host model** `src/daw/host_page.rs`: `HostPage { exists, title, epoch, columns, rows,
-  pages, page, cells: Vec<HostCell>, sets, sections, active_row, active_set, selected_cell }`,
-  filled by `Parser::apply` (exhaustive match, src/parser.rs:211) from the 0x0C messages.
-- **The provider** `src/framework/surface_link/host.rs`: `HostPageProvider` (per instance, owned
-  by the running instance in `app.rs`). In `App::tick`, before `handle_changes`:
-  1. `poll()` the surfaces' input and translate it to `Cmd`s (§3.4) with the model's epoch;
-  2. on a change of the shown surfaces: `HOST_PAGE_SHOW` with the shape of the most recently
-     shown surface (on), or off when none shows;
-  3. convert `HostPage` → `PageModel` and `publish()` (after the host's whole report is applied:
-     one buffer is one report, TYPED_PROTOCOL_PLAN §2.2, so a page switch is one snapshot).
-  Publishing before `handle_changes` lets a surface in the same instance draw it in the same tick.
-- **Registration:** only if `host_supports(HostFeature::HostPages)` (§3.5). Link `HOST_LINK =
-  "host"`, name from the host (`/hostpage/title`, e.g. "zynthian"). If the link is provided already
-  (a second zynthian driver), the provider is inactive and tries again every second, so it takes
-  over when the first driver stops.
-- **The epoch** (u16, from the host): incremented by the host on every structural change (chain,
-  pages, layout, window). The core puts the current epoch into every cell command; the host drops
-  a cell command of another epoch (a strip turned on the previous chain's cell 5 must not turn the
-  new chain's cell 5).
-- **Translations in the core** (keeps the host simple):
+### 3.4 The host source
+
+- **The model** `src/daw/host_page.rs`: `HostPage { exists, title, epoch, columns, rows, pages,
+  page, cells, sets, sections, row, set, section, selected_cell }`, set by `Parser::apply` from the
+  0x0C messages (an exhaustive match, src/parser.rs:211). A change counter tells the source to
+  rebuild.
+- **Available** when the host supports `HostFeature::HostPages` (binary hosts: they handle the 0x8C
+  commands; text hosts never). Availability must not depend on reports, since the host reports
+  only while shown.
+- **Poll:** when the host page changed, build a `PageModel` and diff it with the mirror (snapshot
+  or changes); send the queued input as `Cmd`s.
+- **Input → Cmd** (the selection is never applied locally, §D.4):
 
   | Input | Cmd |
   | --- | --- |
-  | `SlotTurn` | `HOST_PAGE_CELL_TURN` |
-  | `SelectedTurn` | `HOST_PAGE_CELL_TURN` of `selected_cell` |
-  | `SlotPress` / `SlotRelease` | `HOST_PAGE_CELL_PRESS` 1 / 0 |
-  | `SlotTouch` | `HOST_PAGE_CELL_TOUCH` |
-  | `SelectedReset` | `HOST_PAGE_CELL_RESET` of `selected_cell` |
-  | `RowSelect` | `HOST_PAGE_ROW` |
-  | `PageSelect`, `PageNext`, `PagePrev` | `HOST_PAGE_PAGE` (page ± 1, clamped) |
-  | `SetSelect`, `SetStep` | `HOST_PAGE_SET` (absolute; the core computes the step) |
-  | `SectionSelect` | `HOST_PAGE_SECTION` |
-  | `ValueNext/Prev`, `ExtraTurn` | not sent (the host model has no handles or extras in v1) |
+  | `Shown { on }` | `HostPageShow { columns, rows, encoders, rows_per_set } on` (the surface's shape) |
+  | `SlotTurn` | `HostPageCellTurn { cell, epoch, unit, resolution } delta` |
+  | `SelectedTurn` | the same for the selected cell |
+  | `SlotPress` / `SlotRelease` | `HostPageCellPress { cell, epoch } true / false` |
+  | `SlotTouch` | `HostPageCellTouch { cell, epoch } on` |
+  | `SelectedReset` | `HostPageCellReset` of the selected cell |
+  | `RowSelect` | `HostPageRow row` |
+  | `PageSelect`, `PageNext`, `PagePrev` | `HostPagePage page` (± 1 of the reported page, clamped) |
+  | `SetSelect`, `SetStep` | `HostPageSet set` (± 1 of the reported set, clamped) |
+  | `SectionSelect` | `HostPageSection section` |
+  | `ValueNext/Prev`, `ExtraTurn` | not sent |
 
-### 3.4 The protocol [P]
+- **The epoch** (from the host, u16): the host increments it on every change of the cells'
+  assignment (chain, pages, window, layout); cell commands carry it, the host drops those of
+  another epoch (a strip turned just before a chain switch must not change the new chain's cell).
 
-**Host → core (`Msg`, block 0x0C)**, reported change-only like every other value (the host's
-`Reporter` keys by id and indices, the dump after `refresh` and after `HOST_PAGE_SHOW` on):
+### 3.5 The protocol
 
-| ID | Name | Text template | Value |
+**Host → core (`Msg`, block 0x0C)**, reported change-only, everything again (a dump) after
+`HostPageShow` on and after `refresh`:
+
+| ID | Name | Address | Value |
 | --- | --- | --- | --- |
-| 0x0C01 | `HostPageExists` | `/hostpage/exists` | bool (false: nothing to show, e.g. no chain) |
-| 0x0C02 | `HostPageTitle` | `/hostpage/title` | text (the provider name the surface notifies: "zynthian · Synth 1") |
-| 0x0C03 | `HostPageEpoch` | `/hostpage/epoch` | i32, first record of a structural change |
-| 0x0C04 | `HostPageColumns` / 0x0C05 `HostPageRows` | `/hostpage/columns`, `/hostpage/rows` | i32 (≤ 8) |
-| 0x0C08 | `HostPageCount` | `/hostpage/page/count` | i32 (the windows) |
-| 0x0C09 | `HostPageSelected` | `/hostpage/page/selected` | i32 |
+| 0x0C01 | `HostPageExists` | `/hostpage/exists` | bool (false: nothing to show) |
+| 0x0C02 | `HostPageTitle` | `/hostpage/title` | text (the source's name: "zynthian · Synth") |
+| 0x0C03 | `HostPageEpoch` | `/hostpage/epoch` | int |
+| 0x0C04 | `HostPageColumns` | `/hostpage/columns` | int 1..8 |
+| 0x0C05 | `HostPageRows` | `/hostpage/rows` | int 1..8 |
+| 0x0C08 | `HostPageCount` | `/hostpage/page/count` | int |
+| 0x0C09 | `HostPageSelected` | `/hostpage/page/selected` | int (the shown page / window) |
 | 0x0C0A | `HostPageName` | `/hostpage/page/{page}/name` | text |
-| 0x0C10 | `HostCellKind` | `/hostpage/cell/{cell}/kind` | i32, domain `CellKind`: empty 0, fader 1, list 2, toggle 3, trigger 4, relative 5, action 6 |
+| 0x0C10 | `HostCellKind` | `/hostpage/cell/{cell}/kind` | int: 0 empty, 1 fader, 2 list, 3 toggle, 4 trigger, 5 relative, 6 action |
 | 0x0C11 | `HostCellName` | `/hostpage/cell/{cell}/name` | text |
 | 0x0C12 | `HostCellColor` | `/hostpage/cell/{cell}/color` | color |
-| 0x0C13 | `HostCellValue` | `/hostpage/cell/{cell}/value` | f64, 0..1 |
-| 0x0C14 | `HostCellText` | `/hostpage/cell/{cell}/text` | text (the host's value label) |
-| 0x0C15 | `HostCellSteps` | `/hostpage/cell/{cell}/steps` | i32 (list items; 0 continuous) |
-| 0x0C16 | `HostCellOn` | `/hostpage/cell/{cell}/on` | bool (toggle state) |
-| 0x0C17 | `HostCellEnabled` | `/hostpage/cell/{cell}/enabled` | bool (false: read-only, gap) |
-| 0x0C18 | `HostCellSet` | `/hostpage/cell/{cell}/set` | i32 (-1: none) |
-| 0x0C20 | `HostSetCount` | `/hostpage/set/count` | i32 |
-| 0x0C21 | `HostSetName` | `/hostpage/set/{set}/name` | text (zynthian's page title) |
-| 0x0C22 | `HostSetSection` | `/hostpage/set/{set}/section` | i32 |
+| 0x0C13 | `HostCellValue` | `/hostpage/cell/{cell}/value` | f64 0..1 |
+| 0x0C14 | `HostCellText` | `/hostpage/cell/{cell}/text` | text |
+| 0x0C15 | `HostCellSteps` | `/hostpage/cell/{cell}/steps` | int (list items) |
+| 0x0C16 | `HostCellOn` | `/hostpage/cell/{cell}/on` | bool |
+| 0x0C17 | `HostCellEnabled` | `/hostpage/cell/{cell}/enabled` | bool |
+| 0x0C18 | `HostCellSet` | `/hostpage/cell/{cell}/set` | int (-1 none) |
+| 0x0C20 | `HostSetCount` | `/hostpage/set/count` | int |
+| 0x0C21 | `HostSetName` | `/hostpage/set/{set}/name` | text |
+| 0x0C22 | `HostSetSection` | `/hostpage/set/{set}/section` | int |
 | 0x0C23 | `HostSetColor` | `/hostpage/set/{set}/color` | color |
-| 0x0C24 | `HostSetSelected` | `/hostpage/set/selected` | i32 |
-| 0x0C30 | `HostSectionCount` / 0x0C31 `HostSectionName` / 0x0C32 `HostSectionColor` / 0x0C33 `HostSectionSelected` | `/hostpage/section/...` | i32 / text / color / i32 |
-| 0x0C40 | `HostPageRow` | `/hostpage/row` | i32 (the active row) |
-| 0x0C41 | `HostCellSelected` | `/hostpage/cell/selected` | i32 (-1: none) |
+| 0x0C24 | `HostSetSelected` | `/hostpage/set/selected` | int (-1 none) |
+| 0x0C30 | `HostSectionCount` | `/hostpage/section/count` | int |
+| 0x0C31 | `HostSectionName` | `/hostpage/section/{section}/name` | text |
+| 0x0C32 | `HostSectionColor` | `/hostpage/section/{section}/color` | color |
+| 0x0C33 | `HostSectionSelected` | `/hostpage/section/selected` | int |
+| 0x0C40 | `HostPageRow` | `/hostpage/row` | int (the active row) |
+| 0x0C41 | `HostCellSelected` | `/hostpage/cell/selected` | int (-1 none) |
 
-- **Snapshot vs changes:** the host does not distinguish; it reports changed fields. The core's
-  `PageModel::diff` decides (a new size, page or page list → snapshot). A whole 8×6 dump is about
-  48 × 9 + 30 ≈ 460 records (~11 KB), a value change two records (value, text).
-- One record per field (not a struct per cell): texts cannot be inside the fixed structs
-  (bin.rs struct arrays are numeric, e.g. `Note`), and per-field records give the change-only
-  reporting for free.
+Cell, set and section indices are positions in the shown page (cell = row · columns + column).
 
-**Core → host (`Cmd`, block 0x8C)**, processor `Processor::HostPage` (text `hostpage`), all with
-`feature = HostPages`:
+**Core → host (`Cmd`, block 0x8C)**, processor `hostpage`, feature `hostPages`:
 
-| ID | Name | Indices | Value | Host action (zynthian) |
-| --- | --- | --- | --- | --- |
-| 0x8C01 | `HostPageShow` | columns, rows, row_encoders, rows_per_set | bool | on: choose the layout, dump; off: stop collecting |
-| 0x8C02 | `HostPageCellTurn` | cell, epoch, unit (`TurnUnit`), fine (0/1) | i32 delta | §3.5 |
-| 0x8C03 | `HostPageCellPress` | cell, epoch | bool (press/release) | `grid.press` / `release`: toggle, trigger, next list item, file selector; a continuous cell selects its page and becomes the selected cell |
-| 0x8C04 | `HostPageCellTouch` | cell, epoch | bool | nothing yet (later: show the page's widget on zynthian's screen, `gridWidgetPoke`) |
-| 0x8C05 | `HostPageCellReset` | cell, epoch | – | `grid.set_default` |
-| 0x8C06 | `HostPageRow` | row | – | select the page in that row (8×6: the same half as before) |
-| 0x8C07 | `HostPagePage` | page | – | the window `page` (rows 6·page …) |
-| 0x8C08 | `HostPageSet` | set | – | `grid.select_page(set)` |
-| 0x8C09 | `HostPageSection` | section | – | select the section's first page |
+| ID | Name | Text form | Value |
+| --- | --- | --- | --- |
+| 0x8C01 | `HostPageShow` | `hostpage show/{columns}/{rows}/{encoders}/{rows_per_set}` | bool |
+| 0x8C02 | `HostPageCellTurn` | `hostpage cell/{cell}/turn/{unit}/{resolution}/{epoch}` | int delta |
+| 0x8C03 | `HostPageCellPress` | `hostpage cell/{cell}/press/{epoch}` | bool |
+| 0x8C04 | `HostPageCellTouch` | `hostpage cell/{cell}/touch/{epoch}` | bool |
+| 0x8C05 | `HostPageCellReset` | `hostpage cell/{cell}/reset/{epoch}` | – |
+| 0x8C06 | `HostPageRow` | `hostpage row` | int |
+| 0x8C07 | `HostPagePage` | `hostpage page` | int |
+| 0x8C08 | `HostPageSet` | `hostpage set` | int |
+| 0x8C09 | `HostPageSection` | `hostpage section` | int |
 
-### 3.5 Value math, features, versions [P]
+`unit`: `travel` | `detent`; `resolution`: `normal` | `fine`.
 
-- **Value math in the host** (as the Electra's `14 53`, SURFACE_LINK §6.2):
-  - `Detent` (main encoder): `grid.turn(cell, delta, fine)` = `zctrl.nudge` — the same as
-    zynthian's own encoders: one list item per click, floats by `nudge_factor`.
-  - `Travel` (strips): normalized: Δfraction = delta / 127 (fine: / 10), so a swipe across the
-    strip is the whole range (as on the Electra's pages); continuous zctrls move in their fraction
-    space (logarithmic as `nudge` does), stepped ones (lists, integers, toggles) accumulate the
-    fraction per zctrl and step when it crosses 1 / steps (as `DeviceParameter.remainders` in
-    device.py). A helper `turn_travel(cell, delta, fine)` in the shared grid model, next to `turn`.
-  - **Acceleration:** none in the core. A host may add it for `Detent`.
-- **Feature negotiation:** a new command feature `HostFeature::HostPages` (added to
-  `is_command_feature`, context.rs:148). A binary host has it when its handled-commands bitset
-  contains the 0x8C commands (a host which handles one should handle all; the reference host's
-  coverage test checks it). Only then the core creates the provider.
-- **Text hosts (Reaper):** `/host/features` never lists `hostPages`, so the provider is never
-  created and no 0x8C command is sent; Reaper never reports `/hostpage/...`. The text templates
-  exist only for logs and recordings. Should a 0x8C command ever reach a text host, its legacy
-  form (`hostpage cell/3/turn …`) ends as "not handled" in its log. [A: the Reaper C++ does not
-  switch exhaustively over the generated `DbmCmdId`; it is on the text path.]
-- **Versioning:** the protocol's minor version (IDs added), the table hash changes, the generated
-  files are regenerated (the staleness test). The Bitwig extension adds the new commands to its
-  "unhandled" arm until P8; the reference host adds them to `UNHANDLED_COMMANDS` until P5. The
-  surface link goes to 1.2 (§3.2).
+**Value math in the host:** `detent` → one encoder step (zynthian: `zctrl.nudge(delta, fine)`, a
+list one item per click); `travel` → the normalized value moves by delta / 127 (fine: / 10), so a
+swipe across a strip is the whole range; stepped values accumulate and step when they cross
+1 / steps. No acceleration in the core.
+
+**Features and versions:** `HostFeature::HostPages` (`hostPages`) is a command feature: a binary
+host has it when its handled-commands bitset contains the 0x8C commands. A text host (Reaper) does
+not list it in `/host/features`, so the core never creates a host source for it and never sends the
+commands; it never reports `/hostpage/...`. The protocol table's hash changes; the generated
+bindings are regenerated (the staleness test). Bitwig and the zynthian adapter list the commands as
+unhandled until they implement them.
 
 ### 3.6 Latency
 
-Host report → `dbm_update_model_bin` at the host's tick → `publish` at `App::tick` → the JAM's
-poll in the same tick → LEDs at `flush`. Input: strip → the up queue → the provider's next
-`poll` → `Cmd` → the host executes it in the command callback → its next fast pass reports the new
-value. About 1-2 ticks (30-60 ms) for a round trip, the same order as the Electra path (SysEx to
-the device and back). The page values must be in zynthian's **fast** pass (§4.2), otherwise a turn
-shows only after the 250 ms full pass.
+Input during a MIDI event → queued in the source → sent at the controller's tick (the same tick) →
+the host executes it in the command callback → its next report (zynthian: the fast pass) → the
+parser → the source's next poll. About 1-2 ticks (30-60 ms), as the Electra path.
 
-### 3.7 Layout: who maps a host page onto a surface
+### 3.7 Layout
 
-The host lays out, the core does not re-arrange cells:
-- zynthian knows its pages and has the layout code (`LAYOUTS`, `_fill`; its doc names "add a
-  `GridLayout`" for other sizes).
-- The right arrangement depends on the surface: one-row encoders (the JAM's strips) want a page in
-  one row (4×6, 8×6); 12 knobs in two rows (an Electra) want the 2×2 blocks of lv2-to-electra
-  (`docs/lv2-to-electra.md:101-108`: "a zynthian page is a 2 × 2 block", three per control set).
-
-So `HOST_PAGE_SHOW` carries the shape, and the host answers with `/hostpage/columns|rows`:
-
-| Surface shape (columns × rows, row encoders, rows per set) | zynthian layout |
-| --- | --- |
-| JAM: 8 × 6, 8, 1 | `grid8x6` (2 pages a row; strips 1-8 = the row) |
-| a 6-column grid with 6 encoders (Launchpad + LCXL, the JAM's 6-column mapping) | `grid4x6` (4 of 6 columns) |
-| an Electra: 6 × 6, 6 a row, 2 | a new `grid6x6` of 2×2 blocks (zynthian side, later) |
-
-Several surfaces showing at once with different shapes: the most recently shown one wins; the
-others clip or leave empty columns (rare: one person, one surface at a time) [P].
+The host lays out (zynthian has the layouts and knows its pages); `HostPageShow` carries the
+surface's shape (the JAM: 8 × 6, 8 encoders a row, 1 row per set). zynthian answers with
+`grid8x6`; a 6-column surface would get `grid4x6`, an Electra-shaped one (12 knobs in 2 rows) a
+later 2×2-block 6×6 (`docs/lv2-to-electra.md:101-108`).
 
 ## 4. The zynthian side
 
-### 4.1 What zynthian-ui needs (the zynthian agents' part)
+Done by the zynthian-ui session (§D.5); the exact contract is the hand-over in §12. In short:
 
-1. **A shared page builder:** move the page list of `ChainControl._build` (control.py:526-575) and
-   the section logic of `ControlGridModel.set_pages` (control_grid.py:166-190) into
-   `zynthian_control_grid_data` (e.g. `chain_pages(chain, processors, current) -> (pages,
-   selected)`), used by the Qt screen and the DBM adapter, so both show the same pages.
-2. **Section colours in Python:** an RGB per section index (or per processor/chain), so a
-   controller shows the same hues as the screen's theme (`controlGridColors` lives in QML).
-3. **Selection in both directions** (if the owner wants shared selection, §9 Q3): a signal when
-   the control screen's page changes (UI → adapter), and a way to select the screen's page from a
-   driver (adapter → UI, on the GUI thread, e.g. a CUIA or a `zynsigman` signal which
-   `ChainControl` handles). Today `set_current_screen_index` stores the index without a signal
-   (zynthian_processor.py:674-680).
-4. **`turn_travel`** next to `turn` (§3.5), or the adapter does it.
-5. **Later:** `grid6x6` (2×2 blocks) for an Electra-shaped surface.
-6. **A branch with both:** `electra-grid` on top of `dbm` (or merged), so the DBM drivers run with
-   the grid model; and the DBM test stand-ins (`backends/zynthian/tests/zynstubs.py`) need zctrls
-   with `nudge`, `ticks`, `labels`, `is_toggle`, `is_trigger`, `get_value2label`.
+- **zynthian-ui** needs a shared page builder (today in the Qt screen: zynqt/screens/control.py:526-575,
+  control_grid.py:166-190), section colours in Python, and the **shared selection**: a way for a
+  driver to set the screen's page, control set (zynthian page) and selected cell, and a change
+  signal for each (`set_current_screen_index` sends none, zynthian_processor.py:674-680). A branch
+  with `electra-grid` and `dbm` together.
+- **The adapter** (`dbm_zynthian/host_page.py`): a `ControlGrid` of its own on the driver's tick
+  thread (the grid is not thread safe) whose selection follows the screen's (by the signals) and
+  which sets the screen's (by the setter, on the GUI thread); a reporter subtree `page` (structure in
+  the full pass, values of the shown cells in the fast pass, only while shown); typed handlers for
+  0x8C.
+- **CPU:** nothing while not shown; while shown ≤ 48 value compares per fast pass (the Qt grid
+  measured 5-7 µs per poll) and a rebuild on structural signals.
 
-Not needed: a per-zctrl change signal (the brainstorm's Q6): `ValueWatcher` compares 48 values,
-which also sees engines that write `zctrl.value` directly.
+## 5. The JAM
 
-### 4.2 The adapter `backends/zynthian/ctrldev/dbm_zynthian/host_page.py` [P]
+**One layout for both sources** (the Electra's pages are 6 wide):
 
-- **`HostPageSource`:** its own `ControlGrid` (layout from `HOST_PAGE_SHOW`) and `ValueWatcher`,
-  used only from the driver's tick thread (the grid is not thread safe; the Qt screen's instance is
-  on the GUI thread). Writing zctrls from the tick thread is what the drivers do already
-  (device.py `set`/`inc`). Without the grid module (a stock zynthian) the adapter does not declare
-  the 0x8C commands, so the core has no host provider.
-- **Mapping:**
+| JAM | Function |
+| --- | --- |
+| grid row 1, pads 1-6 | the page list (a window of 6 pages around the current one), the current page orange |
+| grid row 1, pads 7-8 | the previous / next page |
+| grid rows 2-7 | the cells, left-aligned: 8 columns (zynthian `grid8x6`) or 6 (the Electra; columns 7-8 empty). A fader or list cell press selects it and its row (the source decides), a pad cell switches |
+| grid row 8 | the sections (zynthian: Chain, the processors) in their colours, the active one full; a press selects the section. Nothing for the Electra |
+| cell colours | the slot's colour; the selected cell pale and blinking; with control sets the cells outside the active set one level lower |
+| strips 1-8 | the active row's cells; with a 6-wide page strip 7 the selected slot (fine) and strip 8 the extra, as before |
+| main encoder / push | the selected cell (Shift fine) / its reset |
+| UP / DOWN | the previous / next row |
+| LEFT / RIGHT | the previous / next control set when the model has sets (zynthian); else the previous / next value of the selected slot (the Electra generic provider's envelope handle). No conflict: a model has one or the other |
+| PAGE LEFT / RIGHT | the previous / next page |
+| group buttons A-H | the tracks (zynthian: the chains), unchanged |
+| Select + SONG | off → the next available source → … → off (sources in the order: Electra pages, host pages; missing ones are skipped; with one source the toggle of before) |
 
-  | Host page | zynthian |
-  | --- | --- |
-  | cells | `ControlGrid.cells` (row-major), kind: `float`/`integer` → fader (integer with ≤ 16 values: list with steps), `list` → list (steps = items), `toggle` → toggle (`on` = value ≠ min), `trigger` → trigger, `path` → action (opens the file selector on zynthian's screen), `empty` → empty |
-  | name, text, value | `cell_name`, `cell_value_text`, `cell_fraction` |
-  | enabled | `GridCell.enabled` |
-  | sets | the grid's pages in the window (title, section, colour) |
-  | sections | "Chain", then the processors (`section_index`) |
-  | pages | windows of 6 rows (page k = rows 6k…6k+5; the adapter scrolls by whole windows, not by rows as the Qt grid does) |
-  | selection | `ControlGrid.selected` (set), its row; the selected cell: the adapter's (the last pressed or turned cell of the selected set, else its first) |
-  | title | "zynthian · <chain name>" |
-  | epoch | +1 on every `structure` event |
-
-- **Rebuild** (structure, epoch + 1) on `SS_SET_ACTIVE_CHAIN`, `SS_ADD/REMOVE_PROCESSOR`,
-  `SS_PROCESSOR_CTRL_SCREENS`, `SS_MOVE_CHAIN`, `SS_LOAD_ZS3` (already in `change_signals`,
-  bridge.py) and on `HOST_PAGE_SHOW`. [A: a preset change which replaces a processor's zctrls
-  sends `SS_PROCESSOR_CTRL_SCREENS`; to check on the zynthian side.]
-- **Reporter:** a subtree `"page"` (only while shown): the structure in the full pass, the values
-  of the shown cells (`ValueWatcher` → value and text of the changed cells) in the **fast** pass.
-- **Commands:** typed handlers in `ZynCommandHandler` for 0x8C (`register_typed`), each checks the
-  epoch, then calls the grid's input methods; a command requests the next full pass (as now).
-- **CPU** (ZYNTHIAN_CPU.md): nothing while no surface shows the pages. While shown: the fast pass
-  compares ≤ 48 values (the Qt grid: 5-7 µs per poll in the QEMU VM, docs/qt-control-grid.md
-  "Performance"), formats the text only of changed cells; a rebuild builds the pages and dumps
-  ~460 records, only on structural changes. Measure with `backends/zynthian/tests/test_cpu.py`
-  (the JAM, shown, idle and while a value changes every tick).
-
-## 5. The JAM side [P]
-
-**One surface mode, two providers.** The JAM keeps one `SurfaceLinkClient` per link (`"pages"`,
-`"host"`), both attached at start (as now). Select + SONG cycles: off → the next attached provider
-→ … → off, skipping missing ones, starting with the last one used. With only one provider it is
-today's toggle. The notification names the provider ("Surface: zynthian · Synth 1"). Leaving sends
-`Shown { on: false }`, entering `Shown { on: true }`. A detach leaves the surface (as now).
-
-**Two mappings, chosen by the model's width** (the 6-column one is today's):
-
-| JAM | 6-column model (Electra, zynthian 4×6) | 8-column model (zynthian 8×6) |
-| --- | --- | --- |
-| grid rows 2-7 | columns 2-7: the cells; column 1: row selectors; column 8: page list | columns 1-8: the cells |
-| grid row 1 | (column 1 top: previous page) | the page list (windows), the current one orange |
-| grid row 8 | (column 1 bottom: next page) | the sections in their colours, the active one full, the others dim; press → `SectionSelect` |
-| cell colours | the slot colour (zynthian: the section's hue) | same; the active set full, other cells one level lower, the selected cell blinks |
-| strips 1-8 | 1-6 the active row, 7 the selected cell (fine), 8 the extra | 1-8 the active row (two zynthian pages) |
-| main encoder / push | selected cell (`Detent`), Shift fine / reset | same |
-| UP / DOWN | previous / next row | same |
-| LEFT / RIGHT | previous / next value of the selected slot (envelope handle) | previous / next control set (`SetStep`: the other half, then the next row) |
-| PAGE LEFT / RIGHT | previous / next page | previous / next page (window) |
-| group buttons A-H | the tracks (zynthian: chains), unchanged | same |
-
-- In 8×6, pressing any cell selects its page (zynthian's tap) and the row follows; turning a strip
-  in the other half does not move the selection (zynthian's drag on a cell does not either).
-- The JAM has no display: names and value texts reach the user through the notifications
-  (`state_text`, a touched strip's cell name and value) [A: where `ctx.notify` shows on zynthian:
-  to check].
-- `fader_configs` and `encoder_value` follow the model width (today they index `active_row *
-  GRID_SIZE`).
+There is no row-selector column any more; rows are selected by a cell press or UP/DOWN. Entering a
+source sends `Shown { on: true }` to it, leaving or switching away `Shown { on: false }`.
 
 ## 6. Relation to the Electra path (brainstorm A/B/C)
 
@@ -485,17 +429,17 @@ today's toggle. The notification names the provider ("Surface: zynthian · Synth
   DrivenByMoss (§4.3): the transport is **the existing host bridge** of the zynthian driver (no
   OSC/socket, no in-process registry access from Python); the home is the **DBM zynthian adapter**
   (`dbm_zynthian`), fed by the shared grid model; **the host owns** acceleration and fine steps.
-- **Coexistence:** the Electra controller provides on `"pages"` (its DrivenByMoss pages, or the
-  generic provider for another preset), zynthian on `"host"`. Both can be attached; the JAM picks
-  with Select + SONG (§5).
+- **Coexistence:** the Electra controller provides on the surface link (its DrivenByMoss pages, or
+  the generic provider for another preset) and reaches the JAM through the link source; the host's
+  pages reach it through the host source of its own instance. The JAM cycles with Select + SONG (§5).
 - **The Electra as a surface of the host's pages (P7, optional):** an Electra mode in DrivenByMoss
-  which attaches to `"host"` as a surface (capabilities 6×6, 6 encoders a row, rows per set 2) and
+  which uses a host source (in its own instance) as a surface (capabilities 6×6, 6 encoders a row, rows per set 2) and
   renders the cells into the DrivenByMoss preset's 36 controls with what the Electra provider
   already sends (names `14 07`, values as CC feedback, texts `14 0E`, rows/selection §6b), its
   knobs' relative CCs → `SlotTurn` (`Detent`). Works on a real Electra and on the emulator, without
   firmware work (no Z1). The preset's fixed control kinds (mostly faders) limit lists and toggles to
-  the value text and a press. One Electra instance can be a provider on `"pages"` and a surface on
-  `"host"` at the same time (two links); only one is shown on the device.
+  the value text and a press. One Electra instance can be a provider on the link and show host pages; only one is shown on
+  the device at a time.
 - **Path C** (the emulator as a headless source runtime) is independent: its sources' pages could
   become a section of zynthian's grid (zynthian forwards to the emulator over §6c), invisible to
   this protocol.
@@ -511,88 +455,137 @@ row), sections "Project", "Track", the cursor device; values from those objects,
 pages comes from the model setup (as now) [A: enough pages are created for 6 rows when a host-page
 surface exists; to check].
 
+
 ## 8. Testing without hardware
 
-**Isolation:** the owner runs their own dbm_host, simulators, emulator and zynthian. Every test
-run uses a unique name suffix (`" (hp-$$)"`) and selects ALSA clients by PID (`aconnect -l`,
-`/proc/<pid>`), never by name alone (`find_port` matches substrings, CONTROLLER_SIMULATORS.md
-§3). Test instances may be stopped; say so.
+**Isolation:** the owner runs their own dbm_host, simulators, emulator and zynthian. Every run uses
+a unique name suffix (`" (hp-<pid>)"`) and selects ALSA clients by PID, never by name alone
+(`find_port` matches substrings, CONTROLLER_SIMULATORS.md §3).
 
-1. **Rust:** `cargo test --lib surface_link` (1.2 model, client and view with an 8×6 model on a
-   JAM-like mapping, `Shown`, units), `cargo test --lib protocol` (round trip of the new entries,
-   the staleness test), a new `tests/surface_link_host.rs`: an `App` with the JAM, host pages fed as
-   text (`dbm_update_model` lines `/hostpage/cell/3/name Cutoff`) and binary, asserting the JAM's
-   pads and strips and the typed `Cmd`s with epochs; the existing `tests/surface_link.rs` unchanged.
-2. **The Python reference host:** a simulated provider in `dbm_host` (`SimHostPages`: a chain
-   "Synth" with sections Chain/Helm/Reverb, 10 pages, every kind, zynthian's nudge rules and the
-   travel accumulator), the reporter collector, the 0x8C handlers; tests in `bindings/python/tests`.
-   `dbm_host_alsa.py --model jam --host-pages --suffix " (hp-$$)"` with
-   `support/controller_simulator/run.sh --model jam --suffix " (hp-$$)"`: Select + SONG, swipe,
-   press, page, sections. Also `--model electra --model jam --host-pages` (two providers, cycling).
-3. **zynthian in-process tests:** `backends/zynthian/tests` with `zynstubs` and the shared grid
-   module (needs the combined branch, §4.1 item 6): the adapter's mapping, epochs, signals → rebuild,
-   commands → zctrls, CPU (`test_cpu.py`).
-4. **zynthian in Qt mode** (`ZYNTHIAN_UI=qt ZYNTHIAN_CTRLDEV_PATH=…/backends/zynthian/ctrldev
-   …/desktop/zynthian_desktop.sh`) with the JAM simulator: the zynthian JAM driver expects the
-   device ID `Maschine Jam - 1 IN 1` (zynthian_ctrldev_dbm_maschine_jam.py), so a suffixed
-   simulator is not found, and the plain name collides with a running dbm-nihost or the owner's
-   simulator. Run it only when the owner agrees (or add an override of `dev_ids` for tests, §9 Q8).
-   Check: the screen and the JAM show the same pages, a turn on either shows on both, a chain
-   switch with the group buttons, a preset load.
+1. **Rust:** the page_surface unit tests (model 1.2, client and view with 6- and 8-wide models,
+   sources, cycling), `tests/surface_link.rs` (the Electra with the JAM: the exact bytes; only the
+   JAM's pad positions follow the new layout), a new `tests/host_page.rs` (the JAM with host pages
+   fed as reports, the input as typed `Cmd`s, the selection reported back, epochs).
+2. **The Python reference host:** `dbm_host.host_page` (`SimHostPages`: chains with processors and
+   grid8x6 pages, lists, toggles, value texts, section colours, and a **simulated screen selection**:
+   the JAM's input moves it, `select_on_screen` moves it as zynthian's own encoders would);
+   `dbm_host_alsa.py --host-pages` with the JAM simulator, and with `--model electra --model jam`
+   and the emulator (both sources).
+3. **zynthian:** the zynthian-ui session's tests, the DBM driver tests (`backends/zynthian/tests`).
 
 ## 9. Phases
 
-Each phase leaves everything green; existing tests and the Bitwig conformance unchanged.
-
 | Phase | Content | Acceptance |
 | --- | --- | --- |
-| **P0** | The owner's answers to §10; on the zynthian side a branch with `electra-grid` and `dbm` | decisions written into this plan |
-| **P1** | Surface link 1.2 (§3.2): size, sets, sections, `Shown`, `TurnUnit`, capabilities; the JAM's 8-column mapping in the generic client/view | `cargo test` green; `tests/surface_link.rs` unchanged; new unit tests: an 8×6 model on a JAM-like mapping (pad colours, strips, set dimming) |
-| **P2** | Protocol: `Msg` 0x0C, `Cmd` 0x8C, `CellKind`/`TurnUnit` domains, `Processor::HostPage`, `HostFeature::HostPages`; generated files; reference host `UNHANDLED_COMMANDS`, Bitwig "unhandled" arm | `cargo test` incl. staleness and round trip; Python and Java build; Bitwig conformance runs (allowed for agents) unchanged |
-| **P3** | `HostPage` model and `apply`; `HostPageProvider` on `"host"` in `App::tick`; `HOST_PAGE_SHOW`; translations, epoch | `tests/surface_link_host.rs`: snapshot and changes, every input as a `Cmd`, stale epochs, provider takeover after the first instance stops |
-| **P4** | The JAM: two clients, Select + SONG cycling, `Shown`, LEFT/RIGHT `SetStep` in 8 columns, notifications | tests of the cycling (none / one / two providers), the 8-column layout end to end |
-| **P5** | The Python reference host's simulated pages; `dbm_host_alsa.py --host-pages` | Python tests; a manual run with the JAM simulator (checklist in §8.2) |
-| **P6** | zynthian: the zynthian-ui items of §4.1 (zynthian agents), `host_page.py`, reporter subtree, handlers, docs (ZYNTHIAN_PLAN, HOST_BRIDGE_GUIDE §3/§4) | zynthian tests green; `test_cpu.py` numbers; Qt desktop checklist (§8.4) |
-| P7 (opt.) | The Electra as a surface of `"host"` | emulator run: the Electra shows zynthian's pages; real Electra if available |
-| P8 (opt.) | Bitwig host pages from remote-control pages | Bitwig run with the JAM; conformance unchanged |
+| **P1** | `framework::page_surface` (model, `PageSource`, client, view), `LinkSource`; model 1.2 (sizes, sets, sections, units, `Shown`); the JAM's new layout for the Electra | all tests green; the Electra's bytes in `tests/surface_link.rs` unchanged |
+| **P2** | `Msg` 0x0C, `Cmd` 0x8C, `TurnUnit`/`Resolution` domains, `Processor::HostPage`, `HostFeature::HostPages`; the generated files; unhandled in Bitwig and the zynthian adapter | `cargo test` (round trip, staleness); Maven builds; conformance unchanged |
+| **P3** | `daw::host_page`, `Parser::apply`, `HostSource` | unit tests: reports → model, input → `Cmd`s, epochs, no local selection |
+| **P4** | The JAM with both sources (Select + SONG cycling) and 8 columns | `tests/host_page.rs` |
+| **P5** | The simulated host pages in the reference host, `dbm_host_alsa.py --host-pages` | Python tests; end-to-end runs with the JAM simulator (screenshots), with the emulator for the Electra |
+| P6 | zynthian (the zynthian-ui session; §12) | its tests; a Qt desktop run |
+| P7, P8 (opt.) | the Electra as a surface of host pages; Bitwig host pages | |
 
 ## 10. Open questions
 
-For the owner:
-1. **Entry gesture:** Select + SONG cycling through the providers (recommended), or a separate
-   gesture for the host pages (which button)?
-2. **JAM layout for 8×6:** rows 1 and 8 as page list and sections (recommended), or 8×8 cells with
-   navigation only on buttons? Strips 1-8 on the whole row (recommended) or only the selected
-   page's 4?
-3. **Selection:** shared with zynthian's screen (the JAM selects the page the screen and zynthian's
-   four encoders show; needs §4.1 item 3), or independent (the JAM has its own selection;
-   simpler)?
-4. **Layout:** the JAM always `grid8x6`, or follow the screen's choice (`ZYNTHIAN_QT_CONTROL_LAYOUT`)?
-5. **Colours:** cells in their section's hue (recommended) or the chain's colour?
-6. Electra as a surface (P7) and Bitwig (P8): wanted, and in which order?
-
-For the zynthian side:
-7. Where the shared page builder and the section colours live; whether a driver may select the
-   screen's page (a CUIA or a signal), and the signal for page changes.
-8. A way to run the JAM driver against a suffixed simulator in tests (e.g. `dev_ids` from an
-   environment variable).
-9. Whether a preset change that replaces zctrls always sends `SS_PROCESSOR_CTRL_SCREENS`.
-10. Whether a `grid6x6` of 2×2 blocks (lv2-to-electra) should exist in the shared model.
+1. zynthian: whether the JAM always asks for `grid8x6` or follows the screen's layout; zynthian
+   answers `HostPageShow` with the layout it shows (§12).
+2. When several surfaces show host pages with different shapes: the last shown wins (rare).
+3. The Electra as a surface of host pages (P7) and Bitwig (P8): wanted, and when?
 
 ## 11. Risks
 
 - **Threads in zynthian:** the grid model is GUI-thread only; the adapter's own instance on the
-  tick thread avoids sharing it, but both write the same zctrls (as the drivers do today). A shared
-  selection (Q3) crosses threads: use queued signals, never call the Qt model from the tick thread.
-- **Selection ping-pong** between the screen and the adapter: tag the origin, ignore the echo.
+  tick thread avoids sharing it, but both write the same zctrls (as the drivers do today). The shared
+  selection crosses threads: use queued signals, never call the Qt model from the tick thread.
+- **Selection ping-pong:** avoided by design: the host owns the selection (§D.4), the core only shows
+  what the host reports.
 - **Layering:** `zyngine/ctrldev` importing `zyngui.zynthian_control_grid_data`; the adapter must
   work without it (no feature declared).
 - **Branch drift:** `electra-grid` (on `main`) and `dbm` diverge until combined.
 - **Surface link regressions:** the size generalization touches the Electra path; the existing
   `tests/surface_link.rs` (exact bytes) guard it.
 - **Epoch races:** without the epoch a strip turn could hit another chain's cell after a switch.
-- **Two providers in one process** (two zynthian drivers): first wins, the other retries.
+- **Two zynthian drivers** each have their own host source; each shows the pages to its own
+  controller (the screen's selection is shared by both).
 - **The JAM palette:** neighbouring sections' hues may map to the same NI hue; pick the section
   palette from distinct NI hues (SURFACE_LINK §5, colour roles).
 - **CPU** if the page values ran in the slow pass only (laggy) or the structure in the fast pass
   (costly): keep the split of §4.2 and measure.
+
+## 12. Hand-over for the zynthian-ui session (P6)
+
+What the zynthian DrivenByMoss adapter (`backends/zynthian/ctrldev/dbm_zynthian/`, in the
+drivenbymoss-rust repository) must report and handle so that a controller (the JAM) shows
+zynthian's control grid. The reference is the simulated host in
+`bindings/python/dbm_host/host_page.py` (P5): the same reports and the same command handling, with
+a simulated screen in place of zynthian's.
+
+### 12.1 What zynthian-ui must provide
+
+1. **Pages without Qt:** the page list of a chain (chain controllers by 4, then each processor's
+   controller screens, an empty processor as an empty page; titles, sections) as a function of the
+   shared `zynthian_control_grid_data`, used by the Qt screen and the adapter.
+2. **Section colours** as RGB in Python (per section index, as the theme's `controlGridColors`).
+3. **The shared selection** (§D.4), callable from a driver's thread (queued to the GUI thread):
+   - set the screen's **page / window** (the 6 rows shown), the **control set** (zynthian's selected
+     page) and the **selected cell** (a controller of that page);
+   - a **change signal for each** (`zynsigman`), sent for every change, whatever its origin (touch,
+     zynthian's encoders, the page list, a driver), with the new value. `set_current_screen_index`
+     sends none today (zyngine/zynthian_processor.py:674-680).
+   - The screen needs a notion of the **selected cell** (today it has none: the four encoders turn
+     the selected page). Suggestion: the last touched or turned controller of the selected page,
+     else its first.
+4. **`turn_travel(cell, delta, fine)`** next to `turn` (or in the adapter): the normalized value
+   moves by delta / 127 (fine / 10); lists, integers, toggles accumulate and step at 1 / steps.
+5. A branch with `electra-grid` and `dbm` together.
+
+### 12.2 What the adapter reports (host → core, change-only)
+
+Only after `HostPageShow` on (and until off); everything again after `HostPageShow` on and after
+`refresh`. Reports of one change go in one report (one buffer), the epoch first.
+
+| Address | Value | zynthian |
+| --- | --- | --- |
+| `/hostpage/exists` | bool | a chain is shown |
+| `/hostpage/title` | text | "zynthian · <chain name>" |
+| `/hostpage/epoch` | int | +1 on every change of which controller a cell holds (chain, processors, screens, window, layout) |
+| `/hostpage/columns`, `/hostpage/rows` | int | the layout chosen for the shape of `HostPageShow` (`grid8x6`: 8, 6) |
+| `/hostpage/page/count`, `/hostpage/page/{p}/name`, `/hostpage/page/selected` | int, text, int | the windows of 6 grid rows; name: the first page's section and title |
+| `/hostpage/cell/{c}/kind` | int | `empty` 0, `float`/`integer` 1, `list` 2, `toggle` 3, `trigger` 4, `path` 6 |
+| `/hostpage/cell/{c}/name`, `/text`, `/value` | text, text, f64 | `cell_name`, `cell_value_text`, `cell_fraction` |
+| `/hostpage/cell/{c}/color` | color | the section colour |
+| `/hostpage/cell/{c}/steps` | int | the number of list items (0 otherwise) |
+| `/hostpage/cell/{c}/on` | bool | a toggle: value ≠ min |
+| `/hostpage/cell/{c}/enabled` | bool | `GridCell.enabled` |
+| `/hostpage/cell/{c}/set` | int | the index of the cell's zynthian page among the shown ones (-1 none) |
+| `/hostpage/set/count`, `/hostpage/set/{s}/name`, `/section`, `/color` | int, text, int, color | the shown zynthian pages: title, section index, section colour |
+| `/hostpage/set/selected` | int | the screen's selected page (among the shown; -1 if not shown) |
+| `/hostpage/section/count`, `/hostpage/section/{s}/name`, `/color`, `/hostpage/section/selected` | | "Chain", the processors; the selected page's section |
+| `/hostpage/row` | int | the row of the selected page |
+| `/hostpage/cell/selected` | int | the screen's selected cell (-1 none) |
+
+Values and texts of the shown cells belong in the **fast** pass (a turn shows within a tick); the
+structure in the full pass and on the structural signals.
+
+### 12.3 What the adapter handles (core → host)
+
+All with typed handlers; a cell command whose epoch is not the current one is dropped. Every
+selecting command changes the **screen's** selection (12.1 item 3), and the adapter reports the
+resulting state — the core never shows a selection which the host did not report.
+
+| Command | Action |
+| --- | --- |
+| `HostPageShow {columns, rows, encoders, rows_per_set} on/off` | on: pick the layout, start the `page` subtree, dump; off: stop it |
+| `HostPageCellTurn {cell, epoch, unit, resolution} delta` | `detent`: `grid.turn(cell, delta, fine)`; `travel`: `turn_travel` |
+| `HostPageCellPress {cell, epoch} true` | `grid.press`: a toggle switches, a trigger fires, a list steps, a path opens the file selector; a continuous cell is selected (its page and the cell, on the screen) |
+| `HostPageCellPress … false` | `grid.release` |
+| `HostPageCellTouch {cell, epoch} on` | nothing (later: the page's widget, `gridWidgetPoke`) |
+| `HostPageCellReset {cell, epoch}` | `grid.set_default` |
+| `HostPageRow row` | select the page in that row (8×6: the same half as before) |
+| `HostPagePage page` | show the window `page` (select its first page) |
+| `HostPageSet set` | select that page |
+| `HostPageSection section` | select the section's first page |
+
+Declare the 0x8C commands handled (the handled-commands bitset): that is the `hostPages` feature;
+without the grid module (a stock zynthian) leave them undeclared, and the JAM has no host source.
+
