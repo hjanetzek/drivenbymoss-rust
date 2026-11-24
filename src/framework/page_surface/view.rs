@@ -2,23 +2,24 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The generic surface view (the grid) and mode (the encoders) which any grid controller can
-//! use. The controller supplies a [`SurfaceMapping`] (grid offsets, row and page selectors,
-//! encoders), registers the view and the mode, polls the client at its tick and wires its
-//! buttons (e.g. the main encoder) to the client. See doc/SURFACE_LINK.md.
+//! The generic page surface view (the grid) and mode (the encoders) which any grid controller can
+//! use. The controller supplies a [`SurfaceMapping`] (cells, page and section lists, encoders),
+//! registers the view and the mode, polls the client at its tick and wires its buttons (e.g. the
+//! main encoder) to the client. See doc/SURFACE_LINK.md, doc/HOST_PAGE_PLAN.md §5.
 //!
 //! The RGB colors of the provider go to the controller's palette through its color manager,
 //! always on the direct path ([`ColorManager::direct_color_id_for_role`]), since they never come
 //! from Bitwig; a controller without a palette table takes the closest DAW color. On a palette
 //! made of hues × levels (NI's) the view gives the role of each part ([`ColorRole`]): a normal
 //! slot full, the selected slot pale (highlight), a disabled or covered slot dim, the inactive
-//! row and page selectors medium. Other palettes take the nearest entry and draw disabled and
+//! row and page selectors medium; with explicit control sets the cells outside the active set
+//! medium too, and the sections in their colours (the active one full). Other palettes take the nearest entry and draw disabled and
 //! covered slots off (as before).
 //!
 //! [`ColorManager::direct_color_id_for_role`]: crate::framework::color::ColorManager::direct_color_id_for_role
 
 use super::client::{PadFunction, SharedClient, SurfaceMapping};
-use super::{LinkState, PageModel, Rgb, SlotKind};
+use super::{LinkState, PageModel, Rgb, SlotKind, GRID_SIZE};
 use crate::daw::color::ColorEx;
 use crate::framework::color::ColorRole;
 use crate::framework::ctx::Ctx;
@@ -79,13 +80,13 @@ pub fn row_color(mapping: &SurfaceMapping, model: &PageModel, row: usize) -> Row
 }
 
 /// The view of the grid.
-pub struct SurfaceLinkView {
+pub struct PageSurfaceView {
     client: SharedClient,
 }
 
-impl SurfaceLinkView {
+impl PageSurfaceView {
     pub fn new(client: SharedClient) -> Self {
-        SurfaceLinkView { client }
+        PageSurfaceView { client }
     }
 
     /// The colors of all pads (x, y with y = 0 at the top), as the view draws them: the color
@@ -98,6 +99,7 @@ impl SurfaceLinkView {
         let ui = mapping.ui_colors;
         let ui_color = |index: Option<i32>, default: Rgb, role: ColorRole| index.unwrap_or_else(|| palette_index_for_role(ctx, default, role));
         let has_roles = ctx.colors.has_role_levels();
+        let page_offset = client.page_offset();
         let mut colors = Vec::with_capacity(mapping.columns * mapping.rows);
         for y in 0..mapping.rows {
             for x in 0..mapping.columns {
@@ -105,9 +107,8 @@ impl SurfaceLinkView {
                 let (color, blink) = if state != LinkState::Attached {
                     // "No provider": a cross over the slots
                     match function {
-                        PadFunction::Slot(id) => {
-                            let (row, column) = (id / 6, id % 6);
-                            let on_cross = row == column || row + column == 5;
+                        PadFunction::Cell { row, column } => {
+                            let on_cross = row < GRID_SIZE && column < GRID_SIZE && (row == column || row + column == GRID_SIZE - 1);
                             let color = if state == LinkState::Incompatible { ui_color(ui.incompatible, INCOMPATIBLE, ColorRole::Normal) } else { ui_color(ui.no_provider, NO_PROVIDER, ColorRole::Inactive) };
                             (if on_cross { color } else { 0 }, -1)
                         }
@@ -116,10 +117,19 @@ impl SurfaceLinkView {
                 } else {
                     match function {
                         PadFunction::None => (0, -1),
-                        PadFunction::Slot(id) => match model.slot(id) {
-                            Some(slot) if slot.kind != SlotKind::Empty && slot.enabled => {
+                        PadFunction::Cell { row, column } => match model.slot_id(row, column).map(|id| (id, &model.slots[id])) {
+                            Some((id, slot)) if slot.kind != SlotKind::Empty && slot.enabled => {
                                 let selected = model.selected_slot == Some(id);
-                                let color = palette_index_for_role(ctx, slot.color, if selected { ColorRole::Highlight } else { ColorRole::Normal });
+                                // With explicit control sets, the cells outside the active one a level lower
+                                let outside = model.has_sets() && slot.set != model.active_set;
+                                let role = if selected {
+                                    ColorRole::Highlight
+                                } else if outside && has_roles {
+                                    ColorRole::Inactive
+                                } else {
+                                    ColorRole::Normal
+                                };
+                                let color = palette_index_for_role(ctx, slot.color, role);
                                 // Black slots (e.g. a pad which is off) are still visible
                                 let color = if color == 0 { ui_color(ui.black_slot, NAVIGATION, ColorRole::Inactive) } else { color };
                                 if selected {
@@ -129,7 +139,7 @@ impl SurfaceLinkView {
                                 }
                             }
                             // Disabled (hidden) and covered slots: dim on a palette with levels
-                            Some(slot) if !slot.enabled && has_roles => (palette_index_for_role(ctx, slot.color, ColorRole::Disabled), -1),
+                            Some((_, slot)) if !slot.enabled && has_roles => (palette_index_for_role(ctx, slot.color, ColorRole::Disabled), -1),
                             _ => (0, -1),
                         },
                         PadFunction::Row(row) => {
@@ -140,7 +150,8 @@ impl SurfaceLinkView {
                             };
                             (color, -1)
                         }
-                        PadFunction::Page(page) => {
+                        PadFunction::Page(index) => {
+                            let page = page_offset + index;
                             if page >= model.pages.len() {
                                 (0, -1)
                             } else {
@@ -149,6 +160,14 @@ impl SurfaceLinkView {
                         }
                         PadFunction::PagePrev => (if model.page > 0 { ui_color(ui.navigation, NAVIGATION, ColorRole::Inactive) } else { 0 }, -1),
                         PadFunction::PageNext => (if model.page + 1 < model.pages.len() { ui_color(ui.navigation, NAVIGATION, ColorRole::Inactive) } else { 0 }, -1),
+                        PadFunction::Section(section) => match model.sections.get(section) {
+                            Some(s) => {
+                                let role = if model.active_section == Some(section) || !has_roles { ColorRole::Normal } else { ColorRole::Inactive };
+                                let color = palette_index_for_role(ctx, s.color, role);
+                                (if color == 0 { ui_color(ui.black_slot, NAVIGATION, ColorRole::Inactive) } else { color }, -1)
+                            }
+                            None => (0, -1),
+                        },
                     }
                 };
                 colors.push((x, y, color, blink));
@@ -158,7 +177,7 @@ impl SurfaceLinkView {
     }
 }
 
-impl View for SurfaceLinkView {
+impl View for PageSurfaceView {
     fn name(&self) -> &str {
         "Surface"
     }
@@ -192,13 +211,13 @@ impl View for SurfaceLinkView {
 
 /// The mode of the encoders: they turn the slots of the active row (and what else the mapping
 /// says); their values are the values of these slots.
-pub struct SurfaceLinkMode {
+pub struct PageSurfaceMode {
     client: SharedClient,
 }
 
-impl SurfaceLinkMode {
+impl PageSurfaceMode {
     pub fn new(client: SharedClient) -> Self {
-        SurfaceLinkMode { client }
+        PageSurfaceMode { client }
     }
 
     pub fn client(&self) -> &SharedClient {
@@ -206,7 +225,7 @@ impl SurfaceLinkMode {
     }
 }
 
-impl Mode for SurfaceLinkMode {
+impl Mode for PageSurfaceMode {
     fn name(&self) -> &str {
         "Surface"
     }
@@ -237,7 +256,7 @@ impl Mode for SurfaceLinkMode {
     crate::impl_as_any!();
 }
 
-/// The text a controller shows (or notifies) for a state of the link.
+/// The text a controller shows (or notifies) for a state of the source.
 pub fn state_text(state: LinkState, provider: &str, page: &str) -> String {
     match state {
         LinkState::Missing => "Surface: no provider".to_string(),
@@ -256,7 +275,7 @@ pub fn state_text(state: LinkState, provider: &str, page: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::framework::surface_link::client::{EncoderFunction, EncoderKind};
+    use crate::framework::page_surface::client::{EncoderFunction, EncoderKind};
 
     fn rows(mapping: &SurfaceMapping, model: &PageModel) -> Vec<RowColor> {
         (0..6).map(|row| row_color(mapping, model, row)).collect()

@@ -26,7 +26,11 @@ provider). This document is the design as built.
 
 A detach (or an incompatible provider) makes the surface fall back to its own modes.
 
-## 2. Messages (`src/framework/surface_link/model.rs`)
+## 2. Messages (`src/framework/page_surface/model.rs`)
+
+The page model, the generic view and mode are in `framework::page_surface` (shared with the
+host's pages, HOST_PAGE_PLAN.md); the link is one of the page sources (`surface_link::LinkSource`).
+Model 1.2 adds sizes up to 8x8, control sets, sections, turn units and `Shown` (HOST_PAGE_PLAN.md §3.3).
 
 Typed Rust enums, no strings.
 
@@ -118,17 +122,18 @@ provider.publish(); // snapshot on page switches, changes otherwise; new surface
 Execute the input the way the controller's own controls would, so that the device shows the
 change too.
 
-### A surface (`client.rs`, `view.rs`)
+### A surface (`page_surface/client.rs`, `page_surface/view.rs`)
 
 The controller supplies only the mapping (`SurfaceMapping`):
 
 ```rust
-SurfaceMapping::new(8, 8)
-    .slots_at(1, 1)                                   // the 6x6 slots: top left pad
-    .row_selectors_at(0, 1)                           // 6 row selectors in a column
-    .page_list_at(7, 0, 8)                            // a page list
-    .pad(0, 0, PadFunction::PagePrev).pad(0, 7, PadFunction::PageNext)
-    .encoders(EncoderKind::Absolute, vec![RowSlot(0), …, RowSlot(5), Selected { fine: true }, Extra(0)])
+SurfaceMapping::new(8, 8)                             // the JAM's
+    .page_list_row_at(0, 0, 6)                        // a page list in row 1
+    .pad(6, 0, PadFunction::PagePrev).pad(7, 0, PadFunction::PageNext)
+    .cells_at(0, 1, 8, 6)                             // up to 8x6 cells: top left pad
+    .section_list_row_at(0, 7, 8)                     // the sections of a source
+    .encoders(EncoderKind::Absolute, vec![RowSlot(0), …, RowSlot(5),
+        RowSlotOrSelected { column: 6, fine: true }, RowSlotOrExtra { column: 7, index: 0 }])
     .main_encoder(RelativeEncoding::TwosComplement)
 ```
 
@@ -136,7 +141,8 @@ Plus, optionally, `touch_encoders` and `ui_colors`: palette indices for the row 
 pages, navigation, selection and the "no provider" cross. Without them, the closest palette
 color of a default RGB color is used, which is too dark on fixed palettes.
 
-**Row selectors:** the active row is white (`row_active`). The inactive rows alternate between
+`row_selectors_at` and `page_list_at` (a column) exist for other layouts. **Row selectors:** the
+active row is white (`row_active`). The inactive rows alternate between
 `row_set_a` and `row_set_b` per control set (rows 1/2, 3/4, 5/6) only if the surface's slot
 encoders (`RowSlot`) cover a whole control set, i.e. 12 or more for the 2 rows of a set
 (`SurfaceMapping::covers_control_set`): the colors then show which two rows the encoders turn
@@ -145,10 +151,12 @@ so all its inactive rows have the `row_set_a` color (`view::row_color`).
 
 Then:
 
-1. Create a `SurfaceLinkClient` (shared, attaches at once) and register
-   `SurfaceLinkView::new(client)` (`Views::SurfaceLink`) and `SurfaceLinkMode::new(client)`
-   (`Modes::SurfaceLink`).
-2. Call `client.poll()` in `handle_changes`; it returns the state changes.
+1. Create a `SurfaceClient` with its sources (`SurfaceClient::shared(mapping, sources)`, e.g. a
+   `LinkSource`, which attaches at once) and register `PageSurfaceView::new(client)`
+   (`Views::SurfaceLink`) and `PageSurfaceMode::new(client)` (`Modes::SurfaceLink`).
+2. Call `client.poll(&ctx.model)` in `handle_changes`; it returns the state changes of the
+   current source. `set_shown` on entering and leaving, `select_source` / `next_available` for
+   several sources.
 3. Wire what is not a grid pad or a mode knob:
    - the main encoder → `on_main_encoder`;
    - row and page buttons → `step_row`, `send(Input::PageNext)`;
@@ -334,30 +342,32 @@ sequencer client receives it only with a larger input pool than the default (200
 
 ## 7. The JAM as a surface (`src/controller/maschine/jam/surface_link.rs`)
 
-**Entry:** **Select + SONG** switches the surface on and off.
+**Entry:** **Select + SONG** cycles through the available sources: off → the next available one →
+… → off (the Electra's pages over the link, then the host's pages, HOST_PAGE_PLAN.md; with one
+source it switches the surface on and off).
 - Select + X is the JAM's pattern for second functions (Select + CONTROL, AUX, LEVEL, MACRO), and
   Select + SONG was free.
 - Any other view or mode button (SONG, STEP, PAD MODE, MACRO, LEVEL, AUX, CONTROL) leaves the
   surface for its view or mode.
-- A detach of the provider leaves it too. The view and the mode from before come back.
+- A detach of the source leaves it too. The view and the mode from before come back.
 - A temporary view (the Shift view while Shift is held) keeps the surface.
 
-**Mapping:**
+**Mapping** (one layout for all sources, HOST_PAGE_PLAN.md §5):
 
 | JAM | Surface |
 | --- | --- |
-| Grid centre 6x6 (columns 2-7, rows 2-7) | the slots in the hue of their colors at full level; covered and hidden slots dim; a press selects a knob slot or presses a pad slot; the selected slot is pale and blinks white |
-| Column 1, rows 2-7 | the row selectors: the active row white, the others blue (one color: the strips cover one row, the grouping into control sets does not matter) |
-| Column 1, top / bottom pad | previous / next page |
-| Column 8 | the page list (up to 8 pages), the current one orange |
-| Strips 1-6 | the slots of the active row; the LEDs show their values in the slot colors. A swipe turns by its distance (no jumps), with Shift in single steps; the strip touch is the slot touch |
-| Strip 7 | the selected slot, always fine |
-| Strip 8 | the first extra of the provider (the Electra has none) |
+| Grid row 1, pads 1-6 | the page list (the window of 6 pages around the current one), the current one orange |
+| Grid row 1, pads 7-8 | previous / next page |
+| Grid rows 2-7 | the cells, left-aligned: 6 columns for the Electra (columns 7-8 dark), up to 8 for the host; in the hue of their colors at full level; covered and hidden cells dim; outside the active control set (with sets) medium; a press selects a knob cell (and its row) or presses a pad cell; the selected cell is pale and blinks white |
+| Grid row 8 | the sections of the source (the host's), the active one full |
+| Strips 1-6 (1-8 with an 8-wide page) | the cells of the active row; the LEDs show their values in the cell colors. A swipe turns by its distance (no jumps), with Shift in single steps; the strip touch is the slot touch |
+| Strip 7 (6-wide page) | the selected slot, always fine |
+| Strip 8 (6-wide page) | the first extra of the provider (the Electra has none) |
 | Main encoder | `selected.turn`, Shift for fine; its push: `selected.reset` |
 | PAGE LEFT / RIGHT | previous / next page |
-| Up / down | previous / next row |
-| Left / right | previous / next value of the selected slot (an envelope's handle) |
-| No provider | a red cross over the slots, notification "Surface: no provider" |
+| Up / down | previous / next row (there is no row-selector column) |
+| Left / right | previous / next control set (with sets), else the previous / next value of the selected slot (an envelope's handle) |
+| No source | a red cross over the cells, notification "Surface: no provider" |
 
 The JAM attaches at its start (so the surface is there at once when it is switched on) and polls
 the link at every tick, also while its own modes are active.

@@ -25,16 +25,42 @@
 //!
 //! [`App`]: crate::app::App
 
-pub mod client;
-pub mod model;
 pub mod provider;
-pub mod view;
+pub mod source;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub use model::{Capabilities, ColorDepth, Extra, Input, ModelChange, PageModel, Rgb, Slot, SlotKind, Version, NUM_SLOTS, PROTOCOL_VERSION};
+pub use crate::framework::page_surface::model::{self, Capabilities, ColorDepth, ControlSet, Extra, Input, ModelChange, PageModel, Rgb, Section, Slot, SlotKind, TurnUnit, GRID_SIZE, NUM_SLOTS};
+pub use crate::framework::page_surface::{client, view, LinkState};
+pub use source::LinkSource;
+
+/// The version of the link protocol. Surfaces and providers with the same major version work
+/// together; a different minor version only adds messages or fields which the other side
+/// ignores.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Version {
+    pub major: u16,
+    pub minor: u16,
+}
+
+impl Version {
+    pub const fn new(major: u16, minor: u16) -> Self {
+        Version { major, minor }
+    }
+
+    /// True if the two sides can talk to each other.
+    pub fn is_compatible(self, other: Version) -> bool {
+        self.major == other.major
+    }
+}
+
+/// The version of this build.
+/// 1.1: `Input::ValueNext` / `ValuePrev`.
+/// 1.2: the page model's size, control sets, sections, turn units, `Shown`
+/// (doc/HOST_PAGE_PLAN.md §3.3).
+pub const PROTOCOL_VERSION: Version = Version::new(1, 2);
 
 /// The name of the link which the controllers of this crate use.
 pub const DEFAULT_LINK: &str = "pages";
@@ -232,26 +258,9 @@ impl Drop for ProviderHandle {
 // ---------------------------------------------------------------------------------------------
 // Surface
 
-/// The state of a surface's link.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkState {
-    /// No provider (yet): none is registered, or it is in another copy of the library.
-    Missing,
-    /// Welcomed by the provider; the model is valid.
-    Attached,
-    /// The provider left (unloaded or restarted); a new one welcomes the surface again.
-    Detached,
-    /// The provider has another major protocol version.
-    Incompatible,
-}
-
-/// What a surface learns at its tick.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SurfaceEvent {
-    /// The state changed (with the provider's name when attached).
-    State(LinkState),
-    Model(ModelChange),
-}
+/// What a surface learns at its tick: the state changes (with the provider's name when
+/// attached) and the model changes.
+pub type SurfaceEvent = crate::framework::page_surface::SourceEvent;
 
 /// The surface side of a link; dropping it detaches the surface.
 #[derive(Debug)]

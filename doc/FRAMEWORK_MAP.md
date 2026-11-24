@@ -28,10 +28,13 @@ class.
   - Observers became events (`Model::take_events`, `Configuration::take_changed_settings`).
 
 **Rust-only framework parts** (no Java class):
-- `framework::surface_link`: the surface link between two controller instances
-  ([SURFACE_LINK.md](SURFACE_LINK.md)): registry and queues (`mod.rs`), messages (`model.rs`),
-  `LinkProvider` (`provider.rs`), `SurfaceLinkClient` and `SurfaceMapping` (`client.rs`),
-  `SurfaceLinkView` and `SurfaceLinkMode` (`view.rs`).
+- `framework::page_surface`: a grid controller showing the pages of a source
+  ([SURFACE_LINK.md](SURFACE_LINK.md), [HOST_PAGE_PLAN.md](HOST_PAGE_PLAN.md)): the page model
+  (`model.rs`), the `PageSource` trait (`source.rs`), `SurfaceClient` and `SurfaceMapping`
+  (`client.rs`), `PageSurfaceView` and `PageSurfaceMode` (`view.rs`), the host's pages
+  (`host.rs`).
+- `framework::surface_link`: the surface link between two controller instances: registry and
+  queues (`mod.rs`), `LinkProvider` (`provider.rs`), `LinkSource` (`source.rs`, a page source).
 - `Views::SurfaceLink` and `Modes::SurfaceLink` are appended to the ID enums.
 
 ## Gaps by upcoming controller

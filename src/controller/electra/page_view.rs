@@ -19,8 +19,7 @@
 //! Custom control's other cells), is an `Empty` slot with that control's name and color, not
 //! enabled; a press on it selects the control's knob slot. Every other cell is empty.
 
-use crate::framework::surface_link::model::GRID_SIZE;
-use crate::framework::surface_link::{PageModel, Rgb, Slot, SlotKind, NUM_SLOTS};
+use crate::framework::surface_link::{PageModel, Rgb, Slot, SlotKind, GRID_SIZE, NUM_SLOTS};
 use crate::json::JsonValue;
 
 /// The number of knobs of a control set.
@@ -339,7 +338,7 @@ pub fn knob_slot_model(control: &ViewControl, value_id: &str) -> Slot {
             _ => (SlotKind::Fader, 0, normalized(value.value), false),
         }
     };
-    Slot { kind, name, color: control.color, value: value_01, value_text: value.text, steps, on, enabled: control.visible }
+    Slot { kind, name, color: control.color, value: value_01, value_text: value.text, steps, on, enabled: control.visible, set: None }
 }
 
 #[cfg(test)]

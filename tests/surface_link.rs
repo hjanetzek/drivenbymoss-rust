@@ -21,7 +21,7 @@ use drivenbymoss::controller::electra::surface as electra;
 use drivenbymoss::controller::maschine::jam::surface_link as jam_surface;
 use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{Modes, Views};
-use drivenbymoss::framework::surface_link::view::palette_index;
+use drivenbymoss::framework::page_surface::view::palette_index;
 use drivenbymoss::framework::surface_link::{LinkState, Rgb, SlotKind};
 use drivenbymoss::protocol::{Chan, Cmd, ValueOp};
 
@@ -172,6 +172,12 @@ impl Rig {
         self.jam_app().on_midi_event(J_IN, &[0x80, note, 0]);
     }
 
+    /// Select a row on the JAM's surface (the layout has no row selectors: a cell press or
+    /// UP/DOWN select rows; this sends the same input as the row selectors did).
+    fn jam_select_row(&mut self, row: usize) {
+        jam_surface::client(self.jam_ctx()).borrow_mut().select_row(row);
+    }
+
     /// Select + SONG.
     fn toggle_surface(&mut self) {
         self.jam_cc(JAM_SELECT, 127);
@@ -235,19 +241,21 @@ fn check_linked(rig: &mut Rig) {
     let blue = palette_index(rig.jam_ctx(), Rgb::new(0, 0, 255));
     assert_ne!(red, 0);
     assert_ne!(red, blue);
-    assert_eq!(rig.jam_pad_color(1, 1), red);
-    assert_eq!(rig.jam_pad_color(2, 1), blue);
-    assert_eq!(rig.jam_pad_color(5, 1), 0, "track 5 does not exist");
-    // The active row 1 is white, the page list shows 7 pages
-    let white = drivenbymoss::controller::maschine::core::colors::COLOR_WHITE;
-    assert_eq!(rig.jam_pad_color(0, 1), white);
-    assert_ne!(rig.jam_pad_color(0, 2), white);
-    // The JAM's strips cover one row: the inactive rows have one color, not one per control set
-    // (rows 2 and 3 are in different sets)
-    assert_eq!(rig.jam_pad_color(0, 2), rig.jam_pad_color(0, 3));
-    assert_eq!(rig.jam_pad_color(0, 2), drivenbymoss::controller::maschine::core::colors::COLOR_BLUE_LO);
-    assert_ne!(rig.jam_pad_color(7, 6), 0);
-    assert_eq!(rig.jam_pad_color(7, 7), 0);
+    assert_eq!(rig.jam_pad_color(0, 1), red);
+    assert_eq!(rig.jam_pad_color(1, 1), blue);
+    assert_eq!(rig.jam_pad_color(4, 1), 0, "track 5 does not exist");
+    // The page list (grid row 1): 6 of the 7 pages, the current one orange; its last two pads
+    // the previous (none) and the next page
+    use drivenbymoss::controller::maschine::core::colors::{COLOR_AMBER_LO, COLOR_ORANGE};
+    assert_eq!(rig.jam_pad_color(0, 0), COLOR_ORANGE);
+    assert_eq!(rig.jam_pad_color(1, 0), COLOR_AMBER_LO);
+    assert_ne!(rig.jam_pad_color(5, 0), 0);
+    assert_eq!(rig.jam_pad_color(6, 0), 0);
+    assert_ne!(rig.jam_pad_color(7, 0), 0);
+    // The 6-wide page leaves columns 7 and 8 and the section row dark
+    assert_eq!(rig.jam_pad_color(6, 1), 0);
+    assert_eq!(rig.jam_pad_color(7, 3), 0);
+    assert_eq!(rig.jam_pad_color(0, 7), 0);
 
     // Strip 1 shows the volume of track 1 (0.5 of the Electra's 0..127) in its color; strip 7
     // (the selected slot) and 8 (no extras) are off
@@ -279,20 +287,19 @@ fn check_linked(rig: &mut Rig) {
     assert_eq!(last_cc(&rig.jam_backend().take_calls(), J_OUT, 0xB0, JAM_FADER1), Some(95));
 
     // A pad slot (row 4, column 2: mute of track 2): its pad CC on the Electra
-    rig.jam_pad(2, 4);
+    rig.jam_pad(1, 4);
     rig.advance(30);
     let calls = rig.electra_backend().take_calls();
     assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelMute { ch: Chan::Track { p: 1, .. }, .. })), "{calls:?}");
 
     // Row 3 (control set 2)
-    rig.jam_pad(0, 3);
+    rig.jam_select_row(2);
     rig.advance(60);
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().active_row, 2);
-    assert_eq!(rig.jam_pad_color(0, 3), white);
 
     // Select the master volume (row 1, column 6) with its pad: row 1 again, the main encoder
     // turns it
-    rig.jam_pad(6, 1);
+    rig.jam_pad(5, 1);
     rig.advance(60);
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().selected_slot, Some(5));
     rig.electra_backend().take_calls();
@@ -306,7 +313,7 @@ fn check_linked(rig: &mut Rig) {
     assert!(calls.has_cmd(|c| matches!(c, Cmd::ChannelVolume { ch: Chan::Master, op: ValueOp::Reset | ValueOp::Set(_) })), "{calls:?}");
 
     // The page list: the sends page; the Electra switches its mode and its page (09 0A 01)
-    rig.jam_pad(7, 1);
+    rig.jam_pad(1, 0);
     rig.advance(60);
     assert!(rig.electra_ctx().modes.is_active(Modes::Send));
     assert!(sent(&rig.electra_backend().take_calls(), E_CTRL_OUT).contains(&sysex(&[0x09, 0x0A], &[1])));
@@ -351,11 +358,11 @@ fn jam_first() {
     rig.toggle_surface();
     assert!(notified(rig.jam_app(), "Surface: no provider"));
     rig.advance(30);
-    assert_ne!(rig.jam_pad_color(1, 1), 0);
-    assert_eq!(rig.jam_pad_color(2, 1), 0);
-    assert_ne!(rig.jam_pad_color(2, 2), 0);
+    assert_ne!(rig.jam_pad_color(0, 1), 0);
+    assert_eq!(rig.jam_pad_color(1, 1), 0);
+    assert_ne!(rig.jam_pad_color(1, 2), 0);
     // Input goes nowhere
-    rig.jam_pad(1, 1);
+    rig.jam_pad(0, 1);
     rig.toggle_surface();
     assert!(rig.jam_ctx().views.is_active(Views::Play));
 
@@ -429,7 +436,7 @@ fn capability_absent_switches_control_sets() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut rig = linked_with(INFO);
     // Row 2 is in the control set of row 1: nothing
-    rig.jam_pad(0, 2);
+    rig.jam_select_row(1);
     rig.advance(30);
     assert!(!ctrl_sent(&rig).iter().any(|m| m[4] == 0x09 || m[4..6] == [0x14, 0x51]));
     // Row 3: the control set 2 (09 0B 01)
@@ -437,7 +444,7 @@ fn capability_absent_switches_control_sets() {
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0B], &[1])]);
     // A selection is not shown; its row is in the control set 1
-    rig.jam_pad(2, 2);
+    rig.jam_pad(1, 2);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0B], &[0])]);
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().selected_slot, Some(7));
@@ -464,11 +471,11 @@ fn capability_present() {
     rig.advance(30);
     rig.electra_backend().take_calls();
     // Row 4: 09 50 04
-    rig.jam_pad(0, 4);
+    rig.jam_select_row(3);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[4])]);
     // Select row 1, column 3 (control 3): the row and the highlight
-    rig.jam_pad(3, 1);
+    rig.jam_pad(2, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[1]), sysex(&[0x14, 0x51], &[3, 0])]);
     // Their echoes (origin 1) change nothing
@@ -495,7 +502,7 @@ fn capability_present() {
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().selected_slot, None);
 
     // A page switch on the device resets the row and the selection
-    rig.jam_pad(2, 2);
+    rig.jam_pad(1, 2);
     rig.advance(30);
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x06], &[1]));
     rig.advance(30);
@@ -503,7 +510,7 @@ fn capability_present() {
     assert_eq!((model.page, model.active_row, model.selected_slot), (1, 0, None));
     // Selections are control IDs of the current page (page 2: 37 + 7)
     rig.electra_backend().take_calls();
-    rig.jam_pad(2, 2);
+    rig.jam_pad(1, 2);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[2]), sysex(&[0x14, 0x51], &[44, 0])]);
 }
@@ -513,23 +520,23 @@ fn capability_nack() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut rig = linked_with(INFO_SURFACE);
     // A NACK for the selection: it stays what it was
-    rig.jam_pad(1, 1);
+    rig.jam_pad(0, 1);
     rig.advance(30);
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x61], &[1, 0, 1]));
-    rig.jam_pad(2, 1);
+    rig.jam_pad(1, 1);
     rig.advance(30);
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x00], &[]));
     rig.advance(60);
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().selected_slot, Some(0));
     // A NACK for a row: the device has no rows after all, back to the control sets
     rig.electra_backend().take_calls();
-    rig.jam_pad(0, 3);
+    rig.jam_select_row(2);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[3])]);
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x00], &[]));
     rig.advance(30);
     assert_eq!(jam_surface::client(rig.jam_ctx()).borrow().model().active_row, 0);
-    rig.jam_pad(0, 5);
+    rig.jam_select_row(4);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0B], &[2])]);
 }
@@ -580,7 +587,7 @@ fn generic_mode_switch() {
     assert_eq!((model.pages.clone(), model.page), (vec!["VIEW".to_string(), "OTHER".to_string()], 0));
     assert_eq!(model.slots[0].name, "ENV · Attack");
     assert_eq!(model.slots[8].value_text, "Cut 64");
-    assert_eq!(rig.jam_pad_color(1, 1), palette_index(rig.jam_ctx(), Rgb::new(0x03, 0xA5, 0x98)));
+    assert_eq!(rig.jam_pad_color(0, 1), palette_index(rig.jam_ctx(), Rgb::new(0x03, 0xA5, 0x98)));
 
     // Another non-DrivenByMoss preset: the page view again
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x02], &[1, 5]));
@@ -654,7 +661,7 @@ fn generic_input() {
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[1, 0x7C, 0x7F, 1])]);
 
     // Select the envelope; left / right switch its handle, the push resets the handle's value
-    rig.jam_pad(1, 1);
+    rig.jam_pad(0, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x51], &[1, 0])]);
     rig.jam_press(JAM_NAV_RIGHT);
@@ -685,19 +692,19 @@ fn generic_input() {
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[1, 4, 0, 1])]);
     // A control with one value has no handles
-    rig.jam_pad(3, 2);
+    rig.jam_pad(2, 2);
     rig.jam_press(JAM_NAV_RIGHT);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[2]), sysex(&[0x14, 0x51], &[3, 0])]);
 
     // A list: selected and stepped to the next item; after the last item the first one
-    rig.jam_pad(3, 1);
+    rig.jam_pad(2, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[1]), sysex(&[0x14, 0x51], &[2, 0]), json(&[0x14, 0x55], r#"{"controlId":2,"valueId":"value","step":1}"#)]);
     rig.electra_app().on_midi_event(E_CTRL_IN, &json(&[0x7E, 0x63], r#"{"controlId":2,"valueId":"value","value":3,"midiValue":96,"origin":"internal","text":"Sine"}"#));
     rig.advance(30);
     assert_eq!(jam_model(&mut rig).slots[2].value_text, "Sine");
-    rig.jam_pad(3, 1);
+    rig.jam_pad(2, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [json(&[0x14, 0x55], r#"{"controlId":2,"valueId":"value","value":0}"#)]);
 
@@ -707,17 +714,17 @@ fn generic_input() {
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x53], &[5, 4, 0, 1])]);
     // A covered cell of the envelope selects the envelope
-    rig.jam_pad(2, 2);
+    rig.jam_pad(1, 2);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x14, 0x51], &[1, 0])]);
 
     // A toggle pad of control set 3 (row 5, value 1): off, with the row first
-    rig.jam_pad(2, 5);
+    rig.jam_pad(1, 5);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [json(&[0x14, 0x55], r#"{"controlId":10,"valueId":"value","value":0}"#)]);
 
     // Select the fader of control set 2: its row first; the main encoder then turns its knob 1
-    rig.jam_pad(1, 3);
+    rig.jam_pad(0, 3);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[3]), sysex(&[0x14, 0x51], &[8, 0])]);
     rig.jam_cc(JAM_KNOB_TURN, 127);
@@ -730,8 +737,8 @@ fn generic_input() {
     rig.jam_cc(JAM_KNOB_TURN, 1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[3]), sysex(&[0x14, 0x53], &[1, 4, 0, 1])]);
-    // The row selectors and the hidden slot (knob 11 of set 1) is not turned
-    rig.jam_pad(0, 2);
+    // A row and the hidden slot (knob 11 of set 1) is not turned
+    rig.jam_select_row(1);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x50], &[2])]);
     rig.jam_cc(JAM_FADER1 + 4, 20);
@@ -793,7 +800,7 @@ fn generic_events_and_pages() {
     let model = jam_model(&mut rig);
     assert_eq!((model.page, model.page_name()), (1, "OTHER"));
     // The page list of the JAM: page 1 is VIEW
-    rig.jam_pad(7, 0);
+    rig.jam_pad(0, 0);
     rig.advance(30);
     assert_eq!(ctrl_sent(&rig), [sysex(&[0x09, 0x0A], &[0])]);
     // Rows and selections of the device (origin 0) reach the surface
@@ -810,28 +817,28 @@ fn generic_events_and_pages() {
 fn jam_slot_roles() {
     use drivenbymoss::controller::maschine::core::colors::*;
     use drivenbymoss::framework::color::ColorRole;
-    use drivenbymoss::framework::surface_link::view::palette_index_for_role;
+    use drivenbymoss::framework::page_surface::view::palette_index_for_role;
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut rig = generic_rig();
     // Normal slots: full (ENV teal 03A598 is hue 9, WAVE orange F49500 hue 3, CUTOFF 529DEC hue 10)
-    assert_eq!(rig.jam_pad_color(1, 1), 38, "ENV, teal full");
-    assert_eq!(rig.jam_pad_color(3, 1), 14, "WAVE, orange full");
-    assert_eq!(rig.jam_pad_color(3, 2), 42, "CUTOFF, blue full");
-    assert_eq!(rig.jam_pad_color(4, 1), COLOR_WHITE, "GRID, white");
+    assert_eq!(rig.jam_pad_color(0, 1), 38, "ENV, teal full");
+    assert_eq!(rig.jam_pad_color(2, 1), 14, "WAVE, orange full");
+    assert_eq!(rig.jam_pad_color(2, 2), 42, "CUTOFF, blue full");
+    assert_eq!(rig.jam_pad_color(3, 1), COLOR_WHITE, "GRID, white");
     // Covered cells (the envelope's other cells): the dim teal
     assert!(!rig.jam_slot(1).enabled);
-    assert_eq!(rig.jam_pad_color(2, 1), 36, "covered: teal dim");
-    assert_eq!(rig.jam_pad_color(1, 2), 36);
+    assert_eq!(rig.jam_pad_color(1, 1), 36, "covered: teal dim");
+    assert_eq!(rig.jam_pad_color(0, 2), 36);
     // A hidden control: dim (SPARE F45C51 is hue 2)
     assert_eq!((rig.jam_slot(10).name.as_str(), rig.jam_slot(10).enabled), ("SPARE", false));
-    assert_eq!(rig.jam_pad_color(5, 2), 8, "disabled: dim");
+    assert_eq!(rig.jam_pad_color(4, 2), 8, "disabled: dim");
     // Empty cells stay off
-    assert_eq!(rig.jam_pad_color(4, 2), 0);
+    assert_eq!(rig.jam_pad_color(3, 2), 0);
     // The selected slot: pale, blinking white
     rig.electra_app().on_midi_event(E_CTRL_IN, &sysex(&[0x7E, 0x61], &[3, 0, 0]));
     rig.advance(60);
     assert_eq!(jam_model(&mut rig).selected_slot, Some(8));
-    let note = 36 + (7 - 2) * 8 + 3;
+    let note = 36 + (7 - 2) * 8 + 2;
     let info = rig.jam_ctx().surface.grid_ref().light_info(note);
     assert_eq!((info.color, info.blink_color), (43, COLOR_WHITE), "selected: blue pale");
     // The roles of an RGB color on the JAM

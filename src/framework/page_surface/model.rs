@@ -2,38 +2,19 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The typed messages of the surface link (doc/SURFACE_LINK.md §2-§4): the page model which a
-//! provider publishes, its changes, the input of the surfaces and their capabilities. Nothing
-//! here knows a concrete controller.
+//! The page model of a page surface (doc/SURFACE_LINK.md §2, doc/HOST_PAGE_PLAN.md §3.3): the
+//! model which a source (the surface link's provider, the host) gives a surface, its changes, the
+//! input of the surfaces and their capabilities. Nothing here knows a concrete controller.
+//!
+//! 1.2 (HOST_PAGE_PLAN): sizes up to 8x8 (`columns`, `rows`), explicit control sets and sections,
+//! the turn unit, `Shown`, `SetSelect`/`SetStep`/`SectionSelect`.
 
-/// The number of slot columns and rows of a page.
+/// The number of slot columns and rows of a default (Electra) page.
 pub const GRID_SIZE: usize = 6;
-/// The number of slots of a page (row by row, the ID of a slot is its index).
+/// The number of slots of a default page (row by row, the ID of a slot is its index).
 pub const NUM_SLOTS: usize = GRID_SIZE * GRID_SIZE;
-
-/// The version of the link protocol. Surfaces and providers with the same major version work
-/// together; a different minor version only adds messages or fields which the other side
-/// ignores.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Version {
-    pub major: u16,
-    pub minor: u16,
-}
-
-impl Version {
-    pub const fn new(major: u16, minor: u16) -> Self {
-        Version { major, minor }
-    }
-
-    /// True if the two sides can talk to each other.
-    pub fn is_compatible(self, other: Version) -> bool {
-        self.major == other.major
-    }
-}
-
-/// The version of this build.
-/// 1.1: `Input::ValueNext` / `ValuePrev`.
-pub const PROTOCOL_VERSION: Version = Version::new(1, 1);
+/// The largest number of columns and rows of a page.
+pub const MAX_SIZE: usize = 8;
 
 /// An RGB color (8 bits per channel); the surface maps it to its palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -114,6 +95,8 @@ pub struct Slot {
     pub on: bool,
     /// False if the slot is greyed out (e.g. no track at this position).
     pub enabled: bool,
+    /// The control set of the slot (an index into [`PageModel::sets`]), if the model has sets.
+    pub set: Option<usize>,
 }
 
 impl Slot {
@@ -125,6 +108,7 @@ impl Slot {
             && self.steps == other.steps
             && self.on == other.on
             && self.enabled == other.enabled
+            && self.set == other.set
             && (self.value != other.value || self.value_text != other.value_text)
     }
 }
@@ -138,14 +122,34 @@ pub struct Extra {
     pub value_text: String,
 }
 
-/// The page model of a provider (§2).
+/// A control set: the slots which the encoders of a surface turn together (a zynthian page of
+/// 4 controllers). Its slots name it in [`Slot::set`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ControlSet {
+    pub name: String,
+    /// The section of the set (an index into [`PageModel::sections`]).
+    pub section: Option<usize>,
+    pub color: Rgb,
+}
+
+/// A section of the pages (zynthian: the chain's controllers, a processor).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Section {
+    pub name: String,
+    pub color: Rgb,
+}
+
+/// The page model of a source (§2).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageModel {
     /// The index of the page in `pages`.
     pub page: usize,
     /// The names of all pages (for a page selector).
     pub pages: Vec<String>,
-    /// The 36 slots, row by row.
+    /// The number of slot columns and rows (6x6 for the Electra, up to [`MAX_SIZE`]).
+    pub columns: usize,
+    pub rows: usize,
+    /// The `columns * rows` slots, row by row.
     pub slots: Vec<Slot>,
     /// The number of rows which form a control set (rows 1/2, 3/4 and 5/6 with 2).
     pub rows_per_set: usize,
@@ -154,11 +158,31 @@ pub struct PageModel {
     /// The slot which the main encoder fine-tunes.
     pub selected_slot: Option<usize>,
     pub extras: Vec<Extra>,
+    /// The explicit control sets (empty: the sets are the rows grouped by `rows_per_set`).
+    pub sets: Vec<ControlSet>,
+    /// The set which the encoders turn (with explicit sets).
+    pub active_set: Option<usize>,
+    pub sections: Vec<Section>,
+    pub active_section: Option<usize>,
 }
 
 impl Default for PageModel {
     fn default() -> Self {
-        PageModel { page: 0, pages: Vec::new(), slots: vec![Slot::default(); NUM_SLOTS], rows_per_set: 2, active_row: 0, selected_slot: None, extras: Vec::new() }
+        PageModel {
+            page: 0,
+            pages: Vec::new(),
+            columns: GRID_SIZE,
+            rows: GRID_SIZE,
+            slots: vec![Slot::default(); NUM_SLOTS],
+            rows_per_set: 2,
+            active_row: 0,
+            selected_slot: None,
+            extras: Vec::new(),
+            sets: Vec::new(),
+            active_set: None,
+            sections: Vec::new(),
+            active_section: None,
+        }
     }
 }
 
@@ -172,9 +196,19 @@ impl PageModel {
         self.slots.get(id)
     }
 
+    /// The ID of the slot at the row and column, if the page has it.
+    pub fn slot_id(&self, row: usize, column: usize) -> Option<usize> {
+        (row < self.rows && column < self.columns).then_some(row * self.columns + column).filter(|id| *id < self.slots.len())
+    }
+
     /// The slot at the row and column.
     pub fn slot_at(&self, row: usize, column: usize) -> Option<&Slot> {
-        (row < GRID_SIZE && column < GRID_SIZE).then(|| self.slots.get(row * GRID_SIZE + column)).flatten()
+        self.slot_id(row, column).and_then(|id| self.slots.get(id))
+    }
+
+    /// True if the model has explicit control sets.
+    pub fn has_sets(&self) -> bool {
+        !self.sets.is_empty()
     }
 
     /// The control set of a row.
@@ -199,6 +233,8 @@ impl PageModel {
             }
             ModelChange::ActiveRow(row) => self.active_row = *row,
             ModelChange::SelectedSlot(slot) => self.selected_slot = *slot,
+            ModelChange::ActiveSet(set) => self.active_set = *set,
+            ModelChange::ActiveSection(section) => self.active_section = *section,
             ModelChange::Extra { index, extra } => {
                 if let Some(e) = self.extras.get_mut(*index) {
                     *e = extra.clone();
@@ -208,11 +244,15 @@ impl PageModel {
     }
 
     /// The changes which turn `old` into `self`: a snapshot if the page, the page list, the
-    /// number of slots or extras or the row grouping differ, otherwise one message per changed
-    /// part.
+    /// size, the number of slots or extras, the row grouping, the sets or the sections differ,
+    /// otherwise one message per changed part.
     pub fn diff(&self, old: &PageModel) -> Vec<ModelChange> {
         if self.page != old.page
             || self.pages != old.pages
+            || self.columns != old.columns
+            || self.rows != old.rows
+            || self.sets != old.sets
+            || self.sections != old.sections
             || self.slots.len() != old.slots.len()
             || self.extras.len() != old.extras.len()
             || self.rows_per_set != old.rows_per_set
@@ -236,6 +276,12 @@ impl PageModel {
         if self.selected_slot != old.selected_slot {
             changes.push(ModelChange::SelectedSlot(self.selected_slot));
         }
+        if self.active_set != old.active_set {
+            changes.push(ModelChange::ActiveSet(self.active_set));
+        }
+        if self.active_section != old.active_section {
+            changes.push(ModelChange::ActiveSection(self.active_section));
+        }
         for (index, (new, old)) in self.extras.iter().zip(&old.extras).enumerate() {
             if new != old {
                 changes.push(ModelChange::Extra { index, extra: new.clone() });
@@ -256,15 +302,28 @@ pub enum ModelChange {
     Value { id: usize, value: f32, value_text: String },
     ActiveRow(usize),
     SelectedSlot(Option<usize>),
+    /// Since 1.2.
+    ActiveSet(Option<usize>),
+    ActiveSection(Option<usize>),
     Extra { index: usize, extra: Extra },
 }
 
-/// The input of a surface (surface → provider, §3). Rows and slots count from 0. Deltas are
-/// steps of the provider: it applies its ranges and its acceleration, so that all surfaces
-/// behave the same; `fine` asks for the provider's fine resolution.
+/// What a delta of a turn counts (since 1.2): the source scales it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TurnUnit {
+    /// The travel of an absolute control (a touch strip, a fader): 1 is 1/127 of its length.
+    #[default]
+    Travel,
+    /// One click of a relative encoder.
+    Detent,
+}
+
+/// The input of a surface (surface → source, §3). Rows and slots count from 0. Deltas are
+/// steps of the source: it applies its ranges and its acceleration, so that all surfaces
+/// behave the same; `fine` asks for the source's fine resolution, `unit` says what a step is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
-    SlotTurn { id: usize, delta: i32, fine: bool },
+    SlotTurn { id: usize, delta: i32, fine: bool, unit: TurnUnit },
     SlotPress { id: usize },
     SlotRelease { id: usize },
     SlotTouch { id: usize, on: bool },
@@ -272,7 +331,7 @@ pub enum Input {
     PageSelect { page: usize },
     PageNext,
     PagePrev,
-    SelectedTurn { delta: i32, fine: bool },
+    SelectedTurn { delta: i32, fine: bool, unit: TurnUnit },
     SelectedReset,
     /// The next / previous value of the selected slot's control, for a control with several
     /// values on one knob (e.g. the handle of an envelope). Since 1.1; a provider without such
@@ -280,6 +339,13 @@ pub enum Input {
     ValueNext,
     ValuePrev,
     ExtraTurn { index: usize, delta: i32, fine: bool },
+    /// The surface shows (or no longer shows) the source (since 1.2): a host reports its pages
+    /// only while one surface shows them.
+    Shown { on: bool },
+    /// Select a control set, the previous / next one, a section (since 1.2).
+    SetSelect { set: usize },
+    SetStep { delta: i32 },
+    SectionSelect { section: usize },
 }
 
 /// The color depth of a surface.
@@ -299,11 +365,23 @@ pub struct Capabilities {
     pub touch_encoders: bool,
     pub main_encoder: bool,
     pub color_depth: ColorDepth,
+    /// The cells the surface shows (columns, rows; since 1.2).
+    pub slot_area: (usize, usize),
+    /// The encoders which turn the cells of the active row (since 1.2).
+    pub row_encoders: usize,
 }
 
 impl Default for Capabilities {
     fn default() -> Self {
-        Capabilities { grid: (GRID_SIZE, GRID_SIZE), encoders: GRID_SIZE, touch_encoders: false, main_encoder: false, color_depth: ColorDepth::Palette }
+        Capabilities {
+            grid: (GRID_SIZE, GRID_SIZE),
+            encoders: GRID_SIZE,
+            touch_encoders: false,
+            main_encoder: false,
+            color_depth: ColorDepth::Palette,
+            slot_area: (GRID_SIZE, GRID_SIZE),
+            row_encoders: GRID_SIZE,
+        }
     }
 }
 
@@ -350,15 +428,42 @@ mod tests {
     }
 
     #[test]
-    fn colors_and_versions() {
+    fn colors_and_slots() {
         assert_eq!(Rgb::from_hex("FF5000"), Rgb::new(255, 0x50, 0));
         assert_eq!(Rgb::from_hex("x"), Rgb::BLACK);
         assert_eq!(Rgb::from(crate::daw::color::ColorEx::ORANGE), Rgb::new(255, 80, 0));
-        assert!(PROTOCOL_VERSION.is_compatible(Version::new(1, 7)));
-        assert!(!PROTOCOL_VERSION.is_compatible(Version::new(2, 0)));
         let model = model();
         assert_eq!(model.control_set(3), 1);
         assert_eq!(model.slot_at(0, 0).unwrap().name, "Vol");
         assert!(model.slot_at(6, 0).is_none());
+    }
+
+    #[test]
+    fn sizes_sets_and_sections() {
+        let mut wide = PageModel { columns: 8, rows: 6, slots: vec![Slot::default(); 48], ..PageModel::default() };
+        assert_eq!(wide.slot_id(1, 7), Some(15));
+        assert_eq!(wide.slot_id(0, 8), None);
+        assert_eq!(wide.slot_id(6, 0), None);
+        assert!(!wide.has_sets());
+        let old = wide.clone();
+        wide.sets = vec![ControlSet { name: "Osc".into(), section: Some(0), color: Rgb::WHITE }];
+        // New sets: a snapshot
+        assert!(matches!(wide.diff(&old).as_slice(), [ModelChange::Snapshot(_)]));
+        let old = wide.clone();
+        wide.active_set = Some(0);
+        wide.active_section = Some(0);
+        wide.slots[3].set = Some(0);
+        let changes = wide.diff(&old);
+        assert_eq!(changes.len(), 3, "{changes:?}");
+        assert!(matches!(changes[0], ModelChange::Slot { id: 3, .. }));
+        let mut mirror = old.clone();
+        for change in &changes {
+            mirror.apply(change);
+        }
+        assert_eq!(mirror, wide);
+        // Another size: a snapshot
+        let old = wide.clone();
+        wide.columns = 4;
+        assert!(matches!(wide.diff(&old).as_slice(), [ModelChange::Snapshot(_)]));
     }
 }

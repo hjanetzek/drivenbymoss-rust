@@ -2,23 +2,29 @@
 // (c) 2017-2026
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The Maschine JAM as a surface of the surface link (doc/SURFACE_LINK.md; not part of Java):
-//! the pages of a provider (e.g. the Electra One) on the grid and the touch strips.
+//! The Maschine JAM as a page surface (doc/SURFACE_LINK.md, doc/HOST_PAGE_PLAN.md §5; not part of
+//! Java): the pages of a source (the Electra One over the surface link, the host's pages) on the
+//! grid and the touch strips.
 //!
-//! - **Entry and exit:** Select + SONG switches the surface on and off. Any other view or mode
-//!   button (SONG, STEP, PAD MODE, MACRO, LEVEL, AUX, CONTROL) leaves it for its view or mode;
-//!   a detach of the provider leaves it too. The JAM's own modes and views come back.
-//! - **Grid:** the centre 6x6 are the slots (in their colors; a press selects a knob slot or
-//!   presses a pad slot; the selected slot blinks white). Column 1, rows 2-7: the row
-//!   selectors (the active row white, the control sets in two colors). Column 8: the page list
-//!   (up to 8 pages). The top and the bottom pad of column 1: the previous and next page.
-//! - **Strips 1-6:** the slots of the active row; their LEDs show the values. A swipe turns by
-//!   the distance (relative, no jumps); with Shift in fine steps.
-//! - **Strip 7:** the selected slot, in fine steps; **strip 8:** the first extra of the provider.
-//! - **Main encoder:** the selected slot (`selected.turn`), with Shift fine; its push resets it.
+//! - **Entry and exit:** Select + SONG cycles: off → the next available source → … → off (the
+//!   sources in their order, missing ones skipped; with one source it switches the surface on and
+//!   off). Any other view or mode button (SONG, STEP, PAD MODE, MACRO, LEVEL, AUX, CONTROL) leaves
+//!   it for its view or mode; a detach of the source leaves it too. The JAM's own modes and views
+//!   come back.
+//! - **Grid row 1:** the page list (6 pads, the window of the current page), its last two pads the
+//!   previous / next page.
+//! - **Grid rows 2-7:** the cells, left-aligned, up to 8 columns (the Electra's pages are 6 wide);
+//!   in their colors; a press selects a knob cell (and its row) or presses a pad cell; the
+//!   selected cell blinks white. With control sets the cells outside the active one are dimmer.
+//! - **Grid row 8:** the sections of the source (the host's processors).
+//! - **Strips 1-8:** the cells of the active row; with a 6-wide page strip 7 is the selected cell
+//!   (fine) and strip 8 the first extra. A swipe turns by the distance (relative, no jumps); with
+//!   Shift in fine steps.
+//! - **Main encoder:** the selected cell (`selected.turn`), with Shift fine; its push resets it.
 //! - **PAGE LEFT/RIGHT:** the previous / next page, **up / down:** the previous / next row,
-//!   **left / right:** the previous / next value of the selected slot (an envelope's handle).
-//! - Without a provider the grid shows a red cross.
+//!   **left / right:** the previous / next control set (with sets), else the previous / next
+//!   value of the selected cell (an envelope's handle).
+//! - Without a source the grid shows a red cross.
 
 use std::rc::Rc;
 
@@ -27,9 +33,10 @@ use crate::framework::command::{shared, ContinuousCommand, SharedTrigger, Trigge
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use crate::controller::maschine::core::colors;
-use crate::framework::surface_link::client::{EncoderFunction, EncoderKind, PadFunction, SharedClient, SurfaceLinkClient, SurfaceMapping, UiColors};
-use crate::framework::surface_link::view::{palette_index, state_text, SurfaceLinkMode, SurfaceLinkView};
-use crate::framework::surface_link::{ColorDepth, LinkState, DEFAULT_LINK};
+use crate::framework::page_surface::client::{EncoderFunction, EncoderKind, PadFunction, SharedClient, SurfaceClient, SurfaceMapping, UiColors};
+use crate::framework::page_surface::view::{palette_index, state_text, PageSurfaceMode, PageSurfaceView};
+use crate::framework::page_surface::{ColorDepth, LinkState, PageSource};
+use crate::framework::surface_link::{LinkSource, DEFAULT_LINK};
 use crate::framework::value_changer::RelativeEncoding;
 use crate::midi::ButtonEvent;
 
@@ -45,14 +52,14 @@ pub struct JamSurface {
 /// The mapping of the JAM: the grid, its 8 touch strips and the encoder.
 pub fn mapping() -> SurfaceMapping {
     let mut encoders: Vec<EncoderFunction> = (0..6).map(EncoderFunction::RowSlot).collect();
-    encoders.push(EncoderFunction::Selected { fine: true });
-    encoders.push(EncoderFunction::Extra(0));
+    encoders.push(EncoderFunction::RowSlotOrSelected { column: 6, fine: true });
+    encoders.push(EncoderFunction::RowSlotOrExtra { column: 7, index: 0 });
     let mut mapping = SurfaceMapping::new(8, 8)
-        .slots_at(1, 1)
-        .row_selectors_at(0, 1)
-        .page_list_at(7, 0, 8)
-        .pad(0, 0, PadFunction::PagePrev)
-        .pad(0, 7, PadFunction::PageNext)
+        .page_list_row_at(0, 0, 6)
+        .pad(6, 0, PadFunction::PagePrev)
+        .pad(7, 0, PadFunction::PageNext)
+        .cells_at(0, 1, 8, 6)
+        .section_list_row_at(0, 7, 8)
         .encoders(EncoderKind::Absolute, encoders)
         .main_encoder(RelativeEncoding::TwosComplement);
     mapping.touch_encoders = true;
@@ -72,9 +79,16 @@ pub fn mapping() -> SurfaceMapping {
     mapping
 }
 
+/// The sources of the JAM, in the order of Select + SONG: the surface link (the Electra One).
+fn sources(mapping: &SurfaceMapping) -> Vec<Box<dyn PageSource>> {
+    vec![Box::new(LinkSource::new(DEFAULT_LINK, mapping.capabilities()))]
+}
+
 impl JamSurface {
     pub fn new() -> Self {
-        JamSurface { client: SurfaceLinkClient::shared(DEFAULT_LINK, mapping()), active: false, previous: None }
+        let mapping = mapping();
+        let sources = sources(&mapping);
+        JamSurface { client: SurfaceClient::shared(mapping, sources), active: false, previous: None }
     }
 }
 
@@ -100,8 +114,8 @@ pub fn is_active(ctx: &Ctx) -> bool {
 /// Register the view and the mode (in `init`).
 pub fn register(ctx: &mut Ctx) {
     let client = surface(ctx).client.clone();
-    ctx.register_view(Views::SurfaceLink, SurfaceLinkView::new(client.clone()));
-    ctx.register_mode(Modes::SurfaceLink, SurfaceLinkMode::new(client));
+    ctx.register_view(Views::SurfaceLink, PageSurfaceView::new(client.clone()));
+    ctx.register_mode(Modes::SurfaceLink, PageSurfaceMode::new(client));
     // The touches of the strips (Java binds the no-op command): only for the surface
     for index in 0..8 {
         let id = ContinuousId::get(ContinuousId::Fader1, index);
@@ -120,10 +134,18 @@ fn notify_state(ctx: &mut Ctx) {
     ctx.notify(&text);
 }
 
-/// Switch the surface on.
+/// Switch the surface on, with the first available source (or the current one without any: it
+/// shows "no provider").
 pub fn enter(ctx: &mut Ctx) {
     if is_active(ctx) {
         return;
+    }
+    {
+        let mut client = surface(ctx).client.borrow_mut();
+        if let Some(index) = client.next_available(None) {
+            client.select_source(index);
+        }
+        client.set_shown(true);
     }
     let previous = (ctx.views.active_id_ignore_temporary(), ctx.modes.active_id());
     let state = surface_mut(ctx);
@@ -140,6 +162,7 @@ pub fn leave(ctx: &mut Ctx) {
     if !is_active(ctx) {
         return;
     }
+    surface(ctx).client.borrow_mut().set_shown(false);
     let state = surface_mut(ctx);
     state.active = false;
     let (view, mode) = state.previous.take().unwrap_or((None, None));
@@ -151,20 +174,33 @@ pub fn leave(ctx: &mut Ctx) {
     }
 }
 
-/// Select + SONG.
+/// Select + SONG: off → the next available source → … → off.
 pub fn toggle(ctx: &mut Ctx) {
-    if is_active(ctx) {
-        leave(ctx);
-        ctx.notify("Surface off");
-    } else {
+    if !is_active(ctx) {
         enter(ctx);
+        return;
+    }
+    let next = {
+        let client = surface(ctx).client.borrow();
+        client.next_available(Some(client.current_source()))
+    };
+    match next {
+        Some(index) => {
+            surface(ctx).client.borrow_mut().select_source(index);
+            notify_state(ctx);
+        }
+        None => {
+            leave(ctx);
+            ctx.notify("Surface off");
+        }
     }
 }
 
 /// The tick (in `handle_changes`): the provider's changes, the state, and whether another
 /// button took the grid or the strips.
 pub fn poll(ctx: &mut Ctx) {
-    let states = surface(ctx).client.borrow_mut().poll();
+    let client = surface(ctx).client.clone();
+    let states = client.borrow_mut().poll(&ctx.model);
     if !is_active(ctx) {
         return;
     }

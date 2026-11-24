@@ -36,8 +36,7 @@ use super::page_view::{knob_slot_model, slot_knob, Cell, PageView};
 use super::surface::{state, state_mut};
 use super::surface_ext::{self as ext, Origin, Report, SetValue};
 use crate::framework::ctx::Ctx;
-use crate::framework::surface_link::model::GRID_SIZE;
-use crate::framework::surface_link::{Input, PageModel, SlotKind, NUM_SLOTS};
+use crate::framework::surface_link::{Input, PageModel, SlotKind, GRID_SIZE, NUM_SLOTS};
 
 /// An open `02 52` without an answer for this long is given up.
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -240,7 +239,7 @@ pub fn on_switched(ctx: &mut Ctx) {
 /// Execute the input of a surface.
 pub fn apply_input(ctx: &mut Ctx, input: Input) {
     match input {
-        Input::SlotTurn { id, delta, fine } => turn(ctx, id, delta, fine),
+        Input::SlotTurn { id, delta, fine, .. } => turn(ctx, id, delta, fine),
         Input::SlotTouch { id, on } => {
             if let Some(pot) = knob_of_turnable(ctx, id) {
                 activate_row(ctx, id);
@@ -256,7 +255,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
             let page = if input == Input::PageNext { current + 1 } else { current.wrapping_sub(1) };
             select_page(ctx, page);
         }
-        Input::SelectedTurn { delta, fine } => {
+        Input::SelectedTurn { delta, fine, .. } => {
             if let Some(id) = generic(ctx).selected {
                 turn(ctx, id, delta, fine);
             }
@@ -279,7 +278,8 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
                 send(ctx, &ext::step_active_value_message(control, step));
             }
         }
-        Input::ExtraTurn { .. } => {}
+        // The host's input (since 1.2): nothing for these pages
+        Input::ExtraTurn { .. } | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } => {}
     }
 }
 

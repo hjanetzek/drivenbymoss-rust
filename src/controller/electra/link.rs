@@ -23,9 +23,8 @@ use super::surface::{self as electra, state, state_mut};
 use super::surface_ext::{self as ext, Capability, Origin, Pending, Report};
 use crate::framework::ctx::Ctx;
 use crate::framework::parameterprovider::ParamRef;
-use crate::framework::surface_link::model::GRID_SIZE;
 use crate::framework::surface_link::provider::LinkProvider;
-use crate::framework::surface_link::{Input, PageModel, ProviderEvent, Rgb, Slot, SlotKind, DEFAULT_LINK, NUM_SLOTS};
+use crate::framework::surface_link::{Input, PageModel, ProviderEvent, Rgb, Slot, SlotKind, DEFAULT_LINK, GRID_SIZE, NUM_SLOTS};
 use crate::json::JsonValue;
 
 /// The name of the provider, shown by the surfaces.
@@ -160,6 +159,7 @@ pub fn build_model(ctx: &Ctx) -> PageModel {
                 steps: preset.steps,
                 on: false,
                 enabled,
+                set: None,
             };
         }
     });
@@ -176,7 +176,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
     };
     let kind = |id: usize| PAGES[page].get(id).map_or(SlotKind::Empty, |c| c.kind);
     match input {
-        Input::SlotTurn { id, delta, fine } => turn(ctx, page, id, delta, fine),
+        Input::SlotTurn { id, delta, fine, .. } => turn(ctx, page, id, delta, fine),
         Input::SlotPress { id } => match kind(id) {
             SlotKind::Pad => press_pad(ctx, id, true),
             SlotKind::Empty => {}
@@ -205,7 +205,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
                 select_page(ctx, page - 1);
             }
         }
-        Input::SelectedTurn { delta, fine } => {
+        Input::SelectedTurn { delta, fine, .. } => {
             if let Some(id) = link(ctx).selected {
                 turn(ctx, page, id, delta, fine);
             }
@@ -216,7 +216,8 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
             }
         }
         // The Electra pages have no extras and no controls with several values
-        Input::ExtraTurn { .. } | Input::ValueNext | Input::ValuePrev => {}
+        // The host's input (since 1.2): nothing for these pages
+        Input::ExtraTurn { .. } | Input::ValueNext | Input::ValuePrev | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } => {}
     }
 }
 
