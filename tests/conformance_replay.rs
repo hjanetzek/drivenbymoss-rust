@@ -198,10 +198,7 @@ fn replay(path: &Path, binary: bool) -> Vec<String> {
     let replace_paths = |text: &str| files.iter().fold(text.to_string(), |text, (original, copy)| text.replace(original.as_str(), copy))
         .to_string();
     for event in events.iter().filter(|e| e.kind == "config") {
-        // Recordings made before the hosts with one controller had their own file names
-        // (`DrivenByMoss-<model>.config`) name the files as Reaper does
-        let name = event.fields[0].strip_prefix("DrivenByMoss4Reaper-").map_or_else(|| event.fields[0].clone(), |model| format!("DrivenByMoss-{model}"));
-        std::fs::write(dir.join(name), replace_paths(event.fields.get(1).map_or("", String::as_str))).unwrap();
+        std::fs::write(dir.join(&event.fields[0]), replace_paths(event.fields.get(1).map_or("", String::as_str))).unwrap();
     }
 
     let backend = Rc::new(RecordingBackend { inputs: vec![(0, "replay".into())], outputs: vec![(0, "replay".into())], ..Default::default() });
