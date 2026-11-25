@@ -358,6 +358,34 @@ class HostPagesTest(unittest.TestCase):
         calls[0][1]()
         self.assertEqual(chain.remote_pages.pages[0].slots[0], (1, "p00"))
 
+    def test_show_and_navigation_bring_chain_control_to_the_front(self):
+        """HostPageShow on: zynthian's screen opens chain control of the active chain, on the
+        surface's page when it wasn't shown; navigation and presses bring it to the front;
+        turns and HostPageShow off don't"""
+        screen = FakeScreen(self.gd, self.state)
+        log = []
+        screen.grid_show_request = lambda chain: log.append(("show", chain))
+        screen.grid_selection_request = lambda *args: log.append(args)
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        self.assertEqual(log, [("show", 1), ("page", 1, 0, -1, 0)], "opened on the surface's page")
+        epoch = self.report()[M.HOST_PAGE_EPOCH]
+        log.clear()
+        screen.shown = True
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        self.assertEqual(log, [("show", 1)], "shown: no page request")
+        epoch = self.report()[M.HOST_PAGE_EPOCH]
+        log.clear()
+        self.run_commands(f"int\thostpage\tcell/1/turn/{epoch}/0/0\t1")
+        self.assertEqual(log, [], "a turn doesn't")
+        self.run_commands("int\thostpage\tset\t3")
+        self.assertEqual(log, [("show", 1), ("page", 1, 3, -1, 0)])
+        log.clear()
+        self.run_commands(f"int\thostpage\tcell/1/press/{epoch}\t1")
+        self.assertEqual(log[0], ("show", 1))
+        log.clear()
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t0")
+        self.assertEqual(log, [], "off: the screen stays")
+
     def test_device_page_selects_the_screens_page(self):
         """The core's device page (DeviceParameterPage, the JAM's < > in CONTROL: 8 parameters,
         two zynthian screens) selects chain control's page of its first screen, only while the

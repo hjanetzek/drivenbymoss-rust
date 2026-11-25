@@ -50,6 +50,10 @@ source.
   a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``. A press on a page without
   controllers (a processor without pages) is the screen's tap on its header
   (``shared_selection.request_open``: selects it, the selected one opens its banks / presets).
+- **zynthian's screen follows the surface**: ``show`` on opens chain control of the active chain
+  (``shared_selection.request_show``; not over a menu or dialog, the screen decides), on the
+  surface's selected page when it wasn't shown; the navigation commands and a press bring it to
+  the front again if the user went elsewhere; turns and ``show`` off don't change the screen.
 - **Chain controllers** (zynthian-ui docs/remote-control-pages.md): the chain controllers'
   pages (named pages of 4 slots) are the first section of ``chain_pages`` ("Chain"), so they are
   reported as any other pages, in a colour of their own (zynthian-ui's ``page_color``, through
@@ -284,11 +288,36 @@ class ZynHostPages:
         grid4x6); True when the reports start (the caller forgets the old ones: a dump)"""
         self.shown = bool(on)
         if not on:
-            return False
+            return False   # the screen stays where it is
         self.grid.set_layout("grid8x6" if columns >= 8 else "grid4x6")
         self._structure = None
         self.watcher.reset()
+        self.open_screen()
         return True
+
+    def _front(self):
+        """Chain control of the active chain to the front of zynthian's screen if it isn't shown
+        (shared_selection.request_show; an older zynthian-ui or no screen: nothing); True if the
+        screen got the request"""
+        request_show = getattr(self.gd.shared_selection, "request_show", None)
+        if request_show is None or self.chain_id is None:
+            return False
+        return bool(request_show(self.chain_id))
+
+    def open_screen(self):
+        """The surface switched to the host's pages: zynthian's screen opens chain control of the
+        active chain, on the page the surface shows (its selection: the shared one, else the
+        chain's default) when it wasn't shown"""
+        try:
+            self.update()
+        except Exception as e:
+            logger.warning("host pages: the active chain's pages: %s", e)
+            return
+        selection = self.gd.shared_selection
+        owner_shown = getattr(selection, "owner_shown", None)
+        was_shown = owner_shown() if owner_shown is not None else True
+        if self._front() and not was_shown and 0 <= self.grid.selected < len(self.grid.pages):
+            selection.request_page(self.chain_id, self.grid.selected)
 
     def _cell(self, cell, epoch):
         if epoch != self.epoch:
@@ -318,6 +347,7 @@ class ZynHostPages:
         # A page without controllers (a processor without pages) as a tap on its header on the
         # screen: selects it, the selected one opens its banks / presets
         selection = self.gd.shared_selection
+        self._front()
         if c.zctrl is not None:
             selection.request_cell(self.chain_id, c.page, c.slot)
         elif self.grid.pages[c.page].empty and hasattr(selection, "request_open"):
@@ -373,7 +403,9 @@ class ZynHostPages:
         return False
 
     def _select(self, page):
+        """A navigation command (row, window, set, section): the page, chain control to the front"""
         if 0 <= page < len(self.grid.pages):
+            self._front()
             self.gd.shared_selection.request_page(self.chain_id, page)
 
     def select_row(self, row):

@@ -652,6 +652,17 @@ that row's n-th cell to slot n. The adapter handles it (`ZynHostPages.assign`, t
 `SS_GUI_CONTROL_GRID_REMOTE` brings the new pages) once `Cmd.HOST_PAGE_CELL_ASSIGN` exists
 (`commands.HOST_PAGE_CELL_ASSIGN`, guarded).
 
+### 12.5 zynthian's screen follows the surface (2026-11-25)
+
+No protocol change. `HostPageShow` on (the JAM's CONTROL strips, Shift + CONTROL, Select + SONG /
+CONTROL) opens chain control of the active chain on zynthian's screen if it isn't shown
+(`shared_selection.request_show`, applied in the GUI thread; not over a menu, a dialog, the
+keyboard, the file selector, a move or the busy screen), on the page the surface shows (its
+selection) when it wasn't shown. The navigation commands (`HostPageSection` / `Set` / `Page` /
+`Row`) and a cell press bring it to the front again if the user went elsewhere on the screen;
+turns and `HostPageShow` off don't change the screen. Device pages (`DeviceParameterPage`, the
+JAM's `<` `>` in CONTROL) move chain control's selection while it is shown.
+
 ## 13. Implementation status (2026-11-24)
 
 | Phase | Done | Where |
