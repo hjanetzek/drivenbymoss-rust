@@ -101,8 +101,12 @@ GRID_COMMANDS = (Cmd.GRID_STEP_TOGGLE, Cmd.GRID_STEP_SET, Cmd.GRID_STEP_SET_FROM
                  Cmd.GRID_CLEAR_COLUMN, Cmd.GRID_SCROLL, Cmd.GRID_PAGE)
 # The commands of the browser: the name of the command, column/result, the move
 # The host's pages (host_page.py, doc/HOST_PAGE_PLAN.md §12): only with zynthian-ui's grid module
+# A cell's controller to a slot of the chain's current remote-control page (zynthian-ui
+# docs/remote-control-pages.md §5); only once the core has the command
+HOST_PAGE_CELL_ASSIGN = getattr(Cmd, "HOST_PAGE_CELL_ASSIGN", None)
 HOST_PAGE_COMMANDS = (Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
-                      Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION)
+                      Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION) \
+    + ((HOST_PAGE_CELL_ASSIGN,) if HOST_PAGE_CELL_ASSIGN is not None else ())
 BROWSER_COMMANDS = (Cmd.BROWSER_REPLACE_DEVICE, Cmd.BROWSER_STOP, Cmd.BROWSER_PREVIEW, Cmd.BROWSER_CONTENT_TYPE, Cmd.BROWSER_COLUMN_STEP,
                     Cmd.BROWSER_COLUMN_PAGE, Cmd.BROWSER_COLUMN_RESET, Cmd.BROWSER_RESULT_STEP, Cmd.BROWSER_RESULT_PAGE)
 
@@ -270,6 +274,8 @@ class ZynCommandHandler(CommandHandler):
             pages.select_set(int(view.value))
         elif id_ == Cmd.HOST_PAGE_SECTION:
             pages.select_section(int(view.value))
+        elif HOST_PAGE_CELL_ASSIGN is not None and id_ == HOST_PAGE_CELL_ASSIGN:
+            pages.assign(view.cell, view.epoch, int(view.value))
         # HOST_PAGE_CELL_TOUCH: nothing (later: the page's widget on the screen)
 
     def configure(self):

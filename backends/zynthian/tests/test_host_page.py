@@ -295,6 +295,60 @@ class HostPagesTest(unittest.TestCase):
         self.run_commands(f"int\thostpage\tcell/{cell}/press/{epoch}\t1", f"int\thostpage\tcell/1/press/{epoch}\t1")
         self.assertEqual(screen.queue, [("open", 1, page, -1, 0), ("cell", 1, 0, 1, 0)])
 
+    def remote_chain(self):
+        """The active chain with remote-control pages (zynthian-ui's zyngine.zynthian_remote_pages)"""
+        from zyngine.zynthian_remote_pages import RemotePages
+        chain = self.state.chain_manager.get_active_chain()
+        for i, proc in enumerate(chain.get_processors()):
+            proc.id = i + 1
+        chain.remote_pages = RemotePages(chain)
+        return chain
+
+    def test_remote_pages_and_assign(self):
+        """The chain's remote pages are the first section; assign (HostPageCellAssign, the JAM's
+        hold-a-row + touch-a-strip) puts a cell's controller into the current remote page"""
+        chain = self.remote_chain()
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        out = self.report()
+        epoch = out[M.HOST_PAGE_EPOCH]
+        self.assertEqual(out[M.HOST_SECTION_NAME], "Helm", "no remote pages: no section")
+        pages = self.commands.host_pages
+        # No screen (the Tk UI): applied at once; the first page is created
+        self.assertTrue(pages.assign(5, epoch, 2))                  # mode1 to slot 3
+        self.assertEqual(chain.remote_pages.pages[0].slots[2], (1, "mode1"))
+        out = self.report()
+        new_epoch = out[M.HOST_PAGE_EPOCH]
+        self.assertNotEqual(new_epoch, epoch, "the cells hold other controllers")
+        self.assertEqual([self.seen[M.HOST_SECTION_NAME | s << 16] for s in range(self.seen[M.HOST_SECTION_COUNT])],
+                         ["Remote", "Helm", "Reverb", "Mixer"])
+        self.assertEqual((self.seen[M.HOST_SET_NAME], self.seen[M.HOST_SET_NAME | 1 << 16]), ("Page 1", "Page 1 5-8"))
+        self.assertEqual((self.seen[M.HOST_CELL_NAME | 2 << 16], self.seen[M.HOST_CELL_KIND | 3 << 16]), ("mode1", 0))
+        self.assertEqual(self.seen[M.HOST_CELL_NAME | 8 << 16], "p00", "the processor's pages after it")
+        # Another epoch: dropped; an empty cell clears its slot; -1 removes
+        self.assertFalse(pages.assign(8, epoch, 0))
+        self.assertTrue(pages.assign(9, new_epoch, 7))              # mode0 to slot 8
+        self.assertTrue(pages.assign(3, new_epoch, 2))              # the empty cell 3: clears slot 3
+        self.assertEqual(chain.remote_pages.pages[0].slots[2], None)
+        self.assertEqual(chain.remote_pages.pages[0].slots[7], (1, "mode0"))
+        self.assertTrue(pages.assign(9, new_epoch, -1))
+        self.assertEqual(chain.remote_pages.find(self.state.synth.controllers_dict["mode0"]), [])
+        self.assertFalse(pages.assign(3, new_epoch, -1), "nothing to remove")
+        self.assertFalse(pages.assign(9, new_epoch, 8), "no such slot")
+
+    def test_remote_assign_goes_through_the_screen(self):
+        """With the screen as the owner, an assignment is applied in its thread"""
+        chain = self.remote_chain()
+        calls = []
+        screen = FakeScreen(self.gd, self.state)
+        screen.grid_remote_request = lambda chain, call: calls.append((chain, call))
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        epoch = self.report()[M.HOST_PAGE_EPOCH]
+        self.commands.host_pages.assign(0, epoch, 0)
+        self.assertEqual(chain.remote_pages.pages, [], "not before the screen applies it")
+        self.assertIs(calls[0][0], chain)
+        calls[0][1]()
+        self.assertEqual(chain.remote_pages.pages[0].slots[0], (1, "p00"))
+
     def test_a_failing_chain_is_none(self):
         """An exception reading a chain's pages: reported as no page (exists false), logged once,
         the pass goes on; the chain's pages come back when they can be read"""

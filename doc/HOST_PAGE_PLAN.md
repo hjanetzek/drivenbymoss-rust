@@ -626,6 +626,26 @@ Declare the 0x8C commands handled (the handled-commands bitset): that is the `ho
 without the grid module (a stock zynthian) leave them undeclared, and the JAM has no host source.
 
 
+### 12.4 Remote-control pages (2026-11-25, protocol agreed-pending with the core)
+
+zynthian-ui `electra-grid` has Bitwig-like remote-control pages per chain
+(docs/remote-control-pages.md there): pages of 8 slots, each any controller of the chain. They
+are the first section of `chain_pages` ("Remote", each remote page two zynthian pages of 4: one
+JAM row), so the adapter reports them as any other pages, no new reports. Proposed command (the
+core's and the JAM's side: the dbm-surface-link session):
+
+| ID | Name | Text form | Value |
+| --- | --- | --- | --- |
+| 0x8C0A | `HostPageCellAssign` | `hostpage cell/{cell}/assign/{epoch}` | int slot |
+
+slot 0-7: the cell's controller to that slot of the chain's current remote page (the last
+selected remote page, default the first; created when there is none); an empty cell clears the
+slot; slot -1 removes the controller from all remote pages; another epoch: dropped. The JAM: hold
+a pad of a cell row and touch strip n = that row's n-th cell to slot n. The adapter handles it
+(`ZynHostPages.assign`, through `shared_selection.request_remote_assign` in zynthian's GUI
+thread; `SS_GUI_CONTROL_GRID_REMOTE` brings the new pages) once `Cmd.HOST_PAGE_CELL_ASSIGN`
+exists (`commands.HOST_PAGE_CELL_ASSIGN`, guarded).
+
 ## 13. Implementation status (2026-11-24)
 
 | Phase | Done | Where |

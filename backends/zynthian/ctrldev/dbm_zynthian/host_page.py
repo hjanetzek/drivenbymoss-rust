@@ -45,11 +45,15 @@ source.
   and texts of the shown cells that changed, by ``ValueWatcher``), only while a surface shows
   them (``HostPageShow`` on). The epoch (first) counts the changes of which controller a cell
   holds (chain, pages, window, layout).
-- **Commands** (``show``, ``turn``, ``press``, ``reset``, ``select_row``/``page``/``set``/
-  ``section``): cell commands of another epoch are dropped. The value math is the grid's:
+- **Commands** (``show``, ``turn``, ``press``, ``reset``, ``assign``, ``select_row``/``page``/
+  ``set``/``section``): cell commands of another epoch are dropped. The value math is the grid's:
   a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``. A press on a page without
   controllers (a processor without pages) is the screen's tap on its header
   (``shared_selection.request_open``: selects it, the selected one opens its banks / presets).
+- **Remote-control pages** (zynthian-ui docs/remote-control-pages.md): the chain's remote pages
+  are the first section of ``chain_pages`` ("Remote", two pages of 4 per remote page), so they
+  are reported as any other pages; ``assign`` (``HostPageCellAssign``, the JAM's hold-a-row +
+  touch-a-strip) puts a cell's controller into the current remote page.
 - **Errors**: a chain whose pages fail to read is reported as none (``exists`` false, logged
   once); a failing command is logged (commands.py), the driver goes on.
 
@@ -314,6 +318,21 @@ class ZynHostPages:
     def reset(self, cell, epoch):
         if self._cell(cell, epoch) is not None:
             self.grid.set_default(cell)
+
+    def assign(self, cell, epoch, slot):
+        """``hostpage cell/{cell}/assign/{epoch}`` (zynthian-ui docs/remote-control-pages.md §5):
+        the cell's controller to slot ``slot`` (0-7) of the chain's current remote page (created
+        when there is none; an empty cell clears the slot; on that page already: moved), slot -1:
+        removed from all remote pages. Applied in zynthian's GUI thread (the screen's pages are
+        rebuilt there); the change signal (SS_GUI_CONTROL_GRID_REMOTE) brings the new pages"""
+        c = self._cell(cell, epoch)
+        selection = self.gd.shared_selection
+        if c is None or self.chain is None or not hasattr(selection, "request_remote_assign"):
+            return False
+        if not -1 <= slot < 8 or slot < 0 and c.zctrl is None:
+            return False
+        selection.request_remote_assign(self.chain, c.zctrl, slot)
+        return True
 
     def _select(self, page):
         if 0 <= page < len(self.grid.pages):
