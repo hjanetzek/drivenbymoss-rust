@@ -484,13 +484,6 @@ fn control_cycles_the_device_parameters_and_the_host_page_strips() {
     assert!(jam_surface::are_strips_active(rig.ctx()));
     assert!(rig.app.take_notifications().contains("Host Pages"));
     assert_eq!(shows(&rig), [show(true)]);
-    // Select + CONTROL does nothing on the strips
-    rig.cc(JAM_SELECT, 127);
-    rig.press(JAM_CONTROL);
-    rig.cc(JAM_SELECT, 0);
-    rig.advance(30);
-    assert_eq!(rig.mode(), Some(Modes::HostStrips));
-    assert!(shows(&rig).is_empty());
     rig.control();
     assert_eq!(rig.mode(), Some(Modes::DeviceParams));
     assert_eq!(shows(&rig), [show(false)]);
@@ -673,4 +666,64 @@ fn a_track_change_keeps_the_host_page_strips() {
     assert_eq!(rig.mode(), Some(Modes::HostStrips));
     assert!(shows(&rig).is_empty());
     assert!(jam_surface::fader_configs(rig.ctx()).is_some());
+}
+
+
+const SHIFT_DOWN: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x01, 0xF7];
+const SHIFT_UP: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x00, 0xF7];
+
+#[test]
+fn shift_and_control_show_the_first_remote_control_page() {
+    // From another mode (Level, Play view): the host page strips on section 0 (zynthian's
+    // remote control pages), which the host selects on its screen
+    let mut rig = Rig::new(true);
+    rig.press(JAM_LEVEL);
+    rig.advance(30);
+    rig.commands();
+    rig.app.take_notifications();
+    rig.app.on_midi_event(J_IN, &SHIFT_DOWN);
+    rig.press(JAM_CONTROL);
+    rig.app.on_midi_event(J_IN, &SHIFT_UP);
+    rig.advance(30);
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    let commands = rig.host_commands();
+    assert!(commands.contains(&cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: true })), "{commands:?}");
+    assert!(commands.contains(&cmd_text(Cmd::HostPageSection { section: 0 })), "{commands:?}");
+    assert!(rig.app.take_notifications().contains("Remote Controls"));
+    // Again on the strips: section 0 again, no second show
+    rig.app.on_midi_event(J_IN, &SHIFT_DOWN);
+    rig.press(JAM_CONTROL);
+    rig.app.on_midi_event(J_IN, &SHIFT_UP);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageSection { section: 0 })]);
+}
+
+#[test]
+fn shift_and_control_without_host_pages_open_the_device_window() {
+    let mut rig = Rig::new(false);
+    rig.commands();
+    rig.app.on_midi_event(J_IN, &SHIFT_DOWN);
+    rig.press(JAM_CONTROL);
+    rig.app.on_midi_event(J_IN, &SHIFT_UP);
+    rig.advance(30);
+    assert_ne!(rig.mode(), Some(Modes::HostStrips));
+    assert!(rig.host_commands().is_empty());
+}
+
+#[test]
+fn select_and_control_act_like_select_and_song_with_host_pages() {
+    let mut rig = Rig::strips();
+    // From the strips: the full surface on the host, then off (back to the strips)
+    rig.cc(JAM_SELECT, 127);
+    rig.press(JAM_CONTROL);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert!(jam_surface::is_active(rig.ctx()));
+    assert!(rig.ctx().views.is_active(Views::SurfaceLink));
+    rig.cc(JAM_SELECT, 127);
+    rig.press(JAM_CONTROL);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert!(!jam_surface::is_active(rig.ctx()));
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
 }

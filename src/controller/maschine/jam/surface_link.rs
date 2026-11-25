@@ -44,7 +44,7 @@ use crate::controller::maschine::core::colors;
 use crate::framework::page_surface::client::{EncoderFunction, EncoderKind, PadFunction, SharedClient, SurfaceClient, SurfaceMapping, UiColors};
 use crate::framework::page_surface::view::{palette_index, state_text, PageSurfaceMode, PageSurfaceView};
 use crate::framework::page_surface::host::HostSource;
-use crate::framework::page_surface::{ColorDepth, LinkState, PageSource};
+use crate::framework::page_surface::{ColorDepth, Input, LinkState, PageSource};
 use crate::framework::surface_link::{LinkSource, DEFAULT_LINK};
 use crate::framework::value_changer::RelativeEncoding;
 use crate::midi::ButtonEvent;
@@ -194,6 +194,22 @@ pub fn sync(ctx: &mut Ctx) {
         client.select_source(HOST_SOURCE);
     }
     client.set_shown(shown);
+}
+
+/// Shift + CONTROL: the host page strips on the host's first remote control page (zynthian:
+/// section 0 is the chain's remote pages, "Chain Controllers"; the host selects the section's
+/// first page on its screen and reports it). False without the host's pages.
+pub fn show_first_remote_page(ctx: &mut Ctx) -> bool {
+    if !has_host_pages(ctx) {
+        return false;
+    }
+    if ctx.modes.active_id_ignore_temporary() != Some(Modes::HostStrips) {
+        ctx.set_active_mode(Modes::HostStrips);
+    }
+    sync(ctx);
+    surface(ctx).client.borrow_mut().send(Input::SectionSelect { section: 0 });
+    ctx.notify("Remote Controls");
+    true
 }
 
 /// Switch the surface on, with the first available source (or the current one without any: it

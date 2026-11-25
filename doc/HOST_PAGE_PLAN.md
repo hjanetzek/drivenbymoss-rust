@@ -433,8 +433,8 @@ JAM's client, in `src/controller/maschine/jam/surface_link.rs`).
 | JAM | Function |
 | --- | --- |
 | CONTROL | with the host's pages (`hostPages`): device parameters → host page strips → device parameters (the strips take the user mode's slot; zynthian has no user parameters). Without them (Bitwig, a stock zynthian) device parameters ↔ user mode, as in Java. From another mode the last of the two (Java's `ModeMultiSelectCommand`) |
-| Select + CONTROL | on the strips: nothing; otherwise the user mode's project / track toggle, as before |
-| Shift + CONTROL | the device window, as before |
+| Select + CONTROL | with the host's pages: as Select + SONG (the full surface; may get its own function later); without them the user mode's project / track toggle, as before |
+| Shift + CONTROL | with the host's pages: the host page strips on the first remote control page (`HostPageSection 0`, zynthian's "Chain Controllers"; notification "Remote Controls"); without them the device window, as before |
 | strips 1-8 | the 8 cells of the host's active row (zynthian grid8x6: two zynthian pages of 4), values and colours on the LEDs; a swipe is `HostPageCellTurn` by the travel, the touch `HostPageCellTouch`. Turning never selects: the selection stays the host's |
 | Select + strip n | `HostPageCellAssign {cell, slot: n}` (n = 0..7; the host maps 4-7 onto the next remote page) |
 | PAGE LEFT / RIGHT (`<` `>`) | the previous / next control set (zynthian's page, `HostPageSet`); at the first / last set of the page the previous / next page (`HostPagePage`), so `<` `>` walk through all of a chain's pages. zynthian's selection indicator follows the host's report |

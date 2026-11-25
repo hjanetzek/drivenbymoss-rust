@@ -106,9 +106,12 @@ impl TriggerCommand for MaschineJamControlCommand {
             return;
         }
         if ctx.surface.is_pressed(ButtonId::Select) {
-            // The project / track toggle of the user mode; nothing on the host page strips
-            // (they have no such modes)
-            if !super::surface_link::are_strips_active(ctx) {
+            // With the host's pages as Select + SONG (the full surface; may get its own function
+            // later); else the project / track toggle of the user mode, as Java
+            if super::surface_link::has_host_pages(ctx) {
+                super::surface_link::toggle(ctx);
+                ctx.surface.set_trigger_consumed(ButtonId::Select);
+            } else {
                 toggle_user_mode(ctx);
             }
             return;
@@ -133,7 +136,11 @@ impl TriggerCommand for MaschineJamControlCommand {
         if event != ButtonEvent::Up {
             return;
         }
-        ctx.model.cursor_device_mut().toggle_window_open();
+        // With the host's pages: straight to the first remote control page on the strips;
+        // else (Bitwig) the device window, as Java
+        if !super::surface_link::show_first_remote_page(ctx) {
+            ctx.model.cursor_device_mut().toggle_window_open();
+        }
         ctx.surface.set_trigger_consumed(ButtonId::Shift);
     }
 }
