@@ -78,6 +78,17 @@ pub trait ControllerSetup {
     /// Shutdown the controller.
     fn exit(&mut self, ctx: &mut Ctx);
 
+    /// Send the complete state to the device with the next flush: all lights and the text
+    /// display, and what else the controller only sends on change (e.g. the JAM's touch strips).
+    /// Used when an in-process device comes back and when a mirror attaches
+    /// ([`crate::nihost::MirrorTap`]).
+    fn refresh_device(&mut self, ctx: &mut Ctx) {
+        if let Some(display) = &mut ctx.text_display {
+            display.force_flush();
+        }
+        ctx.surface.clear_cache();
+    }
+
     /// Handle a MIDI message (short or system exclusive) from one of the further MIDI inputs
     /// ([`ControllerFactory::num_extra_midi_inputs`]); `input` is its index. The default ignores
     /// it (the notes of a keyboard port reach the host through its note input).

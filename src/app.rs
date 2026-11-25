@@ -840,6 +840,62 @@ impl App {
         }
     }
 
+    /// The first running instance which drives its device in-process.
+    fn device_running(&mut self) -> Option<&mut Running> {
+        self.instances.iter_mut().filter_map(|i| i.running.as_mut()).find(|r| r.device.is_some())
+    }
+
+    /// Start (or stop) mirroring the in-process device ([`crate::nihost::MirrorTap`]): its MIDI
+    /// both ways is queued for [`Self::take_device_midi`]; starting refreshes the device's
+    /// state, so the mirror gets all of it with the next tick. False if no instance drives a
+    /// device in-process.
+    pub fn set_device_mirror(&mut self, active: bool) -> bool {
+        self.enter();
+        let Some(running) = self.device_running() else {
+            return false;
+        };
+        if let Some(device) = &running.device {
+            device.set_mirror(active);
+        }
+        if active {
+            running.setup.refresh_device(&mut running.ctx);
+        }
+        true
+    }
+
+    /// The mirrored MIDI of the in-process device since the last call, one JSON object per line
+    /// (`{"midi":"out"|"in","data":"<hex>"}`). If the queue overflowed (nobody took it for a
+    /// while), the device's state is refreshed and comes again with the next tick.
+    pub fn take_device_midi(&mut self) -> String {
+        self.enter();
+        let Some(running) = self.device_running() else {
+            return String::new();
+        };
+        let Some(device) = &running.device else {
+            return String::new();
+        };
+        let (messages, overflowed) = device.take_mirror();
+        if overflowed {
+            running.setup.refresh_device(&mut running.ctx);
+        }
+        crate::nihost::MirrorTap::json_lines(&messages)
+    }
+
+    /// Handle a message as if the in-process device sent it (the input of a mirroring
+    /// simulator, see [`crate::nihost::DeviceLink::inject`]). False if it was not taken.
+    pub fn inject_device_midi(&mut self, data: &[u8]) -> bool {
+        self.enter();
+        let host = self.host.clone();
+        let Some(running) = self.device_running() else {
+            return false;
+        };
+        let Some(message) = running.device.as_mut().and_then(|device| device.inject(data)) else {
+            return false;
+        };
+        dispatch_midi(&host, &mut running.ctx, 0, message[0], &message);
+        true
+    }
+
     /// The notifications since the last call, one per line (popup notifications of the host).
     pub fn take_notifications(&mut self) -> String {
         self.host.take_notifications().iter().map(|n| n.replace('\n', " ")).collect::<Vec<_>>().join("\n")
@@ -914,12 +970,7 @@ fn poll_device(host: &Host, name: &str, running: &mut Running) -> usize {
     for event in events {
         match event {
             // The library has the states, but the Mk2's are reset on attach: all again
-            LinkEvent::Reattached => {
-                if let Some(display) = &mut running.ctx.text_display {
-                    display.force_flush();
-                }
-                running.ctx.surface.clear_cache();
-            }
+            LinkEvent::Reattached => running.setup.refresh_device(&mut running.ctx),
             LinkEvent::Midi(data) => {
                 if let Some(&status) = data.first() {
                     dispatch_midi(host, &mut running.ctx, 0, status, &data);

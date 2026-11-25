@@ -3,11 +3,12 @@
 # simulated DAW) and the help boxes (doc/CONTROLLER_HELP_PLAN.md):
 #
 #   run_with_core.sh [--model jam|mk2|mk3|mikromk3] [--hw|--sim] [--suffix " (sim)"] [--no-help]
-#                    [--release]
+#                    [--no-mirror-input] [--release]
 #
-# --hw (the default while a Native Instruments device is plugged in): the core drives the real
-#   device in-process; the simulator shows the help boxes for it (they follow the device's
-#   presses and modes; its LEDs are not mirrored yet).
+# --hw (the default while the model's device is plugged in; the Mk2 and the JAM): the
+#   core drives the real device in-process; the simulator mirrors it (its LEDs, strips, level
+#   meters and displays, the presses on the hardware highlighted) and shows the help boxes.
+#   Clicks in the simulator act on the core as the device's input (--no-mirror-input: ignored).
 # --sim (the default without one): the core drives the simulator.
 # The core library is built when it is missing (cargo build --lib); --release uses
 # target/release. Both processes stop together (Ctrl+C, or closing the simulator window).
@@ -19,6 +20,7 @@ suffix=" (sim)"
 help=1
 profile=debug
 hw=auto
+mirror_input=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --model) model="$2"; shift ;;
@@ -26,10 +28,11 @@ while [ $# -gt 0 ]; do
         --suffix) suffix="$2"; shift ;;
         --suffix=*) suffix="${1#--suffix=}" ;;
         --no-help) help=0 ;;
+        --no-mirror-input) mirror_input=0 ;;
         --release) profile=release ;;
         --hw) hw=1 ;;
         --sim) hw=0 ;;
-        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -54,12 +57,24 @@ socket="${XDG_RUNTIME_DIR:-/tmp}/dbm-sim-help-$model-$$.sock"
 sim_args=(--model "$model" --suffix "$suffix" --help-socket "$socket")
 host_args=(--model "$model" --suffix "$suffix" --bindings "$repo/bindings/python" --library "$library")
 if [ "$hw" = auto ]; then
-    # A Native Instruments device on USB (vendor 17cc)
-    if lsusb 2>/dev/null | grep -qi " 17cc:"; then hw=1; else hw=0; fi
+    # The model's device on USB (Native Instruments 17cc: the Mk2 1140, the JAM 1500)
+    case "$model" in
+        jam) usb_id=17cc:1500 ;;
+        mk2) usb_id=17cc:1140 ;;
+        *) usb_id= ;;
+    esac
+    if [ -n "$usb_id" ] && lsusb 2>/dev/null | grep -qi " $usb_id"; then hw=1; else hw=0; fi
 fi
 if [ "$hw" = 1 ]; then
-    echo "The core drives the real $model (in-process); the simulator shows the help (--sim: the simulator instead)"
+    case "$model" in
+        jam|mk2) ;;
+        *) echo "--hw: the core drives the Mk2 and the JAM in-process only (--sim for the $model)" >&2; exit 2 ;;
+    esac
+    echo "The core drives the real $model (in-process); the simulator mirrors it with the help (--sim: the simulator instead)"
     host_args+=(--transport hid)
+    # The mirror over the help socket: no MIDI ports, no hello of the simulator
+    sim_args+=(--no-alsa --detached)
+    [ "$mirror_input" = 1 ] || sim_args+=(--no-mirror-input)
     [ "$help" = 1 ] || { echo "--hw without help: start dbm_host_alsa.py --transport hid alone" >&2; exit 2; }
 fi
 if [ "$help" = 1 ]; then

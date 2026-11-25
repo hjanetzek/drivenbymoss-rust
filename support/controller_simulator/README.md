@@ -26,7 +26,7 @@ With the Rust core and the help boxes in one go (Maschine models; builds the lib
 both stop together):
 
 ```sh
-support/controller_simulator/run_with_core.sh                 # JAM; the real one if plugged in (help in the simulator)
+support/controller_simulator/run_with_core.sh                 # JAM; the real one if plugged in (mirrored in the simulator)
 support/controller_simulator/run_with_core.sh --sim           # the core drives the simulator
 support/controller_simulator/run_with_core.sh --model mk2 --no-help
 ```
@@ -112,6 +112,17 @@ The simulator listens on `--help-socket`, else `$DBM_SIM_HELP_SOCKET`, else
 `$XDG_RUNTIME_DIR/dbm-sim-help.sock` (not if another simulator listens there); the host writes to
 `--help-socket`, `$DBM_SIM_HELP_SOCKET`, or the default path if it exists (`--no-help`: none).
 `--help-file` shows saved entries without a host (tests, screenshots).
+
+### The mirror of a real device
+
+When the core drives a real Maschine JAM or Mk2 in-process (`run_with_core.sh --hw`, the default
+while it is plugged in), the simulator mirrors it over the help socket: the LEDs, the JAM's touch
+strips (setup, values, dual values) and level meters, the Mk2's displays, and the presses,
+touches and moves on the hardware as a white frame around the control (its help box expands).
+A simulator which connects later gets the complete state (the core refreshes it). The status bar
+says "Mirror: Maschine JAM (hardware), clicks act on the core": clicks in the simulator act on the
+core as the device's input, so it works as a second surface of the same instance;
+`--no-mirror-input` ignores them. Details: doc/CONTROLLER_HELP_PLAN.md §4.
 
 The boxes are coloured by what their text depends on: grey global, blue the view, orange the mode
 (strips, Page ◂▸), purple a held modifier (Shift, Select, ...); the status bar shows the legend with

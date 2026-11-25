@@ -4,7 +4,8 @@
 // A button (SimCommon): the LED colour (sim.buttonColor(c.cc)) fills the cap, the label is
 // printed on it. Left mouse button: pressed while held. Right mouse button: latches the button
 // (pressed until the next right or left click), for combinations like Shift or Select + another
-// button without a touchscreen; a latched button has an amber frame.
+// button without a touchscreen; a latched button has an amber frame. Pressed on the mirrored
+// hardware (sim.controlPressed): a white frame.
 
 import QtQuick
 
@@ -16,10 +17,12 @@ Rectangle {
     property color led: { sim.revision; return sim.buttonColor(c.cc) }
     // Held by a right click until the next click
     property bool latched: false
+    // Pressed on the mirrored hardware
+    property bool hwPressed: { sim.revision; return sim.controlPressed(c.cc) }
     radius: 1.0 * k
     color: Qt.rgba(0.11 + 0.89 * led.r, 0.115 + 0.885 * led.g, 0.125 + 0.875 * led.b, 1)
-    border.color: latched ? "#ffb000" : (barea.pressed ? "#ffffff" : "#4a4b52")
-    border.width: latched ? Math.max(2, 0.6 * k) : Math.max(1, 0.3 * k)
+    border.color: latched ? "#ffb000" : (barea.pressed || hwPressed ? "#ffffff" : "#4a4b52")
+    border.width: latched || hwPressed ? Math.max(2, 0.6 * k) : Math.max(1, 0.3 * k)
     Text {
         anchors.fill: parent
         anchors.margins: 0.3 * k

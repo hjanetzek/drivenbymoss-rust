@@ -37,7 +37,7 @@ use crate::controller::maschine::core::command::group_button::GroupButtonCommand
 use crate::controller::maschine::core::command::note_repeat::FillModeNoteRepeatCommand;
 use crate::controller::maschine::core::encoder_mode_manager::{EncoderMode, EncoderModeCommand, MaschineMonitorEncoderCommand};
 use crate::controller::maschine::core::maschine::Maschine;
-use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, handle_sysex, install_trigger_sender};
+use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, force_flush, handle_sysex, install_trigger_sender};
 use crate::controller::{ControllerSetup, InstanceParts, MidiPorts};
 use crate::daw::constants::GrooveParameterId;
 use crate::daw::events::ModelEvent;
@@ -178,6 +178,13 @@ impl ControllerSetup for MaschineJamSetup {
         }
         ctx.turn_off_lights();
         flush_pad_grid(ctx);
+    }
+
+    /// All lights, and the touch strips (their setup, values and dual values are sent on change
+    /// only).
+    fn refresh_device(&mut self, ctx: &mut Ctx) {
+        force_flush(ctx);
+        jam::ext_mut(ctx).force_faders();
     }
 }
 

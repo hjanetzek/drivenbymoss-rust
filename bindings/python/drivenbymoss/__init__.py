@@ -734,3 +734,37 @@ class App:
         again)."""
         if hasattr(self._library, "dbm_reset_control_help"):
             self._library.dbm_reset_control_help(self._app())
+
+    def mirror_device_midi(self, on: bool = True) -> bool:
+        """Start (or stop) mirroring the device which the core drives in-process
+        (``dbm_mirror_device_midi``, doc/CONTROLLER_HELP_PLAN.md §4): its MIDI both ways is
+        queued for take_device_midi; starting sends the device's complete state again with the
+        next tick. False if no device is driven in-process (or the library lacks the function)."""
+        if not hasattr(self._library, "dbm_mirror_device_midi"):
+            return False
+        return self._library.dbm_mirror_device_midi(self._app(), 1 if on else 0) == 1
+
+    def take_device_midi_lines(self) -> list[str]:
+        """The mirrored MIDI since the last call as the JSON lines of ``dbm_take_device_midi``
+        (``{"midi":"out"|"in","data":"<hex>"}``), the oldest first; empty without a mirror."""
+        if not hasattr(self._library, "dbm_take_device_midi"):
+            return []
+        return _lines(_take(self._library.dbm_take_device_midi(self._app())))
+
+    def take_device_midi(self) -> list[tuple[str, bytes]]:
+        """The mirrored MIDI since the last call as (``"out"`` or ``"in"``, the message)."""
+        messages = []
+        for line in self.take_device_midi_lines():
+            entry = json.loads(line)
+            messages.append((entry["midi"], bytes.fromhex(entry["data"])))
+        return messages
+
+    def inject_device_midi(self, data: bytes) -> bool:
+        """Handle a message as if the in-process device sent it (``dbm_inject_device_midi``: a
+        channel message of 3 bytes or a complete SysEx, not the device's handshake). True if it
+        was taken."""
+        if not hasattr(self._library, "dbm_inject_device_midi") or not data:
+            return False
+        message = bytes(data)
+        buffer = (ctypes.c_uint8 * len(message)).from_buffer_copy(message)
+        return self._library.dbm_inject_device_midi(self._app(), buffer, len(message)) == 1

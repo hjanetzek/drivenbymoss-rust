@@ -4,6 +4,12 @@
 """The help of the controls (doc/CONTROLLER_HELP_PLAN.md), without Qt: the socket the host writes
 the core's help entries to, and the model which maps them to the simulator's controls.
 
+The same socket carries the mirror of a real device which the core drives (§4): a line
+``{"mirror": "<name>", "source": "hardware", "input": true}`` starts it, ``{"midi": "out", "data":
+"<hex>"}`` is the core's MIDI to the device (applied as if it came from the ALSA port) and
+``{"midi": "in", ...}`` what the hardware sent (shown as pressed). The simulator writes its own
+input back as ``{"midi": "in", ...}`` lines (``HelpServer.send``).
+
 The host (``tools/dbm_host_alsa.py``) connects to the UNIX stream socket and writes one JSON object
 per line, as ``dbm_take_control_help`` returns them: ``id``, ``label``, ``bind`` (``"cc"``,
 ``"note"``, ... or null), ``channel``, ``control``, ``pressed``, ``presses``, ``scope`` (``global``,
@@ -163,6 +169,27 @@ class HelpModel:
             self.expanded = entry_id
             self.revision += 1
 
+    def expand_control(self, key: int, rect: tuple[float, float, float, float] | None = None) -> bool:
+        """Expand the box of the control with ``key`` (a press on the mirrored hardware): its own
+        entry, a row it is in, or an area (the pads, the strips) which contains ``rect`` (x, y, w,
+        h). True if a box was found."""
+        cx, cy = (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2) if rect else (None, None)
+        area_id = None
+        for entry_id, entry in self.entries.items():
+            target, parts = self.target(entry)
+            if target is None:
+                continue
+            if target.key == key or any(part.key == key for part in parts):
+                self.expand(entry_id)
+                return True
+            if (area_id is None and target.key < 0 and not parts and cx is not None
+                    and target.x <= cx <= target.x + target.w and target.y <= cy <= target.y + target.h):
+                area_id = entry_id
+        if area_id is not None:
+            self.expand(area_id)
+            return True
+        return False
+
     def set_hide_global(self, hide: bool) -> None:
         if hide != self.hide_global:
             self.hide_global = hide
@@ -246,6 +273,8 @@ class HelpServer:
         self.on_line = on_line
         self.on_connect = on_connect
         self.connected = False
+        self._connection: socket.socket | None = None
+        self._send_lock = threading.Lock()
         self._stop = threading.Event()
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
@@ -271,10 +300,12 @@ class HelpServer:
                 continue
             except OSError:
                 return
+            connection.settimeout(0.2)
+            with self._send_lock:
+                self._connection = connection
             self.connected = True
             if self.on_connect:
                 self.on_connect(True)
-            connection.settimeout(0.2)
             buffer = b""
             with connection:
                 while not self._stop.is_set():
@@ -291,9 +322,23 @@ class HelpServer:
                         line, buffer = buffer.split(b"\n", 1)
                         if line.strip():
                             self.on_line(line.decode("utf-8", "replace"))
+            with self._send_lock:
+                self._connection = None
             self.connected = False
             if self.on_connect:
                 self.on_connect(False)
+
+    def send(self, line: str) -> bool:
+        """Write a line to the host (the input of a mirroring simulator); False without a
+        connection. Any thread."""
+        with self._send_lock:
+            if self._connection is None:
+                return False
+            try:
+                self._connection.sendall((line + "\n").encode("utf-8"))
+                return True
+            except OSError:
+                return False
 
     def stop(self) -> None:
         self._stop.set()

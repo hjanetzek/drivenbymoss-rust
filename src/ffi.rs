@@ -1050,6 +1050,52 @@ pub unsafe extern "C" fn dbm_reset_control_help(app: *mut DbmApp) {
     unsafe { with_handle(app, (), |app| app.reset_control_help()) };
 }
 
+/// Start (`on` != 0) or stop mirroring the device which the core drives in-process
+/// (`DBM_FLAG_DEVICE_TRANSPORT`), for a simulator which shows what the device shows: while it
+/// runs, the template MIDI to the device and from it is queued for [`dbm_take_device_midi`];
+/// stopped (the default), nothing is queued. Starting refreshes the device's state (all LEDs,
+/// strips and displays are sent again; the device itself only gets what changed), so the mirror
+/// gets the complete state with the next tick. Returns 1 if an instance drives a device
+/// in-process, else 0.
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_mirror_device_midi(app: *mut DbmApp, on: c_int) -> c_int {
+    unsafe { with_handle(app, 0, |app| c_int::from(app.set_device_mirror(on != 0))) }
+}
+
+/// The MIDI of the mirrored device (see [`dbm_mirror_device_midi`]) since the last call, the
+/// oldest first, one JSON object per line: `{"midi":"out","data":"B0083F"}` (to the device:
+/// LEDs, strips, displays) or `{"midi":"in","data":"903664"}` (from the device: presses,
+/// touches, moves). Empty without a mirror. At most 4096 messages are queued between two
+/// calls; more drop the queue and the next call refreshes the device's state instead. Release
+/// the result with [`dbm_free_string`].
+///
+/// # Safety
+/// `app` must be a valid handle (or null).
+#[no_mangle]
+pub unsafe extern "C" fn dbm_take_device_midi(app: *mut DbmApp) -> *mut c_char {
+    let lines = unsafe { with_handle(app, String::new(), |app| app.take_device_midi()) };
+    c_string(&lines).into_raw()
+}
+
+/// Handle a message as if the device which the core drives in-process sent it (the input of a
+/// mirroring simulator): a channel message of 3 bytes or a complete SysEx; the device's
+/// handshake (hello, gone) is not taken. The notes go to the host's note input as the device's.
+/// The message is not mirrored back. Returns 1 if it was taken, else 0.
+///
+/// # Safety
+/// `app` must be a valid handle (or null); `data` must point to `length` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn dbm_inject_device_midi(app: *mut DbmApp, data: *const u8, length: c_int) -> c_int {
+    if data.is_null() || length <= 0 {
+        return 0;
+    }
+    let message = unsafe { std::slice::from_raw_parts(data, length as usize) }.to_vec();
+    unsafe { with_handle(app, 0, |app| c_int::from(app.inject_device_midi(&message))) }
+}
+
 /// The notifications since the last call, one per line. Release the result with
 /// [`dbm_free_string`].
 ///

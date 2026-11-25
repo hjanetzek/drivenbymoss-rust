@@ -169,6 +169,24 @@ class BindingTest(unittest.TestCase):
             self.assertIn("Play", again)
             self.assertGreater(len(again), 25)
 
+    def test_device_mirror(self):
+        """The mirror of an in-process device (doc/CONTROLLER_HELP_PLAN.md §4): a controller on the
+        host's ports has none; the lines are parsed into (direction, message)."""
+        backend = RecordingBackend()
+        with drivenbymoss.App.create_controller(backend, MASCHINE_JAM, self.dir, "Bitwig Studio 5.3") as app:
+            app.start_infrastructure()
+            app.tick()
+            self.assertFalse(app.mirror_device_midi(True))
+            app.tick()
+            self.assertEqual(app.take_device_midi_lines(), [])
+            self.assertEqual(app.take_device_midi(), [])
+            self.assertFalse(app.inject_device_midi(bytes([0x90, 36, 100])))
+            self.assertFalse(app.inject_device_midi(b""))
+            self.assertFalse(app.mirror_device_midi(False))
+            # The parsing of the core's lines
+            app.take_device_midi_lines = lambda: ['{"midi":"out","data":"B0083F"}', '{"midi":"in","data":"902464"}']
+            self.assertEqual(app.take_device_midi(), [("out", bytes([0xB0, 0x08, 0x3F])), ("in", bytes([0x90, 0x24, 0x64]))])
+
     def test_tick(self):
         app, backend = self.start()
         with app:

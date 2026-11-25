@@ -42,7 +42,10 @@ log says it) when several run; its ports 0 and 2 are Port 1 and CTRL.
 
 The help of the controls (doc/CONTROLLER_HELP_PLAN.md): the core's help entries
 (``dbm_take_control_help``) go to the simulator's help socket, one JSON object per line, only the
-changes; after a (re)connect all of them. The socket: ``--help-socket PATH``, else
+changes; after a (re)connect all of them. With a Maschine driven in-process the same socket mirrors
+the device to the simulator (``Mirror``, doc/CONTROLLER_HELP_PLAN.md §4: its LEDs, strips, displays
+and presses; the simulator's input comes back as the device's, ``--no-mirror-input`` ignores it,
+``--no-mirror`` sends no mirror). The socket: ``--help-socket PATH``, else
 ``$DBM_SIM_HELP_SOCKET``, else ``$XDG_RUNTIME_DIR/dbm-sim-help.sock`` if a simulator listens there;
 ``--no-help`` sends none. With several controllers the help of ``--help-model`` (default: the JAM if
 it runs, else the first model).
@@ -54,6 +57,7 @@ provides its pages, the JAM shows them (Select + SONG).
 """
 
 import argparse
+import json
 import os
 import signal
 import socket
@@ -111,45 +115,142 @@ POLL_MS = 3
 
 
 class HelpWriter:
-    """Writes the help lines to the simulator's help socket (a UNIX stream socket the simulator
-    listens on); connects lazily, at most once a second, and reports a new connection (then the
-    host sends all entries again)."""
+    """The connection to the simulator's help socket (a UNIX stream socket the simulator listens
+    on): the host writes the help lines and the mirrored MIDI, the simulator answers with its own
+    input while it mirrors. Connects lazily, at most once a second, and reports a new connection
+    (then the host sends all entries again). Never blocks the host: the writes are buffered, a
+    simulator which stops reading (more than MAX_PENDING bytes) is dropped and connected again
+    later (with the complete state again)."""
 
     RETRY_SECONDS = 1.0
+    MAX_PENDING = 1 << 20
+    MAX_LINE = 1 << 16
 
     def __init__(self, path: str):
         self.path = path
         self.sock: socket.socket | None = None
         self.retry_at = 0.0
+        self.pending = bytearray()
+        self.received = b""
 
     def connect(self) -> bool:
         """True if a new connection was made."""
         if self.sock is not None or time.monotonic() < self.retry_at:
             return False
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
         try:
             sock.connect(self.path)
         except OSError:
             sock.close()
             self.retry_at = time.monotonic() + self.RETRY_SECONDS
             return False
+        sock.setblocking(False)
         self.sock = sock
+        self.pending.clear()
+        self.received = b""
         return True
 
-    def write(self, lines: list[str]) -> None:
-        if self.sock is None or not lines:
-            return
-        try:
-            self.sock.sendall(("\n".join(lines) + "\n").encode("utf-8"))
-        except OSError:
+    def drop(self) -> None:
+        """Close the connection (connect again after RETRY_SECONDS)."""
+        if self.sock is not None:
             self.sock.close()
             self.sock = None
-            self.retry_at = time.monotonic() + self.RETRY_SECONDS
+        self.pending.clear()
+        self.received = b""
+        self.retry_at = time.monotonic() + self.RETRY_SECONDS
+
+    def write(self, lines: list[str]) -> None:
+        """Queue the lines and write what the socket takes now (also what was left over)."""
+        if self.sock is None:
+            return
+        if lines:
+            self.pending += ("\n".join(lines) + "\n").encode("utf-8")
+        self.flush()
+
+    def flush(self) -> None:
+        while self.sock is not None and self.pending:
+            try:
+                sent = self.sock.send(self.pending)
+            except BlockingIOError:
+                break
+            except OSError:
+                self.drop()
+                return
+            del self.pending[:sent]
+        if len(self.pending) > self.MAX_PENDING:
+            self.drop()
+
+    def read_lines(self) -> list[str]:
+        """The complete lines the simulator sent since the last call (without waiting)."""
+        if self.sock is None:
+            return []
+        try:
+            data = self.sock.recv(65536)
+        except BlockingIOError:
+            return []
+        except OSError:
+            self.drop()
+            return []
+        if not data:
+            # The simulator closed the connection
+            self.drop()
+            return []
+        self.received += data
+        *lines, self.received = self.received.split(b"\n")
+        if len(self.received) > self.MAX_LINE:
+            self.received = b""
+        return [line.decode("utf-8", "replace") for line in lines if line.strip()]
 
     def close(self) -> None:
         if self.sock is not None:
             self.sock.close()
             self.sock = None
+
+
+class Mirror:
+    """The mirror of a device which the core drives in-process (doc/CONTROLLER_HELP_PLAN.md §4):
+    over the help socket, the core's MIDI to the device and from it (``{"midi":"out"|"in",
+    "data":"<hex>"}``) goes to the simulator, which shows the LEDs, strips, displays and presses;
+    the simulator's own input comes back as ``{"midi":"in",...}`` and is played in as the
+    device's (``dbm_inject_device_midi``) unless ``inject`` is off. A connection starts with
+    ``{"mirror":"<name>","source":"hardware"}``; the core then sends the complete state."""
+
+    def __init__(self, app, name: str, inject: bool = True):
+        self.app = app
+        self.name = name
+        self.inject = inject
+        self.active = False
+
+    def start(self, writer: HelpWriter) -> None:
+        self.active = self.app.mirror_device_midi(True)
+        if self.active:
+            writer.write([json.dumps({"mirror": self.name, "source": "hardware", "input": self.inject})])
+            print(f"mirror: {self.name} to the simulator")
+
+    def stop(self) -> None:
+        if self.active:
+            self.active = False
+            self.app.mirror_device_midi(False)
+
+    def forward(self, writer: HelpWriter) -> None:
+        """The mirrored MIDI to the simulator, the simulator's input to the core."""
+        if not self.active:
+            return
+        if writer.sock is None:
+            self.stop()
+            return
+        writer.write(self.app.take_device_midi_lines())
+        for line in writer.read_lines():
+            try:
+                entry = json.loads(line)
+                data = bytes.fromhex(entry["data"]) if entry.get("midi") == "in" else None
+            except (ValueError, TypeError, KeyError, AttributeError):
+                continue
+            if data and self.inject:
+                self.app.inject_device_midi(data)
+        if writer.sock is None:
+            self.stop()
 
 
 def help_socket_path(args) -> str | None:
@@ -310,6 +411,11 @@ def main() -> int:
                              "$XDG_RUNTIME_DIR/dbm-sim-help.sock if it exists)")
     parser.add_argument("--no-help", action="store_true", help="send no help of the controls")
     parser.add_argument("--help-model", default=None, help="with several --model: whose help goes to the socket")
+    parser.add_argument("--no-mirror", action="store_true",
+                        help="Maschine Mk2/JAM driven in-process: do not mirror the device to the simulator (its LEDs, "
+                             "strips, displays and presses over the help socket)")
+    parser.add_argument("--no-mirror-input", action="store_true",
+                        help="ignore the input of a mirroring simulator (default: its clicks act as the device's)")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
     models = args.model or ["push2"]
@@ -401,6 +507,12 @@ def main() -> int:
     help_bridge = next((bridge for model, _, bridge in runners if model == help_model), None)
     if help_writer and help_bridge is not None:
         print(f"help of {help_model}: {help_path}")
+    # The mirror of the device which the core drives in-process (its help socket)
+    mirror = None
+    if help_writer and help_bridge is not None and help_bridge.device_transport and help_bridge.app is not None and not args.no_mirror:
+        names = {c.get("id", c.get("uuid", "")).upper(): c.get("model", "") for c in drivenbymoss.list_controllers()}
+        name = names.get((args.controller or CONTROLLERS[help_model]).upper()) or help_model
+        mirror = Mirror(help_bridge.app, name, inject=not args.no_mirror_input)
     print("Ctrl+C to stop")
     try:
         next_tick = time.monotonic()
@@ -429,10 +541,15 @@ def main() -> int:
                         print("host screen: {} · {} · {} · {} {}".format(*screen))
             if help_writer and help_bridge is not None and help_bridge.app is not None:
                 if help_writer.connect():
-                    # A new connection: all entries again
+                    # A new connection: all entries again (and the device's complete state)
                     help_bridge.app.reset_control_help()
+                    if mirror is not None:
+                        mirror.start(help_writer)
                 if help_writer.sock is not None:
                     help_writer.write(help_bridge.app.take_control_help_lines())
+                if mirror is not None:
+                    # The LEDs of this tick's flush
+                    mirror.forward(help_writer)
             for model, _, bridge in runners:
                 prefix = "" if len(runners) == 1 else f"{model}: "
                 for line in bridge.notifications:
@@ -448,6 +565,9 @@ def main() -> int:
                 time.sleep(POLL_MS / 1000.0)
                 for bridge in polled:
                     bridge.app.poll_devices()
+                if mirror is not None:
+                    # The presses at once (the LEDs come with the tick)
+                    mirror.forward(help_writer)
                 delay = next_tick - time.monotonic()
             if delay > 0:
                 time.sleep(delay)

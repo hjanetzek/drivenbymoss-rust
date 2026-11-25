@@ -53,7 +53,7 @@ use crate::controller::maschine::core::command::group_button::GroupButtonCommand
 use crate::controller::maschine::core::command::note_repeat::FillModeNoteRepeatCommand;
 use crate::controller::maschine::core::maschine::Maschine;
 use crate::controller::maschine::core::ribbon_mode::RibbonMode;
-use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, handle_sysex, shift_button};
+use crate::controller::maschine::core::surface::{apply_brightness, create_brightness, create_pad_grid, flush_pad_grid, force_flush, handle_sysex, shift_button};
 use crate::controller::{ControllerSetup, InstanceParts, MidiPorts};
 use crate::daw::events::ModelEvent;
 use crate::daw::model::Model;
@@ -244,6 +244,12 @@ impl ControllerSetup for MaschineSetup {
         if let Some(display) = &mut ctx.text_display {
             display.shutdown();
         }
+    }
+
+    /// All lights and the display, and the button labels of the Mk2 (sent on change only).
+    fn refresh_device(&mut self, ctx: &mut Ctx) {
+        force_flush(ctx);
+        ext_mut(ctx).button_labels.clear();
     }
 }
 

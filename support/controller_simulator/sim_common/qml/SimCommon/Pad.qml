@@ -4,7 +4,8 @@
 // A pad (SimCommon): left click = note on with the velocity from the click height (top: 127;
 // Shift: 127, Ctrl: 40), right button = note on and aftertouch from the mouse height while held,
 // wheel while held = aftertouch; in MPE mode (sim.mpeActive()) horizontal drag = pitch bend,
-// vertical = slide. Loaded by SimWindow with the control in parent.control (c.note).
+// vertical = slide. Loaded by SimWindow with the control in parent.control (c.note). Pressed on
+// the mirrored hardware (sim.controlPressed): a white frame.
 
 import QtQuick
 
@@ -15,10 +16,11 @@ Rectangle {
     property var c: parent.control
     property int pressure: 0
     property real startX: 0
+    property bool hwPressed: { sim.revision; return sim.controlPressed(c.note) }
     radius: 1.2 * k
     color: { sim.revision; return sim.padColor(c.note) }
-    border.color: area.pressed ? "#ffffff" : "#45464c"
-    border.width: area.pressed ? Math.max(1, 0.5 * k) : Math.max(1, 0.25 * k)
+    border.color: area.pressed || hwPressed ? "#ffffff" : "#45464c"
+    border.width: area.pressed || hwPressed ? Math.max(1, 0.5 * k) : Math.max(1, 0.25 * k)
 
     function heightValue(my) { return Math.max(1, Math.min(127, Math.round(127 * (1 - my / height)))) }
 

@@ -13,6 +13,10 @@ the Mk2's pad pressure as poly aftertouch (the template's "Pressure" controls).
 
 ``send(data, port)`` gets the MIDI to the DAW with the port "in" (the port the DAW reads, "...
 In"/"... Input"); ``receive(data, port)`` takes the MIDI of the DAW (port "out").
+
+The mirror of a real device which the core drives (doc/CONTROLLER_HELP_PLAN.md §4): its "out"
+messages go to ``receive`` as the DAW's; its "in" messages (what the hardware sent) go to
+``mirror_input``, which only tells which controls they press, touch or move.
 """
 
 import time
@@ -104,6 +108,12 @@ class MaschineDevice:
         self.listeners: list[Callable[[str], None]] = []
         self.monitor: Callable[[str, str, bytes, str], None] | None = None
         self.unknown: list[bytes] = []
+        self.mirroring = False
+        """The device mirrors a real one: it answers no query (the core talks to the hardware)."""
+        # (status kind 0x90/0xB0/0xA0, channel, number) -> (control, template, role) of the
+        # messages the controls send ("press", "turn", "touch", "move", "pressure")
+        self.input_map: dict[tuple[int, int, int], tuple[layout.Control, TemplateControl, str]] = {}
+        self._build_input_map()
 
     # ------------------------------------------------------------------------------------------
     # Templates
@@ -136,6 +146,27 @@ class MaschineDevice:
             self.strip_ccs = {self.led_templates[f"Tst{chr(ord('A') + i)}IDX"].number: i for i in range(8)}
         strip_led = self.led_templates.get("TouchstripIDX")
         self.touchstrip_cc = strip_led.number if strip_led is not None and self.model != "jam" else -1
+
+    def _build_input_map(self) -> None:
+        def add(control: layout.Control, template_id: str, role: str) -> None:
+            t = self.inputs.get(template_id)
+            if t is None:
+                return
+            status = {"cc": 0xB0, "note": 0x90, "polyat": 0xA0}.get(t.kind)
+            if status is not None:
+                self.input_map.setdefault((status, t.channel, t.number), (control, t, role))
+
+        for control in self.controls:
+            if not control.template or control.key == self.shift_key:
+                continue
+            role = {"pad": "press", "button": "press", "encoder": "turn", "strip": "move"}.get(control.kind)
+            if role is None:
+                continue
+            add(control, control.template, role)
+            if control.touch:
+                add(control, control.touch, "touch")
+            if control.kind == "pad" and self.model != "jam":
+                add(control, "Pressure" + control.template[3:], "pressure")
 
     # ------------------------------------------------------------------------------------------
     # Output
@@ -265,6 +296,53 @@ class MaschineDevice:
         return next((c for c in self.controls if c.kind == "strip" and c.index == index), None)
 
     # ------------------------------------------------------------------------------------------
+    # The mirror: what the hardware sent
+
+    def mirror_input(self, msg: bytes) -> list[tuple[int, bool | None]]:
+        """The controls a message of the mirrored hardware acts on: (key, True pressed / touched,
+        False released, None moved: a short flash). Nothing is sent and no LED changes (the
+        core's "out" messages do that); the Shift SysEx sets the Shift LED as the host does."""
+        if not msg:
+            return []
+        if msg[0] == 0xF0:
+            if self.shift_key < 0:
+                return []
+            for down in (True, False):
+                if msg == (ni.mk2_shift(down) if self.model == "mk2" else ni.ni_shift(self.model, down)):
+                    self.shift_down = down
+                    self.changed("leds")
+                    return [(self.shift_key, down)]
+            return []
+        if len(msg) != 3 or not 0x80 <= msg[0] < 0xF0:
+            return []
+        kind, channel, value = msg[0] & 0xF0, msg[0] & 0x0F, msg[2]
+        if kind == 0x80:
+            kind, value = 0x90, 0
+        found = self.input_map.get((kind, channel, msg[1]))
+        if found is None:
+            return []
+        control, t, role = found
+        if role == "pressure":
+            return []
+        if role == "press" and t.kind == "note":
+            return [(control.key, value > 0)]
+        if role in ("press", "touch"):
+            return [(control.key, value != t.off)]
+        return [(control.key, None)]
+
+    def mirror_reset(self) -> None:
+        """Forget what the device shows (a new mirror sends the complete state)."""
+        self.leds = {c.key: 0 for c in self.controls}
+        self.shift_down = False
+        self.touchstrip = 0
+        self.mcu_text = [" "] * (2 * MCU_LINE)
+        self.labels = [" "] * MCU_LINE
+        self.strips = [Strip() for _ in range(8)]
+        self.meters = [0, 0]
+        for what in ("leds", "strip", "text"):
+            self.changed(what)
+
+    # ------------------------------------------------------------------------------------------
     # MIDI from the DAW
 
     def receive(self, data: bytes, port: str = OUT_PORT) -> None:
@@ -319,6 +397,8 @@ class MaschineDevice:
         if msg == ni.QUERY and self.model not in NIHOST_MODELS:
             return "query of dbm-nihost (NI's driver ignores it)"
         if msg == ni.QUERY:
+            if self.mirroring:
+                return "query (mirror: the hardware answers)"
             if self.present:
                 self.emit(self.hello(), "hello")
                 return "query: answered with the hello"

@@ -25,6 +25,10 @@
 //!   device, so the core applies the note inputs itself ([`NoteInputs`]: the filters and the key
 //!   and velocity tables it sets for the host) and plays the matching messages into the host's
 //!   default note input (`process_midi_arg`, Bitwig `NoteInput.sendRawMidiEvent`).
+//! - **Mirror** ([`MirrorTap`]): a simulator can show what the device shows. While a consumer
+//!   is attached (`dbm_mirror_device_midi`), the template MIDI to the device ("out") and from it
+//!   ("in") is queued for `dbm_take_device_midi`; without one nothing is queued. The simulator's
+//!   own input can be played in as the device's (`dbm_inject_device_midi`).
 
 #[cfg(target_os = "linux")]
 pub mod library;
@@ -162,6 +166,81 @@ pub trait DeviceIo {
     fn send(&self, data: &[u8]);
     /// Write the changed LEDs and displays; the number of reports, -1 if a write failed.
     fn flush(&self) -> i32;
+}
+
+/// The direction of a mirrored message: to the device (LEDs, strips, displays) or from it
+/// (presses, touches, moves).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirrorDirection {
+    Out,
+    In,
+}
+
+impl MirrorDirection {
+    pub fn name(self) -> &'static str {
+        match self {
+            MirrorDirection::Out => "out",
+            MirrorDirection::In => "in",
+        }
+    }
+}
+
+/// The most messages the mirror queues between two takes. More (a consumer which stopped
+/// taking) drop the queue and stop queueing until the next take, which then asks for a full
+/// refresh of the device's state instead (the state stays right, the memory bounded).
+pub const MIRROR_QUEUE_LIMIT: usize = 4096;
+
+/// The tap of the device's MIDI for a mirror (a simulator showing the device's state). Inactive
+/// it queues nothing: one flag check per message.
+#[derive(Debug, Default)]
+pub struct MirrorTap {
+    active: bool,
+    overflowed: bool,
+    queue: Vec<(MirrorDirection, Vec<u8>)>,
+}
+
+impl MirrorTap {
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Start (or stop) queueing; the queue starts empty either way.
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+        self.overflowed = false;
+        self.queue = Vec::new();
+    }
+
+    pub fn push(&mut self, direction: MirrorDirection, data: &[u8]) {
+        if !self.active || self.overflowed {
+            return;
+        }
+        if self.queue.len() >= MIRROR_QUEUE_LIMIT {
+            self.queue = Vec::new();
+            self.overflowed = true;
+            return;
+        }
+        self.queue.push((direction, data.to_vec()));
+    }
+
+    /// The queued messages, the oldest first, and true if messages were dropped since the last
+    /// take (the caller refreshes the device's state, which queues all of it again).
+    pub fn take(&mut self) -> (Vec<(MirrorDirection, Vec<u8>)>, bool) {
+        (std::mem::take(&mut self.queue), std::mem::take(&mut self.overflowed))
+    }
+
+    /// The messages as JSON lines: `{"midi":"out","data":"B0083F"}`.
+    pub fn json_lines(messages: &[(MirrorDirection, Vec<u8>)]) -> String {
+        let mut text = String::with_capacity(messages.iter().map(|(_, data)| 28 + 2 * data.len()).sum());
+        for (direction, data) in messages {
+            text.push_str("{\"midi\":\"");
+            text.push_str(direction.name());
+            text.push_str("\",\"data\":\"");
+            text.push_str(&crate::midi::to_hex_str(data));
+            text.push_str("\"}\n");
+        }
+        text
+    }
 }
 
 /// The result of [`DeviceProvider::open`].
@@ -313,11 +392,12 @@ pub struct DeviceBackend {
     device_id: i32,
     io: Rc<dyn DeviceIo>,
     notes: Rc<RefCell<NoteInputs>>,
+    mirror: Rc<RefCell<MirrorTap>>,
 }
 
 impl DeviceBackend {
-    pub fn new(inner: Rc<dyn Backend>, device_id: i32, io: Rc<dyn DeviceIo>, notes: Rc<RefCell<NoteInputs>>) -> Self {
-        DeviceBackend { inner, device_id, io, notes }
+    pub fn new(inner: Rc<dyn Backend>, device_id: i32, io: Rc<dyn DeviceIo>, notes: Rc<RefCell<NoteInputs>>, mirror: Rc<RefCell<MirrorTap>>) -> Self {
+        DeviceBackend { inner, device_id, io, notes, mirror }
     }
 }
 
@@ -354,6 +434,7 @@ impl Backend for DeviceBackend {
     fn send_midi_data(&self, device_id: i32, data: &[u8]) {
         if device_id == self.device_id {
             self.io.send(data);
+            self.mirror.borrow_mut().push(MirrorDirection::Out, data);
         } else {
             self.inner.send_midi_data(device_id, data);
         }
@@ -428,6 +509,8 @@ pub struct DeviceLink {
     /// The device was gone (its next hello is a re-attach).
     was_gone: bool,
     buffer: Vec<Vec<u8>>,
+    /// The tap of a mirror (shared with the backend, which taps the messages to the device).
+    mirror: Rc<RefCell<MirrorTap>>,
 }
 
 impl DeviceLink {
@@ -435,8 +518,9 @@ impl DeviceLink {
     /// the note inputs).
     pub fn new(device: HidDevice, device_id: i32, io: Rc<dyn DeviceIo>, inner: Rc<dyn Backend>) -> (Self, Rc<dyn Backend>) {
         let notes = Rc::new(RefCell::new(NoteInputs::default()));
-        let backend: Rc<dyn Backend> = Rc::new(DeviceBackend::new(inner.clone(), device_id, io.clone(), notes.clone()));
-        let link = DeviceLink { device, device_id, io, notes, host_backend: inner, attached: false, was_gone: false, buffer: Vec::new() };
+        let mirror = Rc::new(RefCell::new(MirrorTap::default()));
+        let backend: Rc<dyn Backend> = Rc::new(DeviceBackend::new(inner.clone(), device_id, io.clone(), notes.clone(), mirror.clone()));
+        let link = DeviceLink { device, device_id, io, notes, host_backend: inner, attached: false, was_gone: false, buffer: Vec::new(), mirror };
         (link, backend)
     }
 
@@ -470,12 +554,48 @@ impl DeviceLink {
                 }
                 self.attached = true;
                 self.was_gone = false;
-            } else if let Some([status, data1, data2]) = self.notes.borrow_mut().translate(&data) {
-                self.host_backend.process_midi_arg(self.device_id, i32::from(status), i32::from(data1), i32::from(data2));
+            } else {
+                self.mirror.borrow_mut().push(MirrorDirection::In, &data);
+                self.play_note(&data);
             }
             events.push(LinkEvent::Midi(data));
         }
         events
+    }
+
+    /// A message of the device which a note input takes goes to the host's note input.
+    fn play_note(&mut self, data: &[u8]) {
+        if let Some([status, data1, data2]) = self.notes.borrow_mut().translate(data) {
+            self.host_backend.process_midi_arg(self.device_id, i32::from(status), i32::from(data1), i32::from(data2));
+        }
+    }
+
+    /// Start or stop the mirror's tap (see [`MirrorTap`]).
+    pub fn set_mirror(&self, active: bool) {
+        self.mirror.borrow_mut().set_active(active);
+    }
+
+    /// The mirrored messages since the last call, and true if some were dropped (refresh the
+    /// device's state).
+    pub fn take_mirror(&self) -> (Vec<(MirrorDirection, Vec<u8>)>, bool) {
+        self.mirror.borrow_mut().take()
+    }
+
+    /// A message played in as if the device sent it (the simulator of a mirror): a complete
+    /// short message of 3 bytes (a channel message) or a SysEx. The device's handshake (hello,
+    /// gone) is not taken. A note goes to the host's note input as the device's would; the
+    /// message for the controller is returned. It is not mirrored back.
+    pub fn inject(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        let valid = match data {
+            [0xF0, .., 0xF7] => !data[1..data.len() - 1].iter().any(|&b| b >= 0x80),
+            &[status, data1, data2] => (0x80..0xF0).contains(&status) && data1 < 0x80 && data2 < 0x80,
+            _ => false,
+        };
+        if !valid || data == self.device.hello() || data == MESSAGE_GONE {
+            return None;
+        }
+        self.play_note(data);
+        Some(data.to_vec())
     }
 
     /// End the notes which still sound in the DAW.
@@ -628,6 +748,73 @@ pub mod tests {
         assert_eq!(link.take_input(&host, "JAM"), [LinkEvent::Midi(HELLO_JAM.to_vec())]);
     }
 
+    #[test]
+    fn the_mirror_tap_queues_only_while_active_and_bounded() {
+        let mut tap = MirrorTap::default();
+        // Without a consumer nothing is queued
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 2]);
+        assert_eq!(tap.take(), (Vec::new(), false));
+        tap.set_active(true);
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 2]);
+        tap.push(MirrorDirection::In, &[0x90, 36, 100]);
+        let (messages, overflowed) = tap.take();
+        assert!(!overflowed);
+        assert_eq!(MirrorTap::json_lines(&messages), "{\"midi\":\"out\",\"data\":\"B00102\"}\n{\"midi\":\"in\",\"data\":\"902464\"}\n");
+        assert_eq!(tap.take(), (Vec::new(), false));
+        // Bounded: one more than the limit drops the queue and stops queueing until the take,
+        // which says so (the caller refreshes the state)
+        for _ in 0..=MIRROR_QUEUE_LIMIT {
+            tap.push(MirrorDirection::Out, &[0xB0, 1, 2]);
+        }
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 3]);
+        assert_eq!(tap.queue.len(), 0);
+        assert_eq!(tap.take(), (Vec::new(), true));
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 4]);
+        assert_eq!(tap.take(), (vec![(MirrorDirection::Out, vec![0xB0, 1, 4])], false));
+        // Stopped: the queue is gone, nothing more comes
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 5]);
+        tap.set_active(false);
+        tap.push(MirrorDirection::Out, &[0xB0, 1, 6]);
+        assert_eq!(tap.take(), (Vec::new(), false));
+    }
+
+    #[test]
+    fn the_link_mirrors_both_ways_and_injects() {
+        let device = Rc::new(FakeDevice::default());
+        let recording = Rc::new(RecordingBackend::default());
+        let (mut link, backend) = DeviceLink::new(HidDevice::JAM, 0, device.clone(), recording.clone());
+        let host = Host::new(Rc::new(crate::host::MemoryLog::default()));
+        backend.set_note_input_filters(0, 0, &["90".to_string(), "80".to_string()]);
+        recording.take_calls();
+        // Inactive: nothing
+        backend.send_midi_data(0, &[0xB0, 1, 2]);
+        device.input.borrow_mut().push(vec![0x90, 36, 100]);
+        link.take_input(&host, "JAM");
+        assert_eq!(link.take_mirror(), (Vec::new(), false));
+        // Active: the messages to the device and from it, not the handshake, not other ports
+        link.set_mirror(true);
+        backend.send_midi_data(0, &[0xB0, 1, 3]);
+        backend.send_midi_data(1, &[0xB0, 1, 4]);
+        device.input.borrow_mut().extend([HELLO_JAM.to_vec(), vec![0x80, 36, 0], MESSAGE_GONE.to_vec()]);
+        link.take_input(&host, "JAM");
+        assert_eq!(link.take_mirror().0, [(MirrorDirection::Out, vec![0xB0, 1, 3]), (MirrorDirection::In, vec![0x80, 36, 0])]);
+        recording.take_calls();
+        // Injected: played into the note input as the device's, returned for the controller,
+        // not mirrored back; no handshake, no incomplete or running status messages
+        assert_eq!(link.inject(&[0x90, 36, 90]), Some(vec![0x90, 36, 90]));
+        assert_eq!(recording.take_calls(), [BackendCall::Midi(0, 0x90, 36, 90)]);
+        assert_eq!(link.inject(&[0xB0, 20, 127]), Some(vec![0xB0, 20, 127]));
+        assert_eq!(link.inject(&[0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x01, 0xF7]).map(|m| m.len()), Some(13));
+        assert_eq!(link.inject(&HELLO_JAM), None);
+        assert_eq!(link.inject(&MESSAGE_GONE), None);
+        assert_eq!(link.inject(&[0x90, 36]), None);
+        assert_eq!(link.inject(&[36, 100, 0]), None);
+        assert_eq!(link.inject(&[0x90, 0x80, 0]), None);
+        assert_eq!(link.inject(&[0xF0, 0x90, 0xF7]), None);
+        assert_eq!(link.inject(&[]), None);
+        assert_eq!(link.take_mirror(), (Vec::new(), false));
+    }
+
     struct FakeProvider(Option<Rc<FakeDevice>>);
 
     impl DeviceProvider for FakeProvider {
@@ -709,6 +896,94 @@ pub mod tests {
         assert!(device.sent.borrow().iter().any(|m| m[..] == crate::controller::maschine::mk::setup::HOST_QUERY), "{:?}", device.sent.borrow());
     }
 
+    /// The JSON lines of a take, as (direction, bytes).
+    fn mirrored(app: &mut crate::app::App) -> Vec<(String, Vec<u8>)> {
+        app.take_device_midi()
+            .lines()
+            .map(|line| {
+                let value = crate::json::JsonValue::parse(line).unwrap();
+                let hex = value.get("data").unwrap().as_text();
+                let bytes = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+                (value.get("midi").unwrap().as_text(), bytes)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_mirror_gets_the_complete_state_and_the_presses() {
+        let device = Rc::new(FakeDevice::default());
+        let (mut app, backend) = start(JAM_UUID, Some(FakeProvider(Some(device.clone()))));
+        app.update_model("track/count 1\ntrack/0/exists 1\ntrack/0/name Drums\ntrack/0/select 1\nplay 0\n");
+        app.set_time_ms(1100);
+        app.tick();
+        // No consumer: nothing queued
+        device.input.borrow_mut().extend([HELLO_JAM.to_vec(), vec![0x90, 36, 100], vec![0x80, 36, 0]]);
+        app.set_time_ms(1200);
+        app.tick();
+        assert!(mirrored(&mut app).is_empty());
+        // A mirror attaches mid-session: the next tick sends the complete state, also what was
+        // sent long ago (the strips' setup, the button LEDs); the device gets the same messages
+        // (the library writes only what changed)
+        assert!(app.set_device_mirror(true));
+        device.sent.borrow_mut().clear();
+        app.set_time_ms(1300);
+        app.tick();
+        let messages = mirrored(&mut app);
+        assert!(messages.iter().all(|(direction, _)| direction == "out"));
+        let sent: Vec<Vec<u8>> = messages.iter().map(|(_, data)| data.clone()).collect();
+        assert_eq!(sent, *device.sent.borrow());
+        let strip_setup = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x05];
+        assert!(sent.iter().any(|m| m.starts_with(&strip_setup)), "{sent:?}");
+        // The pads (notes), the buttons (CCs) and the strip values (CC 8-15)
+        assert!(sent.iter().filter(|m| m[0] == 0x90).count() >= 64, "{sent:?}");
+        assert!(sent.iter().any(|m| m[0] == 0xB0 && (8..16).contains(&m[1])), "{sent:?}");
+        // A press on the device comes as "in"
+        device.input.borrow_mut().push(vec![0x90, 36, 100]);
+        app.poll_devices();
+        assert_eq!(mirrored(&mut app), [("in".to_string(), vec![0x90, 36, 100])]);
+        // The simulator's input acts on the controller (the pad plays), not mirrored back
+        backend.take_calls();
+        assert!(app.inject_device_midi(&[0x80, 36, 0]));
+        assert!(backend.take_calls().iter().any(|c| matches!(c, BackendCall::Midi(0, 0x80, _, 0))));
+        assert!(!app.inject_device_midi(&HELLO_JAM));
+        assert!(!mirrored(&mut app).iter().any(|(direction, _)| direction == "in"));
+        // A consumer which stopped taking: bounded, then a refresh brings the state again
+        for i in 0..=MIRROR_QUEUE_LIMIT / 2 {
+            device.input.borrow_mut().extend([vec![0xB0, 20, 127], vec![0xB0, 20, 0]]);
+            app.set_time_ms(1400 + i as u64);
+            app.poll_devices();
+        }
+        assert!(mirrored(&mut app).is_empty());
+        app.set_time_ms(1400 + MIRROR_QUEUE_LIMIT as u64);
+        app.tick();
+        assert!(mirrored(&mut app).iter().any(|(_, m)| m.starts_with(&strip_setup)));
+        // Stopped: nothing more
+        assert!(app.set_device_mirror(false));
+        device.input.borrow_mut().push(vec![0x90, 36, 100]);
+        app.poll_devices();
+        app.set_time_ms(9000);
+        app.tick();
+        assert!(mirrored(&mut app).is_empty());
+    }
+
+    #[test]
+    fn the_mk2_mirror_gets_its_displays() {
+        let device = Rc::new(FakeDevice::default());
+        let (mut app, _backend) = start(MK2_UUID, Some(FakeProvider(Some(device.clone()))));
+        app.set_time_ms(1100);
+        app.tick();
+        app.set_time_ms(1200);
+        app.tick();
+        assert!(app.set_device_mirror(true));
+        app.set_time_ms(1300);
+        app.tick();
+        let sent: Vec<Vec<u8>> = mirrored(&mut app).into_iter().map(|(_, data)| data).collect();
+        // The MCU display lines and the button labels (dbm-nihost's SysEx), sent long before
+        let mcu_display = [0xF0, 0x00, 0x00, 0x66, 0x14, 0x12];
+        assert!(sent.iter().any(|m| m.starts_with(&mcu_display)), "{sent:?}");
+        assert!(sent.iter().any(|m| m.starts_with(&crate::controller::maschine::mk::setup::BUTTON_LABELS_HEADER)), "{sent:?}");
+    }
+
     #[test]
     fn the_midi_ports_without_the_device() {
         for provider in [None, Some(FakeProvider(None))] {
@@ -720,5 +995,8 @@ pub mod tests {
         // A controller without a device which the core drives: its ports in any case
         let (mut app, _) = start("72F32A83-A697-446B-9016-64AA3F9476E4", None);
         assert_eq!(app.poll_devices(), -1);
+        assert!(!app.set_device_mirror(true));
+        assert_eq!(app.take_device_midi(), "");
+        assert!(!app.inject_device_midi(&[0x90, 36, 100]));
     }
 }

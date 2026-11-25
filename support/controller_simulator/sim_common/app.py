@@ -28,8 +28,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
                              "$XDG_RUNTIME_DIR/dbm-sim-help.sock; doc/CONTROLLER_HELP_PLAN.md)")
     parser.add_argument("--show-help", action="store_true", help="start with the help boxes shown (key H toggles them)")
     parser.add_argument("--hide-global", action="store_true", help="start with the boxes of the global functions hidden (key G)")
+    parser.add_argument("--no-mirror-input", action="store_true",
+                        help="while mirroring a real device (the host's help socket): ignore clicks (default: they act on "
+                             "the core as the device's input)")
     parser.add_argument("--help-file", default=None, metavar="PATH",
-                        help="help entries to show at the start (JSON lines as the host sends them; for tests and screenshots)")
+                        help="help entries (and mirror lines) to show at the start (JSON lines as the host sends them; for tests "
+                             "and screenshots)")
 
 
 def create_app(name: str):
@@ -84,11 +88,13 @@ def run(app, sim, qml_file: str, args, image_providers: dict | None = None,
         sim.start_help_server(getattr(args, "help_socket", None) or sim_help.default_socket_path())
         sim.helpVisible = bool(getattr(args, "show_help", False))
         sim.helpHideGlobal = bool(getattr(args, "hide_global", False))
+        sim.mirror_input_enabled = not getattr(args, "no_mirror_input", False)
         if getattr(args, "help_file", None):
             with open(args.help_file, encoding="utf-8") as lines:
                 for line in lines:
                     if line.strip():
-                        sim.help_model.apply_line(line)
+                        # Also the mirror's lines ({"mirror": ...}, {"midi": ...})
+                        sim._on_help_line(line)
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(QML_IMPORT_PATH)

@@ -1046,6 +1046,10 @@ On Linux the core can drive the NI Maschine Mk2 and JAM itself through `libdbm_n
 - **Unplug and replug:** the library sends "gone" and the hello (support/linux/ni_host/README.md);
   the controller keeps running, the core ends the sounding notes on "gone" and sends all states
   again on the next hello.
+- **Mirror (optional, for a simulator):** `dbm_mirror_device_midi(app, 1)` queues the device's
+  MIDI both ways (after a refresh of its complete state) for `dbm_take_device_midi` (JSON lines
+  `{"midi":"out"|"in","data":"<hex>"}`); `dbm_inject_device_midi` plays a message in as the
+  device's. Stopped (the default) nothing is queued (doc/CONTROLLER_HELP_PLAN.md §4).
 
 ## 6. Behavioural rules learned from the conformance work
 

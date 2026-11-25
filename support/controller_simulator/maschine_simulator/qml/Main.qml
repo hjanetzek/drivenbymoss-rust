@@ -66,9 +66,11 @@ SimWindow {
             property var c: parent.control
             property var colours: { sim.stripRevision; return sim.stripColours(c.index) }
             readonly property bool horizontal: width > height
+            // Touched or moved on the mirrored hardware
+            property bool hwPressed: { sim.revision; return sim.controlPressed(c.cc) }
             radius: 1.5 * window.k
             color: "#18191c"
-            border.color: sarea.pressed ? "#ffffff" : "#45464c"
+            border.color: sarea.pressed || hwPressed ? "#ffffff" : "#45464c"
             border.width: Math.max(1, 0.3 * window.k)
             Grid {
                 anchors.fill: parent

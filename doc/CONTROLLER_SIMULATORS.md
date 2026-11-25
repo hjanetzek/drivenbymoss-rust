@@ -9,7 +9,10 @@ touchscreen controller that is meant to grow out of them. It covers the architec
 find a controller's protocol, and the pitfalls we hit.
 
 The help boxes (what each button does in the current state, texts from the core, the JAM first)
-are planned and documented in [CONTROLLER_HELP_PLAN.md](CONTROLLER_HELP_PLAN.md).
+are planned and documented in [CONTROLLER_HELP_PLAN.md](CONTROLLER_HELP_PLAN.md). Its §4 is the
+mirror: a simulator shows what a real device which the core drives in-process shows (LEDs,
+strips, meters, displays, presses), over the help socket; a device model takes the mirror's
+"out" messages with its `receive` and names the pressed controls with `mirror_input`.
 
 The READMEs have the user's view (options, protocol tables, how to run):
 [support/push_simulator/README.md](../support/push_simulator/README.md),
@@ -459,7 +462,8 @@ Where a simulator could help:
   expectations readable ("Mute red" instead of `98 6A 0F`).
 - **As a viewer:** a simulator that only listens, started with `--no-alsa` and fed from a
   recording, would show a run, which helps with debugging differences. It needs a "passive" mode
-  that doesn't answer. That is a small addition, not done yet.
+  that doesn't answer. The mirror (CONTROLLER_HELP_PLAN.md §4) is that mode for a live device:
+  `--help-file` with `{"mirror": ...}` and `{"midi": "out", ...}` lines replays a recording.
 
 ## 12. Checklist for the next simulator
 

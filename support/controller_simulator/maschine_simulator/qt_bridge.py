@@ -83,6 +83,8 @@ class MaschineSimulator(SimulatorBase):
 
     def status_parts(self) -> list[str]:
         d = self.device
+        if self.mirroring:
+            return super().status_parts()
         return super().status_parts() + ["attached (hello sent)" if d.present else "not attached"]
 
     @Property(int, notify=maschineTextChanged)

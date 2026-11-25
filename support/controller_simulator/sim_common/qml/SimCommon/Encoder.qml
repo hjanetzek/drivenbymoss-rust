@@ -18,8 +18,9 @@ Item {
     property real lastY: 0
     property bool wheelTouch: false
     property bool touched: earea.pressed || wheelTouch
-    // Touched here or reported as touched by the host
-    property bool lit: touched || st.touched
+    // Touched here, reported as touched by the host or touched / turned on the mirrored hardware
+    property bool hwPressed: { sim.revision; return sim.controlPressed(c.note) }
+    property bool lit: touched || st.touched || hwPressed
     readonly property real sweep: 300
     readonly property real valueAngle: -sweep / 2 + sweep * st.value
     property real angle: st.hasValue ? valueAngle : stepAngle

@@ -23,7 +23,18 @@ The help boxes (doc/CONTROLLER_HELP_PLAN.md, ``HelpLayer`` of SimCommon): ``help
 ``helpViewName`` / ``helpModeName`` (the legend). A subclass
 enables them with ``enable_help(resolve, centre)`` (see ``sim_common.help.HelpModel``); the
 entries come from the host over ``start_help_server(path)``.
+
+The mirror of a real device (doc/CONTROLLER_HELP_PLAN.md §4) on the same socket: after the host's
+``{"mirror": ...}`` line, ``{"midi": "out"}`` lines go to ``device.receive`` exactly as the MIDI of
+the ALSA port, ``{"midi": "in"}`` lines (the hardware's presses) to ``device.mirror_input`` (if the
+device has it), which returns the controls to show as pressed (``controlPressed(key)``, with
+``revision``) and whose help box expands; they are never sent anywhere. While mirroring, the
+simulator's own MIDI (``mirror_output``) goes to the host as ``{"midi": "in"}`` lines, which plays
+it in as the device's input (``mirror_input_enabled``, ``--no-mirror-input``: dropped), not to the
+ALSA port.
 """
+
+import json
 
 import time
 from collections import deque
@@ -34,6 +45,8 @@ from . import help as sim_help
 from .midi import describe, hexstr
 
 LOG_LINES = 400
+# How long a move of the mirrored hardware (an encoder turn, a strip move) shows as pressed
+MIRROR_FLASH_SECONDS = 0.2
 
 EMPTY_ENCODER = {"hasValue": False, "value": 0.0, "touched": False, "bipolar": False, "name": "", "text": ""}
 
@@ -80,6 +93,11 @@ class SimulatorBase(QObject):
         self._help_dirty = False
         self._help_server: sim_help.HelpServer | None = None
         self._help_status = "help: no socket"
+        # The mirror of a real device: the host's {"mirror": ...} (None: not mirroring)
+        self._mirror: dict | None = None
+        self.mirror_input_enabled = True
+        # The controls the mirrored hardware presses: key -> None (held) or the end of a flash
+        self._mirror_pressed: dict[int, float | None] = {}
         self.helpLineReceived.connect(self._on_help_line)
         self.helpConnectReceived.connect(self._on_help_connect)
         device.listeners.append(self._on_device_change)
@@ -188,7 +206,25 @@ class SimulatorBase(QObject):
             self._help_server = None
 
     def _on_help_line(self, line: str) -> None:
-        if self.help_model is not None and self.help_model.apply_line(line):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            return
+        if not isinstance(entry, dict):
+            return
+        if "midi" in entry:
+            try:
+                data = bytes.fromhex(entry.get("data", ""))
+            except (TypeError, ValueError):
+                return
+            if self._mirror is not None and data:
+                self.mirror_midi(entry["midi"], data)
+            return
+        if "mirror" in entry:
+            self.start_mirror(entry)
+            return
+        if self.help_model is not None:
+            self.help_model.apply(entry)
             self._help_dirty = True
 
     def _on_help_connect(self, connected: bool) -> None:
@@ -197,7 +233,78 @@ class SimulatorBase(QObject):
         if self.help_model is not None:
             # A new connection sends all entries again
             self.help_model.clear()
+        self.stop_mirror()
         self._help_dirty = True
+
+    # The mirror (doc/CONTROLLER_HELP_PLAN.md §4)
+
+    @property
+    def mirroring(self) -> bool:
+        return self._mirror is not None
+
+    def start_mirror(self, info: dict) -> None:
+        """The host mirrors a real device: forget the shown state (the complete state follows)."""
+        self._mirror = dict(info)
+        self._mirror_pressed.clear()
+        self.device.mirroring = True
+        if hasattr(self.device, "mirror_reset"):
+            self.device.mirror_reset()
+        self.log(f"mirror: {self.mirror_text()}")
+        self._dirty.add("leds")
+        self.statusChanged.emit()
+
+    def stop_mirror(self) -> None:
+        if self._mirror is None:
+            return
+        self._mirror = None
+        self._mirror_pressed.clear()
+        self.device.mirroring = False
+        self.log("mirror: stopped")
+        self._dirty.add("leds")
+        self.statusChanged.emit()
+
+    def mirror_text(self) -> str:
+        if self._mirror is None:
+            return ""
+        source = self._mirror.get("source") or "hardware"
+        clicks = "clicks act on the core" if self.mirror_input_enabled and self._mirror.get("input", True) else "clicks ignored"
+        return f"Mirror: {self._mirror.get('mirror', '?')} ({source}), {clicks}"
+
+    def mirror_midi(self, direction: str, data: bytes) -> None:
+        """A mirrored message: "out" (the core to the device) as from the ALSA port, "in" (the
+        hardware's input) shown as pressed, not sent anywhere."""
+        if direction == "out":
+            self.device.receive(data)
+            return
+        if direction != "in" or not hasattr(self.device, "mirror_input"):
+            return
+        self._on_monitor("out", "hw", data, "")
+        now = time.monotonic()
+        for key, pressed in self.device.mirror_input(data):
+            if pressed is False:
+                self._mirror_pressed.pop(key, None)
+            else:
+                self._mirror_pressed[key] = None if pressed else now + MIRROR_FLASH_SECONDS
+                if self.help_model is not None:
+                    control = getattr(self.device, "by_key", {}).get(key)
+                    rect = (control.x, control.y, control.w, control.h) if control is not None else None
+                    if self.help_model.expand_control(key, rect):
+                        self._help_dirty = True
+            self._dirty.add("leds")
+
+    def mirror_output(self, data: bytes) -> bool:
+        """The simulator's own MIDI while mirroring: to the host as the device's input (or
+        dropped); True if it was taken (it must not go to the ALSA port then)."""
+        if self._mirror is None:
+            return False
+        if self.mirror_input_enabled and self._mirror.get("input", True) and self._help_server is not None:
+            self._help_server.send(json.dumps({"midi": "in", "data": bytes(data).hex()}))
+        return True
+
+    @Slot(int, result=bool)
+    def controlPressed(self, key):
+        """The control is pressed (touched, moved) on the mirrored hardware."""
+        return key in self._mirror_pressed
 
     def _get_help_visible(self):
         return self._help_visible
@@ -250,6 +357,13 @@ class SimulatorBase(QObject):
             self.helpChanged.emit()
 
     def _tick(self) -> None:
+        if self._mirror_pressed:
+            now = time.monotonic()
+            ended = [key for key, until in self._mirror_pressed.items() if until is not None and until <= now]
+            for key in ended:
+                del self._mirror_pressed[key]
+            if ended:
+                self._dirty.add("leds")
         dirty, self._dirty = self._dirty, set()
         if "leds" in dirty or self.device.has_animation():
             self._revision += 1
@@ -269,6 +383,8 @@ class SimulatorBase(QObject):
             self.statusChanged.emit()
 
     def status_parts(self) -> list[str]:
+        if self._mirror is not None:
+            return [self.mirror_text(), self._midi_status]
         return [self._midi_status]
 
     # Properties

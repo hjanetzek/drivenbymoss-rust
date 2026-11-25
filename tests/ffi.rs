@@ -218,11 +218,28 @@ fn null_arguments_are_safe() {
         dbm_tick(std::ptr::null_mut());
         dbm_update_model(std::ptr::null_mut(), std::ptr::null());
         dbm_on_midi_event(std::ptr::null_mut(), 0, std::ptr::null(), 0);
+        // The mirror: no device without an instance, nothing to take, nothing injected
+        assert_eq!(dbm_mirror_device_midi(std::ptr::null_mut(), 1), 0);
+        assert_eq!(take_string(dbm_take_device_midi(std::ptr::null_mut())), "");
+        assert_eq!(dbm_inject_device_midi(std::ptr::null_mut(), [0x90u8, 36, 100].as_ptr(), 3), 0);
+        assert_eq!(dbm_inject_device_midi(std::ptr::null_mut(), std::ptr::null(), 3), 0);
         let settings = dbm_get_formatted_document_settings(std::ptr::null_mut());
         assert_eq!(CStr::from_ptr(settings).to_str().unwrap(), "");
         dbm_free_string(settings);
         dbm_free_string(std::ptr::null_mut());
         dbm_destroy(std::ptr::null_mut());
+    }
+}
+
+#[test]
+fn no_mirror_without_an_in_process_device() {
+    // A controller on the host's ports: there is no device to mirror
+    let host = Host::new("mirror", DBM_FLAG_HOST_TICK, true);
+    unsafe {
+        assert_eq!(dbm_mirror_device_midi(host.app, 1), 0);
+        dbm_tick(host.app);
+        assert_eq!(take_string(dbm_take_device_midi(host.app)), "");
+        assert_eq!(dbm_inject_device_midi(host.app, [0x90u8, 36, 100].as_ptr(), 3), 0);
     }
 }
 

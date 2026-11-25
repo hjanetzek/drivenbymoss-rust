@@ -2,7 +2,8 @@
 
 Status: phase 1 and phase 2 done for the Maschine JAM (see §6); round 2: the JAM's texts as one
 declarative table (§9, with a comparison of the two approaches), boxes coloured by scope, one box
-per row of buttons, the global boxes hideable (§10). The mirror (§4) is the next phase.
+per row of buttons, the global boxes hideable (§10). Phase 3, the mirror (§4): done for the devices
+the core drives in-process (the JAM and the Mk2).
 
 ## 1. Goal
 
@@ -107,8 +108,10 @@ first remote page, Select + CONTROL / Select + SONG for the page surface, doc/HO
 
 ## 4. Mirror
 
-The simulator as a mirror of a real device which the core drives: its LEDs and strips, and the
-boxes highlighted and expanded on hardware presses.
+The simulator as a mirror of a real device which the core drives: its LEDs, strips, level meters
+and displays, and the controls highlighted (their boxes expanded) on hardware presses.
+
+### 4.1 The options (analysed before the implementation)
 
 - **Presses** come with the help entries in every case: `pressed` is part of an entry, so the
   simulator expands the box of a button which became pressed, whatever the transport.
@@ -116,15 +119,85 @@ boxes highlighted and expanded on hardware presses.
   (presses) is dbm-nihost's readable port `Maschine Jam - 1 Input`; the DAW's output (LEDs) is not
   readable at dbm-nihost's write port, but at the DAW's own source port (dbm_host's client, the
   VirMIDI client which Bitwig writes to). Needs a read-only simulator (no hello, no answers, no
-  sends) with two subscriptions found by the user (`--mirror-from`).
-- **In-process HID (libdbm_nihost, `src/nihost`):** there is no ALSA port. The core already has
-  the template MIDI in both directions (`DeviceIo::send` / `read`), the stream the simulator
-  speaks. A tap there (a queue the host fetches, e.g. `dbm_take_device_midi`) sent over the help
-  socket as `{"midi": "out"|"in", "data": "hex"}` lets the simulator draw the LEDs from "out" and
-  the presses from "in".
-- **Recommendation:** the in-process tap over the existing help socket. It is the default path
-  on Linux now, needs no port juggling and one socket carries everything; the ALSA mirror only
-  serves the daemon setups. Not implemented yet (the next phase).
+  sends) with two subscriptions found by the user (`--mirror-from`). Not implemented: only the
+  daemon setups need it.
+- **In-process HID (libdbm_nihost, `src/nihost`):** there is no ALSA port. The core has the
+  template MIDI in both directions (`DeviceIo::send` / `read`), the stream the simulator speaks:
+  a tap there, sent over the help socket. **Chosen** (verified: every message to the device goes
+  through `DeviceBackend::send_midi_data`, every message of the device through
+  `DeviceLink::take_input`, for any controller with a `hid_device`; the help socket already
+  connects the host and the simulator).
+
+### 4.2 Core: the tap (`nihost::MirrorTap`)
+
+- `DeviceBackend::send_midi_data` taps the messages to the device ("out"), `DeviceLink::take_input`
+  the messages of the device ("in"; not the hello and "gone").
+- **No cost without a consumer:** inactive, a push is one flag check; nothing is queued.
+- **Bounded:** at most 4096 messages between two takes. More (a host which stopped taking) drop
+  the queue and stop queueing; the next take refreshes the device's state instead, so the mirror
+  is right again without unbounded memory.
+- **Initial state:** starting the mirror calls the controller's refresh path
+  (`ControllerSetup::refresh_device`, also used when an in-process device comes back): the next
+  flush sends the complete state, which the tap queues. The default forces all lights and the
+  text display; the JAM also forces its touch strips (setup, values, dual values: sent on change
+  only), the Mk2 its button labels. The device gets the same messages, but the library only
+  writes what changed, so the hardware sees nothing. No per-key cache is needed (and none costs
+  memory or time while nobody mirrors).
+- C ABI (`src/ffi.rs`, `include/drivenbymoss.h`):
+  - `int dbm_mirror_device_midi(DbmApp *app, int on)`: start / stop the tap of the first instance
+    which drives a device in-process; starting refreshes its state. 1 if there is such a device.
+  - `char *dbm_take_device_midi(DbmApp *app)`: the queued messages, the oldest first, as JSON
+    lines `{"midi":"out","data":"B0083F"}` / `{"midi":"in","data":"903664"}` (release with
+    `dbm_free_string`).
+  - `int dbm_inject_device_midi(DbmApp *app, const uint8_t *data, int length)`: a message as if
+    the device sent it (a 3-byte channel message or a complete SysEx; not the hello or "gone").
+    The notes go to the host's note input as the device's. Not mirrored back. 1 if taken.
+- Python: `App.mirror_device_midi(on) -> bool`, `App.take_device_midi_lines() -> list[str]`,
+  `App.take_device_midi() -> list[(direction, bytes)]`, `App.inject_device_midi(data) -> bool`
+  (optional symbols).
+
+### 4.3 Socket
+
+The help socket carries the mirror too (`dbm_host_alsa.py` → `sim_common`):
+
+- On every (re)connect the host resets the help cache and, if the core drives the device
+  in-process, starts the mirror: it writes `{"mirror":"Maschine JAM","source":"hardware",
+  "input":true}`, the core refreshes, and the complete state follows with the next tick. When the
+  simulator goes away (a failed write, or the peer closed: the host now reads the socket too) the
+  host stops the mirror, so the core queues nothing.
+- `{"midi":"out"}` lines go to the simulator's device model exactly as the MIDI of its ALSA port
+  (`device.receive`): the LEDs, the JAM's strips and meters, the Mk2's displays and button labels
+  are decoded by the existing code.
+- `{"midi":"in"}` lines go to `device.mirror_input`, which only names the controls (a press /
+  touch held until its release; an encoder turn or strip move flashes for 0.2 s): drawn with a
+  white frame (`sim.controlPressed(key)`), their help box expanded (`HelpModel.expand_control`:
+  the control's entry, its row or the area it is in). They never go anywhere (no LED changes,
+  nothing sent). The Shift SysEx lights the Shift LED as the host does.
+- **The simulator's own input while mirroring:** injected. Its MIDI (clicks, pads, strips) goes
+  back over the socket as `{"midi":"in"}` and the host plays it in with `dbm_inject_device_midi`:
+  the simulator is a second surface of the same instance, which is useful while learning (try a
+  combination with the mouse, see the device answer). It is safe: only complete messages are
+  taken, the handshake is filtered (in the core) and a mirroring simulator answers no query; the
+  LEDs it causes come back through the mirror like the hardware's. `--no-mirror-input` on the
+  simulator (`run_with_core.sh --no-mirror-input`) drops them instead; the host's
+  `--no-mirror-input` ignores them. While mirroring, nothing goes to the simulator's ALSA port.
+- **Latency:** the "out" messages are produced by the tick's flush (every 30 ms, as for the
+  hardware); the host forwards them right after the tick. The "in" messages and the simulator's
+  input are forwarded after each `poll_devices` (every 3 ms, the existing poll of the in-process
+  device; no extra loop). The host's writes never block: they are buffered, a simulator which
+  stops reading (1 MB pending) is dropped and connected again later (with the complete state).
+  The simulator draws on its 33 ms timer. Meters (sent with every flush) and strips move smoothly.
+- **Status bar:** "Mirror: Maschine JAM (hardware), clicks act on the core" (or "clicks ignored").
+- `run_with_core.sh --hw` (the default while the model's device is plugged in): the simulator
+  without ALSA ports (`--no-alsa --detached`) mirrors the device over the help socket.
+
+### 4.4 Controllers
+
+Generic for any controller the core drives in-process (`ControllerFactory::hid_device`): today
+the Maschine JAM and Mk2 over libdbm_nihost. The simulator side works for every device model
+with `receive` (all simulators) and `mirror_input` (the Maschine simulators); a controller added
+to the in-process transport needs a `refresh_device` override only if it sends some state on
+change only outside the surface's lights and text display.
 
 ## 5. Phases
 
@@ -133,7 +206,7 @@ boxes highlighted and expanded on hardware presses.
 2. The views and modes: Play, Chords, Piano, Drum 64, Drum, Drum 4/8, the sequencers, Session,
    the Shift view, note repeat, Tempo/Shuffle, the browser, the accent view, the strip modes,
    the page surface and the host page strips.
-3. The mirror (§4).
+3. The mirror (§4): done (in-process devices).
 4. The other simulators (Mk2, Mk3, the MIDI simulators, the Push): their commands' texts; the QML
    is shared already.
 
@@ -161,6 +234,16 @@ See the end of the work's report and the commits; kept up to date here:
   (`test_control_help`), `support/controller_simulator/tests/test_help.py` (layout, model, socket,
   the real core's entries all map to JAM controls in the states every button makes, the boxes
   drawn offscreen, the host's writer).
+- Phase 3, the mirror (§4): the tap in the core (`src/nihost/mod.rs` `MirrorTap`,
+  `ControllerSetup::refresh_device`), the C ABI and the binding, the host (`Mirror`, the
+  non-blocking `HelpWriter`), the simulator (`SimulatorBase.mirror_midi` / `mirror_output`,
+  `MaschineDevice.mirror_input`, `HelpModel.expand_control`, the white frames in the QML),
+  `run_with_core.sh --hw`. Tests: `src/nihost/mod.rs` (the tap, the link, the complete state for a
+  mirror of the JAM and the Mk2, injection, the bound), `tests/ffi.rs`,
+  `bindings/python/tests/test_binding.py` (`test_device_mirror`),
+  `support/controller_simulator/tests/test_mirror.py` (the real core's stream in a mirroring JAM
+  and Mk2 simulator equals a simulator on the port, the presses, the simulator's input, a
+  reconnect over the real socket, a simulator which doesn't read).
 - Open: §8.
 
 ## 7. Manual and code
@@ -195,9 +278,7 @@ The differences found while writing the texts (the texts follow the code):
 
 ## 8. Open points
 
-- The mirror (§4): the next phase. Presses on the hardware already expand the boxes (the
-  entries carry `pressed` / `presses` from the core, whatever the transport); the LEDs need the
-  tap.
+- The mirror of the daemon setups (dbm-nihost over ALSA, §4.1): not implemented.
 - The other simulators (Mk2, Mk3, Mikro Mk3, the MIDI simulators, the Push): the QML and the
   socket are shared; they need their commands' texts and a resolver (`enable_help`).
 - The texts of the sequencers' finer grid functions (the base views' combinations: loop, page

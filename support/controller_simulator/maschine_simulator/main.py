@@ -63,6 +63,9 @@ def main(argv=None) -> int:
     port_ids: dict[str, int] = {}
 
     def send(data: bytes, port: str) -> None:
+        # While mirroring a real device: to the host over the help socket (or dropped)
+        if sim.mirror_output(data):
+            return
         if seq is not None and port in port_ids:
             try:
                 seq.send(data, port_ids[port])
