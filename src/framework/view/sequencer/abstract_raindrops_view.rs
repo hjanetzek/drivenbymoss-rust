@@ -49,9 +49,6 @@ impl RaindropsBase {
     /// and the notes of the columns (not part of Java).
     pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
         let clip = self.seq.clip_ref(ctx)?;
-        if clip.is_host_grid() {
-            return None;
-        }
         SequencerBase::window(clip.loop_start(), clip.loop_length(), (0..self.num_display_cols).map(|x| self.seq.view.key_manager.map(x)))
     }
 

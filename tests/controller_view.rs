@@ -24,6 +24,7 @@ const JAM_PAD_MODE: u8 = 32;
 const JAM_LEVEL: u8 = 37;
 const JAM_CONTROL: u8 = 39;
 const JAM_NAV_UP: u8 = 41;
+const JAM_NAV_LEFT: u8 = 43;
 const JAM_NAV_RIGHT: u8 = 44;
 const JAM_SCENE1: u8 = 80;
 
@@ -283,4 +284,73 @@ fn nothing_to_a_host_which_does_not_handle_them() {
     rig.press(JAM_LEVEL);
     assert_eq!(rig.active_view(), Some(Views::Drum));
     assert_eq!(rig.sent(), []);
+}
+
+/// The views, windows and the commands of the host's step grid (scroll, page, step size) since
+/// the last call.
+fn sent_with_grid(rig: &Rig) -> Vec<String> {
+    let calls = rig.backend.take_calls();
+    calls
+        .iter()
+        .filter_map(|call| match call.cmd()? {
+            cmd @ (Cmd::ControllerView { .. } | Cmd::ClipEditWindow { .. } | Cmd::GridScroll { .. } | Cmd::GridPage { .. } | Cmd::GridStepSize { .. }) => Some(format!("{cmd:?}")),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn with_the_host_grid_the_window_follows_the_grid_commands() {
+    let mut rig = Rig::new(true);
+    rig.press(JAM_STEP);
+    assert_eq!(windows(&rig.sent()).len(), 1);
+    // The host reports its step grid (zynthian's NoteGrid): from now on the host pages
+    rig.app.update_model("clip/grid/8x128/playingStep -1\n");
+    rig.advance(60);
+    assert!(rig.ctx().model.note_clip(8, 128).is_host_grid());
+    assert_eq!(sent_with_grid(&rig), Vec::<String>::new(), "The same window");
+
+    // STEP again (to the poly sequencer and around to the note sequencer): view and window
+    for _ in 0..3 {
+        rig.press(JAM_STEP);
+    }
+    rig.backend.take_calls();
+    rig.press_with_scene(JAM_STEP, 0);
+    assert_eq!(rig.active_view(), Some(Views::Sequencer));
+    let sent = rig.sent();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert_eq!(sent[0], Sent::View(ControllerViewKind::Sequencer));
+    let Sent::Window(window) = sent[1] else { panic!("{sent:?}") };
+    assert_eq!((window.start, window.length), (0.0, 2.0));
+
+    let page = |start: f64| format!("{:?}", Cmd::ClipEditWindow { window: EditWindow { start, ..window } });
+    let grid_page = |next: bool| if next { "GridPage { grid: GridId { steps: 8, rows: 128 }, dir: Next }" } else { "GridPage { grid: GridId { steps: 8, rows: 128 }, dir: Prev }" };
+    // Paging: the host's GridPage, then the window of the new page
+    rig.press(JAM_NAV_RIGHT);
+    assert_eq!(sent_with_grid(&rig), [grid_page(true).to_string(), page(2.0)]);
+    rig.press(JAM_NAV_RIGHT);
+    assert_eq!(sent_with_grid(&rig), [grid_page(true).to_string(), page(4.0)]);
+    rig.press(JAM_NAV_LEFT);
+    assert_eq!(sent_with_grid(&rig), [grid_page(false).to_string(), page(2.0)]);
+    rig.press(JAM_NAV_LEFT);
+    assert_eq!(sent_with_grid(&rig), [grid_page(false).to_string(), page(0.0)]);
+    // On the first page the core sends no page back (neither does the host scroll): nothing
+    rig.press(JAM_NAV_LEFT);
+    assert_eq!(sent_with_grid(&rig), Vec::<String>::new());
+
+    // The step size: the host's GridStepSize, the window of the same page in the new length
+    rig.press(JAM_NAV_RIGHT);
+    rig.backend.take_calls();
+    {
+        let ctx = rig.ctx();
+        let view = ctx.active_view().unwrap();
+        assert!(view.borrow_mut().set_sequencer_resolution_index(ctx, 2));
+    }
+    rig.advance(60);
+    let sent = sent_with_grid(&rig);
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    let step = rig.ctx().model.note_clip(8, 128).step_length();
+    assert_eq!(sent[0], format!("{:?}", Cmd::GridStepSize { grid: drivenbymoss::protocol::GridId { steps: 8, rows: 128 }, value: step }));
+    assert_eq!(sent[1], format!("{:?}", Cmd::ClipEditWindow { window: EditWindow { start: 8.0 * step, length: 8.0 * step, ..window } }));
+    assert_ne!(step, 0.25);
 }

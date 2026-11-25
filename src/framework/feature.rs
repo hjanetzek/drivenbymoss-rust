@@ -128,7 +128,8 @@ pub trait View: Any {
     }
 
     /// The visible window of the step sequencer of the view (the steps and the notes of its
-    /// rows), `None` if the view is no sequencer or the host keeps the window (its step grid).
+    /// rows), `None` if the view is no sequencer; also with the host's step grid (the rows are
+    /// the core's).
     /// Sent as `ClipEditWindow` (see [`Ctx::sync_clip_edit_window`]). Not part of Java.
     fn clip_edit_window(&self, _ctx: &Ctx) -> Option<crate::protocol::EditWindow> {
         None

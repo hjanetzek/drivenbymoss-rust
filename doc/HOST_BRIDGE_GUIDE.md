@@ -836,8 +836,9 @@ The window: `start` and `length` in beats (the edit page of the sequencer: page 
 length; the raindrops sequencer: the clip's loop), `low` and `high` the MIDI notes (inclusive) of
 the visible rows: the scale rows of a note sequencer, the play area of the poly sequencer, the
 keys of the visible drum pads (16, 8 or 4 from the drum offset, also keys without a pad in the
-host's drum machine). Not sent while the host has the step grid (`clip grid/…`: the host keeps
-the window). Python: `view.value` is a `protocol.EditWindow` (`.start`, `.length`, `.low`,
+host's drum machine). Also sent with the host's step grid (`clip grid/…`, zynthian): `start` is
+then the scroll position of the last `GridScroll`/`GridPage` times the `GridStepSize` (in step
+with them), and the rows come only from the core (scale, octave, drum offset). Python: `view.value` is a `protocol.EditWindow` (`.start`, `.length`, `.low`,
 `.high`).
 
 On the Maschine JAM: SONG → `Launcher`; STEP and STEP + scene → `Sequencer` (note, poly,

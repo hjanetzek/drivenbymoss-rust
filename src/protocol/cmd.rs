@@ -359,8 +359,8 @@ commands! {
     ClipNoteClearRow = 0x8745 { note: i32, channel: i32 } @ Clip ["note" note "clear" channel];
     /// Reaper: clear all notes at the position (in beats).
     ClipNoteClearPosition = 0x8746 { channel: i32 } @ Clip ["note" "0" "clearPosition" channel] => position: f64;
-    /// The visible window of the step sequencer which the controller edits, if the core keeps
-    /// it (no host grid): the steps in beats and the MIDI notes of the visible rows (inclusive;
+    /// The visible window of the step sequencer which the controller edits, also with the
+    /// host's step grid (which knows only the scroll and the step size, not the rows): the steps in beats and the MIDI notes of the visible rows (inclusive;
     /// a drum sequencer: the keys of its visible pads, also those without a pad on the host).
     /// Sent after a sequencer's `ControllerView` and on every change of the window or the
     /// edited clip while a sequencer view picked with a button is active.

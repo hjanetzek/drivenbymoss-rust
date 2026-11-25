@@ -75,13 +75,11 @@ impl SequencerBase {
 
     /// The visible window of the clip (the edit page of [`CursorClip::num_steps`] steps of
     /// [`CursorClip::step_length`]) with the notes of the visible rows (the lowest and the
-    /// highest, ignoring -1), `None` with the host's step grid (it keeps the window) or without
-    /// a visible note (not part of Java).
+    /// highest, ignoring -1), `None` without a visible note (not part of Java). Also with the
+    /// host's step grid: the edit page follows the `GridScroll`/`GridPage` sent to it, the start
+    /// is the host's scroll position times the `GridStepSize`, and only the core knows the rows.
     pub fn edit_window(&self, ctx: &Ctx, notes: impl IntoIterator<Item = i32>) -> Option<EditWindow> {
         let clip = self.clip_ref(ctx)?;
-        if clip.is_host_grid() {
-            return None;
-        }
         let length = clip.num_steps() as f64 * clip.step_length();
         Self::window(clip.edit_page() as f64 * length, length, notes)
     }
