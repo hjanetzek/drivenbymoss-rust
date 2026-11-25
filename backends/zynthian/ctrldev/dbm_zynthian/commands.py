@@ -242,6 +242,14 @@ class ZynCommandHandler(CommandHandler):
     def _host_page(self, view, cmd):
         """The host's pages (host_page.py): selecting commands become requests to zynthian's
         screen (the shared selection), the reports follow its signals"""
+        try:
+            self._host_page_command(view)
+        except Exception as e:
+            # zynthian's objects in an unexpected state: logged, the driver goes on
+            logger.exception("host page command %s failed: %s", view.h[0], e)
+        return True
+
+    def _host_page_command(self, view):
         pages = self.host_pages
         id_ = view.h[0]
         if id_ == Cmd.HOST_PAGE_SHOW:
@@ -263,7 +271,6 @@ class ZynCommandHandler(CommandHandler):
         elif id_ == Cmd.HOST_PAGE_SECTION:
             pages.select_section(int(view.value))
         # HOST_PAGE_CELL_TOUCH: nothing (later: the page's widget on the screen)
-        return True
 
     def configure(self):
         """No clip launcher navigator; one step grid per size of the model setup's ``noteClips``

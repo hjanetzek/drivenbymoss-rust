@@ -295,6 +295,46 @@ class HostPagesTest(unittest.TestCase):
         self.run_commands(f"int\thostpage\tcell/{cell}/press/{epoch}\t1", f"int\thostpage\tcell/1/press/{epoch}\t1")
         self.assertEqual(screen.queue, [("open", 1, page, -1, 0), ("cell", 1, 0, 1, 0)])
 
+    def test_a_failing_chain_is_none(self):
+        """An exception reading a chain's pages: reported as no page (exists false), logged once,
+        the pass goes on; the chain's pages come back when they can be read"""
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        out = self.report()
+        epoch = out[M.HOST_PAGE_EPOCH]
+        chain = self.state.chain_manager.get_active_chain()
+        processors = chain.get_processors
+
+        def broken(*args, **kwargs):
+            raise KeyError("zoom")
+        chain.get_processors = broken
+        gd_chain_pages = self.gd.chain_pages
+        self.gd.chain_pages = lambda *args: broken()
+        try:
+            out = self.report()
+            self.assertEqual(out[M.HOST_PAGE_EXISTS], False)
+            self.assertNotEqual(out[M.HOST_PAGE_EPOCH], epoch, "no cell of the old pages stays addressable")
+            self.assertEqual(self.report(), {}, "the same, once")
+            self.run_commands(f"int\thostpage\tcell/0/turn/detent/normal/{epoch}\t3")
+            self.run_commands("int\thostpage\tset\t1")       # no pages: nothing, no exception
+        finally:
+            chain.get_processors = processors
+            self.gd.chain_pages = gd_chain_pages
+        out = self.report()
+        self.assertEqual(out[M.HOST_PAGE_EXISTS], True)
+        self.assertEqual(self.seen[M.HOST_CELL_NAME | 0], "p00")
+
+    def test_a_failing_command_is_logged(self):
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        epoch = self.report()[M.HOST_PAGE_EPOCH]
+        zctrl = self.state.synth.controllers_dict["p00"]
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("zynmixer")
+        zctrl.nudge = broken
+        self.run_commands(f"int\thostpage\tcell/0/turn/detent/normal/{epoch}\t3")   # no exception
+        self.run_commands("int\thostpage\tset\t1")
+        self.assertEqual(self.gd.shared_selection.get(1).page, 1, "the next commands still work")
+
 
 @unittest.skipUnless(grid_available(), f"no grid module in {zynstubs.UI_DIR} (zynthian-ui electra-grid)")
 class JamEndToEndTest(unittest.TestCase):

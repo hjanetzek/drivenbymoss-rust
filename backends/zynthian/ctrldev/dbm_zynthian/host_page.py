@@ -50,6 +50,8 @@ source.
   a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``. A press on a page without
   controllers (a processor without pages) is the screen's tap on its header
   (``shared_selection.request_open``: selects it, the selected one opens its banks / presets).
+- **Errors**: a chain whose pages fail to read is reported as none (``exists`` false, logged
+  once); a failing command is logged (commands.py), the driver goes on.
 
 Cell kinds: empty 0, float/integer 1 (fader), list 2, toggle 3, trigger 4, path 6 (action).
 """
@@ -105,6 +107,7 @@ class ZynHostPages:
         self._keys = [tuple(k | cell << 16 for k in CELL_VALUES) for cell in range(64)]
         self.dropped = 0
         """Cell commands of another epoch (tests)."""
+        self._failed_chain = None
 
     # The model
 
@@ -151,10 +154,29 @@ class ZynHostPages:
     # Reports
 
     def collect_full(self, put):
-        """Everything (the full pass): the structure, the values, the selection"""
+        """Everything (the full pass): the structure, the values, the selection. A chain whose
+        pages can't be read (an exception from zynthian's objects) is reported as none
+        (``exists`` false) and logged once per chain, never failing the pass"""
         if not self.shown:
             return
-        self.update()
+        try:
+            self.update()
+        except Exception as e:
+            chain = self.chain_id
+            if self._failed_chain != chain:
+                self._failed_chain = chain
+                logger.exception("host pages of chain %s: %s", chain, e)
+                # No cell of the pages before stays addressable
+                self.epoch = (self.epoch + 1) & 0xFFFF
+            self.chain = None
+            self._signature = None
+            if self.grid.pages:
+                self.grid.set_pages([])
+            self._structure = None
+            put(M.HOST_PAGE_EPOCH, self.epoch)
+            put(M.HOST_PAGE_EXISTS, False)
+            return
+        self._failed_chain = None
         gd = self.gd
         grid = self.grid
         chain = self.chain
