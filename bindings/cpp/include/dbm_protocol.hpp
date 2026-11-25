@@ -507,6 +507,7 @@ enum class Cmd : uint16_t
     ClipNoteMoveY = DBM_CMD_CLIP_NOTE_MOVE_Y,
     ClipNoteClearRow = DBM_CMD_CLIP_NOTE_CLEAR_ROW,
     ClipNoteClearPosition = DBM_CMD_CLIP_NOTE_CLEAR_POSITION,
+    ClipEditWindow = DBM_CMD_CLIP_EDIT_WINDOW,
     BrowserContentType = DBM_CMD_BROWSER_CONTENT_TYPE,
     BrowserPreview = DBM_CMD_BROWSER_PREVIEW,
     BrowserColumnStep = DBM_CMD_BROWSER_COLUMN_STEP,
@@ -549,6 +550,7 @@ enum class Cmd : uint16_t
     HostPageSet = DBM_CMD_HOST_PAGE_SET,
     HostPageSection = DBM_CMD_HOST_PAGE_SECTION,
     HostPageCellAssign = DBM_CMD_HOST_PAGE_CELL_ASSIGN,
+    ControllerView = DBM_CMD_CONTROLLER_VIEW,
 };
 
 /** A record of a buffer (the payload points into the buffer, valid as long as it). */
@@ -3069,6 +3071,14 @@ struct ClipNoteClearPosition
     uint8_t op () const { return this->record.op (); }
 };
 
+/** clip editWindow */
+struct ClipEditWindow
+{
+    static constexpr Cmd id = Cmd::ClipEditWindow;
+    Record record;
+    uint8_t op () const { return this->record.op (); }
+};
+
 /** browser contentType/{dir} */
 struct BrowserContentType
 {
@@ -3438,6 +3448,15 @@ struct HostPageCellAssign
     Record record;
     uint16_t cell () const { return this->record.idx (0); }
     uint16_t epoch () const { return this->record.idx (1); }
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** controller view */
+struct ControllerView
+{
+    static constexpr Cmd id = Cmd::ControllerView;
+    Record record;
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };

@@ -43,6 +43,7 @@ pub struct ViewMultiSelectCommand {
     display_name: bool,
     trigger_event: ButtonEvent,
     store_preferred: bool,
+    report_view: bool,
 }
 
 impl ViewMultiSelectCommand {
@@ -55,7 +56,14 @@ impl ViewMultiSelectCommand {
     }
 
     pub fn with_options(view_ids: &[Views], display_name: bool, trigger_event: ButtonEvent, store_preferred: bool) -> Self {
-        ViewMultiSelectCommand { view_ids: view_ids.to_vec(), display_name, trigger_event, store_preferred }
+        ViewMultiSelectCommand { view_ids: view_ids.to_vec(), display_name, trigger_event, store_preferred, report_view: false }
+    }
+
+    /// Tell the host the picked view with every press ([`Ctx::report_controller_view`], also if
+    /// the view stays the same; not part of Java).
+    pub fn reporting(mut self) -> Self {
+        self.report_view = true;
+        self
     }
 
     /// Activate the next view of the list (former `executeNormal`).
@@ -87,6 +95,9 @@ impl ViewMultiSelectCommand {
 impl TriggerCommand for ViewMultiSelectCommand {
     fn execute_normal(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
         self.select_next(ctx, event);
+        if self.report_view && event == self.trigger_event && ctx.views.active_id().is_some_and(|id| self.view_ids.contains(&id)) {
+            ctx.report_active_controller_view();
+        }
     }
 }
 

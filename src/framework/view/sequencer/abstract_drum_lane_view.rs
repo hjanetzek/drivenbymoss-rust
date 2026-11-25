@@ -13,6 +13,7 @@ use crate::daw::events::ModelEvent;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::ButtonId;
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 
 /// Former `Views.NAME_DRUM4`.
 pub const NAME_DRUM4: &str = "Drum 4";
@@ -91,6 +92,11 @@ impl DrumLaneBase {
 
     pub fn on_model_event(&mut self, ctx: &mut Ctx, event: &ModelEvent) {
         self.drum.on_model_event(ctx, event);
+    }
+
+    /// The edit window: the page of the clip and the keys of the lanes (not part of Java).
+    pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
+        self.drum.edit_window_of_pads(ctx, self.lanes)
     }
 
     /// Get the sound (MIDI note) and the step of a grid pad (index).

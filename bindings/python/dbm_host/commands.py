@@ -175,6 +175,32 @@ class ViewCommand(Command):
 
 TypedHandler = Callable[[Any, ViewCommand], bool]
 
+CONTROLLER_COMMANDS = (Cmd.CONTROLLER_VIEW, Cmd.CLIP_EDIT_WINDOW)
+"""The commands which tell a host what the user does on the controller (HOST_BRIDGE_GUIDE
+§4.13)."""
+
+
+class ControllerFollower:
+    """A host which follows the controller (``SimDaw.controller_follower``): it keeps the views
+    the user picked (``ControllerView``, the number of a ``protocol.ControllerViewKind``; a
+    number the binding does not know stays an int) and the edit windows of the step sequencer
+    (``ClipEditWindow``, a ``protocol.EditWindow``: start, length, low, high), as zynthian would
+    switch its screen and scroll its editor."""
+
+    def __init__(self):
+        self.views: list[int] = []
+        self.windows: list = []
+
+    @property
+    def view(self) -> int | None:
+        """The last picked view, None before the first."""
+        return self.views[-1] if self.views else None
+
+    @property
+    def window(self):
+        """The last edit window, None before the first."""
+        return self.windows[-1] if self.windows else None
+
 # The sub commands of the channel commands (the parts after the channel in the text form; None:
 # the send or slot index, filled in by channel_sub)
 CHANNEL_SUBS = {
@@ -327,6 +353,9 @@ class CommandHandler:
         Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
         Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
         Cmd.HOST_PAGE_CELL_ASSIGN,
+        # The controller's view and edit window: handled only by a SimDaw with a
+        # controller_follower (as Bitwig, the default host does not follow the controller)
+        Cmd.CONTROLLER_VIEW, Cmd.CLIP_EDIT_WINDOW,
     ))
     """The CmdIds without a handler in the model setup of the coverage test (later steps: the
     application and project commands, the browser, groove, the clip notes, …). A snapshot: the
@@ -358,6 +387,9 @@ class CommandHandler:
             self.host_page_view = HostPageView(host_pages)
             reporter.host_page_view = self.host_page_view
             self.register_typed(HOST_PAGE_COMMANDS, self._host_page)
+        self.controller_follower: ControllerFollower | None = getattr(daw, "controller_follower", None)
+        if self.controller_follower is not None:
+            self.register_typed(CONTROLLER_COMMANDS, self._controller)
 
     def register_commands(self) -> None:
         """Register the handlers of the commands (a host replaces them)."""
@@ -528,6 +560,17 @@ class CommandHandler:
         elif id_ == Cmd.HOST_PAGE_SECTION:
             pages.select_section(view.value)
         # HOST_PAGE_CELL_TOUCH: nothing to do in the simulation
+        return True
+
+    def _controller(self, view, cmd: ViewCommand) -> bool:
+        """The view the user picked on the controller and the edit window of its sequencer."""
+        follower = self.controller_follower
+        if view.h[0] == Cmd.CONTROLLER_VIEW:
+            follower.views.append(int(view.value))
+            logger.debug("Controller view: %s", view.value)
+        else:
+            follower.windows.append(view.value)
+            logger.debug("Clip edit window: %s", view.value)
         return True
 
     def _bank_scroll(self, view, cmd: ViewCommand) -> bool:

@@ -85,6 +85,7 @@ fn domains() -> Vec<(&'static str, Vec<(String, u16)>)> {
         ("DeviceAction", of(DeviceAction::ALL, |v| v as u16)),
         ("TurnUnit", of(TurnUnit::ALL, |v| v as u16)),
         ("PageEnd", of(PageEnd::ALL, |v| v as u16)),
+        ("ControllerViewKind", of(ControllerViewKind::ALL, |v| v as u16)),
         ("Resolution", of(Resolution::ALL, |v| v as u16)),
         ("NavigatorTarget", of(NavigatorTarget::ALL, |v| v as u16)),
         ("StepAttr", of(StepAttr::ALL, |v| v as u16)),
@@ -110,7 +111,7 @@ fn py_kind(rust_type: Option<&str>) -> &'static str {
     let Some(t) = rust_type else { return "none" };
     match t.replace(' ', "").replace("'a", "").as_str() {
         "bool" | "Enable" => "bool",
-        "i32" | "IntText" | "Pos1" | "ChannelType" | "RecordQuantization" => "i32",
+        "i32" | "IntText" | "Pos1" | "ChannelType" | "RecordQuantization" | "ControllerViewKind" => "i32",
         "f64" => "f64",
         "&str" => "text",
         "Vec<&str>" => "text_list",
@@ -120,6 +121,7 @@ fn py_kind(rust_type: Option<&str>) -> &'static str {
         "ValueOp" => "value_op",
         "Signature" | "SlotRef" => "pair",
         "GridNote" | "StepValue" => "int_double",
+        "EditWindow" => "edit_window",
         other => panic!("no Python value kind for {other}"),
     }
 }
@@ -1058,7 +1060,7 @@ public final class Protocol
         public final String slots;
         /** The value type of the record (T_*). */
         public final int    valueType;
-        /** The value kind (none, bool, i32, f64, text, text_list, color, value_op, pair, int_double). */
+        /** The value kind (none, bool, i32, f64, text, text_list, color, value_op, pair, int_double, edit_window). */
         public final String kind;
 
 

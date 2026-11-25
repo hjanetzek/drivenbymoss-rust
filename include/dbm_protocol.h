@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0x93286b35e1b94736ULL
+#define DBM_PROTOCOL_HASH 0x6bf61e04e0b4e6f9ULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -81,6 +81,7 @@ enum DbmProcessor
     DBM_PROCESSOR_NAVIGATOR = 36,
     DBM_PROCESSOR_FX_TRACK = 37,
     DBM_PROCESSOR_HOST_PAGE = 38,
+    DBM_PROCESSOR_CONTROLLER = 39,
 };
 
 /* Dev */
@@ -262,6 +263,18 @@ enum DbmPageEnd
 {
     DBM_PAGE_END_FIRST = 0,
     DBM_PAGE_END_LAST = 1,
+};
+
+/* ControllerViewKind */
+enum DbmControllerViewKind
+{
+    DBM_CONTROLLER_VIEW_KIND_LAUNCHER = 0,
+    DBM_CONTROLLER_VIEW_KIND_PLAY = 1,
+    DBM_CONTROLLER_VIEW_KIND_SEQUENCER = 2,
+    DBM_CONTROLLER_VIEW_KIND_DRUM_SEQUENCER = 3,
+    DBM_CONTROLLER_VIEW_KIND_MIXER = 4,
+    DBM_CONTROLLER_VIEW_KIND_DEVICE = 5,
+    DBM_CONTROLLER_VIEW_KIND_OTHER = 6,
 };
 
 /* Resolution */
@@ -1249,6 +1262,8 @@ enum DbmCmdId
     DBM_CMD_CLIP_NOTE_CLEAR_ROW = 0x8745,
     /* clip note/0/clearPosition/{channel}; idx: channel; f64 */
     DBM_CMD_CLIP_NOTE_CLEAR_POSITION = 0x8746,
+    /* clip editWindow; idx: -; struct */
+    DBM_CMD_CLIP_EDIT_WINDOW = 0x8750,
     /* browser contentType/{dir}; idx: dir; none */
     DBM_CMD_BROWSER_CONTENT_TYPE = 0x8801,
     /* browser preview; idx: -; bool */
@@ -1333,6 +1348,8 @@ enum DbmCmdId
     DBM_CMD_HOST_PAGE_SECTION = 0x8C09,
     /* hostpage cell/{cell}/assign/{epoch}; idx: cell, epoch; i32 */
     DBM_CMD_HOST_PAGE_CELL_ASSIGN = 0x8C0A,
+    /* controller view; idx: -; i32 */
+    DBM_CMD_CONTROLLER_VIEW = 0x8D01,
 };
 
 /* A record of a buffer (the payload points into the buffer). */

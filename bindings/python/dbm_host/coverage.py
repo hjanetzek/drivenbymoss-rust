@@ -14,7 +14,8 @@ COMMAND_SLOT_VALUES = {"ch_kind": protocol.ChanKind.TRACK, "ch_processor": proto
                        "bank": protocol.Processor.TRACK, "owner": protocol.Processor.DRUM, "area": protocol.Processor.TRACK,
                        "grid_steps": 16, "grid_rows": 8}
 COMMAND_VALUES = {"none": None, "bool": True, "i32": 1, "f64": 0.5, "text": "x", "text_list": ["x"], "color": (1, 2, 3), "value_op": 0.5,
-                  "pair": (1, 1), "int_double": (1, 0.5), "notes": [], "step": None}
+                  "pair": (1, 1), "int_double": (1, 0.5), "notes": [], "step": None,
+                  "edit_window": (0.0, 2.0, 36, 51)}
 # Commands which need other values than the plausible ones
 COMMAND_OVERRIDES = {
     protocol.Cmd.DRUM_CLEAR_MUTE: ({"dev": protocol.Processor.DRUM}, None),

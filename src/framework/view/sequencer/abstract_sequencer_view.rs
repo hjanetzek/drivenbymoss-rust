@@ -16,6 +16,7 @@ use crate::framework::ids::{ButtonId, Modes, Views};
 use crate::framework::mode::note_editor::{ClipKey, NoteEditor};
 use crate::framework::view::base::{scene_index, ViewBase};
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 use crate::scale::{NoteMatrix, Scales};
 
 /// The state of a sequencer view.
@@ -70,6 +71,29 @@ impl SequencerBase {
     /// Get the clip if it was already created (see [`SequencerBase::clip`]).
     pub fn clip_ref<'a>(&self, ctx: &'a Ctx) -> Option<&'a CursorClip> {
         ctx.model.note_clip_ref(self.clip_cols, self.clip_rows)
+    }
+
+    /// The visible window of the clip (the edit page of [`CursorClip::num_steps`] steps of
+    /// [`CursorClip::step_length`]) with the notes of the visible rows (the lowest and the
+    /// highest, ignoring -1), `None` with the host's step grid (it keeps the window) or without
+    /// a visible note (not part of Java).
+    pub fn edit_window(&self, ctx: &Ctx, notes: impl IntoIterator<Item = i32>) -> Option<EditWindow> {
+        let clip = self.clip_ref(ctx)?;
+        if clip.is_host_grid() {
+            return None;
+        }
+        let length = clip.num_steps() as f64 * clip.step_length();
+        Self::window(clip.edit_page() as f64 * length, length, notes)
+    }
+
+    /// An edit window of the steps and the lowest and highest of the notes (ignoring those
+    /// outside of 0..127), `None` without one.
+    pub fn window(start: f64, length: f64, notes: impl IntoIterator<Item = i32>) -> Option<EditWindow> {
+        let (low, high) = notes.into_iter().filter(|n| (0..128).contains(n)).fold(None, |range: Option<(i32, i32)>, n| match range {
+            None => Some((n, n)),
+            Some((low, high)) => Some((low.min(n), high.max(n))),
+        })?;
+        Some(EditWindow { start, length, low, high })
     }
 
     /// Former `updateControlSurface`: updates the active state of the sequencer and the

@@ -67,7 +67,7 @@ impl View for DrumView {
     crate::forward_view!(base.seq => name, button_color_id, sequencer_resolution_index,
         set_sequencer_resolution_index, on_sequencer_left, on_sequencer_right);
     // AbstractDrumView
-    crate::forward_view!(base => on_activate, on_deactivate, draw_grid, update_control_surface,
+    crate::forward_view!(base => on_activate, on_deactivate, clip_edit_window, draw_grid, update_control_surface,
         update_note_mapping, on_model_event);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
@@ -159,7 +159,7 @@ impl View for DrumLaneView {
         set_sequencer_resolution_index, on_sequencer_left, on_sequencer_right);
 
     // AbstractDrumLaneView
-    crate::forward_view!(base => on_activate, on_deactivate, draw_grid, update_control_surface,
+    crate::forward_view!(base => on_activate, on_deactivate, clip_edit_window, draw_grid, update_control_surface,
         update_note_mapping, on_model_event);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {

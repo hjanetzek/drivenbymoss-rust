@@ -194,6 +194,42 @@ domain! {
     }
 }
 
+domain! {
+    /// The coarse kind of the view which the user picked with a button of a controller
+    /// (`ControllerView`, doc/HOST_BRIDGE_GUIDE.md §4.13). Sent as an i32 (the number of the
+    /// value) and append only: a host treats a number it does not know as `Other`.
+    ControllerViewKind {
+        Launcher = "launcher",
+        Play = "play",
+        Sequencer = "sequencer",
+        DrumSequencer = "drumSequencer",
+        Mixer = "mixer",
+        Device = "device",
+        Other = "other",
+    }
+}
+
+impl ControllerViewKind {
+    /// True for the step sequencers, which have an edit window (`ClipEditWindow`).
+    pub fn is_sequencer(self) -> bool {
+        matches!(self, ControllerViewKind::Sequencer | ControllerViewKind::DrumSequencer)
+    }
+}
+
+/// The number of the kind, as an int in the legacy text.
+impl<'a> Value<'a> for ControllerViewKind {
+    fn encode(&self, _: &mut PathWriter) -> Arg<'_> {
+        Arg::Int(*self as i32)
+    }
+
+    fn decode(_: &mut PathReader<'a>, arg: &'a Arg<'a>) -> Option<Self> {
+        match arg {
+            Arg::Int(v) => ControllerViewKind::ALL.get(usize::try_from(*v).ok()?).copied(),
+            _ => None,
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------------
 // The channel address
 
@@ -450,6 +486,38 @@ impl<'a> Value<'a> for GridNote {
     }
 }
 
+/// The visible window of the step sequencer which a controller edits (`ClipEditWindow`): the
+/// steps from `start` for `length` (in beats) and the MIDI notes `low` to `high` (inclusive) of
+/// the visible rows. Sent as `<start> <length> <low> <high>` in the legacy text; in the binary
+/// form a struct `f64 start, f64 length, i32 low, i32 high`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditWindow {
+    pub start: f64,
+    pub length: f64,
+    pub low: i32,
+    pub high: i32,
+}
+
+impl<'a> Value<'a> for EditWindow {
+    fn encode(&self, _: &mut PathWriter) -> Arg<'_> {
+        Arg::Str(Cow::Owned(format!("{} {} {} {}", self.start, self.length, self.low, self.high)))
+    }
+
+    fn decode(_: &mut PathReader<'a>, arg: &'a Arg<'a>) -> Option<Self> {
+        let Arg::Str(text) = arg else {
+            return None;
+        };
+        let mut parts = text.split(' ');
+        let window = EditWindow {
+            start: parts.next()?.parse().ok()?,
+            length: parts.next()?.parse().ok()?,
+            low: parts.next()?.parse().ok()?,
+            high: parts.next()?.parse().ok()?,
+        };
+        parts.next().is_none().then_some(window)
+    }
+}
+
 /// An attribute of a step and its value: `…/<attribute> <value>` in the legacy text (the
 /// attribute is the last segment); in the binary form a struct `u32 attribute, u32 0, f64 value`
 /// (the step address already takes the four indices).
@@ -592,6 +660,13 @@ impl Sample for SlotRef {
 impl Sample for GridNote {
     fn samples() -> Vec<Self> {
         vec![GridNote { velocity: 100, duration: 0.25 }, GridNote { velocity: 1, duration: 4.0 }]
+    }
+}
+
+#[cfg(test)]
+impl Sample for EditWindow {
+    fn samples() -> Vec<Self> {
+        vec![EditWindow { start: 4.0, length: 2.0, low: 36, high: 51 }, EditWindow { start: 0.0, length: 0.375, low: 0, high: 127 }]
     }
 }
 

@@ -22,6 +22,7 @@
 //! | 0x8A | navigator, refresh, update hints |
 //! | 0x8B | note repeat, groove |
 //! | 0x8C | the host's parameter pages (doc/HOST_PAGE_PLAN.md) |
+//! | 0x8D | the controller: the view the user picked (doc/HOST_BRIDGE_GUIDE.md §4.13) |
 
 #![allow(clippy::enum_variant_names)]
 
@@ -358,6 +359,12 @@ commands! {
     ClipNoteClearRow = 0x8745 { note: i32, channel: i32 } @ Clip ["note" note "clear" channel];
     /// Reaper: clear all notes at the position (in beats).
     ClipNoteClearPosition = 0x8746 { channel: i32 } @ Clip ["note" "0" "clearPosition" channel] => position: f64;
+    /// The visible window of the step sequencer which the controller edits, if the core keeps
+    /// it (no host grid): the steps in beats and the MIDI notes of the visible rows (inclusive;
+    /// a drum sequencer: the keys of its visible pads, also those without a pad on the host).
+    /// Sent after a sequencer's `ControllerView` and on every change of the window or the
+    /// edited clip while a sequencer view picked with a button is active.
+    ClipEditWindow = 0x8750 {} @ Clip ["editWindow"] => window: EditWindow, feature = ClipEditWindow;
 
     // --------------------------------------------------------------------------------------
     // 0x88 Browser
@@ -447,6 +454,16 @@ commands! {
     /// control page (an empty cell clears the slot; -1: remove the controller from every remote
     /// page). A cell command with an old epoch is dropped (zynthian-ui remote-control pages).
     HostPageCellAssign = 0x8C0A { cell: usize, epoch: usize } @ HostPage ["cell" cell "assign" epoch] => slot: i32, feature = HostPages;
+
+    // --------------------------------------------------------------------------------------
+    // 0x8D The controller (doc/HOST_BRIDGE_GUIDE.md §4.13): what the user does on the surface,
+    // for a host which follows it on its own screen. Sent only to a host which handles it.
+
+    /// The user picked a view with a button of the controller (also the one which is already
+    /// active, e.g. SONG in the session view). Never sent on startup, a track change or a
+    /// refresh. `kind` is the number of a [`ControllerViewKind`]: a host treats an unknown
+    /// number as `Other`.
+    ControllerView = 0x8D01 {} @ Controller ["view"] => kind: ControllerViewKind, feature = ControllerViews;
 }
 
 impl Cmd<'_> {

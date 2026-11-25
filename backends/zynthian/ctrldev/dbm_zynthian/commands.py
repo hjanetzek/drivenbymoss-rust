@@ -203,6 +203,9 @@ class ZynCommandHandler(CommandHandler):
         Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
         Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
         Cmd.HOST_PAGE_CELL_ASSIGN,
+        # The controller's view and the edit window of its step sequencer (HOST_BRIDGE_GUIDE
+        # §4.13): agreed, not implemented yet
+        Cmd.CONTROLLER_VIEW, Cmd.CLIP_EDIT_WINDOW,
     ))
     """The CmdIds zynthian does not execute with zynseq (no arranger, no automation, no undo, no
     markers, no note repeat, …). A snapshot: the coverage test of TYPED_PROTOCOL_PLAN §2.5

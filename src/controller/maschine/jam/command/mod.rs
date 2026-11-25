@@ -26,6 +26,7 @@ use crate::framework::commands::view::ViewButtonCommand;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::{ButtonId, Modes, Views};
 use crate::midi::ButtonEvent;
+use crate::protocol::ControllerViewKind;
 
 use super::mode::toggle_user_mode;
 
@@ -70,6 +71,7 @@ impl TriggerCommand for MaschineJamAuxCommand {
             ctx.model.application_mut().add_effect_track();
         } else {
             self.inner.execute_normal(ctx, event);
+            ctx.report_controller_view(ControllerViewKind::Mixer);
         }
     }
 
@@ -130,6 +132,7 @@ impl TriggerCommand for MaschineJamControlCommand {
         } else {
             self.inner.execute_normal(ctx, event);
         }
+        ctx.report_controller_view(ControllerViewKind::Device);
     }
 
     fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
@@ -189,6 +192,7 @@ impl TriggerCommand for MaschineJamLevelCommand {
             ctx.model.application_mut().add_audio_track();
         } else {
             self.inner.execute_normal(ctx, event);
+            ctx.report_controller_view(ControllerViewKind::Mixer);
         }
     }
 
@@ -416,6 +420,8 @@ impl TriggerCommand for MaschineJamSessionViewCommand {
                     return;
                 }
 
+                // The session view is picked, also when it stays (flipped, birds eye off)
+                ctx.report_controller_view(ControllerViewKind::Launcher);
                 if ctx.views.is_active(Views::Session) {
                     let is_birds_eye = Self::with_session_view(ctx, |v| v.is_birds_eye_active()).unwrap_or(false);
                     if is_birds_eye {
@@ -437,6 +443,7 @@ impl TriggerCommand for MaschineJamSessionViewCommand {
             ButtonEvent::Long => {
                 ctx.surface.set_trigger_consumed(ButtonId::Session);
                 Self::with_session_view(ctx, |v| v.set_birds_eye_active(true));
+                ctx.report_controller_view(ControllerViewKind::Launcher);
                 let flipped = ctx.config.is_flip_session();
                 Self::notify_view_name(ctx, true, flipped);
             }
@@ -497,6 +504,7 @@ impl MaschineJamStartSceneCommand {
 
     fn activate_view(ctx: &mut Ctx, view: Views) {
         ctx.activate_preferred_view(view);
+        ctx.report_active_controller_view();
         delay_display(ctx, |ctx| ctx.active_view().and_then(|v| v.try_borrow().ok().map(|v| v.name().to_string())).unwrap_or_default());
     }
 }

@@ -61,7 +61,7 @@ impl View for SequencerView {
         sequencer_resolution_index, set_sequencer_resolution_index, on_sequencer_left,
         on_sequencer_right);
     // AbstractNoteSequencerView
-    crate::forward_view!(base => on_activate, draw_grid, update_note_mapping);
+    crate::forward_view!(base => on_activate, clip_edit_window, draw_grid, update_note_mapping);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
         self.base.on_grid_note(&mut SequencerHooks, ctx, note, velocity);
@@ -141,7 +141,7 @@ impl View for PolySequencerView {
         sequencer_resolution_index, set_sequencer_resolution_index, on_sequencer_left,
         on_sequencer_right);
     // AbstractPolySequencerView
-    crate::forward_view!(base => on_activate, draw_grid, on_grid_note_long_press,
+    crate::forward_view!(base => on_activate, clip_edit_window, draw_grid, on_grid_note_long_press,
         update_note_mapping, on_model_event);
 
     fn on_grid_note(&mut self, ctx: &mut Ctx, note: i32, velocity: i32) {
@@ -195,7 +195,7 @@ impl View for RaindropsView {
     crate::forward_view!(base.seq => name, button_color_id, update_control_surface,
         sequencer_resolution_index, set_sequencer_resolution_index);
     // AbstractRaindropsView
-    crate::forward_view!(base => on_activate, draw_grid, on_grid_note, update_note_mapping);
+    crate::forward_view!(base => on_activate, clip_edit_window, draw_grid, on_grid_note, update_note_mapping);
 
     fn on_button(&mut self, ctx: &mut Ctx, button: ButtonId, event: ButtonEvent, _velocity: i32) {
         match button {

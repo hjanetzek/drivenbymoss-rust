@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0x93286b35e1b94736L;
+    public static final long HASH          = 0x6bf61e04e0b4e6f9L;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -106,6 +106,7 @@ public final class Protocol
         public static final int NAVIGATOR = 36;
         public static final int FX_TRACK = 37;
         public static final int HOST_PAGE = 38;
+        public static final int CONTROLLER = 39;
 
 
         private Processor ()
@@ -430,6 +431,25 @@ public final class Protocol
 
 
         private PageEnd ()
+        {
+            // Constants only
+        }
+    }
+
+
+    /** The domain ControllerViewKind. */
+    public static final class ControllerViewKind
+    {
+        public static final int LAUNCHER = 0;
+        public static final int PLAY = 1;
+        public static final int SEQUENCER = 2;
+        public static final int DRUM_SEQUENCER = 3;
+        public static final int MIXER = 4;
+        public static final int DEVICE = 5;
+        public static final int OTHER = 6;
+
+
+        private ControllerViewKind ()
         {
             // Constants only
         }
@@ -1744,6 +1764,8 @@ public final class Protocol
         CLIP_NOTE_CLEAR_ROW(0x8745, "ClipNoteClearRow", "clip note/{note}/clear/{channel}", "note,channel", 0, "none"),
         /** clip note/0/clearPosition/{channel} */
         CLIP_NOTE_CLEAR_POSITION(0x8746, "ClipNoteClearPosition", "clip note/0/clearPosition/{channel}", "channel", 3, "f64"),
+        /** clip editWindow */
+        CLIP_EDIT_WINDOW(0x8750, "ClipEditWindow", "clip editWindow", "", 6, "edit_window"),
         /** browser contentType/{dir} */
         BROWSER_CONTENT_TYPE(0x8801, "BrowserContentType", "browser contentType/{dir}", "dir", 0, "none"),
         /** browser preview */
@@ -1827,10 +1849,12 @@ public final class Protocol
         /** hostpage section */
         HOST_PAGE_SECTION(0x8C09, "HostPageSection", "hostpage section", "", 2, "i32"),
         /** hostpage cell/{cell}/assign/{epoch} */
-        HOST_PAGE_CELL_ASSIGN(0x8C0A, "HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", "cell,epoch", 2, "i32");
+        HOST_PAGE_CELL_ASSIGN(0x8C0A, "HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", "cell,epoch", 2, "i32"),
+        /** controller view */
+        CONTROLLER_VIEW(0x8D01, "ControllerView", "controller view", "", 2, "i32");
 
 
-        private static final Cmd [] BY_ID = new Cmd [3083];
+        private static final Cmd [] BY_ID = new Cmd [3330];
 
         static
         {
@@ -1848,7 +1872,7 @@ public final class Protocol
         public final String slots;
         /** The value type of the record (T_*). */
         public final int    valueType;
-        /** The value kind (none, bool, i32, f64, text, text_list, color, value_op, pair, int_double). */
+        /** The value kind (none, bool, i32, f64, text, text_list, color, value_op, pair, int_double, edit_window). */
         public final String kind;
 
 

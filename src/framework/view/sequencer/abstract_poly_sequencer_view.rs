@@ -18,6 +18,7 @@ use crate::framework::ctx::Ctx;
 use crate::framework::ids::ButtonId;
 use crate::framework::view::base::ViewBase;
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 use crate::scale::Scales;
 
 pub const GRID_COLUMNS: i32 = 8;
@@ -358,6 +359,15 @@ impl PolySequencerBase {
             notes.push((i, self.grid_color(ctx, true, is_recording, cursor_track, i)));
         }
         (steps, notes)
+    }
+
+    /// The edit window: the page of the clip and the notes of the play area (a step holds all
+    /// notes; not part of Java).
+    pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
+        let scales = ctx.model.scales();
+        let matrix = scales.note_matrix();
+        let start = scales.start_note();
+        self.seq.edit_window(ctx, (start..start + self.sequencer_steps).map(|i| matrix.get(i as usize).copied().unwrap_or(-1)))
     }
 
     pub fn update_note_mapping(&mut self, ctx: &mut Ctx) {

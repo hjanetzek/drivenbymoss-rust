@@ -105,11 +105,16 @@ pub enum HostFeature {
     /// The host provides parameter pages (`hostpage …` commands, `/hostpage/…` reports;
     /// doc/HOST_PAGE_PLAN.md): a page surface (the JAM) shows them.
     HostPages,
+    /// The host follows the view which the user picks on the controller (`controller view
+    /// <kind>`, e.g. zynthian switches its screen).
+    ControllerViews,
+    /// The host shows the edit window of the controller's step sequencer (`clip editWindow`).
+    ClipEditWindow,
 }
 
 impl HostFeature {
     /// All features.
-    pub const ALL: [HostFeature; 10] = [
+    pub const ALL: [HostFeature; 12] = [
         HostFeature::ValueInc,
         HostFeature::ValueReset,
         HostFeature::Immediately,
@@ -120,6 +125,8 @@ impl HostFeature {
         HostFeature::LayoutStep,
         HostFeature::ClipLauncherNavigator,
         HostFeature::HostPages,
+        HostFeature::ControllerViews,
+        HostFeature::ClipEditWindow,
     ];
 
     /// The name of the feature in `/host/features`.
@@ -135,6 +142,8 @@ impl HostFeature {
             HostFeature::LayoutStep => "layoutStep",
             HostFeature::ClipLauncherNavigator => "clipLauncherNavigator",
             HostFeature::HostPages => "hostPages",
+            HostFeature::ControllerViews => "controllerViews",
+            HostFeature::ClipEditWindow => "clipEditWindow",
         }
     }
 
@@ -151,7 +160,7 @@ impl HostFeature {
     /// table, a test keeps this in step): a binary host has them if it handles their commands.
     /// The others are value operations, reported with `/host/features` by every host.
     pub fn is_command_feature(self) -> bool {
-        matches!(self, HostFeature::SoloToggle | HostFeature::TransportCommands | HostFeature::DeviceCommands | HostFeature::LayoutStep | HostFeature::ClipLauncherNavigator | HostFeature::HostPages)
+        matches!(self, HostFeature::SoloToggle | HostFeature::TransportCommands | HostFeature::DeviceCommands | HostFeature::LayoutStep | HostFeature::ClipLauncherNavigator | HostFeature::HostPages | HostFeature::ControllerViews | HostFeature::ClipEditWindow)
     }
 }
 

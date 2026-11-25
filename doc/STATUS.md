@@ -472,6 +472,12 @@ All paths are under `rust/`.
     keep Java's functions.
   - A track change keeps the page surface and the strips (provisional: the user decides later).
   - The reference host simulates zynthian-like pages (`dbm_host_alsa.py --host-pages`).
+- **The controller's view and edit window** (HOST_BRIDGE_GUIDE §4.13, agreed with the zynthian
+  side): `ControllerView {kind}` (0x8D01, feature `controllerViews`) for a press of a view
+  button, `ClipEditWindow {start, length, low, high}` (0x8750, feature `clipEditWindow`) for the
+  core's sequencer window; only to a host which handles them. The JAM sends them; Bitwig, the
+  reference host (unless `controller_follower`) and the zynthian adapter list them unhandled
+  until the zynthian side implements them.
 - **The zynthian side** (by the zynthian-ui session "electra-grid"): zynthian-ui branch
   `electra-grid` (control grid; zynthian's Chain Controllers as named pages of 4 slots,
   `zctrl_pages`, which are the host's remote control pages; shared selection; opening chain

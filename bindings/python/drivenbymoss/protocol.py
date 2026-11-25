@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0x93286b35e1b94736
+HASH = 0x6bf61e04e0b4e6f9
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -86,6 +86,7 @@ class Processor(IntEnum):
     NAVIGATOR = 36
     FX_TRACK = 37
     HOST_PAGE = 38
+    CONTROLLER = 39
 
 
 class Dev(IntEnum):
@@ -227,6 +228,16 @@ class TurnUnit(IntEnum):
 class PageEnd(IntEnum):
     FIRST = 0
     LAST = 1
+
+
+class ControllerViewKind(IntEnum):
+    LAUNCHER = 0
+    PLAY = 1
+    SEQUENCER = 2
+    DRUM_SEQUENCER = 3
+    MIXER = 4
+    DEVICE = 5
+    OTHER = 6
 
 
 class Resolution(IntEnum):
@@ -749,6 +760,7 @@ class Cmd(IntEnum):
     CLIP_NOTE_MOVE_Y = 0x8744
     CLIP_NOTE_CLEAR_ROW = 0x8745
     CLIP_NOTE_CLEAR_POSITION = 0x8746
+    CLIP_EDIT_WINDOW = 0x8750
     BROWSER_CONTENT_TYPE = 0x8801
     BROWSER_PREVIEW = 0x8802
     BROWSER_COLUMN_STEP = 0x8803
@@ -791,6 +803,7 @@ class Cmd(IntEnum):
     HOST_PAGE_SET = 0x8C08
     HOST_PAGE_SECTION = 0x8C09
     HOST_PAGE_CELL_ASSIGN = 0x8C0A
+    CONTROLLER_VIEW = 0x8D01
 
 
 class Info(NamedTuple):
@@ -1263,6 +1276,7 @@ CMD_INFO: dict[int, Info] = {
     Cmd.CLIP_NOTE_MOVE_Y: Info("ClipNoteMoveY", "clip note/{note}/moveY/{channel}/{row}", ((("note", 0, 16, True),), (("channel", 0, 16, True),), (("row", 0, 16, True),),), 3, "f64"),
     Cmd.CLIP_NOTE_CLEAR_ROW: Info("ClipNoteClearRow", "clip note/{note}/clear/{channel}", ((("note", 0, 16, True),), (("channel", 0, 16, True),),), 0, "none"),
     Cmd.CLIP_NOTE_CLEAR_POSITION: Info("ClipNoteClearPosition", "clip note/0/clearPosition/{channel}", ((("channel", 0, 16, True),),), 3, "f64"),
+    Cmd.CLIP_EDIT_WINDOW: Info("ClipEditWindow", "clip editWindow", (), 6, "edit_window"),
     Cmd.BROWSER_CONTENT_TYPE: Info("BrowserContentType", "browser contentType/{dir}", ((("dir", 0, 16, False),),), 0, "none"),
     Cmd.BROWSER_PREVIEW: Info("BrowserPreview", "browser preview", (), 1, "bool"),
     Cmd.BROWSER_COLUMN_STEP: Info("BrowserColumnStep", "browser column/{column}/{dir}", ((("column", 0, 16, False),), (("dir", 0, 16, False),),), 0, "none"),
@@ -1305,6 +1319,7 @@ CMD_INFO: dict[int, Info] = {
     Cmd.HOST_PAGE_SET: Info("HostPageSet", "hostpage set", (), 2, "i32"),
     Cmd.HOST_PAGE_SECTION: Info("HostPageSection", "hostpage section", (), 2, "i32"),
     Cmd.HOST_PAGE_CELL_ASSIGN: Info("HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 2, "i32"),
+    Cmd.CONTROLLER_VIEW: Info("ControllerView", "controller view", (), 2, "i32"),
 }
 
 MSG_IDS = frozenset(MSG_INFO)
@@ -1331,6 +1346,7 @@ _COLOR = struct.Struct("<4B")
 _INT_DOUBLE = struct.Struct("<i4xd")
 _NOTE = struct.Struct("<ddiiiI")
 _STEP = struct.Struct("<24d")
+_EDIT_WINDOW = struct.Struct("<ddii")
 _PAD = (b"", b"\0" * 7, b"\0" * 6, b"\0" * 5, b"\0" * 4, b"\0" * 3, b"\0" * 2, b"\0")
 
 HEADER = b"DBM1" + struct.pack("<HH", VERSION_MAJOR, 0)
@@ -1414,10 +1430,25 @@ def _get_int_double(b, p, n, t):
     return _INT_DOUBLE.unpack_from(b, p + 24)
 
 
+class EditWindow(NamedTuple):
+    """The value of ClipEditWindow: the steps from `start` for `length` beats, the MIDI notes
+    `low` to `high` (inclusive) of the visible rows."""
+
+    start: float
+    length: float
+    low: int
+    high: int
+
+
+def _get_edit_window(b, p, n, t):
+    return EditWindow(*_EDIT_WINDOW.unpack_from(b, p + 24)) if n >= 24 else None
+
+
 GETTERS = {
     "none": _get_none, "bool": _get_bool, "i32": _get_i32, "f64": _get_f64, "text": _get_text,
     "text_list": _get_text_list, "color": _get_color, "notes": _get_notes, "step": _get_step,
     "value_op": _get_value_op, "pair": _get_pair, "int_double": _get_int_double,
+    "edit_window": _get_edit_window,
 }
 """The value readers by value kind."""
 
@@ -1625,6 +1656,10 @@ class _WriterBase:
     def put_int_double(self, id_, i0, i1, i2, i3, value):
         self._put_payload(id_, T_STRUCT, i0, i1, i2, i3, _INT_DOUBLE.pack(value[0], value[1]))
 
+    def put_edit_window(self, id_, i0, i1, i2, i3, value):
+        """value: (start, length, low, high), e.g. an EditWindow."""
+        self._put_payload(id_, T_STRUCT, i0, i1, i2, i3, _EDIT_WINDOW.pack(*value))
+
     def put_value_op(self, id_, i0, i1, i2, i3, value, op=OP_SET):
         """A value command: a double (set, inc, immediately), a bool (touch, indicate), None
         (reset)."""
@@ -1732,6 +1767,7 @@ _PUTTERS = {
     "text": _WriterBase.put_text, "text_list": _WriterBase.put_text_list, "color": _WriterBase.put_color,
     "notes": _WriterBase.put_notes, "step": _WriterBase.put_step, "value_op": _WriterBase.put_value_op,
     "pair": _WriterBase.put_pair, "int_double": _WriterBase.put_int_double,
+    "edit_window": _WriterBase.put_edit_window,
 }
 """The writers by value kind."""
 
@@ -7122,6 +7158,14 @@ class CmdClipNoteClearPosition(Record):
     value = _value("f64")
 
 
+class CmdClipEditWindow(Record):
+    """clip editWindow"""
+
+    __slots__ = ()
+    KIND = "edit_window"
+    value = _value("edit_window")
+
+
 class CmdBrowserContentType(Record):
     """browser contentType/{dir}"""
 
@@ -7495,6 +7539,14 @@ class CmdHostPageCellAssign(Record):
     value = _value("i32")
 
 
+class CmdControllerView(Record):
+    """controller view"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
 CMD_VIEWS: dict[int, type] = {
     0x8101: CmdTransportPlay,
     0x8102: CmdTransportRestart,
@@ -7701,6 +7753,7 @@ CMD_VIEWS: dict[int, type] = {
     0x8744: CmdClipNoteMoveY,
     0x8745: CmdClipNoteClearRow,
     0x8746: CmdClipNoteClearPosition,
+    0x8750: CmdClipEditWindow,
     0x8801: CmdBrowserContentType,
     0x8802: CmdBrowserPreview,
     0x8803: CmdBrowserColumnStep,
@@ -7743,6 +7796,7 @@ CMD_VIEWS: dict[int, type] = {
     0x8C08: CmdHostPageSet,
     0x8C09: CmdHostPageSection,
     0x8C0A: CmdHostPageCellAssign,
+    0x8D01: CmdControllerView,
 }
 
 VIEWS: dict[int, type] = {**MSG_VIEWS, **CMD_VIEWS}

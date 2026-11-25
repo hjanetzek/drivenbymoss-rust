@@ -300,6 +300,8 @@ features: the Bitwig extension before it reported its features); a host which re
 | `layoutStep` | Previous/next panel layout of the host | `application layout/-\|+` (`application layout <index>`) |
 | `clipLauncherNavigator` | The host's clip launcher navigator (only reported if the model setup has `wantsClipLauncherNavigator`; Bitwig: `ClipLauncherNavigatorImpl` of the Java version, a bank of one track following its own cursor track with one scene, its slot selected, the scene window following its scene) | `navigator selectTrack <position>` (then `track <p>/select`), `navigator tracks\|clips\|scenes/-\|+` (the core selects the slot of the new track itself, as the Reaper version) |
 | `hostPages` | The host provides parameter pages (doc/HOST_PAGE_PLAN.md): a page surface (the Maschine JAM, Select + SONG) shows them; binary hosts only | `hostpage show\|cell/<c>/turn\|press\|touch\|reset\|row\|page\|set\|section` (§4.12; nothing without) |
+| `controllerViews` | The host follows the view the user picks on the controller (zynthian switches its screen); binary hosts only | `controller view <kind>` (§4.13; nothing without) |
+| `clipEditWindow` | The host shows the visible window of the controller's step sequencer (zynthian scrolls its editor); binary hosts only | `clip editWindow "<start> <length> <low> <high>"` (§4.13; nothing without) |
 
 Features detected from their own reports need no name (table above): paging, the automation and
 overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
@@ -811,6 +813,42 @@ automation is recorded, so that old values do not jump back). Reaper honours bot
 
 Every selecting command changes the host's own selection (its screen), which the host then
 reports.
+
+### 4.13 The controller's view and edit window (`controller view`, `clip editWindow`)
+
+For a host which follows the controller on its own screen (zynthian). Command features
+`controllerViews` and `clipEditWindow`: the core sends them only to a binary host which handles
+them (its handled-commands bitset). *Reference host:* `ControllerFollower` in
+`bindings/python/dbm_host/commands.py` (only with `SimDaw.controller_follower`).
+
+| ID | Command | Value | When |
+| --- | --- | --- | --- |
+| 0x8D01 | `ControllerView`, `controller view` | i32 `kind` | the user picked a view with a button of the controller, also the one which is already active (SONG in the session view, STEP cycling the sequencers). Never on startup, a recalled preferred view, a track change, a setting change or a refresh |
+| 0x8750 | `ClipEditWindow`, `clip editWindow` | struct `f64 start, f64 length, i32 low, i32 high` (text: `"<start> <length> <low> <high>"`) | the visible window of the step sequencer: right after a sequencer's `ControllerView` (also unchanged), then on every change of the window (page, step size, octave, scale, drum offset) or of the edited clip (track, slot) while the last picked view is a sequencer and a sequencer view is active; only real changes |
+
+`kind` (`ControllerViewKind`, append only): 0 `Launcher`, 1 `Play`, 2 `Sequencer`, 3
+`DrumSequencer`, 4 `Mixer`, 5 `Device`, 6 `Other`. It is a plain int on the wire and in the
+generated bindings (Python `view.value` is an `int`, compare it with
+`protocol.ControllerViewKind.SEQUENCER`); a host treats a number it does not know as `Other`
+(do not convert it with `ControllerViewKind(value)`, which raises for a newer kind).
+
+The window: `start` and `length` in beats (the edit page of the sequencer: page × steps × step
+length; the raindrops sequencer: the clip's loop), `low` and `high` the MIDI notes (inclusive) of
+the visible rows: the scale rows of a note sequencer, the play area of the poly sequencer, the
+keys of the visible drum pads (16, 8 or 4 from the drum offset, also keys without a pad in the
+host's drum machine). Not sent while the host has the step grid (`clip grid/…`: the host keeps
+the window). Python: `view.value` is a `protocol.EditWindow` (`.start`, `.length`, `.low`,
+`.high`).
+
+On the Maschine JAM: SONG → `Launcher`; STEP and STEP + scene → `Sequencer` (note, poly,
+raindrops) or `DrumSequencer` (drum, Drum 4, Drum 8), then the window; PAD MODE and PAD MODE +
+scene → `Play` (also Drum 64: it plays); LEVEL, AUX → `Mixer`; CONTROL → `Device`. Another
+controller calls `Ctx::report_controller_view` from its view buttons
+(`ViewMultiSelectCommand::reporting`) and forwards `View::clip_edit_window` of its sequencer
+views (`src/framework/controller_view.rs`).
+
+The Bitwig bridge does not handle them (in `CommandHandler.UNHANDLED`): in the Java original the
+modes and views never switch Bitwig's panels, and the API has no scrolling of an editor.
 
 ## 5. MIDI and note inputs
 

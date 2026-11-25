@@ -838,6 +838,46 @@ impl BinValue<'_> for StepValue {
     }
 }
 
+/// The number of the kind (append only). A host reads it as a plain int, so a newer kind does not
+/// break an older binding.
+impl BinValue<'_> for ControllerViewKind {
+    const TYPE: u8 = ty::I32;
+
+    fn encode(&self, out: &mut ValOut) {
+        set_i64(out, ty::I32, *self as i64);
+    }
+
+    fn decode(record: &Record<'_>) -> Option<Self> {
+        ControllerViewKind::ALL.get(usize::try_from(i32::decode(record)?).ok()?).copied()
+    }
+}
+
+/// `f64 start, f64 length, i32 low, i32 high` (payload struct).
+impl BinValue<'_> for EditWindow {
+    const TYPE: u8 = ty::STRUCT;
+
+    fn encode(&self, out: &mut ValOut) {
+        out.ty = ty::STRUCT;
+        out.payload.extend_from_slice(&self.start.to_le_bytes());
+        out.payload.extend_from_slice(&self.length.to_le_bytes());
+        out.payload.extend_from_slice(&self.low.to_le_bytes());
+        out.payload.extend_from_slice(&self.high.to_le_bytes());
+    }
+
+    fn decode(record: &Record<'_>) -> Option<Self> {
+        if !is(record, ty::STRUCT) || record.payload.len() != 24 {
+            return None;
+        }
+        let p = record.payload;
+        Some(EditWindow {
+            start: f64::from_le_bytes(p[0..8].try_into().expect("8 bytes")),
+            length: f64::from_le_bytes(p[8..16].try_into().expect("8 bytes")),
+            low: i32::from_le_bytes(p[16..20].try_into().expect("4 bytes")),
+            high: i32::from_le_bytes(p[20..24].try_into().expect("4 bytes")),
+        })
+    }
+}
+
 impl BinValue<'_> for IntText {
     const TYPE: u8 = ty::I32;
 

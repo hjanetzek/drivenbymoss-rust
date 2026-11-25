@@ -369,6 +369,30 @@ class CommandCoverageTest(unittest.TestCase):
             _ = kept[0].b[0]
 
 
+class ControllerFollowerTest(unittest.TestCase):
+
+    def test_the_view_and_the_edit_window(self):
+        """With a controller_follower the host handles ControllerView (a plain int, also a kind
+        the binding does not know) and ClipEditWindow (an EditWindow); without it neither."""
+        from dbm_host.commands import ControllerFollower
+        lines = ["int\tcontroller\tview\t2", "string\tclip\teditWindow\t4 2 36 51"]
+        daw = project()
+        daw.controller_follower = ControllerFollower()
+        host = Host(daw)
+        self.assertLessEqual({protocol.Cmd.CONTROLLER_VIEW, protocol.Cmd.CLIP_EDIT_WINDOW}, host.commands.handled_commands())
+        host.commands.process_commands(drivenbymoss.messages_from_text("\n".join(lines)))
+        newer = protocol.Writer()
+        newer.put(protocol.Cmd.CONTROLLER_VIEW, 0, 0, 0, 0, 99)  # A kind of a newer core
+        host.commands.process_commands(newer.buffer())
+        follower = daw.controller_follower
+        self.assertEqual(follower.views, [protocol.ControllerViewKind.SEQUENCER, 99])
+        self.assertEqual(follower.window, protocol.EditWindow(4.0, 2.0, 36, 51))
+        self.assertEqual((follower.window.start, follower.window.length, follower.window.low, follower.window.high), (4.0, 2.0, 36, 51))
+        self.assertEqual(host.commands.unhandled, [])
+        self.assertEqual(len(host.commands.log), 3)
+        self.assertFalse({protocol.Cmd.CONTROLLER_VIEW, protocol.Cmd.CLIP_EDIT_WINDOW} & Host().commands.handled_commands())
+
+
 class ReporterTest(unittest.TestCase):
 
     def test_records_and_their_text(self):

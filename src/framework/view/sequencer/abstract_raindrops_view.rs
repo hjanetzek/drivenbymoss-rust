@@ -12,6 +12,7 @@ use crate::framework::color_ids::abstract_sequencer_view::*;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::ButtonId;
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 use crate::scale::Scales;
 
 pub const NUM_DISPLAY_COLS: i32 = 8;
@@ -42,6 +43,16 @@ impl RaindropsBase {
             ongoing_resolution_change: false,
             offset_y: START_KEY,
         }
+    }
+
+    /// The edit window: the loop of the clip (the view shows the distances of the notes in it)
+    /// and the notes of the columns (not part of Java).
+    pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
+        let clip = self.seq.clip_ref(ctx)?;
+        if clip.is_host_grid() {
+            return None;
+        }
+        SequencerBase::window(clip.loop_start(), clip.loop_length(), (0..self.num_display_cols).map(|x| self.seq.view.key_manager.map(x)))
     }
 
     pub fn on_activate(&mut self, ctx: &mut Ctx) {

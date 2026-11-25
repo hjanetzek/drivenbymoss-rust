@@ -455,7 +455,7 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         ctx,
         ButtonId::Sequencer,
         "STEP",
-        Some(shared(ViewMultiSelectCommand::with_options(&SEQUENCER_VIEWS, true, ButtonEvent::Up, false))),
+        Some(shared(ViewMultiSelectCommand::with_options(&SEQUENCER_VIEWS, true, ButtonEvent::Up, false).reporting())),
         jam::STEP,
         bool_supplier(|ctx| ctx.views.is_any_active(&SEQUENCER_VIEWS)),
     );
@@ -463,7 +463,7 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         ctx,
         ButtonId::Note,
         "PAD MODE",
-        Some(shared(ViewMultiSelectCommand::with_options(&PLAY_VIEWS, true, ButtonEvent::Up, false))),
+        Some(shared(ViewMultiSelectCommand::with_options(&PLAY_VIEWS, true, ButtonEvent::Up, false).reporting())),
         jam::PAD_MODE,
         bool_supplier(|ctx| ctx.views.is_any_active(&PLAY_VIEWS)),
     );

@@ -69,6 +69,9 @@ pub struct Ctx {
     /// The graphics display of the controller, if any (e.g. the Akai Fire OLED). Notifications
     /// are shown on it and on the host.
     pub graphics_display: Option<super::graphics::GraphicDisplay>,
+    /// The reports of the picked view and the sequencer's edit window to the host
+    /// ([`super::controller_view`]).
+    pub(crate) controller_view: super::controller_view::ControllerViewSync,
 }
 
 impl Ctx {
@@ -93,6 +96,7 @@ impl Ctx {
             restart_requested: false,
             surfaces: super::multi_surface::SurfaceSet::default(),
             graphics_display: None,
+            controller_view: Default::default(),
         }
     }
 
@@ -687,6 +691,7 @@ impl Ctx {
                 view.draw_grid(self);
             }
         }
+        self.sync_clip_edit_window();
         self.flush_lights();
         if let Some(display) = &mut self.text_display {
             display.flush();

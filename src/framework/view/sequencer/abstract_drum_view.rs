@@ -23,6 +23,7 @@ use crate::framework::color_ids::abstract_sequencer_view::COLOR_NO_CONTENT;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::ButtonId;
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 use crate::scale::{NoteMatrix, Scales};
 
 pub const GRID_COLUMNS: i32 = 8;
@@ -541,6 +542,18 @@ impl DrumBase {
         }
         let matrix: NoteMatrix = if self.can_pads_be_turned_on(ctx) { ctx.model.scales().drum_matrix() } else { Scales::empty_matrix() };
         self.seq.view.update_note_mapping(ctx, matrix);
+    }
+
+    /// The edit window: the page of the clip and the keys of the visible drum pads, from the
+    /// drum offset, also those which the host's drum machine has no pad for (not part of Java).
+    pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
+        self.edit_window_of_pads(ctx, self.play_rows * self.play_columns)
+    }
+
+    /// The edit window with the keys of `pads` drum pads from the drum offset.
+    pub fn edit_window_of_pads(&self, ctx: &Ctx, pads: i32) -> Option<EditWindow> {
+        let offset = ctx.model.scales().drum_offset();
+        self.seq.edit_window(ctx, offset..offset + pads)
     }
 
     pub fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {

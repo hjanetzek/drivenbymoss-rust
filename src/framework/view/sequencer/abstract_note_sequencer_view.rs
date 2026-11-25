@@ -10,6 +10,7 @@ use crate::daw::constants::Resolution;
 use crate::framework::ctx::Ctx;
 use crate::framework::ids::ButtonId;
 use crate::midi::ButtonEvent;
+use crate::protocol::EditWindow;
 use crate::scale::Scales;
 
 const OCTAVE: i32 = 12;
@@ -243,6 +244,12 @@ impl NoteSequencerBase {
             result.push((pad, 0, SequencerBase::page_color(loop_start_pad, loop_end_pad, current_page, clip.edit_page(), pad)));
         }
         result
+    }
+
+    /// The edit window: the page of the clip and the notes of the sequencer rows (not part of
+    /// Java).
+    pub fn clip_edit_window(&self, ctx: &Ctx) -> Option<EditWindow> {
+        self.seq.edit_window(ctx, (0..self.seq.num_sequencer_rows).map(|y| self.seq.view.key_manager.map(y)))
     }
 
     pub fn on_octave_down(&mut self, ctx: &mut Ctx, event: ButtonEvent) {

@@ -130,6 +130,11 @@ macro_rules! forward_view {
             self.$($f).+.set_sequencer_resolution_index(ctx, index)
         }
     };
+    (@fun clip_edit_window, [$($f:ident).+]) => {
+        fn clip_edit_window(&self, ctx: &$crate::framework::ctx::Ctx) -> Option<$crate::protocol::EditWindow> {
+            self.$($f).+.clip_edit_window(ctx)
+        }
+    };
     (@fun is_birds_eye_active, [$($f:ident).+]) => {
         fn is_birds_eye_active(&self) -> bool {
             self.$($f).+.is_birds_eye_active()

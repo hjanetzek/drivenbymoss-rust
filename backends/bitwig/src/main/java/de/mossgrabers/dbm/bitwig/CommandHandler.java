@@ -44,7 +44,7 @@ public final class CommandHandler
      * (dbm_set_command_callback), which logs such a command once. The coverage test
      * (CommandCoverageTest) keeps the set exact.
      */
-    public static final Set<Cmd> UNHANDLED          = EnumSet.of (Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.TRACK_IN_QUANT_RESOLUTION, Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.MASTER_CROSSFADER, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET, Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW, Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT, Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH, Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION, Cmd.HOST_PAGE_CELL_ASSIGN);
+    public static final Set<Cmd> UNHANDLED          = EnumSet.of (Cmd.METRO_VOL_SET, Cmd.METRO_VOL_STEP, Cmd.TRACK_IN_QUANT_RESOLUTION, Cmd.TRACK_RECORD_CLIP, Cmd.TRACK_PIN, Cmd.TRACK_OVERDUB, Cmd.MASTER_CROSSFADER, Cmd.CLIP_NOTE_TOGGLE, Cmd.CLIP_NOTE_SET, Cmd.CLIP_NOTE_UPDATE, Cmd.CLIP_NOTE_CLEAR, Cmd.CLIP_NOTE_MOVE_Y, Cmd.CLIP_NOTE_CLEAR_ROW, Cmd.CLIP_NOTE_CLEAR_POSITION, Cmd.GROOVE_ACTIVE, Cmd.GROOVE_AMOUNT, Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH, Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION, Cmd.HOST_PAGE_CELL_ASSIGN, Cmd.CONTROLLER_VIEW, Cmd.CLIP_EDIT_WINDOW);
 
     /** The panel layouts in the order of the core's layout index. */
     private static final String []    PANEL_LAYOUTS      = { "ARRANGE", "MIX", "EDIT", "PLAY" };
@@ -814,6 +814,12 @@ public final class CommandHandler
             // --- The host's parameter pages (doc/HOST_PAGE_PLAN.md; later: the remote control pages)
 
             case HOST_PAGE_SHOW, HOST_PAGE_CELL_TURN, HOST_PAGE_CELL_PRESS, HOST_PAGE_CELL_TOUCH, HOST_PAGE_CELL_RESET, HOST_PAGE_ROW, HOST_PAGE_PAGE, HOST_PAGE_SET, HOST_PAGE_SECTION, HOST_PAGE_CELL_ASSIGN -> this.notHandled (v, cmd);
+
+            // --- The controller's view and the sequencer's edit window: not needed, the modes of
+            // the Java version never switch Bitwig's panels and the API has no editor scrolling
+            // (HOST_BRIDGE_GUIDE §4.13)
+
+            case CONTROLLER_VIEW, CLIP_EDIT_WINDOW -> this.notHandled (v, cmd);
         }
     }
 

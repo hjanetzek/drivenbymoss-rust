@@ -16,6 +16,7 @@ _COLOR = struct.Struct("<4B")
 _INT_DOUBLE = struct.Struct("<i4xd")
 _NOTE = struct.Struct("<ddiiiI")
 _STEP = struct.Struct("<24d")
+_EDIT_WINDOW = struct.Struct("<ddii")
 _PAD = (b"", b"\0" * 7, b"\0" * 6, b"\0" * 5, b"\0" * 4, b"\0" * 3, b"\0" * 2, b"\0")
 
 HEADER = b"DBM1" + struct.pack("<HH", VERSION_MAJOR, 0)
@@ -99,10 +100,25 @@ def _get_int_double(b, p, n, t):
     return _INT_DOUBLE.unpack_from(b, p + 24)
 
 
+class EditWindow(NamedTuple):
+    """The value of ClipEditWindow: the steps from `start` for `length` beats, the MIDI notes
+    `low` to `high` (inclusive) of the visible rows."""
+
+    start: float
+    length: float
+    low: int
+    high: int
+
+
+def _get_edit_window(b, p, n, t):
+    return EditWindow(*_EDIT_WINDOW.unpack_from(b, p + 24)) if n >= 24 else None
+
+
 GETTERS = {
     "none": _get_none, "bool": _get_bool, "i32": _get_i32, "f64": _get_f64, "text": _get_text,
     "text_list": _get_text_list, "color": _get_color, "notes": _get_notes, "step": _get_step,
     "value_op": _get_value_op, "pair": _get_pair, "int_double": _get_int_double,
+    "edit_window": _get_edit_window,
 }
 """The value readers by value kind."""
 
@@ -310,6 +326,10 @@ class _WriterBase:
     def put_int_double(self, id_, i0, i1, i2, i3, value):
         self._put_payload(id_, T_STRUCT, i0, i1, i2, i3, _INT_DOUBLE.pack(value[0], value[1]))
 
+    def put_edit_window(self, id_, i0, i1, i2, i3, value):
+        """value: (start, length, low, high), e.g. an EditWindow."""
+        self._put_payload(id_, T_STRUCT, i0, i1, i2, i3, _EDIT_WINDOW.pack(*value))
+
     def put_value_op(self, id_, i0, i1, i2, i3, value, op=OP_SET):
         """A value command: a double (set, inc, immediately), a bool (touch, indicate), None
         (reset)."""
@@ -417,6 +437,7 @@ _PUTTERS = {
     "text": _WriterBase.put_text, "text_list": _WriterBase.put_text_list, "color": _WriterBase.put_color,
     "notes": _WriterBase.put_notes, "step": _WriterBase.put_step, "value_op": _WriterBase.put_value_op,
     "pair": _WriterBase.put_pair, "int_double": _WriterBase.put_int_double,
+    "edit_window": _WriterBase.put_edit_window,
 }
 """The writers by value kind."""
 

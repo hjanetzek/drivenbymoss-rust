@@ -127,6 +127,13 @@ pub trait View: Any {
         false
     }
 
+    /// The visible window of the step sequencer of the view (the steps and the notes of its
+    /// rows), `None` if the view is no sequencer or the host keeps the window (its step grid).
+    /// Sent as `ClipEditWindow` (see [`Ctx::sync_clip_edit_window`]). Not part of Java.
+    fn clip_edit_window(&self, _ctx: &Ctx) -> Option<crate::protocol::EditWindow> {
+        None
+    }
+
     /// Former `instanceof IExpressionView`: true if the view plays notes with expressions (MPE),
     /// e.g. the play and drum views of the Push 3.
     fn is_expression_view(&self) -> bool {

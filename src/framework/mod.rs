@@ -25,6 +25,7 @@ pub mod setup_helpers;
 pub mod string_utils;
 pub mod multi_surface;
 pub mod clip_launcher_navigator;
+pub mod controller_view;
 pub mod graphics;
 pub mod osc;
 pub mod page_surface;
