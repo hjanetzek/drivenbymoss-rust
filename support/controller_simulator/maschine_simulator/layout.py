@@ -33,13 +33,17 @@ class Control:
     index: int = 0
     """The display (0 left, 1 right), the strip or meter number."""
     key: int = -1
+    help_side: str = ""
+    """The side of the panel for the control's help box (empty: the nearest, sim_common.help)."""
+    help_label: str = ""
+    """The name of the control in its help box (empty: the label, or the core's label)."""
 
     def as_dict(self) -> dict:
         return {"kind": self.kind, "label": self.label, "x": self.x, "y": self.y, "w": self.w, "h": self.h,
                 "cc": self.key, "note": self.key, "rgb": self.rgb, "index": self.index}
 
 
-SURFACE = {"mk2": (322.0, 200.0), "jam": (262.0, 252.0), "mk3": (350.0, 220.0), "mikromk3": (262.0, 168.0)}
+SURFACE = {"mk2": (322.0, 200.0), "jam": (370.0, 312.0), "mk3": (350.0, 220.0), "mikromk3": (262.0, 168.0)}
 
 # The client and port names of NI's driver and dbm-nihost: (client, DAW input, DAW output)
 PORT_NAMES = {
@@ -106,54 +110,71 @@ def _mk2() -> list[Control]:
 
 
 def _jam() -> list[Control]:
+    """The JAM as in a top view photo of the device (1400 px wide, about 0.264 mm per pixel,
+    the logo strip cut off): `px(cx, cy, w, h)` places a control by its centre and size in the
+    photo's pixels. The controls are created in the same order as before (their keys)."""
     c: list[Control] = []
+    scale, top = 0.264, 55.0
 
-    def button(label, template, x, y, w=30.0, h=9.0, rgb=False):
-        c.append(Control("button", label, x, y, w, h, template=template, rgb=rgb))
+    def px(cx, cy, w, h):
+        return ((cx - w / 2) * scale, (cy - top - h / 2) * scale, w * scale, h * scale)
 
-    x0, y0, pitch = 40.0, 24.0, 20.0
-    button("Song", "BtnArrange", 4, 8, 30, 10)
+    def button(label, template, rect, rgb=False, help_label="", help_side=""):
+        c.append(Control("button", label, *rect, template=template, rgb=rgb, help_label=help_label, help_side=help_side))
+
+    columns = [262 + i * 125.7 for i in range(8)]
+    rows = [187 + r * 64 for r in range(8)]
+    button("Song", "BtnArrange", px(83, 97, 92, 40), help_side="top")
     for i in range(8):
-        button(f"{i + 1}", f"BtnScene{i + 1}", x0 + i * pitch, 8, 18, 10, rgb=True)
-        button(chr(ord("A") + i), f"BtnGroup{chr(ord('A') + i)}", x0 + i * pitch, y0 + 8 * pitch + 2, 18, 10, rgb=True)
-        c.append(Control("strip", "", x0 + i * pitch + 3, y0 + 8 * pitch + 16, 12, 50,
-                         template=f"Tst{chr(ord('A') + i)}", touch=f"CapTst{chr(ord('A') + i)}", rgb=True, index=i))
+        letter = chr(ord("A") + i)
+        button(f"{i + 1}", f"BtnScene{i + 1}", px(columns[i], 98, 94, 40), rgb=True, help_label=f"Scene {i + 1}")
+        button(letter, f"BtnGroup{letter}", px(columns[i], 727, 94, 52), rgb=True, help_label=f"Group {letter}")
+        # The strip and its LED column on its right
+        c.append(Control("strip", "", *px(columns[i] + 8, 949, 82, 282), template=f"Tst{letter}", touch=f"CapTst{letter}", rgb=True, index=i))
         for row in range(8):
-            c.append(Control("pad", "", x0 + i * pitch, y0 + row * pitch, 18, 18,
-                             template=f"Btn{chr(ord('A') + i)}{row + 1}", rgb=True))
-    # Left column
-    for i, (label, template) in enumerate((("Step", "BtnStep"), ("Pad Mode", "BtnPadMode"), ("Clear", "BtnClear"),
-                                          ("Duplicate", "BtnDuplicate"))):
-        button(label, template, 4, 26 + i * 12)
-    button("▴", "BtnDpad1", 14, 76, 10, 8)
-    button("◂", "BtnDpad4", 4, 85, 10, 8)
-    button("▸", "BtnDpad2", 24, 85, 10, 8)
-    button("▾", "BtnDpad3", 14, 94, 10, 8)
-    button("Note Rep.", "BtnArpRepeat", 4, 108)
-    for i, (label, template) in enumerate((("Play", "BtnPlay"), ("Rec", "BtnRecord"))):
-        button(label, template, 4, 150 + i * 12)
-    button("◂", "BtnArrowLeft", 4, 174, 14, 9)
-    button("▸", "BtnArrowRight", 20, 174, 14, 9)
+            c.append(Control("pad", "", *px(columns[i], rows[row], 94, 50), template=f"Btn{letter}{row + 1}", rgb=True))
+    # The upper left column, the d-pad, Note Repeat on the group row
+    for (label, template), y in zip((("Step", "BtnStep"), ("Pad Mode", "BtnPadMode"), ("Clear", "BtnClear"), ("Duplicate", "BtnDuplicate")),
+                                    (184, 249, 313, 378)):
+        button(label, template, px(83, y, 92, 42))
+    for label, template, x, y, name in (("▴", "BtnDpad1", 83, 552, "Up"), ("◂", "BtnDpad4", 41, 596, "Left"), ("▸", "BtnDpad2", 125, 596, "Right"),
+                                        ("▾", "BtnDpad3", 83, 640, "Down")):
+        button(label, template, px(x, y, 40, 40), help_label=name)
+    button("Note Repeat", "BtnArpRepeat", px(83, 729, 92, 52))
+    # The bottom row under the strips (Play .. Mute in the columns)
+    button("Play", "BtnPlay", px(columns[0], 1170, 94, 52))
+    button("Rec", "BtnRecord", px(columns[1], 1170, 94, 52))
+    button("◂", "BtnArrowLeft", px(columns[2], 1170, 94, 52), help_label="Page ◂")
+    button("▸", "BtnArrowRight", px(columns[3], 1170, 94, 52), help_label="Page ▸")
     # Shift: not in the template, sent as NI's SysEx
-    button("Shift", "", 4, 230, 30, 12)
-    # Right column with the level meters (CC 64/65)
-    for i, (label, template) in enumerate((("Master", "BtnMst"), ("Group", "BtnGrp"), ("In", "BtnIn1"),
-                                          ("Cue", "BtnCue"), ("Browse", "BtnBrowse"))):
-        button(label, template, 204, 8 + i * 11, 34, 9)
-    c.append(Control("meter", "L", 242, 8, 6, 51, index=0))
-    c.append(Control("meter", "R", 250, 8, 6, 51, index=1))
-    c.append(Control("encoder", "", 212, 66, 26, 26, template="EncBrowse", touch="CapBrowse"))
-    button("Push", "PshBrowse", 240, 72, 18, 9)
-    for i, (label, template) in enumerate((("Macro", "BtnMacro"), ("Level", "BtnLevel"), ("Aux", "BtnAux"),
-                                          ("Control", "BtnControl"), ("Auto", "BtnAuto"))):
-        button(label, template, 204, 100 + i * 11, 52, 9)
-    for i, ((l1, t1), (l2, t2)) in enumerate(((("Perform", "BtnPerform"), ("Notes", "BtnVariation")),
-                                              (("Lock", "BtnLock"), ("Tune", "BtnTune")),
-                                              (("Swing", "BtnSwing"), ("Tempo", "BtnTempo")),
-                                              (("Grid", "BtnGrid"), ("Solo", "BtnSolo")),
-                                              (("Mute", "BtnMute"), ("Select", "BtnSelect")))):
-        button(l1, t1, 204, 160 + i * 17, 25, 14)
-        button(l2, t2, 231, 160 + i * 17, 25, 14)
+    button("Shift", "", px(85, 1172, 92, 50))
+    # The upper right column: the level meters (CC 64/65), MST GRP, IN 1 and the headphones
+    button("MST", "BtnMst", px(1292, 372, 44, 36), help_label="MST")
+    button("GRP", "BtnGrp", px(1347, 372, 44, 36), help_label="GRP")
+    button("IN 1", "BtnIn1", px(1292, 446, 44, 36), help_label="IN 1")
+    button("🎧", "BtnCue", px(1347, 446, 44, 36), help_label="Headphones")
+    button("Browse", "BtnBrowse", px(1320, 728, 92, 50))
+    c.append(Control("meter", "L", *px(1289, 230, 14, 190), index=0))
+    c.append(Control("meter", "R", *px(1343, 230, 14, 190), index=1))
+    c.append(Control("encoder", "", *px(1320, 590, 96, 96), template="EncBrowse", touch="CapBrowse", help_label="Encoder"))
+    button("Push", "PshBrowse", px(1320, 668, 56, 24), help_label="Encoder push")
+    # The block left of the strips, the block right of them
+    for (label, template), y in zip((("Macro", "BtnMacro"), ("Level", "BtnLevel"), ("Aux", "BtnAux"), ("Control", "BtnControl"),
+                                     ("Auto", "BtnAuto")), (826, 882, 937, 1018, 1074)):
+        button(label, template, px(85, y, 92, 36))
+    for (l1, t1, y1), (l2, t2, y2) in ((("Perform", "BtnPerform", 825), ("Notes", "BtnVariation", 880)),
+                                       (("Lock", "BtnLock", 936), ("Tune", "BtnTune", 1017)),
+                                       (("Swing", "BtnSwing", 1072), ("Tempo", "BtnTempo", None)),
+                                       (("Grid", "BtnGrid", None), ("Solo", "BtnSolo", None)),
+                                       (("Mute", "BtnMute", None), ("Select", "BtnSelect", None))):
+        for label, template, y, column in ((l1, t1, y1, None), (l2, t2, y2, None)):
+            if y is not None:
+                button(label, template, px(1318, y, 92, 36))
+            elif label == "Select":
+                button(label, template, px(1320, 1169, 92, 50))
+            else:
+                index = {"Tempo": 4, "Grid": 5, "Solo": 6, "Mute": 7}[label]
+                button(label, template, px(columns[index], 1170, 94, 52))
     return c
 
 

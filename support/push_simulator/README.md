@@ -55,6 +55,10 @@ support/push_simulator/tools/dbm_host_alsa.py --model push2 \
 The display only appears once the Python binding passes the core's `usb_bulk_out` callback to the
 backend. The runner's bridge has a method `usb_bulk_out(device_index, endpoint, data)` for this.
 `--controller UUID` runs any other controller, which is useful for testing the runner itself.
+The help of the controls (doc/CONTROLLER_HELP_PLAN.md) goes to a simulator's help socket:
+`--help-socket PATH`, else `$DBM_SIM_HELP_SOCKET`, else `$XDG_RUNTIME_DIR/dbm-sim-help.sock` if a
+simulator listens there (`--no-help`: none; `--help-model` picks the controller with several
+`--model`). The Push simulator doesn't show it yet; the Maschine simulators do.
 
 ### With Bitwig (Java DrivenByMoss or the Rust extension)
 

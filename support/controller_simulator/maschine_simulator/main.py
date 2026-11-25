@@ -30,6 +30,12 @@ def parse_args(argv=None):
                              "the core binds); NI's driver doesn't send them")
     parser.add_argument("--detached", action="store_true",
                         help="start without the device: no hello, no answer to the query (as dbm-nihost without the device)")
+    parser.add_argument("--tap", action="append", default=[], metavar="LABEL",
+                        help="for automated runs: press and release the button with this label after --action-delay "
+                             "(repeatable, in the order given)")
+    parser.add_argument("--latch", action="append", default=[], metavar="LABEL",
+                        help="for automated runs: press and hold the button with this label after --action-delay")
+    parser.add_argument("--action-delay", type=float, default=1.5, help="seconds before --tap / --latch (default 1.5)")
     sim_app.add_common_args(parser)
     return parser.parse_args(argv)
 
@@ -84,6 +90,24 @@ def main(argv=None) -> int:
                                                IN_PORT, OUT_PORT, args.connect)
     if not args.detached:
         device.attach()
+
+    if args.tap or args.latch:
+        from PySide6.QtCore import QTimer
+
+        def key_of(label: str) -> int:
+            matches = [c.key for c in device.controls if c.kind == "button" and label in (c.label, c.help_label)]
+            if not matches:
+                raise SystemExit(f"no button {label!r}")
+            return matches[0]
+
+        def act() -> None:
+            for label in args.latch:
+                device.press_button(key_of(label))
+            for label in args.tap:
+                device.press_button(key_of(label))
+                device.release_button(key_of(label))
+
+        QTimer.singleShot(int(args.action_delay * 1000), act)
 
     def cleanup() -> None:
         device.detach()

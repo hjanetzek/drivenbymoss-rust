@@ -17,6 +17,12 @@ use this interface: ``revision`` (bumped when LEDs change or animate), ``padColo
 ``monitorVisible``, ``logLines``, ``controls``, ``surfaceWidth``/``surfaceHeight``, ``model``,
 ``title``. A control is identified by the ``cc`` and ``note`` fields of its dict in ``controls``;
 what they mean is up to the subclass.
+
+The help boxes (doc/CONTROLLER_HELP_PLAN.md, ``HelpLayer`` of SimCommon): ``helpVisible``,
+``helpItems`` (with ``helpRevision``), ``helpStatus``, ``helpToggleExpanded(id)``, ``helpHideGlobal``,
+``helpViewName`` / ``helpModeName`` (the legend). A subclass
+enables them with ``enable_help(resolve, centre)`` (see ``sim_common.help.HelpModel``); the
+entries come from the host over ``start_help_server(path)``.
 """
 
 import time
@@ -24,6 +30,7 @@ from collections import deque
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from . import help as sim_help
 from .midi import describe, hexstr
 
 LOG_LINES = 400
@@ -43,6 +50,10 @@ class SimulatorBase(QObject):
     statusChanged = Signal()
     monitorVisibleChanged = Signal()
     encodersChanged = Signal()
+    helpChanged = Signal()
+    helpVisibleChanged = Signal()
+    helpLineReceived = Signal(str)
+    helpConnectReceived = Signal(bool)
 
     midiReceived = Signal(bytes, str)
     statusReceived = Signal(str)
@@ -64,6 +75,13 @@ class SimulatorBase(QObject):
         self._encoders: dict[int, dict] = {}
         self._encoder_revision = 0
         self._last_half_second = None
+        self.help_model: sim_help.HelpModel | None = None
+        self._help_visible = False
+        self._help_dirty = False
+        self._help_server: sim_help.HelpServer | None = None
+        self._help_status = "help: no socket"
+        self.helpLineReceived.connect(self._on_help_line)
+        self.helpConnectReceived.connect(self._on_help_connect)
         device.listeners.append(self._on_device_change)
         device.monitor = self._on_monitor
         self.midiReceived.connect(self._on_midi)
@@ -121,6 +139,116 @@ class SimulatorBase(QObject):
     def tick_dirty(self, dirty: set[str]) -> None:
         """Signals of a subclass for what changed since the last tick."""
 
+    # Help (doc/CONTROLLER_HELP_PLAN.md)
+
+    def enable_help(self, resolve, centre=(0, 0, 0, 0)) -> None:
+        """Map the host's help entries to the controls: ``resolve(entry)`` returns a
+        ``sim_common.help.HelpTarget`` or None; ``centre`` is the central area (x0, y0, x1, y1,
+        surface units, e.g. the pads) the sides are found around."""
+        self.help_model = sim_help.HelpModel(resolve, self._surface_size, centre)
+
+    def start_help_server(self, path: str) -> bool:
+        """Listen for the host's help entries on a UNIX socket. Not if another simulator listens
+        on the path already (its socket is left alone)."""
+        if self.help_model is None:
+            return False
+        import socket
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        # A listener with a full backlog (another simulator with its host connected) makes a
+        # blocking connect wait forever: a timeout counts as in use
+        probe.settimeout(0.5)
+        try:
+            probe.connect(path)
+            in_use = True
+        except (socket.timeout, BlockingIOError):
+            in_use = True
+        except OSError:
+            in_use = False
+        finally:
+            probe.close()
+        if in_use:
+            self._help_status = f"help: {path} is used by another simulator"
+            self.log(self._help_status)
+            return False
+        self._help_server = sim_help.HelpServer(path, self.helpLineReceived.emit, self.helpConnectReceived.emit)
+        try:
+            self._help_server.start()
+        except OSError as ex:
+            self._help_server = None
+            self._help_status = f"help: {ex}"
+            self.log(self._help_status)
+            return False
+        self._help_status = f"help: waiting for the host on {path}"
+        self.log(self._help_status)
+        return True
+
+    def stop_help_server(self) -> None:
+        if self._help_server is not None:
+            self._help_server.stop()
+            self._help_server = None
+
+    def _on_help_line(self, line: str) -> None:
+        if self.help_model is not None and self.help_model.apply_line(line):
+            self._help_dirty = True
+
+    def _on_help_connect(self, connected: bool) -> None:
+        path = self._help_server.path if self._help_server else ""
+        self._help_status = "help: host connected" if connected else f"help: waiting for the host on {path}"
+        if self.help_model is not None:
+            # A new connection sends all entries again
+            self.help_model.clear()
+        self._help_dirty = True
+
+    def _get_help_visible(self):
+        return self._help_visible
+
+    def _set_help_visible(self, visible):
+        if visible != self._help_visible:
+            self._help_visible = visible
+            self.helpVisibleChanged.emit()
+
+    helpVisible = Property(bool, _get_help_visible, _set_help_visible, notify=helpVisibleChanged)
+
+    @Property("QVariantList", notify=helpChanged)
+    def helpItems(self):
+        return self.help_model.items() if self.help_model is not None else []
+
+    @Property(int, notify=helpChanged)
+    def helpRevision(self):
+        return self.help_model.revision if self.help_model is not None else 0
+
+    @Property(str, notify=helpChanged)
+    def helpStatus(self):
+        return self._help_status
+
+    @Property(str, notify=helpChanged)
+    def helpViewName(self):
+        return self.help_model.context.get("view", "") if self.help_model is not None else ""
+
+    @Property(str, notify=helpChanged)
+    def helpModeName(self):
+        return self.help_model.context.get("mode", "") if self.help_model is not None else ""
+
+    def _get_help_hide_global(self):
+        return self.help_model.hide_global if self.help_model is not None else False
+
+    def _set_help_hide_global(self, hide):
+        if self.help_model is not None and hide != self.help_model.hide_global:
+            self.help_model.set_hide_global(hide)
+            self.helpChanged.emit()
+
+    helpHideGlobal = Property(bool, _get_help_hide_global, _set_help_hide_global, notify=helpChanged)
+
+    @Property(bool, constant=True)
+    def helpAvailable(self):
+        return self.help_model is not None
+
+    @Slot(str)
+    def helpToggleExpanded(self, entry_id):
+        if self.help_model is not None:
+            self.help_model.toggle_expanded(entry_id)
+            self.helpChanged.emit()
+
     def _tick(self) -> None:
         dirty, self._dirty = self._dirty, set()
         if "leds" in dirty or self.device.has_animation():
@@ -129,6 +257,9 @@ class SimulatorBase(QObject):
         if dirty & {"display", "settings"}:
             self.statusChanged.emit()
         self.tick_dirty(dirty)
+        if self._help_dirty:
+            self._help_dirty = False
+            self.helpChanged.emit()
         if self._log_dirty and self._monitor_visible:
             self._log_dirty = False
             self.logChanged.emit()

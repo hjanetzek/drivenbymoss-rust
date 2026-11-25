@@ -23,6 +23,13 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--screenshot", default=None, help="grab the window to this PNG before quitting")
     parser.add_argument("--quit-after", type=float, default=0.0, help="quit after this many seconds")
     parser.add_argument("--size", default=None, help="window size WxH")
+    parser.add_argument("--help-socket", default=None, metavar="PATH",
+                        help="the socket for the help of the controls from the host (default: $DBM_SIM_HELP_SOCKET, else "
+                             "$XDG_RUNTIME_DIR/dbm-sim-help.sock; doc/CONTROLLER_HELP_PLAN.md)")
+    parser.add_argument("--show-help", action="store_true", help="start with the help boxes shown (key H toggles them)")
+    parser.add_argument("--hide-global", action="store_true", help="start with the boxes of the global functions hidden (key G)")
+    parser.add_argument("--help-file", default=None, metavar="PATH",
+                        help="help entries to show at the start (JSON lines as the host sends them; for tests and screenshots)")
 
 
 def create_app(name: str):
@@ -71,6 +78,18 @@ def run(app, sim, qml_file: str, args, image_providers: dict | None = None,
     # Imported so that the root object comes as a QQuickWindow (with grabWindow), not as a QWindow
     from PySide6 import QtQuick  # noqa: F401
 
+    # The help of the controls, for simulators which map it to their controls
+    if getattr(sim, "help_model", None) is not None:
+        from . import help as sim_help
+        sim.start_help_server(getattr(args, "help_socket", None) or sim_help.default_socket_path())
+        sim.helpVisible = bool(getattr(args, "show_help", False))
+        sim.helpHideGlobal = bool(getattr(args, "hide_global", False))
+        if getattr(args, "help_file", None):
+            with open(args.help_file, encoding="utf-8") as lines:
+                for line in lines:
+                    if line.strip():
+                        sim.help_model.apply_line(line)
+
     engine = QQmlApplicationEngine()
     engine.addImportPath(QML_IMPORT_PATH)
     for name, provider in (image_providers or {}).items():
@@ -106,5 +125,7 @@ def run(app, sim, qml_file: str, args, image_providers: dict | None = None,
     try:
         return app.exec()
     finally:
+        if getattr(sim, "help_model", None) is not None:
+            sim.stop_help_server()
         if cleanup:
             cleanup()

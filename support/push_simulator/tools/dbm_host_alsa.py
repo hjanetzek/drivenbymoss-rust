@@ -40,6 +40,13 @@ with "Electra Port 1", the controls) and "DrivenByMoss CTRL" for its port 1 (wit
 CTRL", the SysEx API). ``--electra-client N`` picks the emulator by its ALSA client number (its
 log says it) when several run; its ports 0 and 2 are Port 1 and CTRL.
 
+The help of the controls (doc/CONTROLLER_HELP_PLAN.md): the core's help entries
+(``dbm_take_control_help``) go to the simulator's help socket, one JSON object per line, only the
+changes; after a (re)connect all of them. The socket: ``--help-socket PATH``, else
+``$DBM_SIM_HELP_SOCKET``, else ``$XDG_RUNTIME_DIR/dbm-sim-help.sock`` if a simulator listens there;
+``--no-help`` sends none. With several controllers the help of ``--help-model`` (default: the JAM if
+it runs, else the first model).
+
 Several controllers in one process (``--model electra --model jam``): each gets its own ALSA
 client ("DrivenByMoss dbm_host MODEL") and its own controller instance of the same library, on
 one simulated DAW. That is how the surface link (doc/SURFACE_LINK.md) is tried: the Electra One
@@ -101,6 +108,61 @@ MASCHINE_SUFFIXES = (" (sim)", "")
 TICK_MS = 30
 # The interval of reading an in-process device (the Maschines over libdbm_nihost)
 POLL_MS = 3
+
+
+class HelpWriter:
+    """Writes the help lines to the simulator's help socket (a UNIX stream socket the simulator
+    listens on); connects lazily, at most once a second, and reports a new connection (then the
+    host sends all entries again)."""
+
+    RETRY_SECONDS = 1.0
+
+    def __init__(self, path: str):
+        self.path = path
+        self.sock: socket.socket | None = None
+        self.retry_at = 0.0
+
+    def connect(self) -> bool:
+        """True if a new connection was made."""
+        if self.sock is not None or time.monotonic() < self.retry_at:
+            return False
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(self.path)
+        except OSError:
+            sock.close()
+            self.retry_at = time.monotonic() + self.RETRY_SECONDS
+            return False
+        self.sock = sock
+        return True
+
+    def write(self, lines: list[str]) -> None:
+        if self.sock is None or not lines:
+            return
+        try:
+            self.sock.sendall(("\n".join(lines) + "\n").encode("utf-8"))
+        except OSError:
+            self.sock.close()
+            self.sock = None
+            self.retry_at = time.monotonic() + self.RETRY_SECONDS
+
+    def close(self) -> None:
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+
+def help_socket_path(args) -> str | None:
+    """The help socket: --help-socket, $DBM_SIM_HELP_SOCKET, else the default path if it exists."""
+    if args.no_help:
+        return None
+    if args.help_socket:
+        return args.help_socket
+    if os.environ.get("DBM_SIM_HELP_SOCKET"):
+        return os.environ["DBM_SIM_HELP_SOCKET"]
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/dbm-{os.getuid()}"
+    path = os.path.join(runtime, "dbm-sim-help.sock")
+    return path if os.path.exists(path) else None
 
 
 class DisplayWriter:
@@ -243,6 +305,11 @@ def main() -> int:
                         help="the host provides parameter pages (dbm_host/host_page.py, doc/HOST_PAGE_PLAN.md): the JAM shows them "
                              "with Select + SONG; the simulated screen's selection moves with SIGUSR1 (next page) and SIGUSR2 "
                              "(previous page), and is printed when it changes")
+    parser.add_argument("--help-socket", default=None, metavar="PATH",
+                        help="the simulator's socket for the help of the controls (default: $DBM_SIM_HELP_SOCKET, else "
+                             "$XDG_RUNTIME_DIR/dbm-sim-help.sock if it exists)")
+    parser.add_argument("--no-help", action="store_true", help="send no help of the controls")
+    parser.add_argument("--help-model", default=None, help="with several --model: whose help goes to the socket")
     parser.add_argument("--verbose", action="store_true", help="print the MIDI")
     args = parser.parse_args()
     models = args.model or ["push2"]
@@ -328,6 +395,12 @@ def main() -> int:
         bridge.start()
         print(f"{model}: controller {controller} running (config {config})")
         runners.append((model, seq, bridge))
+    help_path = help_socket_path(args)
+    help_writer = HelpWriter(help_path) if help_path else None
+    help_model = args.help_model or ("jam" if "jam" in models else models[0])
+    help_bridge = next((bridge for model, _, bridge in runners if model == help_model), None)
+    if help_writer and help_bridge is not None:
+        print(f"help of {help_model}: {help_path}")
     print("Ctrl+C to stop")
     try:
         next_tick = time.monotonic()
@@ -354,6 +427,12 @@ def main() -> int:
                     if screen != last_screen:
                         last_screen = screen
                         print("host screen: {} · {} · {} · {} {}".format(*screen))
+            if help_writer and help_bridge is not None and help_bridge.app is not None:
+                if help_writer.connect():
+                    # A new connection: all entries again
+                    help_bridge.app.reset_control_help()
+                if help_writer.sock is not None:
+                    help_writer.write(help_bridge.app.take_control_help_lines())
             for model, _, bridge in runners:
                 prefix = "" if len(runners) == 1 else f"{model}: "
                 for line in bridge.notifications:
@@ -377,6 +456,8 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if help_writer:
+            help_writer.close()
         for _, seq, bridge in runners:
             bridge.close()
             seq.close()

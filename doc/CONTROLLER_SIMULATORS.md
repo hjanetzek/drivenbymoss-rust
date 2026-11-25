@@ -8,6 +8,9 @@ Akai APC40 mkII, the Novation Launchpad Pro Mk3 and the Novation Launch Control 
 touchscreen controller that is meant to grow out of them. It covers the architecture, where to
 find a controller's protocol, and the pitfalls we hit.
 
+The help boxes (what each button does in the current state, texts from the core, the JAM first)
+are planned and documented in [CONTROLLER_HELP_PLAN.md](CONTROLLER_HELP_PLAN.md).
+
 The READMEs have the user's view (options, protocol tables, how to run):
 [support/push_simulator/README.md](../support/push_simulator/README.md),
 [support/controller_simulator/README.md](../support/controller_simulator/README.md).
@@ -261,6 +264,16 @@ tests (`tempfile.mkdtemp(dir=os.environ.get("XDG_RUNTIME_DIR"))`).
   `st.ring === false` (the Launch Control XL: the value only turns the indicator, and the knob's LED
   is a separate small `LedButton` without a message). The Push's state has no
   `dot` key, and an absent key is `undefined`, which is false.
+- **Don't name an id `layer`.** Inside an `Item` (a delegate, a `Rectangle`), `layer.x` is the
+  item's own `layer` group property (`layer.enabled`, `layer.effect`), not the outer item with
+  that id: every binding read `undefined` (the help layer's boxes had no size). The id of the
+  help layer is `helpLayer`.
+- **QML warnings and `console.log` went nowhere** on this desktop (Qt logs to the journal when
+  stderr is not a terminal). `QT_FORCE_STDERR_LOGGING=1` brings them to stderr; set it when an
+  offscreen run shows a broken window without a message.
+- **Give a delegate component's `var` properties defaults** (`property var box: ({...})`): they
+  are `undefined` until the delegate assigns them, and a binding which throws then is not
+  re-evaluated reliably.
 - **Faders are not motorized:** `Fader` shows the value the simulator sent last
   (`sim.faderValue`) and follows `sim.revision`; the bridge bumps the revision when a fader moved.
 

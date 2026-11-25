@@ -48,6 +48,8 @@ cd support/controller_simulator && python3 -m midi_simulator --help
 | `--monitor` | open the MIDI monitor (F2 toggles it) |
 | `--no-alsa` | no ports |
 | `--quit-after S`, `--screenshot PNG`, `--size WxH` | for automated runs (`QT_QPA_PLATFORM=offscreen`) |
+| `--help-socket PATH`, `--show-help`, `--hide-global`, `--help-file JSONL` | the help boxes (below) |
+| `--tap LABEL`, `--latch LABEL`, `--action-delay S` | for automated runs: tap / hold a button after S seconds (default 1.5) |
 
 | Option (APC40 mkII, Launchpad Pro Mk3, Launch Control XL) | Meaning |
 | --- | --- |
@@ -82,6 +84,29 @@ For the Maschines it reads from the simulator's `... In (sim)` port and writes t
 suffix it falls back to the plain names; `--suffix` picks a suffix. The Mk2's core sends the query
 at its start, the simulator answers with the hello, and the core logs "dbm-nihost sends the Shift
 button, STEP LEFT is Stop".
+
+### The help boxes
+
+With the Rust core in the reference host the Maschine simulators show what each button does in
+the current state (view, mode, held Shift / Select): key **H** or the "Help" checkbox in the status
+bar. The texts come from the core (`dbm_take_control_help`, doc/CONTROLLER_HELP_PLAN.md); so far
+the JAM has them. A click on a box, or pressing its button, shows the full text.
+
+```sh
+support/controller_simulator/run.sh --model jam --show-help &
+support/controller_simulator/tools/dbm_host_alsa.py --model jam --library target/debug/libdrivenbymoss.so
+```
+
+The simulator listens on `--help-socket`, else `$DBM_SIM_HELP_SOCKET`, else
+`$XDG_RUNTIME_DIR/dbm-sim-help.sock` (not if another simulator listens there); the host writes to
+`--help-socket`, `$DBM_SIM_HELP_SOCKET`, or the default path if it exists (`--no-help`: none).
+`--help-file` shows saved entries without a host (tests, screenshots).
+
+The boxes are coloured by what their text depends on: grey global, blue the view, orange the mode
+(strips, Page ◂▸), purple a held modifier (Shift, Select, ...); the status bar shows the legend with
+the active view and mode. Key **G** (the "Globals" checkbox, `--hide-global`) hides the global
+boxes: what remains changes with the view, the mode or the modifiers. A row of buttons with one
+function (the JAM's scenes, the group buttons) is one box with a bracket along the row.
 
 ### With Bitwig
 
@@ -220,6 +245,7 @@ Both use the 128-colour velocity palette shared by Push 1, the APC40 mkII and th
 | `sim_common/app.py` | the common options, `open_ports`, the run loop with `--quit-after`/`--screenshot` |
 | `sim_common/qml/SimCommon/` | the QML module: `SimWindow` (surface, status bar, monitor), `Pad`, `LedButton`, `Encoder` (value ring or LED ring, "single" mode as a short arc), `Fader`, `StatusBar`, `MidiMonitor` |
 | `sim_common/palettes.py` | the 128-colour velocity palette (generated) |
+| `sim_common/help.py`, `qml/SimCommon/HelpLayer.qml`, `HelpBox.qml` | the help boxes: the socket, the model, the layout and drawing |
 | `maschine_simulator/device.py` | `MaschineDevice`: protocol and state without Qt |
 | `maschine_simulator/layout.py` | the controls with template ids and positions, the port names |
 | `maschine_simulator/ni.py` | NI's palette, the SysEx of NI and of dbm-nihost |
@@ -266,6 +292,9 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   with `src/controller/launchcontrol` (the constants, the template header, the knob LED formula,
   the UUID, the discovery name and the startup template).
 - `test_midi_alsa.py`: an ALSA loopback with ` (test)` names.
+- `test_help.py`: the help boxes: the layout along a side, the model (sides, expanding on a press),
+  the socket, the JAM's mapping of the core's entries (every entry of the real core in the states
+  every button makes goes to a control), the boxes drawn offscreen, the host's writer.
 - `test_midi_smoke.py`: all three offscreen with ` (smoke)` names, started through the Push `run.sh`,
   fed by `midi_feed.py`, grabbed to PNGs (into `MIDI_SIM_SCREENSHOTS`), checked for the fed colours
   and the LED rings.

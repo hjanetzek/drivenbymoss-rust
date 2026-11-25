@@ -6,3 +6,6 @@ Encoder 1.0 Encoder.qml
 StatusBar 1.0 StatusBar.qml
 MidiMonitor 1.0 MidiMonitor.qml
 Fader 1.0 Fader.qml
+HelpLayer 1.0 HelpLayer.qml
+HelpBox 1.0 HelpBox.qml
+HelpLines 1.0 HelpLines.qml
