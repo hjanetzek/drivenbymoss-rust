@@ -432,6 +432,29 @@ char *dbm_take_setting_changes(struct DbmApp *app);
 // `app` must be a valid handle (or null).
 char *dbm_take_setting_states(struct DbmApp *app);
 
+// The help of the controls (doc/CONTROLLER_HELP_PLAN.md): the entries which changed since the
+// last call, one JSON object per line, of the first running controller. The fields: `id` (the
+// button's or control's ID name, `grid` for the pads, the mode's knobs or strips under their
+// own ID, e.g. `strips`), `label`, `bind` (`cc`, `note`, `pitchbend`, `program` or null),
+// `channel`, `control` (-1 without a binding), `pressed`, `presses` (the number of presses so
+// far, also counting a press released between two calls), `scope` (`global`, `view`, `mode`,
+// `modifier`: what the text depends on), `members` (a row of buttons with one text: their `id`,
+// `bind`, `channel`, `control`; the row's id is `First..Last`), `short` (at most 2 lines: what the
+// control does now) and `long` (the full text, may be empty). An entry whose help went away has
+// an empty `short`. The entries `@view` and `@mode` carry the names of the active view and
+// mode in `short`. Release the result with [`dbm_free_string`].
+//
+// # Safety
+// `app` must be a valid handle (or null).
+char *dbm_take_control_help(struct DbmApp *app);
+
+// Forget the help entries handed out so far: the next [`dbm_take_control_help`] returns all of
+// them (e.g. after the simulator connected again).
+//
+// # Safety
+// `app` must be a valid handle (or null).
+void dbm_reset_control_help(struct DbmApp *app);
+
 // The notifications since the last call, one per line. Release the result with
 // [`dbm_free_string`].
 //

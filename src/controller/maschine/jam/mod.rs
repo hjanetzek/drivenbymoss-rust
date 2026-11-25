@@ -12,6 +12,7 @@ pub mod mode;
 pub mod command;
 pub mod setup;
 pub mod surface_link;
+pub mod help;
 
 use crate::backend::Sender;
 use crate::config::Configuration;

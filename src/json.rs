@@ -79,6 +79,12 @@ impl JsonWriter {
         self
     }
 
+    pub fn null(&mut self) -> &mut Self {
+        self.separate();
+        self.text.push_str("null");
+        self
+    }
+
     pub fn boolean(&mut self, value: bool) -> &mut Self {
         self.separate();
         self.text.push_str(if value { "true" } else { "false" });

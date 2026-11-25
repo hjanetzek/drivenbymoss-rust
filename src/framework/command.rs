@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::ctx::Ctx;
+use super::help::Help;
 use crate::midi::ButtonEvent;
 
 /// A command which is executed by a button.
@@ -26,11 +27,22 @@ pub trait TriggerCommand {
     fn execute_normal(&mut self, _ctx: &mut Ctx, _event: ButtonEvent) {}
 
     fn execute_shifted(&mut self, _ctx: &mut Ctx, _event: ButtonEvent) {}
+
+    /// What pressing the button would do now (the active view and mode, the held modifiers),
+    /// for the help of the simulators (not part of Java, [`super::help`]). None: no help.
+    fn help(&self, _ctx: &Ctx) -> Option<Help> {
+        None
+    }
 }
 
 /// A command which is executed by a continuous control (knob, fader) with a value.
 pub trait ContinuousCommand {
     fn execute(&mut self, ctx: &mut Ctx, value: i32);
+
+    /// What turning the control would do now (see [`TriggerCommand::help`]).
+    fn help(&self, _ctx: &Ctx) -> Option<Help> {
+        None
+    }
 }
 
 /// A command which handles aftertouch.

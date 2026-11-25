@@ -9,6 +9,8 @@ pub mod value_changer;
 pub mod color;
 pub mod color_ids;
 pub mod command;
+pub mod help;
+pub mod help_table;
 pub mod ctx;
 pub mod feature;
 pub mod forward;

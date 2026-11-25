@@ -57,6 +57,17 @@ pub trait View: Any {
     /// A button was pressed, which is handled by the view (e.g. scene buttons).
     fn on_button(&mut self, _ctx: &mut Ctx, _button: ButtonId, _event: ButtonEvent, _velocity: i32) {}
 
+    /// What a button which is handed to the view (`on_button`) does now, for the help of the
+    /// simulators (not part of Java, [`super::help`]).
+    fn button_help(&self, _ctx: &Ctx, _button: ButtonId) -> Option<super::help::Help> {
+        None
+    }
+
+    /// What the pads do now (one text for the grid), see [`View::button_help`].
+    fn grid_help(&self, _ctx: &Ctx) -> Option<super::help::Help> {
+        None
+    }
+
     /// Update all controls which are not part of the grid (e.g. the display of the active mode).
     fn update_control_surface(&mut self, ctx: &mut Ctx) {
         ctx.update_active_mode_display();
@@ -243,6 +254,17 @@ pub trait Mode: Any {
     }
 
     fn update_display(&mut self, _ctx: &mut Ctx) {}
+
+    /// What a button which is handed to the mode does now, for the help of the simulators (not
+    /// part of Java, [`super::help`]).
+    fn button_help(&self, _ctx: &Ctx, _button: ButtonId) -> Option<super::help::Help> {
+        None
+    }
+
+    /// What the knobs or faders of the mode do now (one text for all of them).
+    fn controls_help(&self, _ctx: &Ctx) -> Option<super::help::Help> {
+        None
+    }
 
     fn on_knob_value(&mut self, _ctx: &mut Ctx, _index: usize, _value: i32) {}
 

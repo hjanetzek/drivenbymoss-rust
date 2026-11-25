@@ -712,3 +712,25 @@ class App:
     def take_notifications(self) -> list[str]:
         """The notifications (popups of the host) since the last call."""
         return _lines(_take(self._library.dbm_take_notifications(self._app())))
+
+    def take_control_help_lines(self) -> list[str]:
+        """The help entries of the controls which changed since the last call, as the JSON lines
+        of ``dbm_take_control_help`` (doc/CONTROLLER_HELP_PLAN.md); empty with a library which
+        lacks the function."""
+        if not hasattr(self._library, "dbm_take_control_help"):
+            return []
+        return _lines(_take(self._library.dbm_take_control_help(self._app())))
+
+    def take_control_help(self) -> list[dict]:
+        """The changed help entries as dicts: ``id``, ``label``, ``bind`` (``"cc"``, ``"note"``, ...
+        or None), ``channel``, ``control``, ``pressed``, ``presses``, ``scope`` (``global``, ``view``,
+        ``mode``, ``modifier``), ``members`` (a row of buttons with one text), ``short`` (at most 2
+        lines, empty: no help now), ``long``; ``@view`` / ``@mode`` carry the names of the active
+        view and mode."""
+        return [json.loads(line) for line in self.take_control_help_lines()]
+
+    def reset_control_help(self) -> None:
+        """The next take_control_help returns all entries (e.g. for a simulator which connected
+        again)."""
+        if hasattr(self._library, "dbm_reset_control_help"):
+            self._library.dbm_reset_control_help(self._app())

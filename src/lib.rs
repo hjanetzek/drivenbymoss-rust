@@ -8,6 +8,9 @@
 //! functions in [`ffi`] (which mirror the static methods of the former `Controller` Java class) and
 //! hands over a table of callbacks which replaces the former JNI `native` methods.
 
+// The help tables (framework/help_table.rs): the `help!` macro munches its rows one by one
+#![recursion_limit = "512"]
+
 pub mod app;
 pub mod backend;
 pub mod config;
@@ -36,6 +39,9 @@ macro_rules! id_enum {
 
         impl $name {
             pub const ALL: &'static [$name] = &[$($name::$variant),*];
+
+            /// The names of the variants, in the order of [`Self::ALL`] (for compile time lookups).
+            pub const NAMES: &'static [&'static str] = &[$(stringify!($variant)),*];
 
             pub fn ordinal(self) -> usize {
                 self as usize

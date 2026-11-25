@@ -38,9 +38,14 @@ pub struct HwButton {
     /// The MIDI binding: type, channel, control and value (-1 for any value).
     pub binding: Option<(BindType, i32, i32, i32)>,
     pub light: Option<usize>,
+    /// The help of a button without a command describing it ([`super::help`]).
+    pub help: Option<super::help::HelpFn>,
     pub(crate) state: Option<ButtonEvent>,
     pub(crate) is_consumed: bool,
     pub(crate) pressed_velocity: i32,
+    /// The number of presses so far (the help shows a press which was released before it was
+    /// collected).
+    pub(crate) presses: u32,
     pub(crate) schedule_counter: u32,
     pub(crate) down_handlers: Vec<ButtonEventHandler>,
     pub(crate) up_handlers: Vec<ButtonEventHandler>,
@@ -54,9 +59,11 @@ impl HwButton {
             action: ButtonAction::None,
             binding: None,
             light: None,
+            help: None,
             state: None,
             is_consumed: false,
             pressed_velocity: 0,
+            presses: 0,
             schedule_counter: 0,
             down_handlers: Vec::new(),
             up_handlers: Vec::new(),

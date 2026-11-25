@@ -69,6 +69,8 @@ struct Running {
     /// When the changed global settings are written to the configuration file (only on a host
     /// with one controller, see [`SAVE_SETTINGS_DELAY_MS`]).
     save_due: Option<Instant>,
+    /// The help entries handed out last ([`App::take_control_help`]).
+    help: crate::framework::help::HelpCache,
 }
 
 /// A configured controller instance.
@@ -503,7 +505,7 @@ impl App {
                 parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
-                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due, device, save_due: None });
+                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due, device, save_due: None, help: Default::default() });
                 self.host.println(&format!("{name}: Running."));
             }
             Err(error) => {
@@ -818,6 +820,24 @@ impl App {
         config.update_host_support(|requirement| daw.host_meets(requirement));
         let changes = config.take_state_changes();
         changes.iter().map(|&id| format!("{}\t{}\t{}", id.0, u8::from(config.is_visible(id)), u8::from(config.is_enabled(id)))).collect::<Vec<_>>().join("\n")
+    }
+
+    /// The help entries of the controls which changed since the last call, one JSON object per
+    /// line (doc/CONTROLLER_HELP_PLAN.md, [`crate::framework::help`]).
+    pub fn take_control_help(&mut self) -> String {
+        self.enter();
+        let Some(running) = self.first_running() else {
+            return String::new();
+        };
+        let entries = crate::framework::help::collect(&running.ctx);
+        running.help.take_changes(&entries)
+    }
+
+    /// Forget the handed out help entries: the next [`App::take_control_help`] returns all.
+    pub fn reset_control_help(&mut self) {
+        if let Some(running) = self.first_running() {
+            running.help.reset();
+        }
     }
 
     /// The notifications since the last call, one per line (popup notifications of the host).

@@ -21,6 +21,7 @@ from drivenbymoss import protocol  # noqa: E402
 
 LAUNCHPAD_X = "de.mossgrabers.reaper.controller.novation.launchpad.LaunchpadXControllerInstance"
 LAUNCH_CONTROL_XL = "5AFA5045-FF92-4737-A091-5B371CD5E529"
+MASCHINE_JAM = "72F32A83-A697-446B-9016-64AA3F9476E4"
 
 # The device IDs of the host; the names are the ones of the automatic detection
 INPUT_ID = 3
@@ -136,6 +137,37 @@ class BindingTest(unittest.TestCase):
             self.assertEqual(setup["numSends"], 2)
             self.assertGreater(setup["numTracks"], 0)
             self.assertTrue(backend.logs)
+
+    def test_control_help(self):
+        """The help of the controls (doc/CONTROLLER_HELP_PLAN.md): all entries, then the changes."""
+        backend = RecordingBackend()
+        with drivenbymoss.App.create_controller(backend, MASCHINE_JAM, self.dir, "Bitwig Studio 5.3") as app:
+            self.assertEqual(app.take_control_help(), [], "nothing before the start")
+            app.start_infrastructure()
+            app.update_model("track/count 1\ntrack/0/exists 1\ntrack/0/select 1\n")
+            app.tick()
+            entries = {entry["id"]: entry for entry in app.take_control_help()}
+            play = entries["Play"]
+            self.assertEqual((play["bind"], play["channel"], play["control"]), ("cc", 0, 90))
+            self.assertTrue(play["short"].startswith("Start playback"))
+            self.assertFalse(play["pressed"])
+            self.assertTrue(play["long"])
+            self.assertEqual(play["scope"], "global")
+            self.assertEqual(entries["grid"]["scope"], "view")
+            self.assertEqual(len(entries["Scene1..Scene8"]["members"]), 8)
+            self.assertIsNone(entries["Shift"]["bind"])
+            self.assertIn("grid", entries)
+            self.assertEqual(app.take_control_help(), [], "only the changes")
+            # Shift (NI's SysEx) changes the texts
+            app.on_midi_event(0, bytes([0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x01, 0xF7]))
+            changed = {entry["id"]: entry for entry in app.take_control_help()}
+            self.assertTrue(changed["Shift"]["pressed"])
+            self.assertEqual(changed["Play"]["short"], "Restart playback from the beginning")
+            # A reset hands out all entries with a help now (Shift held: some buttons have none)
+            app.reset_control_help()
+            again = {entry["id"] for entry in app.take_control_help()}
+            self.assertIn("Play", again)
+            self.assertGreater(len(again), 25)
 
     def test_tick(self):
         app, backend = self.start()

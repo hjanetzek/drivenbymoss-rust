@@ -24,6 +24,7 @@ use crate::framework::commands::transport::{ConfiguredRecordCommand, PlayCommand
 use crate::framework::commands::transport_ext::{AutomationCommand, TapTempoCommand};
 use crate::framework::commands::view::ViewButtonCommand;
 use crate::framework::ctx::Ctx;
+use crate::framework::help::Help;
 use crate::framework::ids::{ButtonId, Modes, Views};
 use crate::midi::ButtonEvent;
 use crate::protocol::ControllerViewKind;
@@ -82,6 +83,10 @@ impl TriggerCommand for MaschineJamAuxCommand {
         ctx.model.toggle_current_track_bank();
         delay_display(ctx, |ctx| if ctx.model.is_effect_track_bank_active() { "Effect Tracks" } else { "Audio/Instrument Tracks" }.to_string());
         ctx.surface.set_trigger_consumed(ButtonId::Shift);
+    }
+
+    fn help(&self, ctx: &Ctx) -> Option<Help> {
+        super::help::aux_button(ctx, self.inner.current_mode_id())
     }
 }
 
@@ -146,6 +151,11 @@ impl TriggerCommand for MaschineJamControlCommand {
         }
         ctx.surface.set_trigger_consumed(ButtonId::Shift);
     }
+
+    fn help(&self, ctx: &Ctx) -> Option<Help> {
+        let host = super::surface_link::has_host_pages(ctx);
+        super::help::control_button(ctx, if host { self.host.current_mode_id() } else { self.inner.current_mode_id() })
+    }
 }
 
 /// Former `MaschineJamDoubleCommand`.
@@ -198,6 +208,10 @@ impl TriggerCommand for MaschineJamLevelCommand {
 
     fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
         self.inner.execute_shifted(ctx, event);
+    }
+
+    fn help(&self, ctx: &Ctx) -> Option<Help> {
+        super::help::level_button(ctx, self.inner.current_mode_id())
     }
 }
 

@@ -35,6 +35,10 @@ impl TriggerCommand for ViewButtonCommand {
             }
         }
     }
+
+    fn help(&self, ctx: &Ctx) -> Option<crate::framework::help::Help> {
+        ctx.active_view().and_then(|view| view.try_borrow().ok().and_then(|view| view.button_help(ctx, self.button)))
+    }
 }
 
 /// Selects the next view of a list of views (former `ViewMultiSelectCommand`).

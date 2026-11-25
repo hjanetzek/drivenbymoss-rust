@@ -103,7 +103,9 @@ value the reference bridge reads or calls.
    `dbm_take_setting_states` (hidden and disabled settings).
 6. Every 30 ms: collect the state → `dbm_update_model(lines)` (skip if empty) → `dbm_tick` →
    apply `dbm_take_setting_changes` and `dbm_take_setting_states` to the UI → show
-   `dbm_take_notifications` (one per line) as popups.
+   `dbm_take_notifications` (one per line) as popups. Optional: `dbm_take_control_help` (the
+   help of the controls for a simulator, JSON lines of the changes, doc/CONTROLLER_HELP_PLAN.md;
+   `dbm_reset_control_help` hands out all again).
 7. Exit: `dbm_destroy` (stops the controller, which writes its final MIDI and the `.config`
    file). Not from within a callback. `close_midi_*` are called; Bitwig ignores them (the ports
    are Bitwig's).

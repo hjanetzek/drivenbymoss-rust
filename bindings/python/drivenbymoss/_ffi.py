@@ -180,6 +180,8 @@ _PROTOTYPES = [
     ("dbm_take_setting_changes", _void_p, [DbmAppPointer]),
     ("dbm_take_setting_states", _void_p, [DbmAppPointer]),
     ("dbm_take_notifications", _void_p, [DbmAppPointer]),
+    ("dbm_take_control_help", _void_p, [DbmAppPointer]),
+    ("dbm_reset_control_help", None, [DbmAppPointer]),
     ("dbm_free_string", None, [_void_p]),
     ("dbm_set_formatted_document_settings", None, [DbmAppPointer, _char_p]),
     ("dbm_on_midi_event", None, [DbmAppPointer, _int, _bytes, _int]),
@@ -188,7 +190,8 @@ _PROTOTYPES = [
 
 # Functions a library built before them lacks: the binding still loads it without them
 # (App.use_usb and App.use_simulator_data then return False)
-_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices", "dbm_set_simulator_callback", "dbm_poll_devices"}
+_OPTIONAL = {"dbm_set_usb_callback", "dbm_list_usb_devices", "dbm_set_simulator_callback", "dbm_poll_devices",
+             "dbm_take_control_help", "dbm_reset_control_help"}
 
 
 def _declare(library: ctypes.CDLL) -> None:

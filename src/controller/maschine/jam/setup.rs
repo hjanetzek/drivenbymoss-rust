@@ -16,6 +16,7 @@
 use std::rc::Rc;
 
 use super::command::*;
+use super::help;
 use super::mode::*;
 use super::surface::{self as jam, FaderConfig, JamExt};
 use super::surface_link::{SurfaceButton, SurfaceOr, SurfaceOrEncoder};
@@ -373,6 +374,8 @@ fn add_button(ctx: &mut Ctx, id: ButtonId, label: &str, command: Option<SharedTr
 
 /// Register the commands of all buttons (former `registerTriggerCommands`).
 pub fn register_trigger_commands(ctx: &mut Ctx) {
+    ctx.help_controls_id = "strips";
+    ctx.help_table = Some(&help::TABLE);
     add_button(ctx, ButtonId::Shift, "SHIFT", Some(shared(ToggleShiftViewCommand::with_hold_setting(MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD))), -1, None);
     install_shift_tap(ctx);
     // A consumed Shift does not pass its release to the command, which resets the slow knobs (a

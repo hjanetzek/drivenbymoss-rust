@@ -350,6 +350,11 @@ impl MaschineJamUserMode {
     }
 
     /// Toggle between project and track parameters.
+    /// True while the user mode shows the project parameters (else the track's).
+    pub fn is_project_mode(&self) -> bool {
+        self.inner.is_project_mode
+    }
+
     pub fn toggle_mode(&mut self, ctx: &mut Ctx) {
         self.inner.toggle_mode(ctx);
     }

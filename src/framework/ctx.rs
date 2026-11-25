@@ -72,6 +72,11 @@ pub struct Ctx {
     /// The reports of the picked view and the sequencer's edit window to the host
     /// ([`super::controller_view`]).
     pub(crate) controller_view: super::controller_view::ControllerViewSync,
+    /// The id of the help entry of the active mode's knobs or strips ([`super::help`]).
+    pub help_controls_id: &'static str,
+    /// The help table of the controller ([`super::help_table`]), asked before the commands'
+    /// own help.
+    pub help_table: Option<&'static super::help_table::HelpTable>,
 }
 
 impl Ctx {
@@ -97,6 +102,8 @@ impl Ctx {
             surfaces: super::multi_surface::SurfaceSet::default(),
             graphics_display: None,
             controller_view: Default::default(),
+            help_controls_id: "knobs",
+            help_table: None,
         }
     }
 
@@ -413,6 +420,7 @@ impl Ctx {
             button.is_consumed = false;
             button.schedule_counter += 1;
             button.pressed_velocity = velocity;
+            button.presses = button.presses.wrapping_add(1);
             button.down_handlers.clone()
         };
         self.schedule(BUTTON_STATE_INTERVAL, move |ctx| ctx.check_button_state(id));
@@ -566,6 +574,13 @@ impl Ctx {
             supplier,
             Rc::new(move |ctx: &mut Ctx, state| ctx.surface.set_trigger(bind_type, midi_channel, midi_control, state)),
         );
+    }
+
+    /// Set the help of a button which has no command describing it (e.g. a modifier).
+    pub fn set_button_help(&mut self, id: ButtonId, help: impl Fn(&Ctx) -> Option<super::help::Help> + 'static) {
+        if let Some(button) = self.surface.button_mut(id) {
+            button.help = Some(Rc::new(help));
+        }
     }
 
     /// Bind a continuous command to a knob or fader.
