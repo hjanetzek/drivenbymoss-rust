@@ -50,10 +50,12 @@ source.
   a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``. A press on a page without
   controllers (a processor without pages) is the screen's tap on its header
   (``shared_selection.request_open``: selects it, the selected one opens its banks / presets).
-- **Remote-control pages** (zynthian-ui docs/remote-control-pages.md): the chain's remote pages
-  are the first section of ``chain_pages`` ("Remote", two pages of 4 per remote page), so they
-  are reported as any other pages; ``assign`` (``HostPageCellAssign``, the JAM's hold-a-row +
-  touch-a-strip) puts a cell's controller into the current remote page.
+- **Chain controllers** (zynthian-ui docs/remote-control-pages.md): the chain controllers'
+  pages (named pages of 4 slots) are the first section of ``chain_pages`` ("Chain"), so they are
+  reported as any other pages, in a colour of their own (zynthian-ui's ``page_color``, through
+  the existing colour fields); ``assign`` (``HostPageCellAssign``, the JAM's hold-a-row +
+  touch-a-strip, slots 0-7) puts a cell's controller into slot n % 4 of page current + n // 4
+  (strips 5-8 the next page, created as needed).
 - **Errors**: a chain whose pages fail to read is reported as none (``exists`` false, logged
   once); a failing command is logged (commands.py), the driver goes on.
 
@@ -203,22 +205,25 @@ class ZynHostPages:
             first = pages[w * per_window]
             put(M.HOST_PAGE_NAME | w << 16, f"{first.section} {first.title}" if first.section != first.title else first.title)
         put(M.HOST_PAGE_SELECTED, grid.window)
-        # The sections: the chain's controllers, the processors (by section_index)
+        # The sections: the chain controllers, the processors (by section_index); colours as
+        # the screen's (page_color: the chain controllers' own, the processors' from 0)
         sections = {}
+        colors = {}
         for page in pages:
             sections.setdefault(page.section_index, page.section)
+            colors.setdefault(page.section_index, self.page_color(page))
         count = max(sections) + 1 if sections else 0
         put(M.HOST_SECTION_COUNT, count)
         for s in range(count):
             put(M.HOST_SECTION_NAME | s << 16, sections.get(s, ""))
-            put(M.HOST_SECTION_COLOR | s << 16, gd.section_color(s))
+            put(M.HOST_SECTION_COLOR | s << 16, colors.get(s) or gd.section_color(s))
         shown = grid.shown_pages
         put(M.HOST_SET_COUNT, len(shown))
         for i, p in enumerate(shown):
             page = pages[p]
             put(M.HOST_SET_NAME | i << 16, page.title)
             put(M.HOST_SET_SECTION | i << 16, page.section_index)
-            put(M.HOST_SET_COLOR | i << 16, gd.section_color(page.section_index))
+            put(M.HOST_SET_COLOR | i << 16, self.page_color(page))
         first_page = grid.first_page
         put(M.HOST_SET_SELECTED, grid.selected - first_page if grid.selected in shown else -1)
         put(M.HOST_SECTION_SELECTED, pages[grid.selected].section_index if 0 <= grid.selected < len(pages) else -1)
@@ -227,6 +232,12 @@ class ZynHostPages:
         self.watcher.changed(grid.cells)
         put(M.HOST_PAGE_ROW, max(0, grid.selected_row))
         put(M.HOST_CELL_SELECTED, grid.selected_cell)
+
+    def page_color(self, page):
+        """A page's colour as the screen's: zynthian-ui's page_color (the chain controllers' own
+        colour, the processors' from 0), else (an older zynthian-ui) its section's"""
+        page_color = getattr(self.gd, "page_color", None)
+        return page_color(page) if page_color is not None else self.gd.section_color(page.section_index)
 
     def put_cell(self, put, cell, first_page):
         kind_key, name, color, value, text, steps, on, enabled, set_key = self._keys[cell.id]
@@ -237,12 +248,12 @@ class ZynHostPages:
             put(name, "")
             put(enabled, False)
             put(set_key, page - first_page if page >= 0 else -1)
-            put(color, self.gd.section_color(self.grid.pages[page].section_index) if page >= 0 else EMPTY_COLOR)
+            put(color, self.page_color(self.grid.pages[page]) if page >= 0 else EMPTY_COLOR)
             return
         kind = cell.kind
         put(kind_key, KINDS.get(kind, 1))
         put(name, cell.name)
-        put(color, self.gd.section_color(self.grid.pages[page].section_index))
+        put(color, self.page_color(self.grid.pages[page]))
         self.put_value(put, cell, kind)
         put(steps, cell_steps(self.gd, z, kind))
         put(enabled, cell.enabled)
@@ -321,10 +332,12 @@ class ZynHostPages:
 
     def assign(self, cell, epoch, slot):
         """``hostpage cell/{cell}/assign/{epoch}`` (zynthian-ui docs/remote-control-pages.md §5):
-        the cell's controller to slot ``slot`` (0-7) of the chain's current remote page (created
-        when there is none; an empty cell clears the slot; on that page already: moved), slot -1:
-        removed from all remote pages. Applied in zynthian's GUI thread (the screen's pages are
-        rebuilt there); the change signal (SS_GUI_CONTROL_GRID_REMOTE) brings the new pages"""
+        the cell's controller to chain controller slot ``slot`` (0-7, the JAM's strips 1-8):
+        zynthian's pages have 4 slots, so slot n is slot n % 4 of page current + n // 4 (strips
+        5-8 the page after the current one; the pages up to it created; an empty cell clears the
+        slot; on that page already: moved); slot -1: removed from all pages. Applied in
+        zynthian's GUI thread (the screen's pages are rebuilt there); the change signal
+        (SS_GUI_CONTROL_GRID_REMOTE) brings the new pages"""
         c = self._cell(cell, epoch)
         selection = self.gd.shared_selection
         if c is None or self.chain is None or not hasattr(selection, "request_remote_assign"):

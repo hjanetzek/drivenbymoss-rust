@@ -305,13 +305,14 @@ class HostPagesTest(unittest.TestCase):
         return chain
 
     def test_remote_pages_and_assign(self):
-        """The chain's remote pages are the first section; assign (HostPageCellAssign, the JAM's
-        hold-a-row + touch-a-strip) puts a cell's controller into the current remote page"""
+        """The chain controllers' pages (4 slots) are the first section, in a colour of their own;
+        assign (HostPageCellAssign, the JAM's hold-a-row + touch-a-strip, slots 0-7) puts a
+        cell's controller into slot n % 4 of page current + n // 4"""
         chain = self.remote_chain()
         self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
         out = self.report()
         epoch = out[M.HOST_PAGE_EPOCH]
-        self.assertEqual(out[M.HOST_SECTION_NAME], "Helm", "no remote pages: no section")
+        self.assertEqual(out[M.HOST_SECTION_NAME], "Helm", "no chain controllers: no section")
         pages = self.commands.host_pages
         # No screen (the Tk UI): applied at once; the first page is created
         self.assertTrue(pages.assign(5, epoch, 2))                  # mode1 to slot 3
@@ -320,20 +321,28 @@ class HostPagesTest(unittest.TestCase):
         new_epoch = out[M.HOST_PAGE_EPOCH]
         self.assertNotEqual(new_epoch, epoch, "the cells hold other controllers")
         self.assertEqual([self.seen[M.HOST_SECTION_NAME | s << 16] for s in range(self.seen[M.HOST_SECTION_COUNT])],
-                         ["Remote", "Helm", "Reverb", "Mixer"])
-        self.assertEqual((self.seen[M.HOST_SET_NAME], self.seen[M.HOST_SET_NAME | 1 << 16]), ("Page 1", "Page 1 5-8"))
+                         ["Chain", "Helm", "Reverb", "Mixer"])
+        self.assertEqual(self.seen[M.HOST_SET_NAME], "Controllers 1")
         self.assertEqual((self.seen[M.HOST_CELL_NAME | 2 << 16], self.seen[M.HOST_CELL_KIND | 3 << 16]), ("mode1", 0))
-        self.assertEqual(self.seen[M.HOST_CELL_NAME | 8 << 16], "p00", "the processor's pages after it")
-        # Another epoch: dropped; an empty cell clears its slot; -1 removes
+        self.assertEqual(self.seen[M.HOST_CELL_NAME | 4 << 16], "p00", "the processor's pages after it")
+        # The chain controllers' own colour (the existing colour fields); the processors keep theirs
+        chain_color = self.gd.section_color(-1)
+        self.assertEqual((self.seen[M.HOST_SECTION_COLOR], self.seen[M.HOST_SET_COLOR], self.seen[M.HOST_CELL_COLOR]),
+                         (chain_color, chain_color, chain_color))
+        self.assertEqual(self.seen[M.HOST_SECTION_COLOR | 1 << 16], self.gd.section_color(0))
+        self.assertEqual(self.seen[M.HOST_CELL_COLOR | 4 << 16], self.gd.section_color(0))
+        # Another epoch: dropped; strips 5-8 go to the next page; an empty cell clears its slot;
+        # -1 removes (an emptied default-named last page goes)
         self.assertFalse(pages.assign(8, epoch, 0))
-        self.assertTrue(pages.assign(9, new_epoch, 7))              # mode0 to slot 8
+        self.assertTrue(pages.assign(4, new_epoch, 7))              # p00 to slot 4 of page 2
+        self.assertEqual(chain.remote_pages.pages[1].slots[3], (1, "p00"))
         self.assertTrue(pages.assign(3, new_epoch, 2))              # the empty cell 3: clears slot 3
         self.assertEqual(chain.remote_pages.pages[0].slots[2], None)
-        self.assertEqual(chain.remote_pages.pages[0].slots[7], (1, "mode0"))
-        self.assertTrue(pages.assign(9, new_epoch, -1))
-        self.assertEqual(chain.remote_pages.find(self.state.synth.controllers_dict["mode0"]), [])
+        self.assertTrue(pages.assign(4, new_epoch, -1))
+        self.assertEqual(chain.remote_pages.find(self.state.synth.controllers_dict["p00"]), [])
+        self.assertEqual(chain.remote_pages.pages, [])
         self.assertFalse(pages.assign(3, new_epoch, -1), "nothing to remove")
-        self.assertFalse(pages.assign(9, new_epoch, 8), "no such slot")
+        self.assertFalse(pages.assign(5, new_epoch, 8), "no such slot")
 
     def test_remote_assign_goes_through_the_screen(self):
         """With the screen as the owner, an assignment is applied in its thread"""
