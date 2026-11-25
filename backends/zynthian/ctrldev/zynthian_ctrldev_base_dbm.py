@@ -57,6 +57,7 @@ from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge
 from zyngine.ctrldev.dbm_zynthian.add_chain import AddChainUI
 from zyngine.ctrldev.dbm_zynthian.browser import BrowserUI
 from zyngine.ctrldev.dbm_zynthian.model import ZynthianModel
+from zyngine.ctrldev.dbm_zynthian.views import ViewsUI
 from zyngine.ctrldev.dbm_zynthian import nihost
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -182,6 +183,8 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.model.browser.ui = BrowserUI(state_manager)
         self.model.browser.add_chain.ui = AddChainUI(state_manager)
         self.model.browse_add_chain = self.browse_add_chain
+        # The controller's views show zynthian's screens (CUIAs)
+        self.model.views.ui = ViewsUI(state_manager)
         # The "add chain" track opens zynthian's Add Chain view (model.py)
         self.model.send_cuia = state_manager.send_cuia
 

@@ -76,6 +76,7 @@ from drivenbymoss import protocol
 from drivenbymoss.protocol import ChKind, Cmd, Processor
 
 from zyngine.ctrldev.dbm_zynthian.host_page import ZynHostPages, grid_module
+from zyngine.ctrldev.dbm_zynthian.views import VIEW_OTHER
 
 logger = logging.getLogger("dbm_zynthian")
 
@@ -239,6 +240,15 @@ class ZynCommandHandler(CommandHandler):
             self.host_pages = ZynHostPages(chain_manager, gd)
             self.reporter.host_pages = self.host_pages
             r(HOST_PAGE_COMMANDS, self._host_page)
+        # The controller's views on zynthian's screens (views.py), with zynthian's UI only (in
+        # UNHANDLED_COMMANDS: the core sends them only to hosts which handle them)
+        views = getattr(self.daw, "views", None)
+        view_cmd, window_cmd = getattr(Cmd, "CONTROLLER_VIEW", None), getattr(Cmd, "CLIP_EDIT_WINDOW", None)
+        if views is not None and views.available:
+            if view_cmd is not None:
+                r((view_cmd,), self._controller_view)
+            if window_cmd is not None:
+                r((window_cmd,), self._clip_edit_window)
         transport = self.daw.transport
         if transport is not None and transport.available:
             r((Cmd.TRANSPORT_PLAY, Cmd.TRANSPORT_STOP, Cmd.TRANSPORT_STOP_AND_REWIND, Cmd.TRANSPORT_RESTART, Cmd.TRANSPORT_METRONOME,
@@ -477,6 +487,35 @@ class ZynCommandHandler(CommandHandler):
         if selected is None or track is None or launcher.sequence_of(track) != selected[1]:
             return True  # No cursor clip: nothing to duplicate
         return launcher.duplicate(track, selected[0])
+
+    # The controller's views (views.py)
+
+    @staticmethod
+    def _field(view, cmd, name, default=None):
+        """A field of a typed command: the view's (the typed binding), else the command's."""
+        for source in (view, cmd):
+            value = getattr(source, name, None)
+            if value is not None:
+                return value
+        return default
+
+    def _controller_view(self, view, cmd):
+        """``ControllerView {kind}``: the view the user picked on the controller."""
+        kind = self._field(view, cmd, "kind")
+        if kind is None:
+            kind = getattr(cmd, "number", VIEW_OTHER)
+        try:
+            kind = int(kind)
+        except (TypeError, ValueError):
+            kind = VIEW_OTHER
+        return self.daw.views.controller_view(kind)
+
+    def _clip_edit_window(self, view, cmd):
+        """``ClipEditWindow {start, length, low, high}``: the window of the core's note grid."""
+        values = [self._field(view, cmd, name) for name in ("start", "length", "low", "high")]
+        if None in values:
+            return False
+        return self.daw.views.edit_window(*values)
 
     # The cursor clip (clip.py)
 

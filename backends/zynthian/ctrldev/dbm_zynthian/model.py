@@ -447,6 +447,7 @@ class ZynthianModel:
         from zyngine.ctrldev.dbm_zynthian.device import DeviceChain
         from zyngine.ctrldev.dbm_zynthian.launcher import ZynLauncher
         from zyngine.ctrldev.dbm_zynthian.transport import ZynTransport
+        from zyngine.ctrldev.dbm_zynthian.views import ZynViews
         self.chain_manager = chain_manager
         self.devices = DeviceChain(self)
         self.browser = ZynBrowser(self)
@@ -454,6 +455,9 @@ class ZynthianModel:
         (zynthian's preset view) is set by the driver."""
         self.transport = ZynTransport(zynseq) if zynseq is not None else None
         self.launcher = ZynLauncher(self, zynseq) if zynseq is not None else None
+        self.views = ZynViews(self)
+        """The controller's views on zynthian's screens (views.py); its ``ui`` is set by the
+        driver."""
         self.selected_notes = {}
         """The notes the core selected, per pattern: {(position, key)} (zynseq has no selection)."""
         self.clip_channel = 0
