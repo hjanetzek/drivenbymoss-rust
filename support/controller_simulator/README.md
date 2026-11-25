@@ -22,6 +22,17 @@ Licensed under LGPLv3.
 
 ## Running them
 
+With the Rust core and the help boxes in one go (Maschine models; builds the library if missing,
+both stop together):
+
+```sh
+support/controller_simulator/run_with_core.sh                 # JAM; the real one if plugged in (help in the simulator)
+support/controller_simulator/run_with_core.sh --sim           # the core drives the simulator
+support/controller_simulator/run_with_core.sh --model mk2 --no-help
+```
+
+The simulators alone:
+
 ```sh
 support/controller_simulator/run.sh --model mk2
 support/controller_simulator/run.sh --model jam --monitor
