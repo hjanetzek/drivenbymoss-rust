@@ -473,11 +473,13 @@ All paths are under `rust/`.
   - A track change keeps the page surface and the strips (provisional: the user decides later).
   - The reference host simulates zynthian-like pages (`dbm_host_alsa.py --host-pages`).
 - **The zynthian side** (by the zynthian-ui session "electra-grid"): zynthian-ui branch
-  `electra-grid` (control grid, chain controller/remote pages of 4, shared selection, opening
-  chain control on `HostPageShow on`) and the adapter on drivenbymoss-rust branch
-  `zynthian-host-pages` (checked out in the main checkout `~/bastel/github/drivenbymoss-rust`,
-  rebased on main; merge into main on the user's go). It adds the adapter side of `HostPagePage
-  {end: last}` next.
+  `electra-grid` (control grid; zynthian's Chain Controllers as named pages of 4 slots,
+  `zctrl_pages`, which are the host's remote control pages; shared selection; opening chain
+  control on `HostPageShow on`) and the adapter on drivenbymoss-rust branch `zynthian-host-pages`
+  (checked out in the main checkout `~/bastel/github/drivenbymoss-rust`, rebased on main; merge
+  into main on the user's go). The adapter handles all host-page commands, including
+  `HostPageCellAssign` (slot n: page current + n // 4, slot n % 4) and `HostPagePage {end: last}`
+  (the window's last page).
 - **In progress / open decisions:**
   - Merge `zynthian-host-pages` into main (waits for the user's go; check list first, in a
     separate worktree).

@@ -229,7 +229,7 @@ class HostPagesTest(unittest.TestCase):
         self.assertEqual(out[M.HOST_CELL_SET | 16 << 16], -1, "the last window is partly empty")
         self.run_commands("int\thostpage\trow\t2")
         self.assertEqual(self.gd.shared_selection.get(1).page, 15, "no page in that row: nothing")
-        self.run_commands("int\thostpage\tpage\t0")
+        self.run_commands("int\thostpage\tpage/first\t0")
         self.assertEqual(self.gd.shared_selection.get(1).page, 0)
         # A cell command of another epoch is dropped
         new_epoch = self.report()[M.HOST_PAGE_EPOCH]
@@ -243,10 +243,27 @@ class HostPagesTest(unittest.TestCase):
         self.commands = handler(self.state)
         self.run_commands("int\thostpage\tshow/8/6/8/1\t1", "int\thostpage\tset\t1")
         self.report()
-        self.run_commands("int\thostpage\tpage\t1")
+        self.run_commands("int\thostpage\tpage/first\t1")
         self.report()
         self.run_commands("int\thostpage\tset\t1", "int\thostpage\trow\t1")
         self.assertEqual(self.gd.shared_selection.get(1).page, 14, "no right page in that row: the left one")
+
+    def test_page_last_selects_the_windows_last_page(self):
+        """``<`` from a window's first set: HostPagePage with PageEnd.LAST (link protocol 1.4)"""
+        if not hasattr(drivenbymoss.protocol, "PageEnd"):
+            self.skipTest("binding without PageEnd")
+        self.state = synth_state(13)
+        self.commands = handler(self.state)
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        self.report()
+        self.run_commands("int\thostpage\tpage/first\t1")
+        self.assertEqual(self.gd.shared_selection.get(1).page, 12, "window 1's first page")
+        self.run_commands("int\thostpage\tpage/last\t0")
+        self.assertEqual(self.gd.shared_selection.get(1).page, 11, "window 0's last page (12 a window)")
+        self.run_commands("int\thostpage\tpage/last\t1")
+        self.assertEqual(self.gd.shared_selection.get(1).page, 14, "the last window is partly empty: its last page (15 pages)")
+        self.run_commands("int\thostpage\tpage/first\t0")
+        self.assertEqual(self.gd.shared_selection.get(1).page, 0)
 
     def test_selection_through_the_screen(self):
         """With the screen as the owner: requests reach it, only its reports move the JAM; a
@@ -266,7 +283,7 @@ class HostPagesTest(unittest.TestCase):
         out = self.report()
         self.assertEqual((self.seen[M.HOST_PAGE_SELECTED], self.seen[M.HOST_SET_SELECTED], self.seen[M.HOST_CELL_SELECTED]), (1, 1, 7))
         # The JAM's selections: the screen's window always shows the selected page
-        for line in ("int\thostpage\tpage\t0", "int\thostpage\trow\t5", "int\thostpage\tsection\t2", "int\thostpage\tset\t0"):
+        for line in ("int\thostpage\tpage/first\t0", "int\thostpage\trow\t5", "int\thostpage\tsection\t2", "int\thostpage\tset\t0"):
             self.run_commands(line)
             screen.apply()
             selection = self.gd.shared_selection.get(1)

@@ -104,6 +104,14 @@ GRID_COMMANDS = (Cmd.GRID_STEP_TOGGLE, Cmd.GRID_STEP_SET, Cmd.GRID_STEP_SET_FROM
 # A cell's controller to a chain controller slot (zynthian-ui
 # docs/chain-controller-pages.md §6); only once the core has the command
 HOST_PAGE_CELL_ASSIGN = getattr(Cmd, "HOST_PAGE_CELL_ASSIGN", None)
+_PAGE_END_LAST = getattr(getattr(protocol, "PageEnd", None), "LAST", None)
+
+
+def _page_end_last(view):
+    """HostPagePage's end: the window's last page (PageEnd.LAST, link protocol 1.4); an older
+    binding without the field: the first, as before"""
+    end = getattr(view, "end", None)
+    return _PAGE_END_LAST is not None and end is not None and int(end) == int(_PAGE_END_LAST)
 HOST_PAGE_COMMANDS = (Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
                       Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION) \
     + ((HOST_PAGE_CELL_ASSIGN,) if HOST_PAGE_CELL_ASSIGN is not None else ())
@@ -269,7 +277,7 @@ class ZynCommandHandler(CommandHandler):
         elif id_ == Cmd.HOST_PAGE_ROW:
             pages.select_row(int(view.value))
         elif id_ == Cmd.HOST_PAGE_PAGE:
-            pages.select_window(int(view.value))
+            pages.select_window(int(view.value), last=_page_end_last(view))
         elif id_ == Cmd.HOST_PAGE_SET:
             pages.select_set(int(view.value))
         elif id_ == Cmd.HOST_PAGE_SECTION:

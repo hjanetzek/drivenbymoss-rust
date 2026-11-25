@@ -415,10 +415,15 @@ class ZynHostPages:
         page = grid.page_at(row, grid.selected_half)
         self._select(page if page >= 0 else grid.page_at(row, 0))
 
-    def select_window(self, window):
+    def select_window(self, window, last=False):
+        """Show that window: select its first page, or with ``last`` its last one (``<`` from a
+        window's first set: ``HostPagePage`` with ``PageEnd.LAST``)"""
         grid = self.grid
         if 0 <= window < grid.window_count:
-            self._select(window * grid.rows * grid.pages_per_row)
+            first = window * grid.rows * grid.pages_per_row
+            if last:
+                first = min(first + grid.rows * grid.pages_per_row, len(grid.pages)) - 1
+            self._select(first)
 
     def select_set(self, index):
         shown = self.grid.shown_pages
