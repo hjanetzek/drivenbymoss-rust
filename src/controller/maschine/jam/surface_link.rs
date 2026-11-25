@@ -48,6 +48,11 @@ pub struct JamSurface {
     pub active: bool,
     /// The view and the mode before the surface was switched on.
     previous: Option<(Option<Views>, Option<Modes>)>,
+    /// The state text of the last notification while the source may still send its first model
+    /// (after switching on or to another source): a changed text is notified again, so the
+    /// notification shows the new title, not the one the client had before. With the number of
+    /// polls left (about 2 s): later changes (e.g. another page) are no reason to notify.
+    pending_text: Option<(String, u32)>,
 }
 
 /// The mapping of the JAM: the grid, its 8 touch strips and the encoder.
@@ -90,7 +95,7 @@ impl JamSurface {
     pub fn new() -> Self {
         let mapping = mapping();
         let sources = sources(&mapping);
-        JamSurface { client: SurfaceClient::shared(mapping, sources), active: false, previous: None }
+        JamSurface { client: SurfaceClient::shared(mapping, sources), active: false, previous: None, pending_text: None }
     }
 }
 
@@ -128,12 +133,24 @@ pub fn register(ctx: &mut Ctx) {
     }
 }
 
+/// The polls (ticks of about 30 ms) a notification waits for the source's first model.
+const PENDING_POLLS: u32 = 66;
+
+fn state_text_now(ctx: &Ctx) -> String {
+    let client = surface(ctx).client.borrow();
+    state_text(client.state(), client.provider_name(), client.model().page_name())
+}
+
 fn notify_state(ctx: &mut Ctx) {
-    let text = {
-        let client = surface(ctx).client.borrow();
-        state_text(client.state(), client.provider_name(), client.model().page_name())
-    };
+    let text = state_text_now(ctx);
     ctx.notify(&text);
+}
+
+/// Notify the state and notify it again once the source's (new) model changes the text.
+fn notify_state_pending(ctx: &mut Ctx) {
+    let text = state_text_now(ctx);
+    ctx.notify(&text);
+    surface_mut(ctx).pending_text = Some((text, PENDING_POLLS));
 }
 
 /// Switch the surface on, with the first available source (or the current one without any: it
@@ -155,7 +172,7 @@ pub fn enter(ctx: &mut Ctx) {
     state.active = true;
     ctx.set_active_view(Views::SurfaceLink);
     ctx.set_active_mode(Modes::SurfaceLink);
-    notify_state(ctx);
+    notify_state_pending(ctx);
 }
 
 /// Switch the surface off: back to the view and the mode before (or keep the one which was
@@ -167,6 +184,7 @@ pub fn leave(ctx: &mut Ctx) {
     surface(ctx).client.borrow_mut().set_shown(false);
     let state = surface_mut(ctx);
     state.active = false;
+    state.pending_text = None;
     let (view, mode) = state.previous.take().unwrap_or((None, None));
     if ctx.views.active_id_ignore_temporary() == Some(Views::SurfaceLink) {
         ctx.set_active_view(view.unwrap_or(Views::Play));
@@ -189,7 +207,7 @@ pub fn toggle(ctx: &mut Ctx) {
     match next {
         Some(index) => {
             surface(ctx).client.borrow_mut().select_source(index);
-            notify_state(ctx);
+            notify_state_pending(ctx);
         }
         None => {
             leave(ctx);
@@ -214,6 +232,17 @@ pub fn poll(ctx: &mut Ctx) {
     }
     if !is_active(ctx) {
         return;
+    }
+    // The first model of the source (e.g. the host's title after switching on): notify the new
+    // text once
+    if let Some((previous, polls)) = surface(ctx).pending_text.clone() {
+        let text = state_text_now(ctx);
+        if text != previous {
+            ctx.notify(&text);
+            surface_mut(ctx).pending_text = None;
+        } else {
+            surface_mut(ctx).pending_text = polls.checked_sub(1).map(|left| (previous, left));
+        }
     }
     // Another view or mode button: leave for it
     // (a temporary view, e.g. the Shift view while Shift is held, keeps the surface)

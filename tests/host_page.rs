@@ -324,3 +324,45 @@ fn shows_the_host_page_and_sends_the_input() {
     assert!(!jam_surface::is_active(rig.ctx()));
     assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: false })]);
 }
+
+#[test]
+fn a_track_change_keeps_the_host_page() {
+    // Another track (in zynthian: another chain, from the group buttons or zynthian's screen)
+    // changes the host's page; it must not recall the track's play view and leave the surface
+    let mut rig = Rig::new(true);
+    rig.app.update_model("track/count 4\ntrack/1/exists 1\ntrack/1/name Drums\ntrack/2/exists 1\ntrack/2/name Bass\ntrack/3/exists 1\ntrack/3/name Keys\n");
+    rig.advance(60);
+    rig.select_song();
+    rig.app.update_model(&page_report(1, 1, 4));
+    rig.advance(60);
+    assert!(jam_surface::is_active(rig.ctx()));
+    rig.commands();
+
+    rig.app.update_model("track/0/select 0\ntrack/2/select 1\n");
+    rig.advance(60);
+    assert!(jam_surface::is_active(rig.ctx()));
+    assert!(rig.ctx().views.is_active(Views::SurfaceLink));
+    assert!(!rig.host_commands().contains(&cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: false })));
+}
+
+#[test]
+fn the_notification_shows_the_new_title_after_switching_on() {
+    let mut rig = Rig::new(true);
+    rig.select_song();
+    rig.app.update_model(&page_report(1, 1, 4));
+    rig.advance(60);
+    assert!(rig.app.take_notifications().contains("Surface: Host · Synth"));
+    // Off, another chain in the host, on again: the client still has the old title at first
+    rig.select_song();
+    assert!(!jam_surface::is_active(rig.ctx()));
+    rig.select_song();
+    rig.app.take_notifications();
+    rig.app.update_model(&(page_report(2, 1, 4) + "hostpage/title Host · Bass\n"));
+    rig.advance(60);
+    let notifications = rig.app.take_notifications();
+    assert!(notifications.contains("Surface: Host · Bass"), "{notifications}");
+    // Only once: a later page change is no reason for another notification
+    rig.app.update_model("hostpage/page/selected 1\n");
+    rig.advance(90);
+    assert!(!rig.app.take_notifications().contains("Surface:"));
+}

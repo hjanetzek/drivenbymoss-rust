@@ -319,8 +319,9 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
         return;
     }
 
-    // Former recallLastView
-    if !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project]) {
+    // Former recallLastView; the page surface stays too (a track change, e.g. another
+    // zynthian chain, changes the host's page, it doesn't leave it)
+    if !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project, Views::SurfaceLink]) {
         ctx.recall_preferred_view();
     }
 
