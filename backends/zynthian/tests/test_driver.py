@@ -185,6 +185,44 @@ class DriverTest(unittest.TestCase):
         self.assertTrue(wait_for(lambda: self.driver.bridge is not None), "Wake up starts it again")
         self.assertTrue(wait_for(lambda: self.driver.pending_document is None), "The document settings were applied")
 
+    def test_settings_for_the_ui(self):
+        """The settings interface of zynthian's UI: the cached settings with their states, a
+        change from the UI (any thread) through the tick thread into the core, the revision."""
+        self.assertEqual(self.driver.get_settings(), [])
+        self.assertFalse(self.driver.set_setting(1, "x"), "Nothing to set while the controller doesn't run")
+        self.start_device()
+        self.assertTrue(wait_for(lambda: self.driver.get_settings(), 3.0))
+        settings = self.driver.get_settings()
+        self.assertTrue(all({"id", "scope", "kind", "category", "label", "default", "value", "extra",
+                             "visible", "enabled"} <= set(s) for s in settings))
+        by_label = {(s["category"], s["label"]): s for s in settings}
+        length = by_label[("Workflow", "New Clip Length")]
+        self.assertEqual(length["kind"], "enum")
+        self.assertEqual(length["scope"], "global")
+        scale = by_label[("Scales", "Scale")]
+        self.assertEqual(scale["scope"], "document")
+        revision = self.driver.settings_revision
+        other = next(o for o in length["extra"] if o != length["value"])
+        result = []
+        ui = threading.Thread(target=lambda: result.append(self.driver.set_setting(length["id"], other)))
+        ui.start()
+        ui.join()
+        self.assertEqual(result, [True])
+        self.assertGreater(self.driver.settings_revision, revision)
+        self.assertEqual(next(s for s in self.driver.get_settings() if s["id"] == length["id"])["value"], other)
+        self.assertTrue(wait_for(lambda: not self.driver._settings_queue), "Passed to the core")
+        # A document setting goes into the snapshot state at once
+        minor = next(o for o in scale["extra"] if o != scale["value"])
+        self.assertTrue(wait_for(lambda: "dbm_document" in self.driver.get_state(), 3.0))
+        document = self.driver.get_state()["dbm_document"]
+        self.driver.set_setting(scale["id"], minor)
+        self.assertTrue(wait_for(lambda: self.driver.get_state()["dbm_document"] != document, 0.5),
+                        "Read again after the change")
+        self.assertEqual(next(s for s in self.driver.get_settings() if s["id"] == scale["id"])["value"], minor)
+        # Sleep stops the controller: no settings meanwhile
+        self.driver.sleep_on()
+        self.assertTrue(wait_for(lambda: self.driver.get_settings() == []))
+
     def test_end_stops_the_thread(self):
         thread = self.driver.thread
         self.driver.end()

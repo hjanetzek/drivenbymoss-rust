@@ -31,7 +31,9 @@
 # state manager's fast thread) only queues the MIDI; get_state, set_state, sleep_on/off and the
 # signal callbacks (refresh) only set flags or cached values which the tick thread uses. The
 # core's commands therefore change zynthian's mixer from the tick thread, as the stock drivers
-# do from the fast thread.
+# do from the fast thread. The settings for zynthian's UI (get_settings, set_setting,
+# settings_revision; zynthian-ui's docs/controller-settings.md) are a cached copy which the
+# tick thread keeps up to date; set_setting queues the value for the tick thread.
 #
 # In-process devices (hid_ids, the Maschines): zynthian's ctrldev manager loads the driver
 # without a MIDI port (idev_in None) when the HID device is there; the driver drives it itself
@@ -44,7 +46,7 @@ import os
 import logging
 from time import monotonic
 from queue import SimpleQueue, Empty
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 
 # Zynthian specific modules
 import zynautoconnect
@@ -66,6 +68,9 @@ TICK_SECONDS = 0.03
 
 # How often the document settings are read for get_state
 DOCUMENT_CACHE_SECONDS = 1.0
+
+# How often the settings are asked for while the core has none yet (its startup delay)
+SETTINGS_RETRY_SECONDS = 0.5
 
 # The messages of dbm-nihost (support/linux/ni_host/src/midi.h): the query whether the device is
 # there, and the message that it is gone (unplugged, dbm-nihost stops)
@@ -153,6 +158,13 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         self.pending_document = None    # Document settings to apply (set_state)
         self.start_failed = False
         self._oversize_logged = False
+        # The settings for zynthian's UI (get_settings, set_setting, settings_revision)
+        self.settings_revision = 0
+        self._settings = []             # dicts, replaced as a whole (read from any thread)
+        self._setting_states = {}       # ID -> (visible, enabled), from take_setting_states
+        self._settings_lock = Lock()
+        self._settings_queue = []       # (ID, value) set by the UI, for the tick thread
+        self._settings_asked = 0.0
         # dbm-nihost's device (nihost_hello): there, a query waits for its answer, a hello which
         # is no answer (attached, dbm-nihost restarted) restarts the controller
         self.device_present = self.nihost_hello is None
@@ -487,6 +499,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
             except Exception as e:
                 logging.error(f"[{self.__class__.__name__}] Error while stopping the controller: {e}")
             self.bridge = None
+        self.clear_settings()
 
     def query_device(self):
         """Ask dbm-nihost whether its device is there (it answers with the hello if it is). An
@@ -559,6 +572,81 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
         bridge.tick(now_ms)
         for message in bridge.take_notifications():
             zynsigman.send_queued(zynsigman.S_GUI, zynsigman.SS_GUI_SHOW_MESSAGE, message=message)
+        self.sync_settings(bridge.app)
+
+    # ---------------------------------------------------------------------------
+    # The settings for zynthian's UI (zynthian-ui: docs/controller-settings.md). The UI looks for
+    # get_settings, set_setting and settings_revision on the drivers; it may call them from any
+    # thread. The core's settings (global and document) are cached as dicts with id, scope, kind,
+    # category, label, default, value, extra (an enum's options, an integer's min and max, a
+    # signal's button text), visible and enabled.
+    # ---------------------------------------------------------------------------
+
+    def get_settings(self):
+        """The settings of the running controller (empty while it doesn't run). Don't change them."""
+        return self._settings
+
+    def set_setting(self, setting_id, value):
+        """Set a setting (a signal: any value presses its button). The tick thread passes it to
+        the core; the cached value changes at once. False while the controller doesn't run."""
+        setting_id = int(setting_id)
+        value = "" if value is None else str(value)
+        with self._settings_lock:
+            if self.bridge is None:
+                return False
+            self._settings_queue.append((setting_id, value))
+            settings = [dict(s, value=value) if s["id"] == setting_id and s["kind"] != "signal" else s
+                        for s in self._settings]
+            self._publish_settings(settings)
+        self.wake.set()
+        return True
+
+    def _publish_settings(self, settings):
+        """Replace the cached settings, bump the revision if they changed (lock held)."""
+        if settings != self._settings:
+            self._settings = settings
+            self.settings_revision += 1
+
+    def clear_settings(self):
+        with self._settings_lock:
+            self._settings_queue = []
+            self._setting_states = {}
+            self._settings_asked = 0.0
+            self._publish_settings([])
+
+    def sync_settings(self, app):
+        """The tick thread: the UI's changes to the core, the controller's changes and the
+        visibility and enabled states to the cache."""
+        with self._settings_lock:
+            queued, self._settings_queue = self._settings_queue, []
+            for setting_id, value in queued:
+                app.set_setting(setting_id, value)
+            changes = app.take_setting_changes()
+            states = app.take_setting_states()
+            for state in states:
+                self._setting_states[state.id] = (state.visible, state.enabled)
+            now = monotonic()
+            # Read them all again after the UI's changes (a signal may reset others, e.g. Push's
+            # display colours) and until the core has some (it creates them after its startup delay)
+            reload = bool(queued) or (not self._settings and now - self._settings_asked >= SETTINGS_RETRY_SECONDS)
+            if not (reload or changes or states):
+                return
+            if reload:
+                self._settings_asked = now
+                settings = [{"id": s.id, "scope": s.scope, "kind": s.kind, "category": s.category,
+                             "label": s.label, "default": s.default_value, "value": s.value,
+                             "extra": list(s.extra)} for s in app.get_settings()]
+            else:
+                settings = [dict(s) for s in self._settings]
+            values = dict(changes)
+            for s in settings:
+                if s["id"] in values:
+                    s["value"] = values[s["id"]]
+                s["visible"], s["enabled"] = self._setting_states.get(s["id"], (True, True))
+            self._publish_settings(settings)
+        if queued:
+            # A document setting changed: into the next get_state at once
+            self.document = app.get_formatted_document_settings()
 
     # ---------------------------------------------------------------------------
     # The core's callbacks (on the tick thread, during a call into the core)
