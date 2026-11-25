@@ -511,7 +511,8 @@ impl SurfaceClient {
         } else if step > 0 && model.page + 1 < model.pages.len() {
             self.send(Input::PageNext);
         } else if step < 0 && model.page > 0 {
-            self.send(Input::PagePrev);
+            // Back through the sets: the previous page on its last set
+            self.send(Input::PagePrevLast);
         }
     }
 

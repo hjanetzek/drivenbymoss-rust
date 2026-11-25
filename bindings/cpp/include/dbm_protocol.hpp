@@ -3403,11 +3403,12 @@ struct HostPageRow
     uint8_t op () const { return this->record.op (); }
 };
 
-/** hostpage page */
+/** hostpage page/{end} */
 struct HostPagePage
 {
     static constexpr Cmd id = Cmd::HostPagePage;
     Record record;
+    uint16_t end () const { return this->record.idx (0); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };

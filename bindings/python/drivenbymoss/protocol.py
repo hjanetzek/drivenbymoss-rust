@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0x88f9d9612102236e
+HASH = 0x93286b35e1b94736
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -222,6 +222,11 @@ class DeviceAction(IntEnum):
 class TurnUnit(IntEnum):
     TRAVEL = 0
     DETENT = 1
+
+
+class PageEnd(IntEnum):
+    FIRST = 0
+    LAST = 1
 
 
 class Resolution(IntEnum):
@@ -1296,7 +1301,7 @@ CMD_INFO: dict[int, Info] = {
     Cmd.HOST_PAGE_CELL_TOUCH: Info("HostPageCellTouch", "hostpage cell/{cell}/touch/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 1, "bool"),
     Cmd.HOST_PAGE_CELL_RESET: Info("HostPageCellReset", "hostpage cell/{cell}/reset/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 0, "none"),
     Cmd.HOST_PAGE_ROW: Info("HostPageRow", "hostpage row", (), 2, "i32"),
-    Cmd.HOST_PAGE_PAGE: Info("HostPagePage", "hostpage page", (), 2, "i32"),
+    Cmd.HOST_PAGE_PAGE: Info("HostPagePage", "hostpage page/{end}", ((("end", 0, 16, False),),), 2, "i32"),
     Cmd.HOST_PAGE_SET: Info("HostPageSet", "hostpage set", (), 2, "i32"),
     Cmd.HOST_PAGE_SECTION: Info("HostPageSection", "hostpage section", (), 2, "i32"),
     Cmd.HOST_PAGE_CELL_ASSIGN: Info("HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 2, "i32"),
@@ -7456,10 +7461,11 @@ class CmdHostPageRow(Record):
 
 
 class CmdHostPagePage(Record):
-    """hostpage page"""
+    """hostpage page/{end}"""
 
     __slots__ = ()
     KIND = "i32"
+    end = _i0
     value = _value("i32")
 
 

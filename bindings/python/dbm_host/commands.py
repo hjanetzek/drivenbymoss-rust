@@ -522,7 +522,7 @@ class CommandHandler:
         elif id_ == Cmd.HOST_PAGE_ROW:
             pages.select_row(view.value)
         elif id_ == Cmd.HOST_PAGE_PAGE:
-            pages.select_window(view.value)
+            pages.select_window(view.value, view.end == protocol.PageEnd.LAST)
         elif id_ == Cmd.HOST_PAGE_SET:
             pages.select_set(view.value)
         elif id_ == Cmd.HOST_PAGE_SECTION:

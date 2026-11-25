@@ -296,7 +296,8 @@ cycles through them".
   | `SlotTouch` | `HostPageCellTouch { cell, epoch } on` |
   | `SelectedReset` | `HostPageCellReset` of the selected cell |
   | `RowSelect` | `HostPageRow row` |
-  | `PageSelect`, `PageNext`, `PagePrev` | `HostPagePage page` (± 1 of the reported page, clamped) |
+  | `PageSelect`, `PageNext`, `PagePrev` | `HostPagePage {end: first} page` (± 1 of the reported page, clamped) |
+  | `PagePrevLast` (`<` from a window's first set) | `HostPagePage {end: last} page`: the previous window on its last page |
   | `SetSelect`, `SetStep` | `HostPageSet set` (± 1 of the reported set, clamped) |
   | `SectionSelect` | `HostPageSection section` |
   | `ValueNext/Prev`, `ExtraTurn` | not sent |
@@ -616,7 +617,7 @@ resulting state — the core never shows a selection which the host did not repo
 | `HostPageCellTouch {cell, epoch} on` | nothing (later: the page's widget, `gridWidgetPoke`) |
 | `HostPageCellReset {cell, epoch}` | `grid.set_default` |
 | `HostPageRow row` | select the page in that row (8×6: the same half as before) |
-| `HostPagePage page` | show the window `page` (select its first page) |
+| `HostPagePage {end} page` | show the window `page`: select its first page (`end` = `first`), or its last one (`last`: `<` from a window's first set pages back through the sets). Text form `hostpage page/first <page>`, `hostpage page/last <page>` |
 | `HostPageSet set` | select that page |
 | `HostPageSection section` | select the section's first page |
 | `HostPageCellAssign {cell, epoch} slot` | (0x8C0A, zynthian-ui remote control pages) put the controller of `cell` into slot `slot` (0..7) of the chain's current remote page; an empty cell clears the slot; `slot` -1 removes the controller from every remote page. The JAM sends it for Select + a strip touch: the active row's cell n → slot n |

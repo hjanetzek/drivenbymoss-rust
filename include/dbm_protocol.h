@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0x88f9d9612102236eULL
+#define DBM_PROTOCOL_HASH 0x93286b35e1b94736ULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -255,6 +255,13 @@ enum DbmTurnUnit
 {
     DBM_TURN_UNIT_TRAVEL = 0,
     DBM_TURN_UNIT_DETENT = 1,
+};
+
+/* PageEnd */
+enum DbmPageEnd
+{
+    DBM_PAGE_END_FIRST = 0,
+    DBM_PAGE_END_LAST = 1,
 };
 
 /* Resolution */
@@ -1318,7 +1325,7 @@ enum DbmCmdId
     DBM_CMD_HOST_PAGE_CELL_RESET = 0x8C05,
     /* hostpage row; idx: -; i32 */
     DBM_CMD_HOST_PAGE_ROW = 0x8C06,
-    /* hostpage page; idx: -; i32 */
+    /* hostpage page/{end}; idx: end; i32 */
     DBM_CMD_HOST_PAGE_PAGE = 0x8C07,
     /* hostpage set; idx: -; i32 */
     DBM_CMD_HOST_PAGE_SET = 0x8C08,

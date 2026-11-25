@@ -19,7 +19,7 @@ use super::{Capabilities, ControlSet, Input, LinkState, PageModel, PageSource, R
 use crate::daw::context::HostFeature;
 use crate::daw::host_page::HostPage;
 use crate::daw::model::Model;
-use crate::protocol::{Cmd, Resolution};
+use crate::protocol::{Cmd, PageEnd, Resolution};
 
 /// The name of the source while the host reports none.
 const DEFAULT_NAME: &str = "Host";
@@ -77,14 +77,15 @@ impl HostSource {
             Input::SlotTouch { id, on } => Cmd::HostPageCellTouch { cell: id, epoch, value: on },
             Input::SelectedReset => Cmd::HostPageCellReset { cell: model.selected_slot?, epoch },
             Input::RowSelect { row } => Cmd::HostPageRow { row: row as i32 },
-            Input::PageSelect { page } => Cmd::HostPagePage { page: page as i32 },
-            Input::PageNext | Input::PagePrev => {
+            Input::PageSelect { page } => Cmd::HostPagePage { end: PageEnd::First, page: page as i32 },
+            Input::PageNext | Input::PagePrev | Input::PagePrevLast => {
                 let delta = if input == Input::PageNext { 1 } else { -1 };
                 let page = step(Some(model.page), delta, model.pages.len())?;
                 if page as usize == model.page {
                     return None;
                 }
-                Cmd::HostPagePage { page }
+                let end = if input == Input::PagePrevLast { PageEnd::Last } else { PageEnd::First };
+                Cmd::HostPagePage { end, page }
             }
             Input::SetSelect { set } => Cmd::HostPageSet { set: set as i32 },
             Input::SetStep { delta } => {
@@ -295,8 +296,8 @@ mod tests {
             [
                 Cmd::HostPageCellTurn { cell: 5, epoch: 5, unit: crate::protocol::TurnUnit::Detent, resolution: Resolution::Fine, delta: -2 },
                 Cmd::HostPageSet { set: 0 },
-                Cmd::HostPagePage { page: 2 },
-                Cmd::HostPagePage { page: 0 },
+                Cmd::HostPagePage { end: PageEnd::First, page: 2 },
+                Cmd::HostPagePage { end: PageEnd::First, page: 0 },
                 Cmd::HostPageCellReset { cell: 5, epoch: 5 },
                 Cmd::HostPageShow { columns: 6, rows: 6, encoders: 12, rows_per_set: 2, value: false },
             ]

@@ -437,7 +437,8 @@ commands! {
     /// Select a row (its control set).
     HostPageRow = 0x8C06 {} @ HostPage ["row"] => row: i32, feature = HostPages;
     /// Show a page (a window of rows).
-    HostPagePage = 0x8C07 {} @ HostPage ["page"] => page: i32, feature = HostPages;
+    /// `end`: select the window's first page, or its last (`<` from a window's first set).
+    HostPagePage = 0x8C07 { end: PageEnd } @ HostPage ["page" end] => page: i32, feature = HostPages;
     /// Select a control set.
     HostPageSet = 0x8C08 {} @ HostPage ["set"] => set: i32, feature = HostPages;
     /// Select a section (its first control set).

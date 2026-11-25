@@ -487,9 +487,15 @@ class HostPageView:
             self.pages.select_on_screen(min(index, count - 1))
         return True
 
-    def select_window(self, window: int) -> bool:
+    def select_window(self, window: int, last: bool = False) -> bool:
+        """Show the window: select its first page, or its last one (``<`` from a window's first
+        set, ``HostPagePage`` with ``PageEnd.LAST``)."""
         if 0 <= window < self.window_count():
-            self.pages.select_on_screen(window * self.sets_per_window)
+            first = window * self.sets_per_window
+            if last:
+                count = len(self.pages.pages())
+                first = min(first + self.sets_per_window, count) - 1
+            self.pages.select_on_screen(first)
         return True
 
     def select_set(self, index: int) -> bool:

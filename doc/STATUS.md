@@ -444,32 +444,55 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
-**Where to pick up (2026-11-24):**
+**Where to pick up (2026-11-25):**
 - **Done and merged:** the typed binary protocol (all hosts but Reaper); the ports of Beatstep,
   Launchkey, OSC (typed address table), Push 1/2/3 (USB display: C ABI, Bitwig, usbdevfs, the
   simulator socket), Maschine Mk3/Mikro Mk3/Plus (registered), Electra One (Mk1/Mk2, Mini); the
   tests on typed `Cmd`s; the controller simulators (Push, Maschine Mk2/JAM/Mk3/Mikro, APC40 mkII,
-  Launchpad Pro Mk3, LCXL; guide: CONTROLLER_SIMULATORS.md); the Maschines in-process over
-  libdbm_nihost on Linux; the Maschine LED brightness, the JAM palette and the colour roles.
-- **The surface link** (SURFACE_LINK.md): a generic 6×6 page model between two controller
-  instances in one process. Providers: the Electra controller with the DrivenByMoss preset, and
-  the generic provider for any other preset on the Electra Mk2 emulator (electra-one §6b/§6c,
-  agreed and tested live). Surface: the Maschine JAM (Select + SONG; LEFT/RIGHT switch an
-  envelope's value). Test with `dbm_host_alsa.py --model electra --model jam` (isolate test runs:
-  own name suffix, clients picked by PID). Open: acceleration for detented encoders and lists,
-  covered cells drawn dark (SURFACE_LINK.md §9).
+  Launchpad Pro Mk3, LCXL; a right click latches a button; guide: CONTROLLER_SIMULATORS.md); the
+  Maschines in-process over libdbm_nihost on Linux; the Maschine LED brightness, the JAM palette
+  and the colour roles.
+- **The surface link** (SURFACE_LINK.md): a generic page model between two controller instances
+  in one process. Providers: the Electra controller with the DrivenByMoss preset, and the generic
+  provider for any other preset on the Electra Mk2 emulator (electra-one §6b/§6c, agreed and
+  tested live). Open: acceleration for detented encoders and lists, covered cells drawn dark
+  (SURFACE_LINK.md §9).
+- **Host-provided pages** (HOST_PAGE_PLAN.md): `framework::page_surface` with a `PageSource`
+  trait (the surface link, or the host's `/hostpage/…` reports and `hostpage …` commands, feature
+  `hostPages`; the host owns the values and the selection). On the JAM:
+  - **Select + SONG** (and **Select + CONTROL** with host pages): the full surface, cycling the
+    sources (page list in grid row 1, cells in rows 2-7 up to 8 wide, sections in row 8).
+  - **CONTROL** with host pages: device parameters → host page strips (`Modes::HostStrips`: the
+    host's active row on the 8 strips, the grid keeps its view) → device parameters. `<` `>` step
+    through the sets and pages (at a window's first set `<` sends `HostPagePage {end: last}`),
+    Select + `<` `>` the rows; Select + strip n = `HostPageCellAssign {cell, slot n}` (the host's
+    remote control pages, 4 slots a page, slots 4-7 on the next page).
+  - **Shift + CONTROL** with host pages: the strips on the first control page (`HostPageSection
+    0`: the remote pages if the chain has any). Without host pages CONTROL, Select/Shift + CONTROL
+    keep Java's functions.
+  - A track change keeps the page surface and the strips (provisional: the user decides later).
+  - The reference host simulates zynthian-like pages (`dbm_host_alsa.py --host-pages`).
+- **The zynthian side** (by the zynthian-ui session "electra-grid"): zynthian-ui branch
+  `electra-grid` (control grid, chain controller/remote pages of 4, shared selection, opening
+  chain control on `HostPageShow on`) and the adapter on drivenbymoss-rust branch
+  `zynthian-host-pages` (checked out in the main checkout `~/bastel/github/drivenbymoss-rust`,
+  rebased on main; merge into main on the user's go). It adds the adapter side of `HostPagePage
+  {end: last}` next.
+- **In progress / open decisions:**
+  - Merge `zynthian-host-pages` into main (waits for the user's go; check list first, in a
+    separate worktree).
+  - Decided for after the current work: move the zynthian-specific code (`dbm_zynthian`, the
+    `zynthian_ctrldev_*dbm*` drivers and their tests) into zynthian-ui with history; `dbm_host`,
+    the binding and the protocol generator stay here, plus a small host test kit; a protocol
+    version check when the drivers load, a package dependency, and an optional run of zynthian-ui's
+    adapter tests in this repository's check list.
+  - Open: does CONTROL's device-parameter mode also open zynthian's parameter view (would need a
+    small "parameter mode entered" command)? "Host Pages" instead of "Surface off" when the full
+    surface closes from the strips?
 - **Related projects:** the Electra One emulator (`~/bastel/github/electra-one`, the real mk1
-  firmware on Linux, mk2 by flag; its session "electra-one-sim" owns it) and the zynthian-ui fork
-  (branch `electra-grid`: an Electra-like control grid in zynthian's Qt UI).
-- **Host-provided pages** (HOST_PAGE_PLAN.md, P1-P5 done): the page model and the generic
-  surface view/mode are `framework::page_surface`, with a `PageSource` trait: the surface link
-  (the Electra) and the host's pages (`/hostpage/…` reports, `hostpage …` commands, feature
-  `hostPages`; the host owns the values and the selection). The JAM's layout for every source:
-  the page list in grid row 1, the cells in rows 2-7 (up to 8 wide), the sections in row 8;
-  Select + SONG cycles through the sources. The reference host simulates zynthian-like pages
-  (`dbm_host_alsa.py --host-pages`, SIGUSR1/2 move its screen).
-- **Next:** the zynthian adapter for the host pages (P6, by the zynthian-ui session; the
-  hand-over is HOST_PAGE_PLAN.md §12).
+  firmware on Linux, mk2 by flag; session "electra-one-sim"), the zynthian-ui fork (session
+  "electra-grid"). While the main checkout is in another session's use, work in worktrees and
+  only fast-forward the `main` ref (`git fetch . <branch>:main`).
 
 **A typed protocol between core and hosts** (decided 2026-11-08; done for all hosts but Reaper, see
 "Status" below). Before it every address

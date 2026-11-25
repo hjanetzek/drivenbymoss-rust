@@ -17,7 +17,7 @@ use drivenbymoss::framework::ctx::Ctx;
 use drivenbymoss::framework::ids::{Modes, Views};
 use drivenbymoss::framework::page_surface::view::palette_index;
 use drivenbymoss::framework::page_surface::{LinkState, Rgb, SlotKind};
-use drivenbymoss::protocol::{Cmd, Resolution, TurnUnit};
+use drivenbymoss::protocol::{Cmd, PageEnd, Resolution, TurnUnit};
 
 const J_IN: i32 = 13;
 const J_OUT: i32 = 15;
@@ -284,8 +284,8 @@ fn shows_the_host_page_and_sends_the_input() {
             cmd_text(Cmd::HostPageSet { set: 0 }),
             cmd_text(Cmd::HostPageSet { set: 2 }),
             cmd_text(Cmd::HostPageSection { section: 0 }),
-            cmd_text(Cmd::HostPagePage { page: 1 }),
-            cmd_text(Cmd::HostPagePage { page: 1 }),
+            cmd_text(Cmd::HostPagePage { end: PageEnd::First, page: 1 }),
+            cmd_text(Cmd::HostPagePage { end: PageEnd::First, page: 1 }),
         ]
     );
     let model = client.borrow().model().clone();
@@ -591,12 +591,13 @@ fn the_page_buttons_step_the_sets_and_with_select_the_rows_on_the_host_page_stri
     rig.advance(30);
     rig.press(JAM_RIGHT);
     rig.advance(30);
-    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { page: 1 })]);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { end: PageEnd::First, page: 1 })]);
     rig.app.update_model("hostpage/page/selected 1\nhostpage/set/selected 0\nhostpage/row 0\n");
     rig.advance(30);
     rig.press(JAM_LEFT);
     rig.advance(30);
-    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { page: 0 })]);
+    // < from the first set: the previous page on its last set
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { end: PageEnd::Last, page: 0 })]);
     assert_eq!(rig.mode(), Some(Modes::HostStrips));
 }
 

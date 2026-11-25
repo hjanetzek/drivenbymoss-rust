@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0x88f9d9612102236eL;
+    public static final long HASH          = 0x93286b35e1b94736L;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -416,6 +416,20 @@ public final class Protocol
 
 
         private TurnUnit ()
+        {
+            // Constants only
+        }
+    }
+
+
+    /** The domain PageEnd. */
+    public static final class PageEnd
+    {
+        public static final int FIRST = 0;
+        public static final int LAST = 1;
+
+
+        private PageEnd ()
         {
             // Constants only
         }
@@ -1806,8 +1820,8 @@ public final class Protocol
         HOST_PAGE_CELL_RESET(0x8C05, "HostPageCellReset", "hostpage cell/{cell}/reset/{epoch}", "cell,epoch", 0, "none"),
         /** hostpage row */
         HOST_PAGE_ROW(0x8C06, "HostPageRow", "hostpage row", "", 2, "i32"),
-        /** hostpage page */
-        HOST_PAGE_PAGE(0x8C07, "HostPagePage", "hostpage page", "", 2, "i32"),
+        /** hostpage page/{end} */
+        HOST_PAGE_PAGE(0x8C07, "HostPagePage", "hostpage page/{end}", "end", 2, "i32"),
         /** hostpage set */
         HOST_PAGE_SET(0x8C08, "HostPageSet", "hostpage set", "", 2, "i32"),
         /** hostpage section */
@@ -2958,6 +2972,17 @@ public final class Protocol
             {
                 case 0x8C02 -> this.idx (3);
                 default -> throw new IllegalStateException ("No field resolution in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "end" of the command */
+        public int end ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8C07 -> this.idx (0);
+                default -> throw new IllegalStateException ("No field end in the command " + Integer.toHexString (this.id ()));
             };
         }
     }

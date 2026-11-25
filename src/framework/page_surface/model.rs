@@ -331,6 +331,9 @@ pub enum Input {
     PageSelect { page: usize },
     PageNext,
     PagePrev,
+    /// The previous page, on its last control set (paging back through the sets, since 1.4); a
+    /// source without control sets handles it as `PagePrev`.
+    PagePrevLast,
     SelectedTurn { delta: i32, fine: bool, unit: TurnUnit },
     SelectedReset,
     /// The next / previous value of the selected slot's control, for a control with several

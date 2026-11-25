@@ -89,6 +89,12 @@ domain! {
 }
 
 domain! {
+    /// Which page of a host page's window `HostPagePage` selects: its first (a page list, the
+    /// next page) or its last (paging back through the control sets).
+    PageEnd { First = "first", Last = "last" }
+}
+
+domain! {
     /// The resolution of a turn of a host page's cell.
     Resolution { Normal = "normal", Fine = "fine" }
 }

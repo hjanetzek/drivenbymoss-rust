@@ -200,7 +200,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
         Input::RowSelect { row } => set_row(ctx, row),
         Input::PageSelect { page: new_page } => select_page(ctx, new_page),
         Input::PageNext => select_page(ctx, page + 1),
-        Input::PagePrev => {
+        Input::PagePrev | Input::PagePrevLast => {
             if page > 0 {
                 select_page(ctx, page - 1);
             }

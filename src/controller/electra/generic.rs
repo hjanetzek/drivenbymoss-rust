@@ -250,7 +250,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
         Input::SlotRelease { id } => press(ctx, id, false),
         Input::RowSelect { row } => set_row(ctx, row),
         Input::PageSelect { page } => select_page(ctx, page),
-        Input::PageNext | Input::PagePrev => {
+        Input::PageNext | Input::PagePrev | Input::PagePrevLast => {
             let current = generic(ctx).model().page;
             let page = if input == Input::PageNext { current + 1 } else { current.wrapping_sub(1) };
             select_page(ctx, page);
