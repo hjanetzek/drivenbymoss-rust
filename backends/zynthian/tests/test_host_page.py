@@ -279,6 +279,22 @@ class HostPagesTest(unittest.TestCase):
         self.assertEqual(out[M.HOST_PAGE_TITLE], "zynthian · Piano")
         self.assertEqual(out[M.HOST_CELL_NAME | 0], "level")
 
+    def test_press_on_a_processor_without_pages_opens_it(self):
+        """A processor without pages (no soundfont, no file) is an empty page: a press on its
+        cells is the screen's tap on its header (request_open); a controller's cell selects it"""
+        self.state = synth_state(2)
+        self.state.add_processor(1, "Player", [], type="Audio Effect")
+        self.commands = handler(self.state)
+        screen = FakeScreen(self.gd, self.state)
+        self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
+        epoch = self.report()[M.HOST_PAGE_EPOCH]
+        pages = self.commands.host_pages.grid.pages
+        page = next(i for i, p in enumerate(pages) if p.empty)
+        self.assertEqual(pages[page].section, "Player")
+        cell = page // 2 * 8 + page % 2 * 4 + 1      # its second cell (no controller)
+        self.run_commands(f"int\thostpage\tcell/{cell}/press/{epoch}\t1", f"int\thostpage\tcell/1/press/{epoch}\t1")
+        self.assertEqual(screen.queue, [("open", 1, page, -1, 0), ("cell", 1, 0, 1, 0)])
+
 
 @unittest.skipUnless(grid_available(), f"no grid module in {zynstubs.UI_DIR} (zynthian-ui electra-grid)")
 class JamEndToEndTest(unittest.TestCase):

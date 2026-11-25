@@ -47,7 +47,9 @@ source.
   holds (chain, pages, window, layout).
 - **Commands** (``show``, ``turn``, ``press``, ``reset``, ``select_row``/``page``/``set``/
   ``section``): cell commands of another epoch are dropped. The value math is the grid's:
-  a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``.
+  a detent ``turn`` (zctrl.nudge), a strip's travel ``turn_travel``. A press on a page without
+  controllers (a processor without pages) is the screen's tap on its header
+  (``shared_selection.request_open``: selects it, the selected one opens its banks / presets).
 
 Cell kinds: empty 0, float/integer 1 (fader), list 2, toggle 3, trigger 4, path 6 (action).
 """
@@ -275,11 +277,16 @@ class ZynHostPages:
         if c.page < 0:
             return
         # Its page and the cell on the screen, then by its kind (a toggle switches, a trigger
-        # fires, a list steps, a file opens the file selector; a continuous one only selects)
+        # fires, a list steps, a file opens the file selector; a continuous one only selects).
+        # A page without controllers (a processor without pages) as a tap on its header on the
+        # screen: selects it, the selected one opens its banks / presets
+        selection = self.gd.shared_selection
         if c.zctrl is not None:
-            self.gd.shared_selection.request_cell(self.chain_id, c.page, c.slot)
+            selection.request_cell(self.chain_id, c.page, c.slot)
+        elif self.grid.pages[c.page].empty and hasattr(selection, "request_open"):
+            selection.request_open(self.chain_id, c.page)
         else:
-            self.gd.shared_selection.request_page(self.chain_id, c.page)
+            selection.request_page(self.chain_id, c.page)
         self.grid.press(cell)
 
     def reset(self, cell, epoch):
