@@ -9,6 +9,7 @@ use std::rc::Rc;
 use drivenbymoss::app::App;
 use drivenbymoss::backend::RecordingBackend;
 use drivenbymoss::config::SettingId;
+use drivenbymoss::protocol::CmdId;
 
 /// A single Launch Control XL instance as the Bitwig extension creates it.
 fn start(name: &str) -> App {
@@ -207,4 +208,58 @@ fn settings_of_generic_flexi() {
     app.tick();
     assert!(app.take_notifications().contains("No file name set."));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The states of the settings of a Push 2 whose host handles the given commands (None: a text
+/// host; an empty bitset: all commands).
+fn push2_states(name: &str, handled: Option<Vec<u64>>) -> (App, Rc<RecordingBackend>) {
+    let dir = std::env::temp_dir().join(format!("dbm-test-host-settings-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let backend = Rc::new(RecordingBackend { inputs: vec![(0, "in".into())], outputs: vec![(0, "out".into())], ..Default::default() });
+    *backend.handled.borrow_mut() = handled;
+    let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), "15176AA0-C476-11E6-9598-0800200C9A66", "zynthian").expect("Push 2");
+    app.start_infrastructure();
+    (app, backend)
+}
+
+/// All command IDs except the given ones, as a handled-commands bitset.
+fn all_but(except: &[CmdId]) -> Vec<u64> {
+    let max = CmdId::ALL.iter().map(|&id| usize::from(id as u16 & 0x7FFF)).max().unwrap();
+    let mut words = vec![0u64; max / 64 + 1];
+    for &id in CmdId::ALL.iter().filter(|id| !except.contains(id)) {
+        let bit = usize::from(id as u16 & 0x7FFF);
+        words[bit / 64] |= 1 << (bit % 64);
+    }
+    words
+}
+
+const AUTOMATION: [CmdId; 3] = [CmdId::AutomationToggleArranger, CmdId::AutomationToggleLauncher, CmdId::AutomationMode];
+
+/// A setting whose effects all need commands the host does not handle is reported hidden; with
+/// one of them (or on a host which handles everything) it stays visible.
+#[test]
+fn settings_without_effect_on_the_host_are_hidden() {
+    let label = "Stop automation recording on knob release";
+
+    let (mut app, backend) = push2_states("no-automation", Some(all_but(&AUTOMATION)));
+    let id = fields(&app.settings(), label)[0].clone();
+    let states = app.take_setting_states();
+    assert!(states.lines().any(|l| l == format!("{id}\t0\t1")), "{states}");
+    // Still listed (the host decides how to show a hidden setting) and still stored
+    assert!(app.settings().contains(label));
+    // The host handles the automation commands later (dbm_set_command_callback again): shown
+    *backend.handled.borrow_mut() = Some(all_but(&[]));
+    assert_eq!(app.take_setting_states(), format!("{id}\t1\t1"));
+    assert_eq!(app.take_setting_states(), "");
+
+    // One of the commands is enough
+    let (mut app, _) = push2_states("one-automation", Some(all_but(&AUTOMATION[1..])));
+    assert!(!app.take_setting_states().lines().any(|l| l.starts_with(&format!("{id}\t"))));
+    // All commands (empty bitset) and a text host: nothing hidden
+    for (name, handled) in [("all-commands", Some(Vec::new())), ("text-host", None)] {
+        let (mut app, _) = push2_states(name, handled);
+        let states = app.take_setting_states();
+        assert!(!states.lines().any(|l| l.starts_with(&format!("{id}\t"))), "{name}: {states}");
+    }
 }

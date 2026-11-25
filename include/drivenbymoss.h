@@ -422,8 +422,11 @@ char *dbm_take_setting_changes(struct DbmApp *app);
 
 // The settings whose visibility or enabled state changed since the last call, one
 // `ID<tab>visible<tab>enabled` per line (1 or 0). The first call after the start reports the
-// states which the controller set while it was created. Release the result with
-// [`dbm_free_string`].
+// states which the controller set while it was created. A setting is also hidden while it has no
+// effect on the host: all it does needs a feature or commands the host lacks (e.g. "Stop
+// automation recording on knob release" without the automation commands in the handled
+// bitset of [`dbm_set_command_callback`]; a text host and an empty bitset have all commands).
+// Release the result with [`dbm_free_string`].
 //
 // # Safety
 // `app` must be a valid handle (or null).

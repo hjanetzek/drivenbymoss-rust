@@ -813,7 +813,9 @@ impl App {
         let Some(running) = self.first_running() else {
             return String::new();
         };
+        let daw = running.ctx.model.ctx();
         let config = &mut running.ctx.config;
+        config.update_host_support(|requirement| daw.host_meets(requirement));
         let changes = config.take_state_changes();
         changes.iter().map(|&id| format!("{}\t{}\t{}", id.0, u8::from(config.is_visible(id)), u8::from(config.is_enabled(id)))).collect::<Vec<_>>().join("\n")
     }

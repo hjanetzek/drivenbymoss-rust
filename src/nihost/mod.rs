@@ -397,6 +397,9 @@ impl Backend for DeviceBackend {
     fn command_features(&self) -> Option<u32> {
         self.inner.command_features()
     }
+    fn handles_command(&self, id: crate::protocol::CmdId) -> Option<bool> {
+        self.inner.handles_command(id)
+    }
     fn handles_log(&self) -> bool {
         self.inner.handles_log()
     }

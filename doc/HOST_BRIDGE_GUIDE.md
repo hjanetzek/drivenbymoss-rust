@@ -119,7 +119,11 @@ shows a text). A `signal` is a button without a value: on a press the bridge cal
 (e.g. a scale chosen on the device). `dbm_take_setting_states` returns `ID<tab>visible<tab>enabled`
 lines (1 or 0) of the settings whose state changed (Java `setVisible` / `setEnabled`, e.g. the
 slot settings of Generic Flexi, hidden while the slot is off); the first call reports the states
-set during the creation of the controller. A host without these functions in an older core sees
+set during the creation of the controller. A setting which has no effect on the host is reported
+hidden as well: one whose effects all need a host feature or commands the host does not have
+(`Configuration::require`, e.g. Push's "Stop automation recording on knob release" needs one of
+`automation toggleArranger|toggleLauncher|<mode>` in the handled-commands bitset; a text host and
+an empty bitset have all commands). The states follow a later `dbm_set_command_callback`. A host without these functions in an older core sees
 all settings visible and enabled. The bridge stores global settings in the DAW preferences and
 document settings in the project (`HostSettings`). The alternative used by Reaper is
 `dbm_set_default_document_settings` / `dbm_get_formatted_document_settings` /

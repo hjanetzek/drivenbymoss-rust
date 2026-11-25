@@ -34,7 +34,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::properties::Properties;
-use super::setting::{Scope, SettingDescriptor, SettingId, SettingKind};
+use super::setting::{HostRequirement, Scope, SettingDescriptor, SettingId, SettingKind};
 use super::values::*;
 use crate::framework::ids::{Modes, Views};
 use crate::framework::value_changer::ValueChanger;
@@ -87,6 +87,10 @@ pub struct Configuration {
     hidden: HashSet<SettingId>,
     disabled: HashSet<SettingId>,
     state_changes: Vec<SettingId>,
+    /// What the settings need from the host ([`Self::require`]), and the settings whose
+    /// requirement the host does not meet (hidden, see [`Self::update_host_support`]).
+    requirements: Vec<(SettingId, HostRequirement)>,
+    unsupported: HashSet<SettingId>,
     dont_notify_all: HashSet<SettingId>,
     dirty: bool,
     /// Values of controller specific settings (IDs >= NEXT_SETTING_ID), stored as text.
@@ -169,6 +173,8 @@ impl Configuration {
             hidden: HashSet::new(),
             disabled: HashSet::new(),
             state_changes: Vec::new(),
+            requirements: Vec::new(),
+            unsupported: HashSet::new(),
             dont_notify_all: HashSet::new(),
             dirty: false,
             custom_values: HashMap::new(),
@@ -371,8 +377,29 @@ impl Configuration {
         }
     }
 
+    /// False if the controller hid the setting ([`Self::set_visible`]) or the host does not meet
+    /// its requirement ([`Self::update_host_support`]).
     pub fn is_visible(&self, id: SettingId) -> bool {
-        !self.hidden.contains(&id)
+        !self.hidden.contains(&id) && !self.unsupported.contains(&id)
+    }
+
+    /// The setting has an effect only if the host meets the requirement; otherwise it is
+    /// reported hidden (after [`Self::update_host_support`]). The value is kept and stored.
+    pub fn require(&mut self, id: SettingId, requirement: HostRequirement) {
+        self.requirements.retain(|(other, _)| *other != id);
+        self.requirements.push((id, requirement));
+    }
+
+    /// Check the requirements ([`Self::require`]) against the host: `meets` tells if the host
+    /// meets one. A setting whose visibility changes is reported by [`Self::take_state_changes`].
+    pub fn update_host_support(&mut self, meets: impl Fn(HostRequirement) -> bool) {
+        for &(id, requirement) in &self.requirements {
+            let unsupported = !meets(requirement);
+            let changed = if unsupported { self.unsupported.insert(id) } else { self.unsupported.remove(&id) };
+            if changed && !self.hidden.contains(&id) && !self.state_changes.contains(&id) {
+                self.state_changes.push(id);
+            }
+        }
     }
 
     pub fn is_enabled(&self, id: SettingId) -> bool {
@@ -1771,5 +1798,31 @@ mod tests {
         let empty = Configuration::new(&[]);
         assert_eq!(empty.next_arpeggiator_mode(), None);
         assert_eq!(empty.prev_arpeggiator_mode(), None);
+    }
+
+    /// A setting with a requirement (here a host feature) is hidden while the host does not meet
+    /// it; the controller's own hiding stays independent of it.
+    #[test]
+    fn host_requirement_hides_a_setting() {
+        use crate::daw::context::HostFeature;
+        let mut c = Configuration::new(&REAPER_ARP_MODES);
+        c.activate_exclude_deactivated_items_setting(Scope::Global);
+        let id = SettingId::EXCLUDE_DEACTIVATED_ITEMS;
+        c.require(id, HostRequirement::Feature(HostFeature::HostPages));
+        c.take_state_changes();
+        c.update_host_support(|r| r != HostRequirement::Feature(HostFeature::HostPages));
+        assert!(!c.is_visible(id));
+        assert_eq!(c.take_state_changes(), [id]);
+        c.update_host_support(|_| false);
+        assert!(c.take_state_changes().is_empty(), "unchanged");
+        // Hidden by the controller as well: shown only when both allow it
+        c.set_visible(id, false);
+        c.take_state_changes();
+        c.update_host_support(|_| true);
+        assert!(!c.is_visible(id));
+        assert!(c.take_state_changes().is_empty());
+        c.set_visible(id, true);
+        assert!(c.is_visible(id));
+        assert_eq!(c.take_state_changes(), [id]);
     }
 }

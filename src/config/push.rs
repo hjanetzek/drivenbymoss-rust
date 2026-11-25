@@ -18,11 +18,16 @@
 //!   debug window).
 
 use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_DEBUG, CATEGORY_HARDWARE_SETUP, CATEGORY_PADS, CATEGORY_SESSION, CATEGORY_WORKFLOW};
-use super::setting::{Scope, SettingDescriptor, SettingId, SettingKind};
+use super::setting::{HostRequirement, Scope, SettingDescriptor, SettingId, SettingKind};
 use super::values::{ArpeggiatorMode, AFTERTOUCH_CONVERT_OFF, REAPER_ARP_MODES};
 use crate::daw::color::ColorEx;
 use crate::framework::value_changer::ValueChanger;
 use crate::framework::ids::{Modes, Views};
+use crate::protocol::CmdId;
+
+/// The commands which switch the writing of automation (`Transport.toggleWrite…Automation`: the
+/// toggles of a host with automation overrides, else the automation mode).
+const AUTOMATION_WRITE_COMMANDS: &[CmdId] = &[CmdId::AutomationToggleArranger, CmdId::AutomationToggleLauncher, CmdId::AutomationMode];
 
 /// The Push model (former `PushVersion`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -324,6 +329,9 @@ pub fn create(version: PushVersion, arpeggiator_modes: &[ArpeggiatorMode], note_
     c.activate_enable_vu_meters_setting(global, CATEGORY_WORKFLOW);
     c.activate_footswitch_setting(global, 0, "Footswitch 2", None);
     c.activate_enum_setting(STOP_AUTOMATION_ON_KNOB_RELEASE, global, CATEGORY_WORKFLOW, "Stop automation recording on knob release", options(&ON_OFF_OPTIONS), ON_OFF_OPTIONS[0], true);
+    // It switches the automation writing off (Transport.toggleWriteArrangerAutomation,
+    // toggleWriteClipLauncherAutomation): nothing to do on a host without automation commands
+    c.require(STOP_AUTOMATION_ON_KNOB_RELEASE, HostRequirement::AnyCommand(AUTOMATION_WRITE_COMMANDS));
     c.activate_new_clip_length_setting(global);
     c.activate_knob_speed_setting(global, 100, 60, false);
 

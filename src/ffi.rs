@@ -158,13 +158,8 @@ impl FfiBackend {
     /// Log a command which the host declared as not handled, once per ID (phase 1 of the
     /// handled-commands bitset, TYPED_PROTOCOL_PLAN §2.5).
     fn check_handled(&self, b: &mut BinaryCommands, cmd: &Cmd) -> Option<String> {
-        if b.handled.is_empty() {
-            return None;
-        }
         let id = cmd.id() as u16;
-        let bit = usize::from(id & 0x7FFF);
-        let handled = b.handled.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0);
-        if handled || !b.warned.insert(id) {
+        if crate::daw::context::is_handled(&b.handled, id) || !b.warned.insert(id) {
             return None;
         }
         Some(format!("Command not handled by the host: {}", crate::protocol::bin::command_line(cmd).replace('\t', " ")))
@@ -183,6 +178,10 @@ impl FfiBackend {
 impl Backend for FfiBackend {
     fn command_features(&self) -> Option<u32> {
         self.command_features.get()
+    }
+
+    fn handles_command(&self, id: crate::protocol::CmdId) -> Option<bool> {
+        self.binary.borrow().as_ref().map(|b| crate::daw::context::is_handled(&b.handled, id as u16))
     }
 
     /// Deliver the legacy form of the command (`process_no_arg`, `process_int_arg`, …), as before
@@ -1007,8 +1006,11 @@ pub unsafe extern "C" fn dbm_take_setting_changes(app: *mut DbmApp) -> *mut c_ch
 
 /// The settings whose visibility or enabled state changed since the last call, one
 /// `ID<tab>visible<tab>enabled` per line (1 or 0). The first call after the start reports the
-/// states which the controller set while it was created. Release the result with
-/// [`dbm_free_string`].
+/// states which the controller set while it was created. A setting is also hidden while it has no
+/// effect on the host: all it does needs a feature or commands the host lacks (e.g. "Stop
+/// automation recording on knob release" without the automation commands in the handled
+/// bitset of [`dbm_set_command_callback`]; a text host and an empty bitset have all commands).
+/// Release the result with [`dbm_free_string`].
 ///
 /// # Safety
 /// `app` must be a valid handle (or null).

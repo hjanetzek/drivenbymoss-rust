@@ -27,7 +27,7 @@ pub mod values;
 pub use configuration::{Configuration, NoteRepeatCapabilities};
 pub use launchpad::{LaunchpadConfigParams, LaunchpadConfiguration};
 pub use properties::Properties;
-pub use setting::{Scope, SettingDescriptor, SettingId, SettingKind};
+pub use setting::{HostRequirement, Scope, SettingDescriptor, SettingId, SettingKind};
 pub use values::{ArpeggiatorMode, RecordFunction, Resolution, TransportBehavior};
 pub mod generic_flexi;
 pub mod osc;

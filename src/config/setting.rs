@@ -6,6 +6,8 @@
 //! ... and the Reaper `*SettingImpl` classes, without any UI).
 
 use super::values::fix_ascii;
+use crate::daw::context::HostFeature;
+use crate::protocol::CmdId;
 
 /// Identifies a setting. Mirrors the `Integer` constants of `AbstractConfiguration`; controller
 /// specific settings start at [`SettingId::NEXT_SETTING_ID`].
@@ -116,6 +118,19 @@ pub enum SettingKind {
     /// A button (`ISignalSetting`) with the given text. It has no value and is not stored; every
     /// press is recorded as a change of the setting.
     Signal { button: String },
+}
+
+/// What a setting needs from the host to have any effect
+/// ([`Configuration::require`](super::Configuration::require)): without it the setting is
+/// reported hidden to a host with its own settings UI (`dbm_take_setting_states`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostRequirement {
+    /// A host feature ([`DawContext::host_supports`](crate::daw::context::DawContext::host_supports)).
+    Feature(HostFeature),
+    /// At least one of the commands: everything the setting does goes through them. Only a host
+    /// on the binary command form with a handled-commands bitset can lack them (a text host and
+    /// an empty bitset handle all commands).
+    AnyCommand(&'static [CmdId]),
 }
 
 /// Describes an activated setting.

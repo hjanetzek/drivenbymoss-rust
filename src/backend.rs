@@ -215,6 +215,13 @@ pub trait Backend {
         None
     }
 
+    /// True if the host handles the command: for a host on the binary command form from its
+    /// handled-commands bitset ([`is_handled`](crate::daw::context::is_handled)); None for a
+    /// text host. The default: None.
+    fn handles_command(&self, _id: crate::protocol::CmdId) -> Option<bool> {
+        None
+    }
+
     /// True if the host shows the log itself ([`Backend::log`]); otherwise the library writes it
     /// to stderr.
     fn handles_log(&self) -> bool {
@@ -357,6 +364,9 @@ impl Backend for UsbInstanceBackend {
     }
     fn command_features(&self) -> Option<u32> {
         self.inner.command_features()
+    }
+    fn handles_command(&self, id: crate::protocol::CmdId) -> Option<bool> {
+        self.inner.handles_command(id)
     }
     fn handles_log(&self) -> bool {
         self.inner.handles_log()
@@ -512,6 +522,10 @@ impl Backend for RecordingBackend {
 
     fn command_features(&self) -> Option<u32> {
         self.handled.borrow().as_deref().map(crate::daw::context::command_features)
+    }
+
+    fn handles_command(&self, id: crate::protocol::CmdId) -> Option<bool> {
+        self.handled.borrow().as_deref().map(|handled| crate::daw::context::is_handled(handled, id as u16))
     }
 
     /// Records the command in its owned form; this checks that it survives its binary form

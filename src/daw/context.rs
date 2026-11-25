@@ -161,11 +161,14 @@ impl HostFeature {
 /// of the basic commands, and a host handles those its DAW has (zynthian: `transport play`, but no
 /// punch or fill), as `/host/features` named a feature for the forms a host knows.
 pub fn command_features(handled: &[u64]) -> u32 {
-    let is_handled = |id: u16| {
-        let bit = usize::from(id & 0x7FFF);
-        handled.is_empty() || handled.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0)
-    };
-    crate::protocol::COMMANDS.iter().filter(|info| is_handled(info.id as u16)).filter_map(|info| info.feature).fold(0, |set, f| set | f.bit())
+    crate::protocol::COMMANDS.iter().filter(|info| is_handled(handled, info.id as u16)).filter_map(|info| info.feature).fold(0, |set, f| set | f.bit())
+}
+
+/// True if the command ID is in the handled-commands bitset (word i bit j = ID 0x8000 + 64*i + j;
+/// empty: all commands).
+pub fn is_handled(handled: &[u64], id: u16) -> bool {
+    let bit = usize::from(id & 0x7FFF);
+    handled.is_empty() || handled.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0)
 }
 
 /// Marks the master track in places where a track position is stored.
@@ -221,6 +224,16 @@ impl DawContext {
         match self.shared.host_features.get() {
             Some(features) => features & feature.bit() != 0,
             None => self.is_host_paging(),
+        }
+    }
+
+    /// True if the host meets the requirement of a setting
+    /// ([`Configuration::require`](crate::config::Configuration::require)). A text host handles
+    /// all commands.
+    pub fn host_meets(&self, requirement: crate::config::HostRequirement) -> bool {
+        match requirement {
+            crate::config::HostRequirement::Feature(feature) => self.host_supports(feature),
+            crate::config::HostRequirement::AnyCommand(ids) => ids.iter().any(|&id| self.sender.backend().handles_command(id).unwrap_or(true)),
         }
     }
 
