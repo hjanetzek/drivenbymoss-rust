@@ -638,6 +638,21 @@ without the grid module (a stock zynthian) leave them undeclared, and the JAM ha
 | JAM strips | The host page strips (§5.1): CONTROL's second slot with host pages, the host's active row on the strips with the grid in its view; `<` `>` sets / pages, Select + `<` `>` rows, Select + strip assign; one `HostPageShow` across the strips and the full surface | `src/controller/maschine/jam/surface_link.rs`, `command/mod.rs`, `Modes::HostStrips`, `SurfaceClient::step_set_or_page`; `tests/host_page.rs`, `tests/surface_link.rs` (`host_page_strips_with_the_electra`) |
 | P6 | zynthian: the shared page list, section colours, the shared selection (page, cell, window, zynsigman signals), `turn_travel` in zynthian-ui `electra-grid` (`zyngui/zynthian_control_grid_data.py`, `zynqt/screens/control.py`, docs/qt-control-grid.md); the adapter's `ZynHostPages` (its own paged `ControlGrid` on the tick thread, reports full / fast, typed 0x8C handlers with the epoch, declared only with the grid module) and `ZYNTHIAN_DBM_DEVICE_<MODEL>` | `backends/zynthian/ctrldev/dbm_zynthian/host_page.py`, `backends/zynthian/tests/test_host_page.py` |
 
+**Chain types (2026-11-25, zynthian in the QEMU VM, the adapter's reports and the JAM in the
+core in-process):** every chain type has its pages, the same as the screen's: instrument, main
+(the `MR` mixer strip: level, toggles, signal, global, aux, recorder), mixbus, Pure Data and the
+audio player (an empty page for the processor without patch / file, then the mixer strip with its
+sends), audio input, clippy; a MIDI-only or an empty chain has none (`exists` with no pages, the
+screen has none either). Selection, presses and travel work on all of them. Fixed then: the audio
+player without a file couldn't be selected (an exception in zynthian-ui's waveform view); a press
+on an empty page is the screen's tap on its header (`request_open`: the selected one opens its
+banks / presets); an exception reading a chain's pages reports `exists` false (logged once), a
+failing host page command is logged. **Open (the core / the JAM):** every change of the selected
+track (`TrackSelectionChanged`, also from zynthian's screen) makes the JAM leave the host pages:
+`jam/setup.rs` `handle_track_change` → `ctx.recall_preferred_view()` activates the track's
+preferred view (Play), and `surface_link::poll` then leaves the surface for it. A switch to a
+mixbus (not in the track bank) keeps it.
+
 **Try it** (isolated: own suffix, clients by PID):
 
 ```sh
