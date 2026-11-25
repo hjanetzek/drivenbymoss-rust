@@ -184,6 +184,7 @@ class ZynCommandHandler(CommandHandler):
         # The host's pages (doc/HOST_PAGE_PLAN.md §12): with the control grid of zynthian-ui (P6)
         Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
         Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
+        Cmd.HOST_PAGE_CELL_ASSIGN,
     ))
     """The CmdIds zynthian does not execute with zynseq (no arranger, no automation, no undo, no
     markers, no note repeat, …). A snapshot: the coverage test of TYPED_PROTOCOL_PLAN §2.5

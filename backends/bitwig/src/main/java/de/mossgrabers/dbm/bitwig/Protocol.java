@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0xeb0827102a1ece56L;
+    public static final long HASH          = 0x88f9d9612102236eL;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -1811,10 +1811,12 @@ public final class Protocol
         /** hostpage set */
         HOST_PAGE_SET(0x8C08, "HostPageSet", "hostpage set", "", 2, "i32"),
         /** hostpage section */
-        HOST_PAGE_SECTION(0x8C09, "HostPageSection", "hostpage section", "", 2, "i32");
+        HOST_PAGE_SECTION(0x8C09, "HostPageSection", "hostpage section", "", 2, "i32"),
+        /** hostpage cell/{cell}/assign/{epoch} */
+        HOST_PAGE_CELL_ASSIGN(0x8C0A, "HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", "cell,epoch", 2, "i32");
 
 
-        private static final Cmd [] BY_ID = new Cmd [3082];
+        private static final Cmd [] BY_ID = new Cmd [3083];
 
         static
         {
@@ -2921,7 +2923,7 @@ public final class Protocol
         {
             return switch (this.id ())
             {
-                case 0x8C02, 0x8C03, 0x8C04, 0x8C05 -> this.idx (0);
+                case 0x8C02, 0x8C03, 0x8C04, 0x8C05, 0x8C0A -> this.idx (0);
                 default -> throw new IllegalStateException ("No field cell in the command " + Integer.toHexString (this.id ()));
             };
         }
@@ -2932,7 +2934,7 @@ public final class Protocol
         {
             return switch (this.id ())
             {
-                case 0x8C02, 0x8C03, 0x8C04, 0x8C05 -> this.idx (1);
+                case 0x8C02, 0x8C03, 0x8C04, 0x8C05, 0x8C0A -> this.idx (1);
                 default -> throw new IllegalStateException ("No field epoch in the command " + Integer.toHexString (this.id ()));
             };
         }

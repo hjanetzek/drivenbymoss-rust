@@ -326,6 +326,7 @@ class CommandHandler:
         # The host's pages: handled only by a SimDaw with host pages (host_page.py)
         Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
         Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION,
+        Cmd.HOST_PAGE_CELL_ASSIGN,
     ))
     """The CmdIds without a handler in the model setup of the coverage test (later steps: the
     application and project commands, the browser, groove, the clip notes, …). A snapshot: the

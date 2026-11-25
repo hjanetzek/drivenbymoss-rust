@@ -346,6 +346,9 @@ pub enum Input {
     SetSelect { set: usize },
     SetStep { delta: i32 },
     SectionSelect { section: usize },
+    /// Assign a slot's control to slot `slot` of the source's remote control page (since 1.3,
+    /// the host's remote pages); a source without remote pages ignores it.
+    SlotAssign { id: usize, slot: i32 },
 }
 
 /// The color depth of a surface.

@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0xeb0827102a1ece56ULL
+#define DBM_PROTOCOL_HASH 0x88f9d9612102236eULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -1324,6 +1324,8 @@ enum DbmCmdId
     DBM_CMD_HOST_PAGE_SET = 0x8C08,
     /* hostpage section; idx: -; i32 */
     DBM_CMD_HOST_PAGE_SECTION = 0x8C09,
+    /* hostpage cell/{cell}/assign/{epoch}; idx: cell, epoch; i32 */
+    DBM_CMD_HOST_PAGE_CELL_ASSIGN = 0x8C0A,
 };
 
 /* A record of a buffer (the payload points into the buffer). */

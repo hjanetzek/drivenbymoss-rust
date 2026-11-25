@@ -586,6 +586,7 @@ resulting state — the core never shows a selection which the host did not repo
 | `HostPagePage page` | show the window `page` (select its first page) |
 | `HostPageSet set` | select that page |
 | `HostPageSection section` | select the section's first page |
+| `HostPageCellAssign {cell, epoch} slot` | (0x8C0A, zynthian-ui remote control pages) put the controller of `cell` into slot `slot` (0..7) of the chain's current remote page; an empty cell clears the slot; `slot` -1 removes the controller from every remote page. The JAM sends it for Select + a strip touch: the active row's cell n → slot n |
 
 Declare the 0x8C commands handled (the handled-commands bitset): that is the `hostPages` feature;
 without the grid module (a stock zynthian) leave them undeclared, and the JAM has no host source.

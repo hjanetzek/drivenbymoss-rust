@@ -366,3 +366,37 @@ fn the_notification_shows_the_new_title_after_switching_on() {
     rig.advance(90);
     assert!(!rig.app.take_notifications().contains("Surface:"));
 }
+
+#[test]
+fn select_and_a_strip_touch_assign_a_cell_to_a_remote_slot() {
+    let mut rig = Rig::new(true);
+    rig.select_song();
+    rig.app.update_model(&page_report(1, 1, 4));
+    rig.advance(60);
+    rig.app.take_notifications();
+    rig.commands();
+
+    // Select held, strips 1 and 3 touched: the active row's (row 0) cells 0 and 2 go to the
+    // remote slots 0 and 2; no touch of the cells
+    rig.cc(JAM_SELECT, 127);
+    rig.cc(JAM_FADER_TOUCH1, 127);
+    rig.cc(JAM_FADER_TOUCH1, 0);
+    rig.cc(JAM_FADER_TOUCH1 + 2, 127);
+    rig.cc(JAM_FADER_TOUCH1 + 2, 0);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert_eq!(
+        rig.host_commands(),
+        [cmd_text(Cmd::HostPageCellAssign { cell: 0, epoch: 1, slot: 0 }), cmd_text(Cmd::HostPageCellAssign { cell: 2, epoch: 1, slot: 2 })]
+    );
+    let notifications = rig.app.take_notifications();
+    assert!(notifications.contains("Remote 1: Level") && notifications.contains("Remote 3: Mute"), "{notifications}");
+    // Still the surface (Select alone did nothing else)
+    assert!(jam_surface::is_active(rig.ctx()));
+
+    // Without Select a strip touch is a touch again (no assignment)
+    rig.cc(JAM_FADER_TOUCH1, 127);
+    rig.cc(JAM_FADER_TOUCH1, 0);
+    rig.advance(30);
+    assert!(!rig.host_commands().iter().any(|c| c.contains("HostPageCellAssign")));
+}

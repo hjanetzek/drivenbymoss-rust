@@ -442,6 +442,10 @@ commands! {
     HostPageSet = 0x8C08 {} @ HostPage ["set"] => set: i32, feature = HostPages;
     /// Select a section (its first control set).
     HostPageSection = 0x8C09 {} @ HostPage ["section"] => section: i32, feature = HostPages;
+    /// Assign a shown cell's controller to slot `slot` (0..7) of the host's current remote
+    /// control page (an empty cell clears the slot; -1: remove the controller from every remote
+    /// page). A cell command with an old epoch is dropped (zynthian-ui remote-control pages).
+    HostPageCellAssign = 0x8C0A { cell: usize, epoch: usize } @ HostPage ["cell" cell "assign" epoch] => slot: i32, feature = HostPages;
 }
 
 impl Cmd<'_> {

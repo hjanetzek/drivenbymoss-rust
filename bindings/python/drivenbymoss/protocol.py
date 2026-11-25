@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0xeb0827102a1ece56
+HASH = 0x88f9d9612102236e
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -785,6 +785,7 @@ class Cmd(IntEnum):
     HOST_PAGE_PAGE = 0x8C07
     HOST_PAGE_SET = 0x8C08
     HOST_PAGE_SECTION = 0x8C09
+    HOST_PAGE_CELL_ASSIGN = 0x8C0A
 
 
 class Info(NamedTuple):
@@ -1298,6 +1299,7 @@ CMD_INFO: dict[int, Info] = {
     Cmd.HOST_PAGE_PAGE: Info("HostPagePage", "hostpage page", (), 2, "i32"),
     Cmd.HOST_PAGE_SET: Info("HostPageSet", "hostpage set", (), 2, "i32"),
     Cmd.HOST_PAGE_SECTION: Info("HostPageSection", "hostpage section", (), 2, "i32"),
+    Cmd.HOST_PAGE_CELL_ASSIGN: Info("HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 2, "i32"),
 }
 
 MSG_IDS = frozenset(MSG_INFO)
@@ -7477,6 +7479,16 @@ class CmdHostPageSection(Record):
     value = _value("i32")
 
 
+class CmdHostPageCellAssign(Record):
+    """hostpage cell/{cell}/assign/{epoch}"""
+
+    __slots__ = ()
+    KIND = "i32"
+    cell = _i0
+    epoch = _i1
+    value = _value("i32")
+
+
 CMD_VIEWS: dict[int, type] = {
     0x8101: CmdTransportPlay,
     0x8102: CmdTransportRestart,
@@ -7724,6 +7736,7 @@ CMD_VIEWS: dict[int, type] = {
     0x8C07: CmdHostPagePage,
     0x8C08: CmdHostPageSet,
     0x8C09: CmdHostPageSection,
+    0x8C0A: CmdHostPageCellAssign,
 }
 
 VIEWS: dict[int, type] = {**MSG_VIEWS, **CMD_VIEWS}

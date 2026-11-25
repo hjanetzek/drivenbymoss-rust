@@ -274,6 +274,19 @@ impl TriggerCommand for StripTouchCommand {
             return;
         }
         let client = surface(ctx).client.clone();
+        // Select + touching strip n: the active row's cell n goes to slot n of the host's
+        // remote control page (zynthian-ui remote pages)
+        if ctx.surface.is_select_pressed() {
+            if event == ButtonEvent::Down {
+                ctx.surface.set_trigger_consumed(ButtonId::Select);
+                let name = client.borrow_mut().assign_row_cell(self.index, self.index as i32);
+                if let Some(name) = name {
+                    let what = if name.is_empty() { "-".to_string() } else { name };
+                    ctx.notify(&format!("Remote {}: {what}", self.index + 1));
+                }
+            }
+            return;
+        }
         client.borrow_mut().on_encoder_touch(self.index, event == ButtonEvent::Down);
     }
 }

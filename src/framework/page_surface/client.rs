@@ -497,6 +497,19 @@ impl SurfaceClient {
     }
 
     /// The slot of the active row in a column.
+    /// Assign the active row's cell in `column` to slot `slot` of the source's remote control
+    /// page (e.g. Select + a strip touch on the JAM); the name of the cell for a notification
+    /// (empty for an empty cell, which clears the slot), `None` without such a cell.
+    pub fn assign_row_cell(&mut self, column: usize, slot: i32) -> Option<String> {
+        let (id, name) = {
+            let model = self.model();
+            let id = model.slot_id(model.active_row, column)?;
+            (id, model.slot(id).map(|s| s.name.clone()).unwrap_or_default())
+        };
+        self.send(Input::SlotAssign { id, slot });
+        Some(name)
+    }
+
     fn row_slot(&self, column: usize) -> Option<usize> {
         let model = self.model();
         model.slot_id(model.active_row, column)

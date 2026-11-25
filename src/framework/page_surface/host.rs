@@ -95,6 +95,7 @@ impl HostSource {
                 Cmd::HostPageSet { set }
             }
             Input::SectionSelect { section } => Cmd::HostPageSection { section: section as i32 },
+            Input::SlotAssign { id, slot } => Cmd::HostPageCellAssign { cell: id, epoch, slot },
             Input::ValueNext | Input::ValuePrev | Input::ExtraTurn { .. } => return None,
         })
     }

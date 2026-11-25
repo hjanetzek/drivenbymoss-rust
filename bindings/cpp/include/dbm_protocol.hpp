@@ -548,6 +548,7 @@ enum class Cmd : uint16_t
     HostPagePage = DBM_CMD_HOST_PAGE_PAGE,
     HostPageSet = DBM_CMD_HOST_PAGE_SET,
     HostPageSection = DBM_CMD_HOST_PAGE_SECTION,
+    HostPageCellAssign = DBM_CMD_HOST_PAGE_CELL_ASSIGN,
 };
 
 /** A record of a buffer (the payload points into the buffer, valid as long as it). */
@@ -3425,6 +3426,17 @@ struct HostPageSection
 {
     static constexpr Cmd id = Cmd::HostPageSection;
     Record record;
+    int32_t value () const { return this->record.intValue (); }
+    uint8_t op () const { return this->record.op (); }
+};
+
+/** hostpage cell/{cell}/assign/{epoch} */
+struct HostPageCellAssign
+{
+    static constexpr Cmd id = Cmd::HostPageCellAssign;
+    Record record;
+    uint16_t cell () const { return this->record.idx (0); }
+    uint16_t epoch () const { return this->record.idx (1); }
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
 };

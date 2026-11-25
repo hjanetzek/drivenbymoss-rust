@@ -60,7 +60,8 @@ impl Version {
 /// 1.1: `Input::ValueNext` / `ValuePrev`.
 /// 1.2: the page model's size, control sets, sections, turn units, `Shown`
 /// (doc/HOST_PAGE_PLAN.md §3.3).
-pub const PROTOCOL_VERSION: Version = Version::new(1, 2);
+/// 1.3: `Input::SlotAssign` (the host's remote control pages).
+pub const PROTOCOL_VERSION: Version = Version::new(1, 3);
 
 /// The name of the link which the controllers of this crate use.
 pub const DEFAULT_LINK: &str = "pages";

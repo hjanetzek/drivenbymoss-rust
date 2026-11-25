@@ -279,7 +279,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
             }
         }
         // The host's input (since 1.2): nothing for these pages
-        Input::ExtraTurn { .. } | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } => {}
+        Input::ExtraTurn { .. } | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } | Input::SlotAssign { .. } => {}
     }
 }
 

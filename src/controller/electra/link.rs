@@ -217,7 +217,7 @@ pub fn apply_input(ctx: &mut Ctx, input: Input) {
         }
         // The Electra pages have no extras and no controls with several values
         // The host's input (since 1.2): nothing for these pages
-        Input::ExtraTurn { .. } | Input::ValueNext | Input::ValuePrev | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } => {}
+        Input::ExtraTurn { .. } | Input::ValueNext | Input::ValuePrev | Input::Shown { .. } | Input::SetSelect { .. } | Input::SetStep { .. } | Input::SectionSelect { .. } | Input::SlotAssign { .. } => {}
     }
 }
 
