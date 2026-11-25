@@ -83,14 +83,20 @@ impl TriggerCommand for MaschineJamAuxCommand {
     }
 }
 
-/// Former `MaschineJamControlCommand`: selects the parameter and the user mode.
+/// Former `MaschineJamControlCommand`: selects the parameter and the user mode. With the host's
+/// pages (not part of Java) the host page strips take the user mode's place (zynthian has no
+/// user parameters): device parameters → host page strips → device parameters.
 pub struct MaschineJamControlCommand {
     inner: ModeMultiSelectCommand,
+    host: ModeMultiSelectCommand,
 }
 
 impl MaschineJamControlCommand {
     pub fn new() -> Self {
-        MaschineJamControlCommand { inner: ModeMultiSelectCommand::new(&[Modes::DeviceParams, Modes::User]) }
+        MaschineJamControlCommand {
+            inner: ModeMultiSelectCommand::new(&[Modes::DeviceParams, Modes::User]),
+            host: ModeMultiSelectCommand::new(&[Modes::DeviceParams, Modes::HostStrips]),
+        }
     }
 }
 
@@ -100,7 +106,11 @@ impl TriggerCommand for MaschineJamControlCommand {
             return;
         }
         if ctx.surface.is_pressed(ButtonId::Select) {
-            toggle_user_mode(ctx);
+            // The project / track toggle of the user mode; nothing on the host page strips
+            // (they have no such modes)
+            if !super::surface_link::are_strips_active(ctx) {
+                toggle_user_mode(ctx);
+            }
             return;
         }
         if ctx.surface.is_shift_pressed() {
@@ -111,7 +121,12 @@ impl TriggerCommand for MaschineJamControlCommand {
     }
 
     fn execute_normal(&mut self, ctx: &mut Ctx, event: ButtonEvent) {
-        self.inner.execute_normal(ctx, event);
+        if super::surface_link::has_host_pages(ctx) {
+            self.host.execute_normal(ctx, event);
+            super::surface_link::sync(ctx);
+        } else {
+            self.inner.execute_normal(ctx, event);
+        }
     }
 
     fn execute_shifted(&mut self, ctx: &mut Ctx, event: ButtonEvent) {

@@ -337,7 +337,8 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
     } else if let Some(drum64) = view.as_any_mut().downcast_mut::<Drum64View>() {
         drum64.reset_octave(ctx);
     }
-    // Former updateMode: there is no master mode
+    // Former updateMode: there is no master mode (and the host page strips stay: the mode is
+    // not touched)
 }
 
 /// Update the touch strips from the active mode (former `updateFaders`).
@@ -389,8 +390,8 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         jam::RECORD,
         bool_supplier(|ctx| crate::framework::commands::transport::ConfiguredRecordCommand::is_lit(ctx, ctx.surface.is_shift_pressed())),
     );
-    add_button(ctx, ButtonId::PageLeft, "PAGE LEFT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_left(), SurfaceButton::PagePrev))), jam::LEFT, None);
-    add_button(ctx, ButtonId::PageRight, "PAGE RIGHT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_right(), SurfaceButton::PageNext))), jam::RIGHT, None);
+    add_button(ctx, ButtonId::PageLeft, "PAGE LEFT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_left(), SurfaceButton::PagePrev).with_strips_step(-1))), jam::LEFT, None);
+    add_button(ctx, ButtonId::PageRight, "PAGE RIGHT", Some(shared(SurfaceOr::new(MaschineJamPageCommand::new_right(), SurfaceButton::PageNext).with_strips_step(1))), jam::RIGHT, None);
     add_button(ctx, ButtonId::Solo, "SOLO", Some(shared(MaschineJamSoloCommand)), jam::SOLO, None);
     add_button(ctx, ButtonId::Mute, "MUTE", Some(shared(MaschineJamMuteCommand)), jam::MUTE, None);
 
@@ -426,7 +427,7 @@ pub fn register_trigger_commands(ctx: &mut Ctx) {
         "CONTROL",
         Some(shared(MaschineJamControlCommand::new())),
         jam::CONTROL,
-        bool_supplier(|ctx| ctx.modes.is_any_active(&[Modes::DeviceParams, Modes::User])),
+        bool_supplier(|ctx| ctx.modes.is_any_active(&[Modes::DeviceParams, Modes::User, Modes::HostStrips])),
     );
     add_button(
         ctx,

@@ -41,6 +41,7 @@ const JAM_SONG: u8 = 30;
 const JAM_KNOB_TURN: u8 = 57;
 const JAM_KNOB_PUSH: u8 = 58;
 const JAM_LEVEL: u8 = 37;
+const JAM_CONTROL: u8 = 39;
 const JAM_NAV_DOWN: u8 = 42;
 const JAM_NAV_LEFT: u8 = 43;
 const JAM_NAV_RIGHT: u8 = 44;
@@ -111,7 +112,15 @@ impl Rig {
     }
 
     fn start_jam(&mut self) {
+        self.start_jam_on(false);
+    }
+
+    /// Start the JAM, on a host with host pages (all commands handled) or without.
+    fn start_jam_on(&mut self, host_pages: bool) {
         let backend = Rc::new(RecordingBackend { inputs: vec![(J_IN, "Maschine Jam - 1".into())], outputs: vec![(J_OUT, "Maschine Jam - 1".into())], ..Default::default() });
+        if host_pages {
+            *backend.handled.borrow_mut() = Some(Vec::new());
+        }
         let mut app = App::new(backend.clone(), &config_dir("jam", "de.mossgrabers.reaper.controller.ni.maschine.jam.MaschineJamControllerInstance"), 7, 22);
         app.set_time_ms(self.time);
         app.start_infrastructure();
@@ -847,4 +856,56 @@ fn jam_slot_roles() {
     let levels = [ColorRole::Disabled, ColorRole::Inactive, ColorRole::Normal, ColorRole::Highlight].map(|role| palette_index_for_role(ctx, teal, role));
     assert_eq!(levels, [36, 37, 38, 39]);
     assert_eq!(palette_index_for_role(ctx, Rgb::new(0, 0, 0), ColorRole::Normal), 0, "black is off");
+}
+
+/// The host page strips use the host source with the Electra there too; Select + SONG from them
+/// goes host pages → Electra pages → off (back to the strips); `Shown` follows.
+#[test]
+fn host_page_strips_with_the_electra() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rig = Rig::new();
+    rig.start_electra(INFO);
+    rig.start_jam_on(true);
+    let client = jam_surface::client(rig.jam_ctx());
+    assert_eq!(client.borrow().source_state(0), LinkState::Attached);
+    assert_eq!(client.borrow().source_state(jam_surface::HOST_SOURCE), LinkState::Attached);
+    let host_shows = |rig: &Rig| -> Vec<bool> {
+        rig.jam_backend().take_calls().commands().filter_map(|c| if let Cmd::HostPageShow { value, .. } = c { Some(value) } else { None }).collect()
+    };
+    host_shows(&rig);
+
+    // CONTROL twice: the strips on the host source, the Electra not shown
+    rig.jam_press(JAM_CONTROL);
+    rig.jam_press(JAM_CONTROL);
+    rig.advance(60);
+    assert!(rig.jam_ctx().modes.is_active(Modes::HostStrips));
+    assert_eq!((client.borrow().current_source(), client.borrow().is_shown()), (jam_surface::HOST_SOURCE, true));
+    assert_eq!(host_shows(&rig), [true]);
+
+    // Select + SONG: the full surface with the host source
+    rig.toggle_surface();
+    rig.advance(30);
+    assert!(jam_surface::is_active(rig.jam_ctx()));
+    assert_eq!(client.borrow().current_source(), jam_surface::HOST_SOURCE);
+    assert!(host_shows(&rig).is_empty());
+    // Then the Electra: the host is no longer shown
+    rig.toggle_surface();
+    rig.advance(30);
+    assert_eq!(client.borrow().current_source(), 0);
+    assert_eq!(host_shows(&rig), [false]);
+    assert!(notified(rig.jam_app(), "Surface: Electra One"));
+    // Then off: the strips on the host again
+    rig.toggle_surface();
+    rig.advance(30);
+    assert!(!jam_surface::is_active(rig.jam_ctx()));
+    assert!(rig.jam_ctx().modes.is_active(Modes::HostStrips));
+    assert_eq!((client.borrow().current_source(), client.borrow().is_shown()), (jam_surface::HOST_SOURCE, true));
+    assert_eq!(host_shows(&rig), [true]);
+
+    // Without the strips Select + SONG starts with the Electra (as before)
+    rig.jam_press(JAM_LEVEL);
+    rig.advance(30);
+    assert_eq!(host_shows(&rig), [false]);
+    rig.toggle_surface();
+    assert_eq!(client.borrow().current_source(), 0);
 }

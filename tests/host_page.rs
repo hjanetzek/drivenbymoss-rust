@@ -14,7 +14,7 @@ use drivenbymoss::app::App;
 use drivenbymoss::backend::{BackendCall, RecordedCalls, RecordingBackend};
 use drivenbymoss::controller::maschine::jam::surface_link as jam_surface;
 use drivenbymoss::framework::ctx::Ctx;
-use drivenbymoss::framework::ids::Views;
+use drivenbymoss::framework::ids::{Modes, Views};
 use drivenbymoss::framework::page_surface::view::palette_index;
 use drivenbymoss::framework::page_surface::{LinkState, Rgb, SlotKind};
 use drivenbymoss::protocol::{Cmd, Resolution, TurnUnit};
@@ -399,4 +399,278 @@ fn select_and_a_strip_touch_assign_a_cell_to_a_remote_slot() {
     rig.cc(JAM_FADER_TOUCH1, 0);
     rig.advance(30);
     assert!(!rig.host_commands().iter().any(|c| c.contains("HostPageCellAssign")));
+}
+
+// ------------------------------------------------------------------------------------------
+// The host page strips (CONTROL's second slot with host pages, doc/HOST_PAGE_PLAN.md §5.1)
+
+const JAM_CONTROL: u8 = 39;
+const JAM_LEVEL: u8 = 37;
+const JAM_PAD_MODE: u8 = 32;
+const JAM_SCENE1: u8 = 80;
+const JAM_LEFT: u8 = 92;
+
+fn show(on: bool) -> String {
+    cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: on })
+}
+
+/// The `HostPageShow` commands since the last call.
+fn shows(rig: &Rig) -> Vec<String> {
+    rig.host_commands().into_iter().filter(|c| c.contains("HostPageShow")).collect()
+}
+
+/// The notes which the core sent to the host's note input.
+fn notes(calls: &[BackendCall]) -> Vec<(i32, i32)> {
+    calls
+        .iter()
+        .filter_map(|c| match c {
+            BackendCall::Midi(_, 0x90, note, velocity) => Some((*note, *velocity)),
+            _ => None,
+        })
+        .collect()
+}
+
+impl Rig {
+    fn control(&mut self) {
+        self.press(JAM_CONTROL);
+        self.advance(30);
+    }
+
+    fn mode(&mut self) -> Option<Modes> {
+        self.ctx().modes.active_id()
+    }
+
+    /// The JAM in the Chords view, then CONTROL twice: the host page strips with the host's dump.
+    fn strips() -> Self {
+        let mut rig = Rig::new(true);
+        rig.cc(JAM_PAD_MODE, 127);
+        rig.press(JAM_SCENE1 + 1);
+        rig.cc(JAM_PAD_MODE, 0);
+        rig.advance(30);
+        assert!(rig.ctx().views.is_active(Views::Chords));
+        rig.control();
+        rig.control();
+        assert_eq!(rig.mode(), Some(Modes::HostStrips));
+        rig.app.update_model(&page_report(1, 1, 4));
+        rig.advance(60);
+        rig.commands();
+        rig.app.take_notifications();
+        rig
+    }
+}
+
+#[test]
+fn control_cycles_the_device_parameters_and_the_user_mode_without_host_pages() {
+    let mut rig = Rig::new(false);
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::DeviceParams));
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::User));
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::DeviceParams));
+    assert!(rig.host_commands().is_empty());
+    assert!(!jam_surface::are_strips_active(rig.ctx()));
+}
+
+#[test]
+fn control_cycles_the_device_parameters_and_the_host_page_strips() {
+    let mut rig = Rig::new(true);
+    rig.commands();
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::DeviceParams));
+    assert!(shows(&rig).is_empty());
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(jam_surface::are_strips_active(rig.ctx()));
+    assert!(rig.app.take_notifications().contains("Host Pages"));
+    assert_eq!(shows(&rig), [show(true)]);
+    // Select + CONTROL does nothing on the strips
+    rig.cc(JAM_SELECT, 127);
+    rig.press(JAM_CONTROL);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(shows(&rig).is_empty());
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::DeviceParams));
+    assert_eq!(shows(&rig), [show(false)]);
+    // From another mode CONTROL comes back to the last one (as Java's ModeMultiSelectCommand)
+    rig.control();
+    rig.press(JAM_LEVEL);
+    rig.advance(30);
+    assert_eq!(rig.mode(), Some(Modes::Volume));
+    assert_eq!(shows(&rig), [show(true), show(false)]);
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert_eq!(shows(&rig), [show(true)]);
+}
+
+#[test]
+fn the_host_page_strips_turn_the_active_row_and_the_grid_keeps_its_view() {
+    let mut rig = Rig::strips();
+    assert!(rig.ctx().views.is_active(Views::Chords));
+    assert!(!jam_surface::is_active(rig.ctx()));
+
+    // The strip LEDs: the 8 cells of the active row
+    let strips = jam_surface::fader_configs(rig.ctx()).unwrap();
+    assert_eq!((strips[0].value, strips[7].value), (114, 89));
+    rig.app.update_model("hostpage/cell/7/value 0.5\n");
+    rig.advance(30);
+    assert_eq!(jam_surface::fader_configs(rig.ctx()).unwrap()[7].value, 64);
+
+    // Strip moves: the active row's cells by the travel, with the touches
+    rig.cc(JAM_FADER_TOUCH1 + 1, 127);
+    rig.cc(JAM_FADER1 + 1, 60);
+    rig.cc(JAM_FADER1 + 1, 50);
+    rig.cc(JAM_FADER_TOUCH1 + 1, 0);
+    rig.advance(30);
+    assert_eq!(
+        rig.host_commands(),
+        [
+            cmd_text(Cmd::HostPageCellTouch { cell: 1, epoch: 1, value: true }),
+            cmd_text(Cmd::HostPageCellTurn { cell: 1, epoch: 1, unit: TurnUnit::Travel, resolution: Resolution::Normal, delta: -10 }),
+            cmd_text(Cmd::HostPageCellTouch { cell: 1, epoch: 1, value: false }),
+        ]
+    );
+    // The host moves its selection to row 2: the strips follow
+    rig.app.update_model("hostpage/set/selected 2\nhostpage/row 1\nhostpage/cell/selected 8\n");
+    rig.advance(30);
+    assert_eq!(jam_surface::fader_configs(rig.ctx()).unwrap()[0].value, 32, "Cutoff 0.25");
+    rig.cc(JAM_FADER_TOUCH1, 127);
+    rig.cc(JAM_FADER1, 30);
+    rig.cc(JAM_FADER1, 33);
+    rig.advance(30);
+    assert!(rig.host_commands().contains(&cmd_text(Cmd::HostPageCellTurn { cell: 8, epoch: 1, unit: TurnUnit::Travel, resolution: Resolution::Normal, delta: 3 })));
+
+    // The grid: still the chords view, its pads play
+    rig.commands();
+    rig.app.on_midi_event(J_IN, &[0x90, 36, 100]);
+    rig.app.on_midi_event(J_IN, &[0x90, 36, 0]);
+    let calls = rig.commands();
+    assert!(!notes(&calls).is_empty(), "{calls:?}");
+    assert!(calls.commands().all(|c| c.id() as u16 >> 8 != 0x8C), "a pad is no cell press");
+    assert!(rig.ctx().views.is_active(Views::Chords));
+    // The main encoder keeps its mode (no cell turn)
+    rig.cc(JAM_KNOB_TURN, 1);
+    rig.advance(30);
+    assert!(rig.host_commands().is_empty());
+}
+
+#[test]
+fn select_and_a_strip_touch_assign_on_the_host_page_strips() {
+    let mut rig = Rig::strips();
+    rig.cc(JAM_SELECT, 127);
+    rig.cc(JAM_FADER_TOUCH1 + 5, 127);
+    rig.cc(JAM_FADER_TOUCH1 + 5, 0);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageCellAssign { cell: 5, epoch: 1, slot: 5 })]);
+    assert!(rig.app.take_notifications().contains("Remote 6: Transpose"));
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+}
+
+#[test]
+fn the_page_buttons_step_the_sets_and_with_select_the_rows_on_the_host_page_strips() {
+    let mut rig = Rig::strips();
+    // The arrows stay with the grid's view (the chords view's octaves): no host command
+    rig.press(JAM_NAV_UP);
+    rig.press(JAM_NAV_DOWN);
+    rig.press(JAM_NAV_LEFT);
+    rig.press(JAM_NAV_RIGHT);
+    rig.advance(30);
+    assert!(rig.host_commands().is_empty());
+
+    // < >: the previous / next set (zynthian's page); the selection stays the host's
+    rig.press(JAM_LEFT);
+    rig.press(JAM_RIGHT);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageSet { set: 0 }), cmd_text(Cmd::HostPageSet { set: 2 })]);
+    // Select + < >: the row (only the next: row 0 is the first)
+    rig.cc(JAM_SELECT, 127);
+    rig.press(JAM_LEFT);
+    rig.press(JAM_RIGHT);
+    rig.cc(JAM_SELECT, 0);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageRow { row: 1 })]);
+    // At the last set of the page: > the next page; at the first set of the next page < the
+    // previous page
+    rig.app.update_model("hostpage/set/selected 2\nhostpage/row 1\n");
+    rig.advance(30);
+    rig.press(JAM_RIGHT);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { page: 1 })]);
+    rig.app.update_model("hostpage/page/selected 1\nhostpage/set/selected 0\nhostpage/row 0\n");
+    rig.advance(30);
+    rig.press(JAM_LEFT);
+    rig.advance(30);
+    assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPagePage { page: 0 })]);
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+}
+
+#[test]
+fn the_page_buttons_select_the_device_parameter_pages_in_the_device_mode() {
+    let mut rig = Rig::new(true);
+    rig.app.update_model("device/exists 1\ndevice/name Helm\ndevice/param/count 24\ndevice/page/count 3\ndevice/page/0/name A\ndevice/page/1/name B\ndevice/page/2/name C\n");
+    rig.advance(30);
+    rig.control();
+    assert_eq!(rig.mode(), Some(Modes::DeviceParams));
+    rig.commands();
+    rig.press(JAM_RIGHT);
+    rig.advance(30);
+    let calls = rig.commands();
+    let pages: Vec<String> = calls.commands().filter(|c| matches!(c, Cmd::DeviceParameterPage { .. })).map(|c| format!("{c:?}")).collect();
+    assert_eq!(pages, [cmd_text(Cmd::DeviceParameterPage { dev: drivenbymoss::backend::Processor::Device, page: 1 })]);
+    assert!(calls.commands().all(|c| c.id() as u16 >> 8 != 0x8C));
+}
+
+#[test]
+fn the_full_surface_from_the_host_page_strips_and_back() {
+    let mut rig = Rig::strips();
+    // Select + SONG: the full surface with the host source; the host keeps its one show
+    rig.select_song();
+    assert!(jam_surface::is_active(rig.ctx()));
+    assert!(rig.ctx().views.is_active(Views::SurfaceLink));
+    assert_eq!(jam_surface::client(rig.ctx()).borrow().current_source(), jam_surface::HOST_SOURCE);
+    rig.advance(60);
+    assert!(shows(&rig).is_empty());
+    // Select + SONG again: no Electra, so off: back to the strips and the chords view
+    rig.select_song();
+    rig.advance(60);
+    assert!(!jam_surface::is_active(rig.ctx()));
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(rig.ctx().views.is_active(Views::Chords));
+    assert!(shows(&rig).is_empty());
+    // The full surface again, then CONTROL leaves it: the last of CONTROL's modes, the strips
+    rig.select_song();
+    rig.control();
+    rig.advance(30);
+    assert!(!jam_surface::is_active(rig.ctx()));
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(rig.ctx().views.is_active(Views::Chords));
+    assert!(shows(&rig).is_empty());
+    // LEVEL leaves the strips: one show off
+    rig.press(JAM_LEVEL);
+    rig.advance(60);
+    assert_eq!(shows(&rig), [show(false)]);
+    // The full surface on its own, then CONTROL from it: the strips, still one show
+    rig.select_song();
+    rig.advance(30);
+    assert_eq!(shows(&rig), [show(true)]);
+    rig.control();
+    rig.advance(30);
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(shows(&rig).is_empty());
+}
+
+#[test]
+fn a_track_change_keeps_the_host_page_strips() {
+    let mut rig = Rig::strips();
+    rig.app.update_model("track/count 3\ntrack/1/exists 1\ntrack/1/name Drums\ntrack/2/exists 1\ntrack/2/name Bass\n");
+    rig.advance(60);
+    rig.commands();
+    rig.app.update_model("track/0/select 0\ntrack/2/select 1\n");
+    rig.advance(60);
+    assert_eq!(rig.mode(), Some(Modes::HostStrips));
+    assert!(shows(&rig).is_empty());
+    assert!(jam_surface::fader_configs(rig.ctx()).is_some());
 }

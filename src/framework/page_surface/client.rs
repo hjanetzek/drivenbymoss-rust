@@ -491,6 +491,30 @@ impl SurfaceClient {
         }
     }
 
+    /// The previous (-1) or next (+1) control set; at the first / last set of the page the
+    /// previous / next page (the host then selects its first set), so that a surface which shows
+    /// only the active row (e.g. the JAM's host page strips) reaches all of them. A model without
+    /// sets steps the page.
+    pub fn step_set_or_page(&mut self, step: i32) {
+        if step == 0 {
+            return;
+        }
+        let model = self.model();
+        let at_end = match model.active_set {
+            _ if !model.has_sets() => true,
+            Some(set) => (step > 0 && set + 1 >= model.sets.len()) || (step < 0 && set == 0),
+            None => false,
+        };
+        if !at_end {
+            self.reset_anchors();
+            self.send(Input::SetStep { delta: step });
+        } else if step > 0 && model.page + 1 < model.pages.len() {
+            self.send(Input::PageNext);
+        } else if step < 0 && model.page > 0 {
+            self.send(Input::PagePrev);
+        }
+    }
+
     /// The function of an encoder for the current model.
     fn encoder_function(&self, index: usize) -> Option<EncoderFunction> {
         self.mapping.encoders.get(index).map(|f| f.resolve(self.model()))

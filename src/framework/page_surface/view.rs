@@ -213,11 +213,17 @@ impl View for PageSurfaceView {
 /// says); their values are the values of these slots.
 pub struct PageSurfaceMode {
     client: SharedClient,
+    name: &'static str,
 }
 
 impl PageSurfaceMode {
     pub fn new(client: SharedClient) -> Self {
-        PageSurfaceMode { client }
+        Self::with_name(client, "Surface")
+    }
+
+    /// A mode with another name (e.g. the JAM's host page strips).
+    pub fn with_name(client: SharedClient, name: &'static str) -> Self {
+        PageSurfaceMode { client, name }
     }
 
     pub fn client(&self) -> &SharedClient {
@@ -227,7 +233,7 @@ impl PageSurfaceMode {
 
 impl Mode for PageSurfaceMode {
     fn name(&self) -> &str {
-        "Surface"
+        self.name
     }
 
     fn on_knob_value(&mut self, ctx: &mut Ctx, index: usize, value: i32) {

@@ -417,11 +417,44 @@ Done by the zynthian-ui session (§D.5); the exact contract is the hand-over in 
 | UP / DOWN | the previous / next row |
 | LEFT / RIGHT | the previous / next control set when the model has sets (zynthian); else the previous / next value of the selected slot (the Electra generic provider's envelope handle). No conflict: a model has one or the other |
 | PAGE LEFT / RIGHT | the previous / next page |
+| CONTROL | with host pages: device parameters → the host page strips (§5.1) → device parameters |
 | group buttons A-H | the tracks (zynthian: the chains), unchanged |
 | Select + SONG | off → the next available source → … → off (sources in the order: Electra pages, host pages; missing ones are skipped; with one source the toggle of before) |
 
 There is no row-selector column any more; rows are selected by a cell press or UP/DOWN. Entering a
 source sends `Shown { on: true }` to it, leaving or switching away `Shown { on: false }`.
+
+### 5.1 The host page strips (CONTROL)
+
+The host's active row on the **8 touch strips only**, the grid keeps its view (step sequencer,
+pads, drums, session, …) and works as before (`Modes::HostStrips`, a `PageSurfaceMode` on the
+JAM's client, in `src/controller/maschine/jam/surface_link.rs`).
+
+| JAM | Function |
+| --- | --- |
+| CONTROL | with the host's pages (`hostPages`): device parameters → host page strips → device parameters (the strips take the user mode's slot; zynthian has no user parameters). Without them (Bitwig, a stock zynthian) device parameters ↔ user mode, as in Java. From another mode the last of the two (Java's `ModeMultiSelectCommand`) |
+| Select + CONTROL | on the strips: nothing; otherwise the user mode's project / track toggle, as before |
+| Shift + CONTROL | the device window, as before |
+| strips 1-8 | the 8 cells of the host's active row (zynthian grid8x6: two zynthian pages of 4), values and colours on the LEDs; a swipe is `HostPageCellTurn` by the travel, the touch `HostPageCellTouch`. Turning never selects: the selection stays the host's |
+| Select + strip n | `HostPageCellAssign {cell, slot: n}` (n = 0..7; the host maps 4-7 onto the next remote page) |
+| PAGE LEFT / RIGHT (`<` `>`) | the previous / next control set (zynthian's page, `HostPageSet`); at the first / last set of the page the previous / next page (`HostPagePage`), so `<` `>` walk through all of a chain's pages. zynthian's selection indicator follows the host's report |
+| Select + PAGE LEFT / RIGHT | the previous / next row (`HostPageRow`) |
+| Shift + PAGE LEFT / RIGHT | metronome / loop, as before |
+| arrows, main encoder, grid, scene buttons | the grid's view and the encoder modes, unchanged |
+| Select + SONG | the full surface, with the host source first, then the next sources (the Electra), then off; off returns to the strips. CONTROL on the full surface leaves it for the strips too |
+
+**Why not the arrows:** every grid view of the JAM uses them (play, chords, drum and sequencer
+views: the octave; session: scrolling; Shift view: bank pages), so on the strips they stay with
+the view. PAGE LEFT / RIGHT belong to the mode (the device parameter pages in the device mode),
+which the strips replace. In the device parameter mode the page buttons send
+`DeviceParameterPage {dev: Device, page}` (0x851D, absolute), as before.
+
+**Shown:** one `HostPageShow` on while the full surface shows the host source or the strips are
+active, one off when neither does (`surface_link::sync`, at every transition and tick). Switching
+between the strips and the full surface on the host source sends nothing; the full surface on the
+Electra sends the host's off. A track change keeps the strips (the mode is not touched; the grid's
+view follows the track as before). Without the host's pages the strips fall back to the device
+parameters.
 
 ## 6. Relation to the Electra path (brainstorm A/B/C)
 
@@ -601,6 +634,7 @@ without the grid module (a stock zynthian) leave them undeclared, and the JAM ha
 | P3 | `HostSource`: available with `hostPages`, the host page → page model, input → commands (epochs, steps from the reported selection, no local selection) | `src/framework/page_surface/host.rs` |
 | P4 | The JAM's sources: the surface link, then the host's pages; Select + SONG cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
 | P5 | The simulated host pages (chains per track, sections, grid8x6 / grid4x6, a screen), `dbm_host_alsa.py --host-pages` (SIGUSR1 / SIGUSR2 move the screen's selection) | `bindings/python/dbm_host/host_page.py`, `bindings/python/tests/test_host_page.py`, `support/push_simulator/tools/dbm_host_alsa.py` |
+| JAM strips | The host page strips (§5.1): CONTROL's second slot with host pages, the host's active row on the strips with the grid in its view; `<` `>` sets / pages, Select + `<` `>` rows, Select + strip assign; one `HostPageShow` across the strips and the full surface | `src/controller/maschine/jam/surface_link.rs`, `command/mod.rs`, `Modes::HostStrips`, `SurfaceClient::step_set_or_page`; `tests/host_page.rs`, `tests/surface_link.rs` (`host_page_strips_with_the_electra`) |
 
 **Try it** (isolated: own suffix, clients by PID):
 

@@ -25,6 +25,14 @@
 //!   **left / right:** the previous / next control set (with sets), else the previous / next
 //!   value of the selected cell (an envelope's handle).
 //! - Without a source the grid shows a red cross.
+//!
+//! **The host page strips** (`Modes::HostStrips`, doc/HOST_PAGE_PLAN.md §5.1): with the host's
+//! pages available, CONTROL cycles device parameters → host page strips → device parameters (the
+//! strips take the user mode's place). Only the strips show the host's active row; the grid keeps
+//! its view. PAGE LEFT/RIGHT step the control set (at the first / last set of a page, the page),
+//! Select + PAGE LEFT/RIGHT the row, Select + a strip touch assigns the cell to a remote slot.
+//! Select + SONG opens the full surface with the host source first (then the next sources, then
+//! off); leaving it returns to the strips. [`sync`] keeps `Shown` on while either shows the host.
 
 use std::rc::Rc;
 
@@ -53,7 +61,13 @@ pub struct JamSurface {
     /// notification shows the new title, not the one the client had before. With the number of
     /// polls left (about 2 s): later changes (e.g. another page) are no reason to notify.
     pending_text: Option<(String, u32)>,
+    /// The source the surface was switched on with: Select + SONG cycles from it through the
+    /// others and then switches off.
+    start: usize,
 }
+
+/// The index of the host source (see [`sources`]).
+pub const HOST_SOURCE: usize = 1;
 
 /// The mapping of the JAM: the grid, its 8 touch strips and the encoder.
 pub fn mapping() -> SurfaceMapping {
@@ -95,7 +109,7 @@ impl JamSurface {
     pub fn new() -> Self {
         let mapping = mapping();
         let sources = sources(&mapping);
-        JamSurface { client: SurfaceClient::shared(mapping, sources), active: false, previous: None, pending_text: None }
+        JamSurface { client: SurfaceClient::shared(mapping, sources), active: false, previous: None, pending_text: None, start: 0 }
     }
 }
 
@@ -118,11 +132,22 @@ pub fn is_active(ctx: &Ctx) -> bool {
     surface(ctx).active
 }
 
-/// Register the view and the mode (in `init`).
+/// True while the host page strips are active (and not the full surface).
+pub fn are_strips_active(ctx: &Ctx) -> bool {
+    !is_active(ctx) && ctx.modes.active_id_ignore_temporary() == Some(Modes::HostStrips)
+}
+
+/// True if the host reports pages (the host page strips are available).
+pub fn has_host_pages(ctx: &Ctx) -> bool {
+    surface(ctx).client.borrow().source_state(HOST_SOURCE) == LinkState::Attached
+}
+
+/// Register the view and the modes (in `init`).
 pub fn register(ctx: &mut Ctx) {
     let client = surface(ctx).client.clone();
     ctx.register_view(Views::SurfaceLink, PageSurfaceView::new(client.clone()));
-    ctx.register_mode(Modes::SurfaceLink, PageSurfaceMode::new(client));
+    ctx.register_mode(Modes::SurfaceLink, PageSurfaceMode::new(client.clone()));
+    ctx.register_mode(Modes::HostStrips, PageSurfaceMode::with_name(client, "Host Pages"));
     // The touches of the strips (Java binds the no-op command): only for the surface
     for index in 0..8 {
         let id = ContinuousId::get(ContinuousId::Fader1, index);
@@ -153,35 +178,56 @@ fn notify_state_pending(ctx: &mut Ctx) {
     surface_mut(ctx).pending_text = Some((text, PENDING_POLLS));
 }
 
+/// Show the current source while the full surface is on or the host page strips are active,
+/// with the host source for the strips; else show none. Any transition calls it, and the tick:
+/// `Shown` changes only when the result changes (one `HostPageShow` on, one off). Without the
+/// host's pages the strips fall back to the device parameters.
+pub fn sync(ctx: &mut Ctx) {
+    let mut strips = are_strips_active(ctx);
+    if strips && !has_host_pages(ctx) {
+        ctx.set_active_mode(Modes::DeviceParams);
+        strips = false;
+    }
+    let shown = is_active(ctx) || strips;
+    let mut client = surface(ctx).client.borrow_mut();
+    if strips {
+        client.select_source(HOST_SOURCE);
+    }
+    client.set_shown(shown);
+}
+
 /// Switch the surface on, with the first available source (or the current one without any: it
-/// shows "no provider").
+/// shows "no provider"); from the host page strips with the host source.
 pub fn enter(ctx: &mut Ctx) {
     if is_active(ctx) {
         return;
     }
-    {
+    let from_strips = are_strips_active(ctx);
+    let start = {
         let mut client = surface(ctx).client.borrow_mut();
-        if let Some(index) = client.next_available(None) {
+        let index = if from_strips { Some(HOST_SOURCE) } else { client.next_available(None) };
+        if let Some(index) = index {
             client.select_source(index);
         }
-        client.set_shown(true);
-    }
+        client.current_source()
+    };
     let previous = (ctx.views.active_id_ignore_temporary(), ctx.modes.active_id());
     let state = surface_mut(ctx);
     state.previous = Some(previous);
     state.active = true;
+    state.start = start;
     ctx.set_active_view(Views::SurfaceLink);
     ctx.set_active_mode(Modes::SurfaceLink);
+    sync(ctx);
     notify_state_pending(ctx);
 }
 
 /// Switch the surface off: back to the view and the mode before (or keep the one which was
-/// selected instead).
+/// selected instead); the host page strips show the host source again.
 pub fn leave(ctx: &mut Ctx) {
     if !is_active(ctx) {
         return;
     }
-    surface(ctx).client.borrow_mut().set_shown(false);
     let state = surface_mut(ctx);
     state.active = false;
     state.pending_text = None;
@@ -192,6 +238,17 @@ pub fn leave(ctx: &mut Ctx) {
     if ctx.modes.active_id_ignore_temporary() == Some(Modes::SurfaceLink) {
         ctx.set_active_mode(mode.unwrap_or(Modes::Volume));
     }
+    sync(ctx);
+}
+
+/// The next available source after the current one, in the order of the sources from the one
+/// the surface was switched on with; None after the last.
+fn next_source(ctx: &Ctx) -> Option<usize> {
+    let client = surface(ctx).client.borrow();
+    let count = client.source_count();
+    let start = surface(ctx).start;
+    let current = client.current_source();
+    (1..count).map(|step| (current + step) % count).take_while(|&index| index != start).find(|&index| client.source_state(index) == LinkState::Attached)
 }
 
 /// Select + SONG: off → the next available source → … → off.
@@ -200,11 +257,7 @@ pub fn toggle(ctx: &mut Ctx) {
         enter(ctx);
         return;
     }
-    let next = {
-        let client = surface(ctx).client.borrow();
-        client.next_available(Some(client.current_source()))
-    };
-    match next {
+    match next_source(ctx) {
         Some(index) => {
             surface(ctx).client.borrow_mut().select_source(index);
             notify_state_pending(ctx);
@@ -219,9 +272,13 @@ pub fn toggle(ctx: &mut Ctx) {
 /// The tick (in `handle_changes`): the provider's changes, the state, and whether another
 /// button took the grid or the strips.
 pub fn poll(ctx: &mut Ctx) {
+    // A mode button which switched the host page strips on or off
+    sync(ctx);
     let client = surface(ctx).client.clone();
     let states = client.borrow_mut().poll(&ctx.model);
     if !is_active(ctx) {
+        // The host's pages went away: the strips fall back (next tick's show is then off)
+        sync(ctx);
         return;
     }
     for state in states {
@@ -251,9 +308,10 @@ pub fn poll(ctx: &mut Ctx) {
     }
 }
 
-/// The strips of the surface (in `updateFaders`), `None` if the surface mode is not active.
+/// The strips of the surface or of the host page strips (in `updateFaders`), `None` if neither
+/// mode is active.
 pub fn fader_configs(ctx: &Ctx) -> Option<[FaderConfig; 8]> {
-    if !is_active(ctx) || !ctx.modes.is_active(Modes::SurfaceLink) {
+    if !(is_active(ctx) && ctx.modes.is_active(Modes::SurfaceLink)) && !are_strips_active(ctx) {
         return None;
     }
     let client = surface(ctx).client.borrow();
@@ -270,7 +328,7 @@ struct StripTouchCommand {
 
 impl TriggerCommand for StripTouchCommand {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, _velocity: i32) {
-        if !is_active(ctx) || event == ButtonEvent::Long {
+        if !(is_active(ctx) || are_strips_active(ctx)) || event == ButtonEvent::Long {
             return;
         }
         let client = surface(ctx).client.clone();
@@ -304,20 +362,42 @@ pub enum SurfaceButton {
     ValueNext,
 }
 
-/// A button command which does something else on the surface.
+/// A button command which does something else on the surface (and on the host page strips).
 pub struct SurfaceOr<C: TriggerCommand> {
     inner: C,
     button: SurfaceButton,
+    /// The previous (-1) / next (+1) control set (with Select the row) on the host page strips.
+    strips_step: Option<i32>,
 }
 
 impl<C: TriggerCommand> SurfaceOr<C> {
     pub fn new(inner: C, button: SurfaceButton) -> Self {
-        SurfaceOr { inner, button }
+        SurfaceOr { inner, button, strips_step: None }
+    }
+
+    /// On the host page strips: the previous (-1) / next (+1) control set, at the end of a page
+    /// the page; with Select the row. Shift keeps the inner command (e.g. metronome / loop).
+    pub fn with_strips_step(mut self, step: i32) -> Self {
+        self.strips_step = Some(step);
+        self
     }
 }
 
 impl<C: TriggerCommand> TriggerCommand for SurfaceOr<C> {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, velocity: i32) {
+        if let Some(step) = self.strips_step.filter(|_| are_strips_active(ctx) && !ctx.surface.is_shift_pressed()) {
+            if event != ButtonEvent::Down {
+                return;
+            }
+            let client = surface(ctx).client.clone();
+            if ctx.surface.is_select_pressed() {
+                ctx.surface.set_trigger_consumed(ButtonId::Select);
+                client.borrow_mut().step_row(step);
+            } else {
+                client.borrow_mut().step_set_or_page(step);
+            }
+            return;
+        }
         if !is_active(ctx) {
             self.inner.execute(ctx, event, velocity);
             return;

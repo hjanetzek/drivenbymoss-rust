@@ -351,6 +351,9 @@ source it switches the surface on and off).
   surface for its view or mode.
 - A detach of the source leaves it too. The view and the mode from before come back.
 - A temporary view (the Shift view while Shift is held) keeps the surface.
+- From the **host page strips** (CONTROL's second slot with host pages, HOST_PAGE_PLAN.md §5.1)
+  Select + SONG starts with the host source (then the Electra, then off); off returns to the
+  strips, and CONTROL from the surface goes to the strips too (the last of CONTROL's modes).
 
 **Mapping** (one layout for all sources, HOST_PAGE_PLAN.md §5):
 
