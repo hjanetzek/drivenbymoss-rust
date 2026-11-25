@@ -11,7 +11,7 @@ kills Bitwig. No manual controller switching.
 | Preferences, including the controller list with their ports | `~/.BitwigStudio/prefs/5.3.13.prefs` |
 | Unsaved projects which Bitwig restores after a crash or kill | `~/.BitwigStudio/temp-projects/` |
 | Lock files of a running instance | `~/.BitwigStudio/lock`, `lock.pid`, `server-port` |
-| Settings of the Rust controllers | `~/.config/DrivenByMoss-Bitwig/DrivenByMoss4Reaper-<controller>.config` |
+| Settings of the Rust controllers | `~/.config/DrivenByMoss-Bitwig/DrivenByMoss-<controller>.config` |
 | Extensions | `~/Bitwig Studio/Extensions/` |
 | Binary (the user's, with JDK 25) | `~/.local/opt/bitwig-studio-jdk25/bitwig-studio` (`BITWIG`) |
 

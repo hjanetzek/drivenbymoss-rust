@@ -41,7 +41,7 @@ class OscOnReferenceHostTest(unittest.TestCase):
         self.receive_port = free_port()
         self.folder = tempfile.TemporaryDirectory()
         # The ports in the configuration file of the controller (OSCConfiguration)
-        Path(self.folder.name, "DrivenByMoss4Reaper-OSC.config").write_text(
+        Path(self.folder.name, "DrivenByMoss-OSC.config").write_text(
             f"SETUP_PORT_TO_RECEIVE_ON={self.receive_port}\n"
             f"SETUP_PORT_TO_SEND_TO_(REQUIRES_RESTART)={self.client.getsockname()[1]}\n")
         self.daw = SimDaw().build(tracks=[("Synth", "INSTRUMENT"), ("Drums", "INSTRUMENT"), ("Audio", "AUDIO")], scenes=8)

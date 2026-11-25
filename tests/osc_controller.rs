@@ -53,7 +53,7 @@ impl Harness {
         for (id, value) in extra {
             text.push_str(&format!("{}={value}\n", key(*id)));
         }
-        std::fs::write(dir.join("DrivenByMoss4Reaper-OSC.config"), text).unwrap();
+        std::fs::write(dir.join("DrivenByMoss-OSC.config"), text).unwrap();
 
         let backend = Rc::new(RecordingBackend { inputs: vec![(0, "OSC".into())], ..Default::default() });
         let mut app = App::new_single(backend.clone(), dir.to_str().unwrap(), OSC_UUID, "test").expect("the OSC controller");

@@ -507,7 +507,8 @@ pub unsafe extern "C" fn dbm_create(callbacks: *const DbmCallbacks, ini_path: *c
 /// Create an instance which runs exactly one controller, for hosts which declare each
 /// controller themselves and assign its MIDI ports (Bitwig). `controller_id` is the UUID of the
 /// controller (see [`dbm_list_controllers`]); its MIDI input and output are the device IDs 0.
-/// `config_path` is the folder of the controller's configuration file. There is no main
+/// `config_path` is the folder of the controller's configuration file
+/// (`DrivenByMoss-<hardware model>.config`, spaces and slashes as `-`). There is no main
 /// configuration and no port discovery; `get_midi_inputs`/`get_midi_outputs` are not used.
 /// Otherwise like [`dbm_create`]. Returns null if `callbacks` is null or the controller is not
 /// supported.

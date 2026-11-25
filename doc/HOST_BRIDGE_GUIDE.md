@@ -124,7 +124,8 @@ all settings visible and enabled. The bridge stores global settings in the DAW p
 document settings in the project (`HostSettings`). The alternative used by Reaper is
 `dbm_set_default_document_settings` / `dbm_get_formatted_document_settings` /
 `dbm_set_formatted_document_settings` (one opaque text per project). The core also keeps a
-`<model>.config` file in `config_path` as a fallback.
+`DrivenByMoss-<model>.config` file in `config_path` (spaces and slashes of the hardware model
+as `-`; Reaper's `dbm_create` keeps `DrivenByMoss4Reaper-<model>.config`) as a fallback.
 
 ### The model setup (`dbm_get_model_setup`)
 

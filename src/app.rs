@@ -232,7 +232,7 @@ impl App {
     }
 
     fn add_instance(&mut self, factory: Box<dyn ControllerFactory>) {
-        let path = ControllerConfigFile::path(&self.ini_path, &factory.info().hardware_model);
+        let path = ControllerConfigFile::path(&self.ini_path, &factory.info().hardware_model, self.single);
         let config_file = ControllerConfigFile::load(&path).unwrap_or_default();
         self.instances.push(Instance { factory, config_file, pending_document_settings: None, running: None });
     }
@@ -523,7 +523,7 @@ impl App {
         let Some(mut running) = instance.running.take() else {
             return;
         };
-        let path = ControllerConfigFile::path(&self.ini_path, &instance.hardware_model());
+        let path = ControllerConfigFile::path(&self.ini_path, &instance.hardware_model(), self.single);
         if let Err(error) = instance.config_file.save(&path, &running.ctx.config) {
             self.host.error(&format!("Could not store the controller configuration: {error}"));
         }

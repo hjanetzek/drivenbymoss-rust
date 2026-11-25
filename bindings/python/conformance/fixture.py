@@ -243,6 +243,9 @@ SETUPS = {
     )
 }
 
+# The prefix of the per-controller files of Reaper (and of the single-controller hosts before)
+LEGACY_PREFIX = "DrivenByMoss4Reaper-"
+
 # The setting of the Flexi controllers which names the mapping file
 FLEXI_FILENAME_KEY = "LOAD_/_SAVE_FILENAME"
 
@@ -255,9 +258,11 @@ def copy_profile_config(setup: Setup, config_dir: Path, flexi_mapping: Path | No
     copied = []
     if source.is_dir():
         for path in sorted(source.glob("*.config")):
-            target = config_dir / path.name
-            shutil.copyfile(path, target)
-            copied.append(path.name)
+            # Profiles saved before the hosts with one controller had their own file names
+            # (DrivenByMoss-<model>.config) name the files as Reaper does
+            name = "DrivenByMoss-" + path.name.removeprefix(LEGACY_PREFIX) if path.name.startswith(LEGACY_PREFIX) else path.name
+            shutil.copyfile(path, config_dir / name)
+            copied.append(name)
     if setup.profile_controller_id:
         # Another controller (with_controller): it gets the settings of the profile's controller
         source_name, target_name = config_file_name(setup.profile_controller_id), config_file_name(setup.controller_id)
@@ -265,18 +270,19 @@ def copy_profile_config(setup: Setup, config_dir: Path, flexi_mapping: Path | No
             shutil.copyfile(config_dir / source_name, config_dir / target_name)
             copied.append(target_name)
     if flexi_mapping is not None:
-        _set_property(config_dir / "DrivenByMoss4Reaper-Flexi.config", FLEXI_FILENAME_KEY, str(flexi_mapping))
+        _set_property(config_dir / "DrivenByMoss-Flexi.config", FLEXI_FILENAME_KEY, str(flexi_mapping))
     return copied
 
 
 def config_file_name(controller_id: str) -> str:
-    """The name of the configuration file of a controller (``config_file_name`` of the core: the
-    hardware model with ``-`` for spaces and slashes)."""
+    """The name of the configuration file of a controller on a host with one controller
+    (``single_config_file_name`` of the core: the hardware model with ``-`` for spaces and
+    slashes)."""
     import drivenbymoss
 
     for controller in drivenbymoss.list_controllers():
         if controller["uuid"].lower() == controller_id.lower():
-            return "DrivenByMoss4Reaper-" + controller["model"].replace(" ", "-").replace("/", "-") + ".config"
+            return "DrivenByMoss-" + controller["model"].replace(" ", "-").replace("/", "-") + ".config"
     raise SystemExit(f"The controller {controller_id} is not supported by the library")
 
 

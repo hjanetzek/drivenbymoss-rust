@@ -234,7 +234,7 @@ class LuaTrackMixTest(unittest.TestCase):
     def test_same_as_java(self):
         setup = SETUPS["launchcontrol_xl"].with_controller(LUA_LAUNCH_CONTROL_XL)
         self.assertEqual(setup.profile_controller_id, SETUPS["launchcontrol_xl"].controller_id)
-        self.assertEqual(config_file_name(setup.controller_id), "DrivenByMoss4Reaper-Launch-Control-XL-(Lua).config")
+        self.assertEqual(config_file_name(setup.controller_id), "DrivenByMoss-Launch-Control-XL-(Lua).config")
         r = run_file(setup, setup.scenario_dir / "track_mix.toml")
         self.assertTrue(r.ok, "\n".join(r.output))
         self.assertEqual((r.same, r.different, r.failed_expectations), (r.scenarios, 0, 0))

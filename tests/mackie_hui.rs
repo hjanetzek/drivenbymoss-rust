@@ -65,7 +65,7 @@ impl Hui {
         for (key, value) in settings {
             file.properties.put(key, value);
         }
-        file.properties.save_file(&ControllerConfigFile::path(&dir, MODELS[num_extenders])).unwrap();
+        file.properties.save_file(&ControllerConfigFile::path(&dir, MODELS[num_extenders], false)).unwrap();
 
         let backend = Rc::new(RecordingBackend { inputs, outputs, ..Default::default() });
         let mut app = App::new(backend.clone(), dir.to_str().unwrap(), 7, 22);

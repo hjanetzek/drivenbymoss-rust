@@ -147,7 +147,7 @@ class zynthian_ctrldev_base_dbm(zynthian_ctrldev_base):
 
     @classmethod
     def get_config_dir(cls):
-        """The folder of the core's controller configurations (<model>.config)."""
+        """The folder of the core's controller configurations (DrivenByMoss-<model>.config)."""
         return os.environ.get("ZYNTHIAN_CONFIG_DIR", "/zynthian/config") + "/ctrldev/dbm"
 
     @classmethod

@@ -419,7 +419,7 @@ valueReset immediately soloToggle`; all chains reported flat with absolute posit
   second), so every ZS3 stores the current settings; `set_state` applies them only while the
   state manager is busy with `"load snapshot"` (`load_snapshot` recalls the snapshot's first ZS3
   inside `start_busy("load snapshot")` … `end_busy`, `:1106-1265`); recalling a ZS3 leaves them.
-- **Global settings**: the core's `<model>.config` in `$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/`
+- **Global settings**: the core's `DrivenByMoss-<model>.config` in `$ZYNTHIAN_CONFIG_DIR/ctrldev/dbm/`
   (desktop: `~/.config/zynthian/ctrldev/dbm/`), as the Mackie driver keeps its YAML in
   `$ZYNTHIAN_CONFIG_DIR/ctrldev` (`zyngine/ctrldev/zynthian_ctrldev_mackiecontrol.py:49-50`).
 - **No generic options UI** for drivers (the "Controller Options" only have the scroll modes, with

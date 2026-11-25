@@ -8,6 +8,8 @@
 //! * Global settings: one properties file per controller in the Reaper resource (INI) folder,
 //!   named `DrivenByMoss4Reaper-<hardware model>.config` ([`config_file_name`]). Besides the
 //!   settings it contains the enabled state and the selected MIDI ports ([`ControllerConfigFile`]).
+//!   The hosts which run one controller (`dbm_create_single`: Bitwig, zynthian, the Python
+//!   binding) name it `DrivenByMoss-<hardware model>.config` ([`single_config_file_name`]).
 //! * Document settings: stored in the Reaper project. The string exchanged with Reaper
 //!   (`getFormattedDocumentSettings`/`setFormattedDocumentSettings`) contains one line per
 //!   controller instance: `TAG="<Base64 of the properties text>"` with the tag created by
@@ -24,9 +26,20 @@ const TAG_IS_ENABLED: &str = "TAG_IS_ENABLED";
 const TAG_MIDI_INPUT: &str = "MIDI_INPUT";
 const TAG_MIDI_OUTPUT: &str = "MIDI_OUTPUT";
 
-/// The file name of the controller configuration, e.g. "DrivenByMoss4Reaper-Launchpad-X.config".
+/// The file name of the controller configuration of Reaper (the application with several
+/// controllers), e.g. "DrivenByMoss4Reaper-Launchpad-X.config".
 pub fn config_file_name(hardware_model: &str) -> String {
-    format!("DrivenByMoss4Reaper-{}.config", hardware_model.replace([' ', '/'], "-"))
+    format!("DrivenByMoss4Reaper-{}.config", file_name_part(hardware_model))
+}
+
+/// The file name of the controller configuration of a host which runs one controller
+/// (`dbm_create_single`), e.g. "DrivenByMoss-Launchpad-X.config".
+pub fn single_config_file_name(hardware_model: &str) -> String {
+    format!("DrivenByMoss-{}.config", file_name_part(hardware_model))
+}
+
+fn file_name_part(hardware_model: &str) -> String {
+    hardware_model.replace([' ', '/'], "-")
 }
 
 /// The tag of a controller in the document settings, e.g. "LAUNCHPAD_PRO_MK3".
@@ -91,9 +104,10 @@ pub struct ControllerConfigFile {
 }
 
 impl ControllerConfigFile {
-    /// Path of the configuration file in the given folder (the Reaper INI path).
-    pub fn path(ini_path: &Path, hardware_model: &str) -> PathBuf {
-        ini_path.join(config_file_name(hardware_model))
+    /// Path of the configuration file in the given folder (the Reaper INI path or the
+    /// configuration folder of a host with one controller, `single`).
+    pub fn path(ini_path: &Path, hardware_model: &str, single: bool) -> PathBuf {
+        ini_path.join(if single { single_config_file_name(hardware_model) } else { config_file_name(hardware_model) })
     }
 
     /// Load the file, a missing file results in an empty configuration.
@@ -151,6 +165,9 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(config_file_name("Launchpad Pro Mk3"), "DrivenByMoss4Reaper-Launchpad-Pro-Mk3.config");
+        assert_eq!(single_config_file_name("MPC/Force"), "DrivenByMoss-MPC-Force.config");
+        assert_eq!(ControllerConfigFile::path(Path::new("/c"), "Push 2", false), Path::new("/c/DrivenByMoss4Reaper-Push-2.config"));
+        assert_eq!(ControllerConfigFile::path(Path::new("/c"), "Push 2", true), Path::new("/c/DrivenByMoss-Push-2.config"));
         assert_eq!(document_tag("Launchpad Pro Mk3"), "LAUNCHPAD_PRO_MK3");
         assert_eq!(document_tag("MPC/Force"), "MPC_FORCE");
     }
@@ -198,7 +215,7 @@ mod tests {
     fn config_file() {
         let dir = std::env::temp_dir().join(format!("dbm-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = ControllerConfigFile::path(&dir, "Launchpad X");
+        let path = ControllerConfigFile::path(&dir, "Launchpad X", false);
 
         let mut file = ControllerConfigFile::load(&path).unwrap();
         assert!(file.is_enabled());
