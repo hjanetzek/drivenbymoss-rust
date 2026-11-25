@@ -85,7 +85,7 @@ Only what matters for a ctrldev driver [code, `git diff d6ed3592 HEAD`]:
   are appended to the package `zyngine.ctrldev` (`__path__`) and scanned after
   `zyngine/ctrldev`, so their modules and helper packages import as if they were installed there
   (`setup_extra_ctrldev_dirs`). The DrivenByMoss drivers are developed in the dbm repository
-  (`backends/zynthian/ctrldev`) and loaded this way [observed in desktop mode].
+  (`zynthian-ui/zyngine/ctrldev`) and loaded this way [observed in desktop mode].
 - Every `*.py` is imported as `zyngine.<dirname>.<module>`; modules starting with `__` or
   `zynthian_ctrldev_base` are skipped (`:108-110`). Sub-folders are not scanned (only `*.py` of the
   folder), so a helper package such as `zyngine/ctrldev/mackiecontrol/` (stock) or
@@ -447,8 +447,10 @@ valueReset immediately soloToggle`; all chains reported flat with absolute posit
   driver finds the packages on `sys.path`, `$DBM_PYTHON_DIR` or `/usr/share/drivenbymoss/python`
   and the library through `$DBM_LIBRARY` (default `/usr/lib/drivenbymoss/libdrivenbymoss.so`)
   (`zyngine/ctrldev/dbm_zynthian/__init__.py`).
-- **Where the driver sources live** (decided): in the dbm repository, `backends/zynthian/` (GPL,
-  as zynthian); the zynthian-ui `dbm` branch has only the changes to zynthian itself.
+- **Where the driver sources live** (decided 2026-11-25, moved with their history): in zynthian-ui
+  (branch `seq-record`): the drivers and the adapter in `zyngine/ctrldev/`, their tests in
+  `tests/dbm/`, ZYNTHIAN_CPU.md and ZYNTHIAN_INDICATION.md in `docs/dbm/`. This repository keeps
+  the core, the binding and `dbm_host` (which the driver tests import).
 - **Where the drivers are installed** (decided: they ship in the drivenbymoss package): nura's user driver
   folder is per user (`$ZYNTHIAN_MY_DATA_DIR/ctrldev`, `~/.local/share/…`), which a package
   cannot fill, and a system `zyngine/ctrldev_user` folder would hide it (the manager takes
@@ -566,7 +568,7 @@ would move none of that out of the driver.
   old package: `apk del dbm-nihost`. The udev rule gives the nodes to the group `audio` besides `uaccess`:
   on the Duet no session is on the seat, and the uaccess ACL disappeared at the next udev event
   of the nodes (2026-11-08 18:29, after which neither dbm-nihost nor the library could open them).
-- **Tested**: `ctest` (c_api_test), `backends/zynthian/tests` (`test_nihost_inprocess.py` with a
+- **Tested**: `ctest` (c_api_test), `zynthian-ui/tests/dbm` (`test_nihost_inprocess.py` with a
   fake library and with the real library's test devices, `test_hid_manager.py` against the `dbm`
   branch's manager); on the Duet the library with a standalone probe (both devices: hello at the
   open, answers to the query, LED and display reports written). The drivers inside zynthian: after

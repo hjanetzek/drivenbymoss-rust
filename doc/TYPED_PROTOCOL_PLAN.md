@@ -10,7 +10,7 @@ The grid ID: two slots, channel and row packed into one (§5.3 Q7, decided after
 STATUS.md, "Next steps and open issues", "Planned: a typed protocol between core and hosts". The
 current text protocol is described in [HOST_BRIDGE_GUIDE.md](HOST_BRIDGE_GUIDE.md) §2–§4 (from
 the Bitwig side) and [BACKEND_PROTOCOL.md](BACKEND_PROTOCOL.md) (from the Reaper side). The CPU
-numbers are from [ZYNTHIAN_CPU.md](ZYNTHIAN_CPU.md).
+numbers are from zynthian-ui `docs/dbm/ZYNTHIAN_CPU.md`.
 
 **Scope** (decided 2026-11-08): the Bitwig extension, the Python binding with the reference host,
 the Zynthian adapter and the C++ wrapper. **Reaper is out of scope:** it is not a target of the
@@ -70,7 +70,7 @@ project, and its backend stays on the text protocol, unchanged (§3, step 4).
 | Reaper (C++) | `backends/reaper/reaper_drivenbymoss/Collectors.h:20/32/40` `CollectStringValue/IntValue/DoubleValue` (compare with the last value, append `address value\n` to an `ostringstream`); `DataCollector.cpp:49` `CollectData` (86 `Collectors::Collect*` calls) plus `Track.cpp:43–95`, `Send.cpp`, `Parameter.cpp`, `Marker.cpp` | `dllmain.cpp:116–142` → `OscParser.cpp:96–233` `Process(processor, command, value)` splits the command into a deque of strings → `*Processor::Process(elements, value)` (`TrackProcessor.cpp` 751 lines, `ClipProcessor.cpp` 552, `TransportProcessor.h` 341, …) |
 | Bitwig (Java over FFM) | `ModelReporter.java:103–156` `put(address, String/int/boolean/double)`, `putColor`: a `HashMap<String,String>`, doubles via `String.format(Locale.ROOT, "%.6f")`; 166 `reporter.put` calls in `BitwigModel.java`, 16 in `SpecificDevice`, 13 in `BitwigNoteClip`, 18 in `BitwigBrowser`, 11 in `EqualizerDevice`; `HOST_FEATURES` at `BitwigModel.java:83/549` | `NativeCore.java:140–159` upcalls → `CommandHandler.java:76` `handle(processor, command)`, `:123` `handle(processor, command, double)` (1,646 lines, 293 `case` labels); `:620` `reportAgain` → `ModelReporter.forgetLater(prefix)` |
 | Python reference host | `bindings/python/dbm_host/reporter.py:78` `format_value`, `:171` `put` (raw-value compare first, then text compare), `:188` `put_displayed`, `:200` `take` | `bindings/python/drivenbymoss/_ffi.py:83–97` ctypes callbacks → `dbm_host/commands.py:74` `Command.parse` (splits off `/inc`, `/reset`, `/immediately`), `:139–161` `register` per processor, `:186` `handle`; `:213–217` `forget_later` by text prefix |
-| Zynthian | `backends/zynthian/ctrldev/dbm_zynthian/reporter.py:82` `ZynReporter(Reporter)`, `:173` `collect`, `:336` `collect_slots`, `:471` `collect_pages`; 127 `put` calls | `dbm_zynthian/commands.py` (on `dbm_host.CommandHandler`), `forget` by text address `:156–160` |
+| Zynthian | `zynthian-ui/zyngine/ctrldev/dbm_zynthian/reporter.py:82` `ZynReporter(Reporter)`, `:173` `collect`, `:336` `collect_slots`, `:471` `collect_pages`; 127 `put` calls | `dbm_zynthian/commands.py` (on `dbm_host.CommandHandler`), `forget` by text address `:156–160` |
 | C++ wrapper | `bindings/cpp/include/drivenbymoss.hpp:52–78` `Backend` virtuals with `std::string` processor and command; `:247` `updateModel(std::string)` | as on the left |
 
 ### 1.2 Host → core addresses
@@ -585,7 +585,7 @@ that already exist, run unchanged.
 | Rust unit tests | parser behaviour (41 parser tests, 147 text feeds), every command's text (238 `BackendCall` assertions) | `cargo test` |
 | Replay of the 21 recordings | the outputs after every input as sets, LED state vs Java at the end markers | `cargo test --test conformance_replay` |
 | Python reference host conformance | 195 scenarios of 4 setups against the Java results (`*-java.ref.json`) | `cd bindings/python && python3 -m conformance --all`; `bindings/python/tests` (81 tests) |
-| Zynthian | the drivers against the stand-ins, `test_conformance_lcxl.py`, `test_cpu.py` | `python3 backends/zynthian/tests/run_tests.py` |
+| Zynthian | the drivers against the stand-ins, `test_conformance_lcxl.py`, `test_cpu.py` | `python3 zynthian-ui/tests/dbm/run_tests.py` |
 | C++ wrapper | `bindings/cpp/tests/run_tests.sh` | |
 | Bitwig conformance (needs Bitwig, the `conformance-runner` agent) | Java vs Rust on the real DAW | `backends/bitwig/tools/conformance_all.sh` |
 | Reaper | no automated tests; by hand | |
@@ -1577,7 +1577,7 @@ same button) subscribed. The conformance runs must not change.
 
 **Gains**
 - **Zynthian (most):** the polling collectors skip unsubscribed sections; the polling was the CPU
-  problem (doc/ZYNTHIAN_CPU.md). An alternative to the postponed event-driven collection, and mostly
+  problem (zynthian-ui/docs/dbm/ZYNTHIAN_CPU.md). An alternative to the postponed event-driven collection, and mostly
   core work, so less affected by zynthian changing.
 - **Bitwig:** `subscribe()`/`unsubscribe()` on banks, the cursor device, the browser, … save Bitwig's
   own observer work.
@@ -1585,4 +1585,4 @@ same button) subscribed. The conformance runs must not change.
 
 **First step (prototype):** the declarations for the modes/views of one controller (Maschine Mk2 or
 JAM), `SUBSCRIBE` in the core, the Zynthian collectors skipping unsubscribed sections, measured with
-`backends/zynthian/tests/test_cpu.py`; the traced-reads check in the tests.
+`zynthian-ui/tests/dbm/test_cpu.py`; the traced-reads check in the tests.

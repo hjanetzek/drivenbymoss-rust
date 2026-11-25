@@ -7,8 +7,8 @@ Status: 2026-11-07.
   zynseq's transport.
 - **Recording** into zynseq's launcher slots, with the scenes and slots it needs (§3.3), taken
   from phase 3.
-- **The driver sources moved to this repository** (`backends/zynthian/`); zynthian loads them
-  with `ZYNTHIAN_CTRLDEV_PATH` (§2).
+- **The driver sources moved to zynthian-ui** (2026-11-25, with their history; before in this
+  repository's `backends/zynthian/`): `zyngine/ctrldev/`, tests in `tests/dbm/`.
 - **The Native Instruments Maschine Mk2** (through dbm-nihost, §7): its driver, the note input
   (pads into the active chain, §3.4), the displays and paging, the conformance of its scenarios,
   a desktop run with the device; confirmed by the user on the device.
@@ -40,22 +40,19 @@ DAW. First the Novation Launch Control XL.
 2. The Launch Control XL's driver takes its first port (`Launch Contro`, `IN 1`), never HUI.
 3. The core's document settings belong to the **snapshot**, not the ZS3 (§2.3).
 4. "Play" is **zynseq's transport**; "record" is **MIDI record into zynseq** (§3.3).
-5. The drivers ship in the **drivenbymoss package** (§5); their sources live in this repository,
-   the zynthian-ui `dbm` branch only has the changes to zynthian itself.
+5. The drivers live and ship in **zynthian-ui** (since 2026-11-25; before in this repository and
+   the drivenbymoss package); the drivenbymoss package has the core, the binding and `dbm_host`.
 
-**Run zynthian with the drivers of this checkout** (after `cargo build`):
-
-```sh
-ZYNTHIAN_CTRLDEV_PATH=<dbm>/backends/zynthian/ctrldev <zynthian-ui>/desktop/zynthian_desktop.sh
-```
+**Run zynthian with this checkout's core** (after `cargo build`): zynthian-ui's desktop start
+with `DBM_LIBRARY=<dbm>/target/debug/libdrivenbymoss.so DBM_PYTHON_DIR=<dbm>/bindings/python`.
 
 **Where the code lives.**
 
 | Part | Repository | Path | License |
 | --- | --- | --- | --- |
 | Core, C ABI, binding, reference host | drivenbymoss-rust | `include/drivenbymoss.h`, `bindings/python/drivenbymoss/`, `bindings/python/dbm_host/` | LGPLv3 |
-| Drivers, model adapter | drivenbymoss-rust | `backends/zynthian/ctrldev/`: `zynthian_ctrldev_base_dbm.py`, `zynthian_ctrldev_dbm_*.py`, `dbm_zynthian/` (`model`, `reporter`, `commands`, `bridge`, `device`, `transport`, `launcher`) | GPLv2+ (as zynthian, `backends/zynthian/LICENSE.txt`) |
-| Tests of the drivers | drivenbymoss-rust | `backends/zynthian/tests/` (`run_tests.py`, `zynstubs.py`, `zyn_conformance.py`, `test_*.py`) | GPLv2+ |
+| Drivers, model adapter | zynthian-ui (`seq-record`) | `zyngine/ctrldev/`: `zynthian_ctrldev_base_dbm.py`, `zynthian_ctrldev_dbm_*.py`, `dbm_zynthian/` (`model`, `reporter`, `commands`, `bridge`, `device`, `transport`, `launcher`) | GPLv2+ (as zynthian) |
+| Tests of the drivers | zynthian-ui (`seq-record`) | `tests/dbm/` (`run_tests.py`, `zynstubs.py`, `zyn_conformance.py`, `test_*.py`) | GPLv2+ |
 | The changes to zynthian | zynthian-ui, branch `dbm` (from `nura`) | `zynautoconnect/zynthian_pipewire_ports.py` + `test_zynthian_pipewire_ports.py` and `zynthian_autoconnect.py` (PipeWire uids, §9 N1, Z1), `zyngine/zynthian_ctrldev_manager.py` (`ZYNTHIAN_CTRLDEV_PATH`), `zynlibs/zynseq/zynseq.h` (`getTransportState`, §9 Z10) | GPLv2+ |
 
 The dbm side stays Python ≥ 3.11 with the standard library only. The zynthian side follows
@@ -81,7 +78,7 @@ zynthian-ui's style (4 spaces, its header, its imports) and adds no dependency.
 
 ### Files and how zynthian finds them
 
-`backends/zynthian/ctrldev/` holds the files as they are installed into zynthian's
+`zynthian-ui/zyngine/ctrldev/` holds the files as they are installed into zynthian's
 `zyngine/ctrldev/`:
 
 | File | Content |
@@ -138,7 +135,7 @@ this one:
   the core; one which answers none (the device plugged in again, dbm-nihost restarted) restarts
   the controller, which then sends all LEDs and displays. The other controllers' ports exist
   only with their device.
-- Two rates (`reporter.py`, doc/ZYNTHIAN_CPU.md): every pass reads the transport, the peak meters,
+- Two rates (`reporter.py`, zynthian-ui/docs/dbm/ZYNTHIAN_CPU.md): every pass reads the transport, the peak meters,
   the playing notes and the playing steps; the rest (the slow part, in subtrees) after a command
   of the core, a change signal of zynthian (`bridge.py`'s `change_signals`: zynmixer, chains,
   processors, zynseq, ZS3), a dump, a due "report again", else every 250 ms.
@@ -302,7 +299,7 @@ restore the GUI could read the wrong pattern [not observed].
 
 ### 3.6 The clip launcher
 
-zynseq's launcher (`dbm_zynthian/launcher.py`; tests `backends/zynthian/tests/test_launcher.py`).
+zynseq's launcher (`dbm_zynthian/launcher.py`; tests `zynthian-ui/tests/dbm/test_launcher.py`).
 zynseq's own launch is a toggle (`togglePlayState`); the core's commands are mapped to explicit
 `setPlayState` calls with Bitwig's meaning (the reference host's `Slot.launch`, `Track.stop`):
 
@@ -340,7 +337,7 @@ sequence on launch (zynseq has no queued restart), the alternative launch/stop q
 
 ### 3.7 The browser: banks and presets
 
-`dbm_zynthian/browser.py` (`ZynBrowser`, `BrowserUI`; tests `backends/zynthian/tests/test_browser.py`).
+`dbm_zynthian/browser.py` (`ZynBrowser`, `BrowserUI`; tests `zynthian-ui/tests/dbm/test_browser.py`).
 The core sends `browser …` only to a host which reports `/browser/exists` (else its own Reaper
 preset browser runs, without commands: the Mk2's BROWSE then showed only `>Prese` and nothing
 could be done). The adapter reports `/browser/exists 0` from the start and the rest while the
@@ -400,7 +397,7 @@ chain screens), saving presets.
 
 `dbm_zynthian/add_chain.py` (`ChainFlow` = `ZynBrowser.add_chain`, `AddChainSession`,
 `EngineSession`, `AddChainUI`; tests `AddChainBrowserTest`, `MaschineMk2AddChainTest` in
-`backends/zynthian/tests/test_add_chain.py`). Sessions **opened by the host**: the core follows a
+`zynthian-ui/tests/dbm/test_add_chain.py`). Sessions **opened by the host**: the core follows a
 browser it did not open. `/browser/exists` is the browser's active state of a host browser
 (`Browser::set_host_active`, `src/parser.rs`); the Mk2's setup switches to `Modes::Browser` when it
 changes to active and back when it changes to inactive (`MaschineSetup::handle_changes`, as
@@ -534,7 +531,7 @@ no change.
 
 | Package | Recipe | Contents |
 | --- | --- | --- |
-| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `backends/zynthian/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`; `/usr/lib/drivenbymoss/libdbm_nihost.so` (the Maschines in-process, ZYNTHIAN_INTEGRATION.md §10) and its udev rule `/etc/udev/rules.d/70-drivenbymoss-maschine.rules` (hidraw for the group audio and uaccess; not in `/usr/lib/udev`, which triggers mkinitfs; the post-install script reloads udev) |
+| `drivenbymoss` | `nura/drivenbymoss/APKBUILD` | `/usr/lib/drivenbymoss/libdrivenbymoss.so` (the drivers' default `DBM_LIBRARY`); `/usr/share/drivenbymoss/python/{drivenbymoss,dbm_host}/` (their default `DBM_PYTHON_DIR`); the drivers, `zynthian-ui/zyngine/ctrldev/*` (without the tests), in zynthian's `/usr/share/zynthian/zynthian-ui/zyngine/ctrldev/`; `/usr/lib/drivenbymoss/libdbm_nihost.so` (the Maschines in-process, ZYNTHIAN_INTEGRATION.md §10) and its udev rule `/etc/udev/rules.d/70-drivenbymoss-maschine.rules` (hidraw for the group audio and uaccess; not in `/usr/lib/udev`, which triggers mkinitfs; the post-install script reloads udev) |
 | ~~`dbm-nihost`~~ | dropped 2026-11-08 | the drivers drive the Maschines in-process with `libdbm_nihost.so`, which the drivenbymoss package ships (see above); the daemon (`support/linux/ni_host`) is only for Bitwig and the like, built by hand. A device with the old package: `apk del dbm-nihost` |
 
 - **Native library.** `cargo build --release --frozen --lib` natively in pmbootstrap's chroot,
@@ -564,14 +561,16 @@ no change.
 
 ## 6. Testing
 
-**(a) The driver tests** (153), from this repository, after `cargo build`:
+**(a) The driver tests**, in zynthian-ui (branch `seq-record`), against this checkout after
+`cargo build`, from zynthian-ui's root:
 
 ```sh
-python3 backends/zynthian/tests/run_tests.py [-v]
+DBM_PYTHON_DIR=<drivenbymoss-rust>/bindings/python \
+DBM_LIBRARY=<drivenbymoss-rust>/target/debug/libdrivenbymoss.so python3 tests/dbm/run_tests.py [-v]
 ```
 
-They need a zynthian-ui checkout of the `dbm` branch (`$ZYNTHIAN_UI_DIR`, else `../zynthian-dbm`
-or `../zynthian-ui`; exit code 77 without one) and plain Python (`zynstubs.py` stands in for
+(or `./run_tests.sh dbm`). Exit code 0 = passed, 1 = failures, 77 = skipped (DBM not found).
+They need plain Python (`zynstubs.py` stands in for
 JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's). So they are not in
 `ci/linux.sh`. zynthian-ui's own tests of the PipeWire names:
 `python3 zynautoconnect/test_zynthian_pipewire_ports.py` (4).
@@ -592,7 +591,7 @@ JACK, zyncore, zynseq and the UI; zctrls and the signal manager are zynthian's).
 | `test_devices_transport.py` | 25: devices, `/primary`, transport, stepped zctrls on `/inc` (toggles with and without labels, labels, small and wide integers, continuous, a change from elsewhere), the Mk2's parameter mode with the core (the knobs switch toggles, step labels and integers), recording, scenes, the Mk2's reports (pinning, loop, slot colors, playing notes), a failing collector, the LCXL with the core (Device mode, pages, Layer Mix without layers, new clip, launcher overdub, tempo) |
 
 **(b) Conformance against the adapter** (`zyn_conformance.py`):
-`python3 backends/zynthian/tests/zyn_conformance.py launchcontrol_xl track_mix [1|2|all]`. It reuses
+`python3 tests/dbm/zyn_conformance.py launchcontrol_xl track_mix [1|2|all]`. It reuses
 the scenario files, device stubs, `conformance_runner`, the in-process runner's timing, the setups,
 profiles and Java references; zynthian's own are a fixture (the fixture's tracks, effect tracks,
 devices with the same names and pages, 8 phrases), OSC steps (track addresses, `/click`,
@@ -639,7 +638,7 @@ the core's display text (MCU sysex) and button labels (`F0 7D 44 42 4D 10`) to i
 Shift button from it (`F0 7D 44 42 4D 11/12`). On ZynthianOS the a2j port names give no dev_id
 [guess, not tested].
 
-**Driver:** `backends/zynthian/ctrldev/zynthian_ctrldev_dbm_maschine_mk2.py` (UUID
+**Driver:** `zynthian-ui/zyngine/ctrldev/zynthian_ctrldev_dbm_maschine_mk2.py` (UUID
 `015E4908-C049-4808-A645-A7A44BEFE36B`, autoload).
 
 **What the displays show** (analysis §4; checked in desktop mode with the MIDI to dbm-nihost
@@ -873,7 +872,7 @@ the note, drum and sequencer views on the active chain and its pattern, mixer an
 zynthian has its own drivers for four of them (a launcher view on the DAW port); DrivenByMoss
 runs the device from its MIDI port in programmer mode.
 
-**Drivers** (`backends/zynthian/ctrldev/zynthian_ctrldev_dbm_launchpad_*.py`, written by hand,
+**Drivers** (`zynthian-ui/zyngine/ctrldev/zynthian_ctrldev_dbm_launchpad_*.py`, written by hand,
 the same pattern as the LCXL's; the generator of §2 is phase 4):
 
 | Module | Core model (UUID) | dev_id (the core's port) | zynthian's driver (its port) | Autoload |
@@ -995,7 +994,7 @@ and seen in desktop mode). On ZynthianOS (jackd) the sequencer client reaches JA
 a2jmidid (`a2j:Maschine Jam - 1 [129] (capture): Maschine Jam - 1 Input`), whose ports give no
 dev_id (as for the Mk2, analysis §1) [guess, not tested; dbm-nihost is not packaged there].
 
-**Driver:** `backends/zynthian/ctrldev/zynthian_ctrldev_dbm_maschine_jam.py` (UUID
+**Driver:** `zynthian-ui/zyngine/ctrldev/zynthian_ctrldev_dbm_maschine_jam.py` (UUID
 `72F32A83-A697-446B-9016-64AA3F9476E4`, autoload: zynthian has no JAM driver). Nothing
 JAM-specific in the driver base: the JAM's Shift is a sysex (`F0 00 21 09 15 00 4D 50 00 01 4D
 <0|1> F7`), which reaches `midi_event` whole; its pads are a note input (`80`, `90` on channel 1,

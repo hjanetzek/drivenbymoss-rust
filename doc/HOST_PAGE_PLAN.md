@@ -132,10 +132,10 @@ assumption, not checked in code; **[P]** = proposed here.
 ### 1.3 The zynthian backend (DrivenByMoss side)
 
 - One core instance per controller driver; all core calls on the driver's tick thread, 30 ms
-  [V backends/zynthian/ctrldev/zynthian_ctrldev_base_dbm.py:28-33, 65].
+  [V zynthian-ui/zyngine/ctrldev/zynthian_ctrldev_base_dbm.py:28-33, 65].
 - `ZynReporter`: change-only reports, two rates (fast pass every tick, full pass on signals, on
   commands and every 250 ms), subtrees `host, tracks, mixer, slots, transport, device, clip,
-  browser` [V backends/zynthian/ctrldev/dbm_zynthian/reporter.py:25-50, 68, 75].
+  browser` [V zynthian-ui/zyngine/ctrldev/dbm_zynthian/reporter.py:25-50, 68, 75].
 - `bridge.change_signals()`: chain manager, processor (bypass, `SS_PROCESSOR_CTRL_SCREENS`), mixer,
   sequencer, ZS3 signals; parameter values have no signal (the 250 ms pass) [V bridge.py:40-80].
 - The cursor device today: processors as devices, a parameter page of 8 = two controller screens
@@ -506,7 +506,7 @@ a unique name suffix (`" (hp-<pid>)"`) and selects ALSA clients by PID, never by
    the JAM's input moves it, `select_on_screen` moves it as zynthian's own encoders would);
    `dbm_host_alsa.py --host-pages` with the JAM simulator, and with `--model electra --model jam`
    and the emulator (both sources).
-3. **zynthian:** the zynthian-ui session's tests, the DBM driver tests (`backends/zynthian/tests`).
+3. **zynthian:** the zynthian-ui session's tests, the DBM driver tests (`zynthian-ui/tests/dbm`).
 
 ## 9. Phases
 
@@ -549,7 +549,7 @@ a unique name suffix (`" (hp-<pid>)"`) and selects ALSA clients by PID, never by
 
 ## 12. Hand-over for the zynthian-ui session (P6)
 
-What the zynthian DrivenByMoss adapter (`backends/zynthian/ctrldev/dbm_zynthian/`, in the
+What the zynthian DrivenByMoss adapter (`zynthian-ui/zyngine/ctrldev/dbm_zynthian/`, in the
 drivenbymoss-rust repository) must report and handle so that a controller (the JAM) shows
 zynthian's control grid. The reference is the simulated host in
 `bindings/python/dbm_host/host_page.py` (P5): the same reports and the same command handling, with
@@ -673,7 +673,7 @@ JAM's `<` `>` in CONTROL) move chain control's selection while it is shown.
 | P4 | The JAM's sources: the surface link, then the host's pages; Select + SONG cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
 | P5 | The simulated host pages (chains per track, sections, grid8x6 / grid4x6, a screen), `dbm_host_alsa.py --host-pages` (SIGUSR1 / SIGUSR2 move the screen's selection) | `bindings/python/dbm_host/host_page.py`, `bindings/python/tests/test_host_page.py`, `support/push_simulator/tools/dbm_host_alsa.py` |
 | JAM strips | The host page strips (§5.1): CONTROL's second slot with host pages, the host's active row on the strips with the grid in its view; `<` `>` sets / pages, Select + `<` `>` rows, Select + strip assign; one `HostPageShow` across the strips and the full surface | `src/controller/maschine/jam/surface_link.rs`, `command/mod.rs`, `Modes::HostStrips`, `SurfaceClient::step_set_or_page`; `tests/host_page.rs`, `tests/surface_link.rs` (`host_page_strips_with_the_electra`) |
-| P6 | zynthian: the shared page list, section colours, the shared selection (page, cell, window, zynsigman signals), `turn_travel` in zynthian-ui `electra-grid` (`zyngui/zynthian_control_grid_data.py`, `zynqt/screens/control.py`, docs/qt-control-grid.md); the adapter's `ZynHostPages` (its own paged `ControlGrid` on the tick thread, reports full / fast, typed 0x8C handlers with the epoch, declared only with the grid module) and `ZYNTHIAN_DBM_DEVICE_<MODEL>` | `backends/zynthian/ctrldev/dbm_zynthian/host_page.py`, `backends/zynthian/tests/test_host_page.py` |
+| P6 | zynthian: the shared page list, section colours, the shared selection (page, cell, window, zynsigman signals), `turn_travel` in zynthian-ui `electra-grid` (`zyngui/zynthian_control_grid_data.py`, `zynqt/screens/control.py`, docs/qt-control-grid.md); the adapter's `ZynHostPages` (its own paged `ControlGrid` on the tick thread, reports full / fast, typed 0x8C handlers with the epoch, declared only with the grid module) and `ZYNTHIAN_DBM_DEVICE_<MODEL>` | `zynthian-ui/zyngine/ctrldev/dbm_zynthian/host_page.py`, `zynthian-ui/tests/dbm/test_host_page.py` |
 
 **Chain types (2026-11-25, zynthian in the QEMU VM, the adapter's reports and the JAM in the
 core in-process):** every chain type has its pages, the same as the screen's: instrument, main

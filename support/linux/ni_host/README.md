@@ -98,7 +98,7 @@ MIDI to the DAW (each message with 2 bytes length; it waits up to a timeout, for
 caller), `dbm_nihost_send` takes one MIDI message from the DAW, `dbm_nihost_flush` writes the
 changed LEDs and displays (e.g. on every tick), `dbm_nihost_close`. The MIDI is that of the
 ports, including the DrivenByMoss messages below. No callbacks, no ALSA. The zynthian drivers use
-it through ctypes (`backends/zynthian/ctrldev/dbm_zynthian/nihost.py`); test devices
+it through ctypes (`zynthian-ui/zyngine/ctrldev/dbm_zynthian/nihost.py`); test devices
 (`dbm_nihost_open_test`) stand in for the hardware in the tests. Without CMake (e.g. on the Duet):
 
 ```

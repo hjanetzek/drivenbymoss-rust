@@ -487,13 +487,14 @@ All paths are under `rust/`.
   `HostPageCellAssign` (slot n: page current + n // 4, slot n % 4) and `HostPagePage {end: last}`
   (the window's last page).
 - **In progress / open decisions:**
-  - Merge `zynthian-host-pages` into main (waits for the user's go; check list first, in a
-    separate worktree).
-  - Decided for after the current work: move the zynthian-specific code (`dbm_zynthian`, the
-    `zynthian_ctrldev_*dbm*` drivers and their tests) into zynthian-ui with history; `dbm_host`,
-    the binding and the protocol generator stay here, plus a small host test kit; a protocol
-    version check when the drivers load, a package dependency, and an optional run of zynthian-ui's
-    adapter tests in this repository's check list.
+  - **Done 2026-11-25: the zynthian drivers moved to zynthian-ui** (branch `seq-record`, with
+    their history, rebased linearly): `zyngine/ctrldev/` (drivers, `dbm_zynthian/`),
+    `tests/dbm/`, `docs/dbm/` (ZYNTHIAN_CPU.md, ZYNTHIAN_INDICATION.md). The drivers check the
+    protocol (major + table hash) when they load. This repository keeps the core, the binding,
+    `dbm_host` and the generator; the drivenbymoss package no longer installs drivers.
+    **Check list:** from a zynthian-ui checkout, `DBM_PYTHON_DIR=<this>/bindings/python
+    DBM_LIBRARY=<this>/target/debug/libdrivenbymoss.so python3 tests/dbm/run_tests.py` (77 =
+    skipped).
   - Open: does CONTROL's device-parameter mode also open zynthian's parameter view (would need a
     small "parameter mode entered" command)? "Host Pages" instead of "Surface off" when the full
     surface closes from the strips?
