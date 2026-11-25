@@ -585,6 +585,7 @@ Logged as `Not handled yet: …` in the controller's script console and Bitwig's
   - **Shutdown text:** "Please start the DAW to play..." (Java: the host name).
   - **Pads** stay bound to MIDI channel 1 in MPE mode (Java's `PushPadGrid` returns channel -1,
     which its pad grid sends on channel 1 as well).
+  - **"Display window"** (the Debug category's button) is hidden: the port has no debug window.
 
 - **Electra One Mk1/Mk2 and Mini** (ported 2026-11-22, `src/controller/electra/`):
   - **Handshake errors** (a firmware below 3.4.3 / 5.0.4, another model, JSON which cannot be

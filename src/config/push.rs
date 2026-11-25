@@ -14,8 +14,8 @@
 //!   color type); invalid values fall back to the default color.
 //! - The device favorites (former `activateDeviceFavorites`, "Add Track - Device Favorites")
 //!   are not activated: they need the device metadata of the host which the core does not have.
-//! - The "Display window" debug button (former `DEBUG_WINDOW`) is activated but does nothing (no
-//!   debug window).
+//! - The "Display window" debug button (former `DEBUG_WINDOW`) is activated but hidden: there is
+//!   no debug window, so it would do nothing in any host's settings UI.
 
 use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_DEBUG, CATEGORY_HARDWARE_SETUP, CATEGORY_PADS, CATEGORY_SESSION, CATEGORY_WORKFLOW};
 use super::setting::{HostRequirement, Scope, SettingDescriptor, SettingId, SettingKind};
@@ -428,6 +428,8 @@ pub fn create(version: PushVersion, arpeggiator_modes: &[ArpeggiatorMode], note_
             default_value: String::new(),
             observable: true,
         });
+        // No debug window in the port: the button would do nothing
+        c.set_visible(DEBUG_WINDOW, false);
     }
     c
 }
