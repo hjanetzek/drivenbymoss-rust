@@ -490,32 +490,24 @@ class ZynCommandHandler(CommandHandler):
 
     # The controller's views (views.py)
 
-    @staticmethod
-    def _field(view, cmd, name, default=None):
-        """A field of a typed command: the view's (the typed binding), else the command's."""
-        for source in (view, cmd):
-            value = getattr(source, name, None)
-            if value is not None:
-                return value
-        return default
-
     def _controller_view(self, view, cmd):
-        """``ControllerView {kind}``: the view the user picked on the controller."""
-        kind = self._field(view, cmd, "kind")
-        if kind is None:
-            kind = getattr(cmd, "number", VIEW_OTHER)
+        """``ControllerView``: the view the user picked on the controller (``view.value``, a
+        ``protocol.ControllerViewKind``; a later kind is an int, which views.py ignores)."""
         try:
-            kind = int(kind)
+            kind = int(view.value)
         except (TypeError, ValueError):
             kind = VIEW_OTHER
         return self.daw.views.controller_view(kind)
 
     def _clip_edit_window(self, view, cmd):
-        """``ClipEditWindow {start, length, low, high}``: the window of the core's note grid."""
-        values = [self._field(view, cmd, name) for name in ("start", "length", "low", "high")]
-        if None in values:
-            return False
-        return self.daw.views.edit_window(*values)
+        """``ClipEditWindow``: the window of the core's note grid (``view.value``, a
+        ``protocol.EditWindow``: start, length, low, high)."""
+        window = view.value
+        try:
+            start, length, low, high = window.start, window.length, window.low, window.high
+        except AttributeError:
+            start, length, low, high = window
+        return self.daw.views.edit_window(start, length, low, high)
 
     # The cursor clip (clip.py)
 

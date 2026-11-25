@@ -152,5 +152,79 @@ class CommandsTest(unittest.TestCase):
                         "Unhandled without the UI (the coverage snapshot)")
 
 
+@unittest.skipUnless(hasattr(Cmd, "CONTROLLER_VIEW") and hasattr(Cmd, "CLIP_EDIT_WINDOW"), "The binding has no view commands yet")
+class JamTest(unittest.TestCase):
+    """The JAM with the core: SONG, STEP and its page buttons on zynthian's screens."""
+
+    def setUp(self):
+        import tempfile
+        from test_maschine_jam import Jam, project
+        from zyngine.ctrldev.dbm_zynthian.bridge import ZynBridge
+        from zyngine.ctrldev.zynthian_ctrldev_base_dbm import launcher_palette
+        from zyngine.ctrldev.zynthian_ctrldev_dbm_maschine_jam import zynthian_ctrldev_dbm_maschine_jam as jam_driver
+        jam = Jam.__new__(Jam)
+        jam.temp = tempfile.TemporaryDirectory(prefix="dbm-zynthian-views-")
+        self.addCleanup(jam.temp.cleanup)
+        jam.state = project()
+        jam.libseq = jam.state.zynseq.libseq
+        jam.model = ZynthianModel(jam.state.chain_manager, palette=launcher_palette(), zynseq=jam.state.zynseq)
+        self.ui = FakeUI("mixer")
+        jam.model.views.ui = ViewsUI(jam.state, get_ui=lambda: self.ui)
+        jam.midi_out = []
+        jam.bridge = ZynBridge(jam.model, jam_driver.dbm_controller_id, jam.temp.name, "zynthian", midi_sink=jam.midi_out.append)
+        self.addCleanup(jam.bridge.close)
+        jam.bridge.start()
+        jam.bridge.wait_for_startup()
+        jam.advance(500)
+        self.jam = jam
+        self.cuias()
+
+    def cuias(self):
+        cuias, self.jam.state.cuias[:] = list(self.jam.state.cuias), []
+        return cuias
+
+    def screens(self):
+        return [c for c, _ in self.cuias() if c.startswith("SCREEN_")]
+
+    def windows(self):
+        return [p for c, p in self.cuias() if c == "PATTERN_EDITOR_WINDOW"]
+
+    def test_song_shows_the_pads(self):
+        from test_maschine_jam import SONG
+        self.jam.button(SONG)
+        self.assertEqual(self.screens(), ["SCREEN_ZYNPAD"])
+        self.ui.current_screen = "launcher"
+        self.jam.button(SONG)   # flips the session: zynthian stays
+        self.assertEqual(self.screens(), [])
+        self.assertEqual(self.jam.errors(), [])
+
+    def test_step_shows_the_pattern_and_its_window(self):
+        from test_maschine_jam import STEP
+        LEFT, RIGHT = 43, 44   # NAV LEFT / RIGHT: the sequencer's pages
+        jam = self.jam
+        jam.button(STEP)
+        cuias = self.cuias()
+        self.assertIn(("SCREEN_PATTERN_EDITOR", None), cuias)
+        windows = [p for c, p in cuias if c == "PATTERN_EDITOR_WINDOW"]
+        self.assertTrue(windows, f"The window follows the view: {cuias}")
+        pattern = jam.libseq.getPattern(0, 0, 0, 0, 0)
+        start, length, low, high, shown = windows[-1]
+        self.assertEqual((start, shown), (0.0, pattern))
+        self.assertGreater(length, 0)
+        self.assertLessEqual(low, high)
+        self.ui.current_screen, self.ui.pattern_editor.pattern = "pattern_editor", pattern
+        jam.button(RIGHT)
+        cuias = self.cuias()
+        self.assertEqual([c for c, _ in cuias if c.startswith("SCREEN_")], [], "Paging doesn't switch screens")
+        windows = [p for c, p in cuias if c == "PATTERN_EDITOR_WINDOW"]
+        self.assertEqual([w[:2] for w in windows], [[length, length]], "The next page")
+        jam.button(LEFT)
+        self.assertEqual([w[0] for w in self.windows()], [0.0])
+        self.ui.current_screen = "mixer"
+        jam.button(RIGHT)
+        self.assertEqual(self.screens(), [], "Elsewhere the window doesn't switch screens")
+        self.assertEqual(jam.errors(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
