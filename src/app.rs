@@ -28,6 +28,9 @@ const MAIN_CONFIG_FILENAME: &str = "DrivenByMoss4Reaper.config";
 const CONTROLLER_INSTANCE_TAG: &str = "CONTROLLER_INSTANCE";
 /// The delay of the controller startup after its initialisation.
 const STARTUP_DELAY_MS: u64 = 1000;
+/// How long after a change of a global setting its configuration file is written (on a host with
+/// one controller, [`App::new_single`]); the changes in between are written together.
+const SAVE_SETTINGS_DELAY_MS: u64 = 1000;
 
 /// Logs to the host (or to stderr if the host does not take the log) and keeps the messages in
 /// memory (displayed with `dbm_display_window`).
@@ -63,6 +66,9 @@ struct Running {
     /// The device which the core drives in-process instead of the host's MIDI ports of the
     /// first port pair (the Maschines over libdbm_nihost, see [`crate::nihost`]).
     device: Option<DeviceLink>,
+    /// When the changed global settings are written to the configuration file (only on a host
+    /// with one controller, see [`SAVE_SETTINGS_DELAY_MS`]).
+    save_due: Option<Instant>,
 }
 
 /// A configured controller instance.
@@ -497,7 +503,7 @@ impl App {
                 parts.ctx.model.ensure_clip();
                 parts.ctx.config.mark_all_changed();
                 let startup_due = Some(self.host.now() + Duration::from_millis(STARTUP_DELAY_MS));
-                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due, device });
+                instance.running = Some(Running { ctx: parts.ctx, setup: parts.setup, parser: Parser::new(), ports, extra_inputs, extra_outputs, startup_due, device, save_due: None });
                 self.host.println(&format!("{name}: Running."));
             }
             Err(error) => {
@@ -523,10 +529,7 @@ impl App {
         let Some(mut running) = instance.running.take() else {
             return;
         };
-        let path = ControllerConfigFile::path(&self.ini_path, &instance.hardware_model(), self.single);
-        if let Err(error) = instance.config_file.save(&path, &running.ctx.config) {
-            self.host.error(&format!("Could not store the controller configuration: {error}"));
-        }
+        save_config_file(&self.host, &self.ini_path, self.single, instance.hardware_model(), &mut instance.config_file, &mut running.ctx);
         running.setup.exit(&mut running.ctx);
         running.ctx.model.cleanup();
         // The final LEDs and displays of the exit; the device is closed with the link
@@ -680,6 +683,15 @@ impl App {
             running.setup.flush(&mut running.ctx);
             if let Some(device) = &running.device {
                 device.flush();
+            }
+            // A host with one controller has its own settings UI: write the changed global
+            // settings soon (Reaper writes them when the controller stops)
+            if self.single && running.ctx.config.is_dirty() {
+                let due = *running.save_due.get_or_insert(now + Duration::from_millis(SAVE_SETTINGS_DELAY_MS));
+                if due <= now {
+                    running.save_due = None;
+                    save_config_file(&self.host, &self.ini_path, true, instance.factory.info().hardware_model, &mut instance.config_file, &mut running.ctx);
+                }
             }
         }
         // Restart the instances which requested it (former IHost.restart)
@@ -845,6 +857,17 @@ impl App {
     /// Access the context of a running instance (for tests).
     pub fn instance_ctx(&mut self, index: usize) -> Option<&mut Ctx> {
         self.instances.get_mut(index).and_then(|i| i.running.as_mut()).map(|r| &mut r.ctx)
+    }
+}
+
+/// Write the global settings of a running controller to its configuration file (with the other
+/// entries of the file, e.g. the MIDI ports) and clear their changed state (also if the file
+/// could not be written: the error is logged once, the next change or the stop tries again).
+fn save_config_file(host: &Host, ini_path: &Path, single: bool, hardware_model: String, config_file: &mut ControllerConfigFile, ctx: &mut Ctx) {
+    let path = ControllerConfigFile::path(ini_path, &hardware_model, single);
+    ctx.config.clear_dirty();
+    if let Err(error) = config_file.save(&path, &ctx.config) {
+        host.error(&format!("Could not store the controller configuration: {error}"));
     }
 }
 

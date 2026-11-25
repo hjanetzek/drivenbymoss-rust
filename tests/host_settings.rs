@@ -70,6 +70,70 @@ fn changes_from_the_host_and_the_controller() {
     assert_eq!(app.take_setting_changes(), "");
 }
 
+/// The global settings are written to the configuration file soon after a change (at most once
+/// per SAVE_SETTINGS_DELAY_MS), not only when the controller stops; the document settings not.
+#[test]
+fn global_settings_are_saved_after_a_change() {
+    let dir = std::env::temp_dir().join(format!("dbm-test-host-settings-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("DrivenByMoss-Launch-Control-XL.config");
+    let backend = Rc::new(RecordingBackend { inputs: vec![(0, "in".into())], outputs: vec![(0, "out".into())], ..Default::default() });
+    let mut app = App::new_single(backend, dir.to_str().unwrap(), "5AFA5045-FF92-4737-A091-5B371CD5E529", "Bitwig Studio 5.3").expect("Launch Control XL");
+    let mut time = 0;
+    app.set_time_ms(time);
+    app.start_infrastructure();
+    let mut run = |app: &mut App, ms: u64| {
+        let end = time + ms;
+        while time < end {
+            time += 30;
+            app.set_time_ms(time);
+            app.tick();
+        }
+    };
+    // No change: no file (also not after the startup of the controller)
+    run(&mut app, 3000);
+    assert!(!file.exists());
+
+    let settings = app.settings();
+    let length = fields(&settings, "New Clip Length");
+    let id: i32 = length[0].parse().unwrap();
+    let options: Vec<String> = length[7..].iter().filter(|o| **o != length[6]).take(2).cloned().collect();
+    // Turned through two values: one write with the last one, after the delay
+    app.set_setting(id, &options[0]);
+    run(&mut app, 300);
+    app.set_setting(id, &options[1]);
+    run(&mut app, 300);
+    assert!(!file.exists(), "not before the delay");
+    run(&mut app, 600);
+    let text = std::fs::read_to_string(&file).expect("written after the delay");
+    assert!(text.contains(&format!("WORKFLOW_NEW_CLIP_LENGTH={}", options[1])), "{text}");
+
+    // No further write without a change
+    std::fs::remove_file(&file).unwrap();
+    run(&mut app, 3000);
+    assert!(!file.exists());
+
+    // A document setting is stored by the host, not in the file
+    let scale = fields(&app.settings(), "Scale");
+    let other = scale[7..].iter().find(|o| **o != scale[6]).unwrap().clone();
+    app.set_setting(scale[0].parse().unwrap(), &other);
+    run(&mut app, 3000);
+    assert!(!file.exists());
+
+    // A change by the controller is written as well
+    let config = &mut app.instance_ctx(0).unwrap().config;
+    config.set_value(SettingId(id as u16), &options[0]);
+    run(&mut app, 1100);
+    let text = std::fs::read_to_string(&file).expect("written after the delay");
+    assert!(text.contains(&format!("WORKFLOW_NEW_CLIP_LENGTH={}", options[0])), "{text}");
+
+    // And on stop, as before
+    std::fs::remove_file(&file).unwrap();
+    app.shutdown();
+    assert!(file.exists());
+}
+
 #[test]
 fn notifications() {
     let mut app = start("notifications");

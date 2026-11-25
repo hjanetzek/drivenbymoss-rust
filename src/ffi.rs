@@ -980,6 +980,9 @@ pub unsafe extern "C" fn dbm_get_settings(app: *mut DbmApp) -> *mut c_char {
 
 /// Set a setting from the UI of the host. The change is not reported back by
 /// [`dbm_take_setting_changes`], which only returns the changes the controller made itself.
+/// A changed global setting (of this or of the controller) is written to the controller's
+/// configuration file about a second later (by the tick, the changes of that second
+/// together) and when the controller stops; document settings are stored by the host.
 ///
 /// # Safety
 /// `app` must be a valid handle (or null); `value` must be a valid NUL terminated string (or

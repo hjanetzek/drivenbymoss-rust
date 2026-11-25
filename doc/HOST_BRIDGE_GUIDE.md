@@ -125,7 +125,11 @@ document settings in the project (`HostSettings`). The alternative used by Reape
 `dbm_set_default_document_settings` / `dbm_get_formatted_document_settings` /
 `dbm_set_formatted_document_settings` (one opaque text per project). The core also keeps a
 `DrivenByMoss-<model>.config` file in `config_path` (spaces and slashes of the hardware model
-as `-`; Reaper's `dbm_create` keeps `DrivenByMoss4Reaper-<model>.config`) as a fallback.
+as `-`; Reaper's `dbm_create` keeps `DrivenByMoss4Reaper-<model>.config`) as a fallback: it holds
+the global settings (not the document settings, the host stores them) and is written about a
+second after a global setting changed (by `dbm_set_setting` or by the controller; the changes of
+that second are written together) and when the controller stops. Reaper writes it only when the
+controller stops.
 
 ### The model setup (`dbm_get_model_setup`)
 
