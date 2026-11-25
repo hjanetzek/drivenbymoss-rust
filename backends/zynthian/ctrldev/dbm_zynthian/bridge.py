@@ -89,7 +89,7 @@ def change_signals():
         # Chain control's shared selection (zynthian-ui's grid module: host_page.py)
         (s.S_GUI, getattr(s, name), {"page"})
         for name in ("SS_GUI_CONTROL_GRID_PAGE", "SS_GUI_CONTROL_GRID_CELL", "SS_GUI_CONTROL_GRID_WINDOW",
-                     "SS_GUI_CONTROL_GRID_REMOTE") if hasattr(s, name)
+                     "SS_GUI_CONTROL_GRID_ZCTRL_PAGES") if hasattr(s, name)
     ]
 
 

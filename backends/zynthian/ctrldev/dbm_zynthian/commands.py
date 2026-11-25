@@ -101,8 +101,8 @@ GRID_COMMANDS = (Cmd.GRID_STEP_TOGGLE, Cmd.GRID_STEP_SET, Cmd.GRID_STEP_SET_FROM
                  Cmd.GRID_CLEAR_COLUMN, Cmd.GRID_SCROLL, Cmd.GRID_PAGE)
 # The commands of the browser: the name of the command, column/result, the move
 # The host's pages (host_page.py, doc/HOST_PAGE_PLAN.md §12): only with zynthian-ui's grid module
-# A cell's controller to a slot of the chain's current remote-control page (zynthian-ui
-# docs/remote-control-pages.md §5); only once the core has the command
+# A cell's controller to a chain controller slot (zynthian-ui
+# docs/chain-controller-pages.md §6); only once the core has the command
 HOST_PAGE_CELL_ASSIGN = getattr(Cmd, "HOST_PAGE_CELL_ASSIGN", None)
 HOST_PAGE_COMMANDS = (Cmd.HOST_PAGE_SHOW, Cmd.HOST_PAGE_CELL_TURN, Cmd.HOST_PAGE_CELL_PRESS, Cmd.HOST_PAGE_CELL_TOUCH,
                       Cmd.HOST_PAGE_CELL_RESET, Cmd.HOST_PAGE_ROW, Cmd.HOST_PAGE_PAGE, Cmd.HOST_PAGE_SET, Cmd.HOST_PAGE_SECTION) \

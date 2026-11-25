@@ -295,20 +295,20 @@ class HostPagesTest(unittest.TestCase):
         self.run_commands(f"int\thostpage\tcell/{cell}/press/{epoch}\t1", f"int\thostpage\tcell/1/press/{epoch}\t1")
         self.assertEqual(screen.queue, [("open", 1, page, -1, 0), ("cell", 1, 0, 1, 0)])
 
-    def remote_chain(self):
-        """The active chain with remote-control pages (zynthian-ui's zyngine.zynthian_remote_pages)"""
-        from zyngine.zynthian_remote_pages import RemotePages
+    def zctrl_chain(self):
+        """The active chain with chain controller pages (zynthian-ui's zyngine.zynthian_zctrl_pages)"""
+        from zyngine.zynthian_zctrl_pages import ZctrlPages
         chain = self.state.chain_manager.get_active_chain()
         for i, proc in enumerate(chain.get_processors()):
             proc.id = i + 1
-        chain.remote_pages = RemotePages(chain)
+        chain.zctrl_pages = ZctrlPages(chain)
         return chain
 
-    def test_remote_pages_and_assign(self):
+    def test_zctrl_pages_and_assign(self):
         """The chain controllers' pages (4 slots) are the first section, in a colour of their own;
         assign (HostPageCellAssign, the JAM's hold-a-row + touch-a-strip, slots 0-7) puts a
         cell's controller into slot n % 4 of page current + n // 4"""
-        chain = self.remote_chain()
+        chain = self.zctrl_chain()
         self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
         out = self.report()
         epoch = out[M.HOST_PAGE_EPOCH]
@@ -316,7 +316,7 @@ class HostPagesTest(unittest.TestCase):
         pages = self.commands.host_pages
         # No screen (the Tk UI): applied at once; the first page is created
         self.assertTrue(pages.assign(5, epoch, 2))                  # mode1 to slot 3
-        self.assertEqual(chain.remote_pages.pages[0].slots[2], (1, "mode1"))
+        self.assertEqual(chain.zctrl_pages.pages[0].slots[2], (1, "mode1"))
         out = self.report()
         new_epoch = out[M.HOST_PAGE_EPOCH]
         self.assertNotEqual(new_epoch, epoch, "the cells hold other controllers")
@@ -335,28 +335,28 @@ class HostPagesTest(unittest.TestCase):
         # -1 removes (an emptied default-named last page goes)
         self.assertFalse(pages.assign(8, epoch, 0))
         self.assertTrue(pages.assign(4, new_epoch, 7))              # p00 to slot 4 of page 2
-        self.assertEqual(chain.remote_pages.pages[1].slots[3], (1, "p00"))
+        self.assertEqual(chain.zctrl_pages.pages[1].slots[3], (1, "p00"))
         self.assertTrue(pages.assign(3, new_epoch, 2))              # the empty cell 3: clears slot 3
-        self.assertEqual(chain.remote_pages.pages[0].slots[2], None)
+        self.assertEqual(chain.zctrl_pages.pages[0].slots[2], None)
         self.assertTrue(pages.assign(4, new_epoch, -1))
-        self.assertEqual(chain.remote_pages.find(self.state.synth.controllers_dict["p00"]), [])
-        self.assertEqual(chain.remote_pages.pages, [])
+        self.assertEqual(chain.zctrl_pages.find(self.state.synth.controllers_dict["p00"]), [])
+        self.assertEqual(chain.zctrl_pages.pages, [])
         self.assertFalse(pages.assign(3, new_epoch, -1), "nothing to remove")
         self.assertFalse(pages.assign(5, new_epoch, 8), "no such slot")
 
-    def test_remote_assign_goes_through_the_screen(self):
+    def test_zctrl_assign_goes_through_the_screen(self):
         """With the screen as the owner, an assignment is applied in its thread"""
-        chain = self.remote_chain()
+        chain = self.zctrl_chain()
         calls = []
         screen = FakeScreen(self.gd, self.state)
-        screen.grid_remote_request = lambda chain, call: calls.append((chain, call))
+        screen.grid_zctrl_request = lambda chain, call: calls.append((chain, call))
         self.run_commands("int\thostpage\tshow/8/6/8/1\t1")
         epoch = self.report()[M.HOST_PAGE_EPOCH]
         self.commands.host_pages.assign(0, epoch, 0)
-        self.assertEqual(chain.remote_pages.pages, [], "not before the screen applies it")
+        self.assertEqual(chain.zctrl_pages.pages, [], "not before the screen applies it")
         self.assertIs(calls[0][0], chain)
         calls[0][1]()
-        self.assertEqual(chain.remote_pages.pages[0].slots[0], (1, "p00"))
+        self.assertEqual(chain.zctrl_pages.pages[0].slots[0], (1, "p00"))
 
     def test_show_and_navigation_bring_chain_control_to_the_front(self):
         """HostPageShow on: zynthian's screen opens chain control of the active chain, on the
@@ -398,8 +398,8 @@ class HostPagesTest(unittest.TestCase):
         screen.shown = True
         self.run_commands("int\tdevice\tparameterPage\t2")
         self.assertEqual(screen.queue, [("page", 1, 4, -1, 0)])
-        chain = self.remote_chain()
-        chain.remote_pages.add_page("Perform")
+        chain = self.zctrl_chain()
+        chain.zctrl_pages.add_page("Perform")
         screen.queue.clear()
         self.run_commands("int\tdevice\tparameterPage\t0")
         self.assertEqual(screen.queue, [("page", 1, 1, -1, 0)])

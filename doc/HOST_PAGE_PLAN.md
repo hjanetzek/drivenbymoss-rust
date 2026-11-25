@@ -620,7 +620,7 @@ resulting state — the core never shows a selection which the host did not repo
 | `HostPagePage {end} page` | show the window `page`: select its first page (`end` = `first`), or its last one (`last`: `<` from a window's first set pages back through the sets). Text form `hostpage page/first <page>`, `hostpage page/last <page>` |
 | `HostPageSet set` | select that page |
 | `HostPageSection section` | select the section's first page |
-| `HostPageCellAssign {cell, epoch} slot` | (0x8C0A, zynthian-ui remote control pages) put the controller of `cell` into slot `slot` (0..7) of the chain's current remote page; an empty cell clears the slot; `slot` -1 removes the controller from every remote page. The JAM sends it for Select + a strip touch: the active row's cell n → slot n |
+| `HostPageCellAssign {cell, epoch} slot` | (0x8C0A, zynthian-ui chain controller pages) put the controller of `cell` into slot `slot` (0..7): slot `n % 4` of page current + `n // 4` (zynthian's pages have 4 slots); an empty cell clears the slot; `slot` -1 removes the controller from every page. The JAM sends it for Select + a strip touch: the active row's cell n → slot n |
 
 Declare the 0x8C commands handled (the handled-commands bitset): that is the `hostPages` feature;
 without the grid module (a stock zynthian) leave them undeclared, and the JAM has no host source.
@@ -628,7 +628,7 @@ without the grid module (a stock zynthian) leave them undeclared, and the JAM ha
 
 ### 12.4 Chain controller pages (remote-control pages; 2026-11-25, protocol agreed-pending with the core)
 
-zynthian-ui `electra-grid` has named pages of chain controllers per chain (docs/remote-control-pages.md
+zynthian-ui `electra-grid` has named pages of chain controllers per chain (docs/chain-controller-pages.md
 there; upstream's "Chain Controllers" with positions and names, since 2026-11-25 **pages of 4
 slots**, the size of a zynthian page), each slot any controller of the chain. They are the first
 section of `chain_pages` ("Chain", one zynthian page per chain controller page: grid8x6 two a
@@ -648,8 +648,8 @@ first): strips 1-4 the current page, 5-8 the next one; the pages up to it are cr
 that page moves (swaps). slot -1 removes the controller from all pages (an emptied default-named
 last page goes); another epoch: dropped. The JAM: hold a pad of a cell row and touch strip n =
 that row's n-th cell to slot n. The adapter handles it (`ZynHostPages.assign`, through
-`shared_selection.request_remote_assign` in zynthian's GUI thread, which maps the slot;
-`SS_GUI_CONTROL_GRID_REMOTE` brings the new pages) once `Cmd.HOST_PAGE_CELL_ASSIGN` exists
+`shared_selection.request_zctrl_assign` in zynthian's GUI thread, which maps the slot;
+`SS_GUI_CONTROL_GRID_ZCTRL_PAGES` brings the new pages) once `Cmd.HOST_PAGE_CELL_ASSIGN` exists
 (`commands.HOST_PAGE_CELL_ASSIGN`, guarded).
 
 ### 12.5 zynthian's screen follows the surface (2026-11-25)

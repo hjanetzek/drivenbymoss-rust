@@ -54,7 +54,7 @@ source.
   (``shared_selection.request_show``; not over a menu or dialog, the screen decides), on the
   surface's selected page when it wasn't shown; the navigation commands and a press bring it to
   the front again if the user went elsewhere; turns and ``show`` off don't change the screen.
-- **Chain controllers** (zynthian-ui docs/remote-control-pages.md): the chain controllers'
+- **Chain controllers** (zynthian-ui docs/chain-controller-pages.md): the chain controllers'
   pages (named pages of 4 slots) are the first section of ``chain_pages`` ("Chain"), so they are
   reported as any other pages, in a colour of their own (zynthian-ui's ``page_color``, through
   the existing colour fields); ``assign`` (``HostPageCellAssign``, the JAM's hold-a-row +
@@ -361,20 +361,20 @@ class ZynHostPages:
             self.grid.set_default(cell)
 
     def assign(self, cell, epoch, slot):
-        """``hostpage cell/{cell}/assign/{epoch}`` (zynthian-ui docs/remote-control-pages.md §5):
+        """``hostpage cell/{cell}/assign/{epoch}`` (zynthian-ui docs/chain-controller-pages.md §6):
         the cell's controller to chain controller slot ``slot`` (0-7, the JAM's strips 1-8):
         zynthian's pages have 4 slots, so slot n is slot n % 4 of page current + n // 4 (strips
         5-8 the page after the current one; the pages up to it created; an empty cell clears the
         slot; on that page already: moved); slot -1: removed from all pages. Applied in
         zynthian's GUI thread (the screen's pages are rebuilt there); the change signal
-        (SS_GUI_CONTROL_GRID_REMOTE) brings the new pages"""
+        (SS_GUI_CONTROL_GRID_ZCTRL_PAGES) brings the new pages"""
         c = self._cell(cell, epoch)
         selection = self.gd.shared_selection
-        if c is None or self.chain is None or not hasattr(selection, "request_remote_assign"):
+        if c is None or self.chain is None or not hasattr(selection, "request_zctrl_assign"):
             return False
         if not -1 <= slot < 8 or slot < 0 and c.zctrl is None:
             return False
-        selection.request_remote_assign(self.chain, c.zctrl, slot)
+        selection.request_zctrl_assign(self.chain, c.zctrl, slot)
         return True
 
     def show_processor_screen(self, processor, screen):
