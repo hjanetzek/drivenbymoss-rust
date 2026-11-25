@@ -358,6 +358,25 @@ class HostPagesTest(unittest.TestCase):
         calls[0][1]()
         self.assertEqual(chain.remote_pages.pages[0].slots[0], (1, "p00"))
 
+    def test_device_page_selects_the_screens_page(self):
+        """The core's device page (DeviceParameterPage, the JAM's < > in CONTROL: 8 parameters,
+        two zynthian screens) selects chain control's page of its first screen, only while the
+        screen is shown; the chain controllers' pages before it are counted"""
+        screen = FakeScreen(self.gd, self.state)
+        synth = self.state.synth
+        self.run_commands("int\tdevice\tparameterPage\t1")
+        self.assertEqual(synth.get_current_screen_index(), 2)
+        self.assertEqual(screen.queue, [], "chain control not shown: nothing")
+        screen.shown = True
+        self.run_commands("int\tdevice\tparameterPage\t2")
+        self.assertEqual(screen.queue, [("page", 1, 4, -1, 0)])
+        chain = self.remote_chain()
+        chain.remote_pages.add_page("Perform")
+        screen.queue.clear()
+        self.run_commands("int\tdevice\tparameterPage\t0")
+        self.assertEqual(screen.queue, [("page", 1, 1, -1, 0)])
+        self.assertEqual(self.commands.host_pages.show_processor_screen(synth, 99), False)
+
     def test_a_failing_chain_is_none(self):
         """An exception reading a chain's pages: reported as no page (exists false), logged once,
         the pass goes on; the chain's pages come back when they can be read"""

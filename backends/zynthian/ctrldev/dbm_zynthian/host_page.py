@@ -347,6 +347,31 @@ class ZynHostPages:
         selection.request_remote_assign(self.chain, c.zctrl, slot)
         return True
 
+    def show_processor_screen(self, processor, screen):
+        """The core selected a device page (``DeviceParameterPage``: the JAM's < > in CONTROL):
+        while chain control is shown, its page of that processor's controller screen (the
+        device page's first screen, device.py) is selected through the shared selection, so the
+        screen's selection follows. True if requested"""
+        gd = self.gd
+        selection = gd.shared_selection
+        owner_shown = getattr(selection, "owner_shown", None)
+        chain = self.chain_manager.get_active_chain()
+        if owner_shown is None or not owner_shown() or chain is None or screen is None:
+            return False
+        try:
+            processors = chain.get_processors()
+            items, _ = gd.chain_page_items(chain, processors, getattr(chain, "current_processor", None))
+            _, rows = gd.grid_pages(items)
+        except Exception as e:
+            logger.warning("chain control's page of %s: %s", processor, e)
+            return False
+        for i, row in enumerate(rows):
+            kind, proc, arg = items[row].data
+            if kind == "proc" and proc is processor and arg == screen:
+                selection.request_page(chain.chain_id, i)
+                return True
+        return False
+
     def _select(self, page):
         if 0 <= page < len(self.grid.pages):
             self.gd.shared_selection.request_page(self.chain_id, page)

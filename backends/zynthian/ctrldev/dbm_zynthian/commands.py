@@ -581,6 +581,9 @@ class ZynCommandHandler(CommandHandler):
         if id_ == Cmd.DEVICE_PARAMETER_PAGE:
             if device is not None:
                 device.select_page(int(cmd.number))
+                # Chain control (when shown) follows the cursor device's page: its first screen
+                if self.host_pages is not None and device is chain.cursor():
+                    self.host_pages.show_processor_screen(device.processor, device.processor.get_current_screen_index())
         elif id_ in (Cmd.DEVICE_WINDOW, Cmd.DEVICE_EXPAND, *DEVICE_TOGGLES):
             pass  # No device windows in zynthian
         elif id_ == Cmd.DEVICE_ACTION:
