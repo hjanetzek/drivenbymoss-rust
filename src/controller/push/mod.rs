@@ -17,6 +17,7 @@
 pub mod colors;
 pub mod command;
 pub mod display1;
+pub mod help;
 pub mod mode;
 pub mod palette;
 pub mod parameterprovider;

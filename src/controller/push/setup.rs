@@ -118,6 +118,8 @@ pub fn create(version: PushVersion, host: Host, sender: Sender, ports: MidiPorts
     ctx.modes.set_default_id(Modes::Track);
     ctx.midi_handler = Some(std::rc::Rc::new(push::handle_midi));
     ctx.sysex_handler = Some(std::rc::Rc::new(push::handle_sysex));
+    // The help texts of the controls (doc/CONTROLLER_HELP_PLAN.md §13; all models)
+    ctx.help_table = Some(&super::help::TABLE);
     ctx.create_pads();
 
     Ok(InstanceParts { ctx, setup: Box::new(PushSetup::new(version)) })

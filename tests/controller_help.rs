@@ -24,20 +24,38 @@ const SHIFT_DOWN: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x
 const SHIFT_UP: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x00, 0xF7];
 
 fn start() -> App {
-    start_controller("jam.MaschineJamControllerInstance", "Maschine Jam - 1", "Maschine Jam - 1")
+    start_controller("maschine.jam.MaschineJamControllerInstance", "Maschine Jam - 1", "Maschine Jam - 1", None)
 }
 
 fn start_mk2() -> App {
-    start_controller("mk3.MaschineMk2ControllerInstance", "Maschine MK2 In", "Maschine MK2 Out")
+    start_controller("maschine.mk3.MaschineMk2ControllerInstance", "Maschine MK2 In", "Maschine MK2 Out", None)
 }
 
-fn start_controller(class: &str, input: &str, output: &str) -> App {
+/// A Push (1, 2 or 3).
+fn start_push(model: u8) -> App {
+    let port = match model {
+        1 => "Ableton Push User Port",
+        2 => "Ableton Push 2 Live Port",
+        _ => "Ableton Push 3 Live Port",
+    };
+    let class = format!("ableton.push.Push{model}ControllerInstance");
+    let file = format!("DrivenByMoss4Reaper-Push {model}.config");
+    start_controller(&class, port, port, Some((&file, &format!("MIDI_INPUT0={port}\nMIDI_OUTPUT0={port}\n"))))
+}
+
+/// `class`: below `de.mossgrabers.reaper.controller.ni.` / `.controller.` (the Push); `extra`: a
+/// file of the controller's settings (name, content).
+fn start_controller(class: &str, input: &str, output: &str, extra: Option<(&str, &str)>) -> App {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("dbm-test-help-{}-{count}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("DrivenByMoss4Reaper.config"), format!("CONTROLLER_INSTANCE0=de.mossgrabers.reaper.controller.ni.maschine.{class}\n")).unwrap();
+    let package = if class.starts_with("ableton.") { "de.mossgrabers.reaper.controller" } else { "de.mossgrabers.reaper.controller.ni" };
+    std::fs::write(dir.join("DrivenByMoss4Reaper.config"), format!("CONTROLLER_INSTANCE0={package}.{class}\n")).unwrap();
+    if let Some((name, content)) = extra {
+        std::fs::write(dir.join(name), content).unwrap();
+    }
     let backend = Rc::new(RecordingBackend { inputs: vec![(IN, input.into())], outputs: vec![(OUT, output.into())], ..Default::default() });
     let mut app = App::new(backend, dir.to_str().unwrap(), 7, 22);
     app.start_infrastructure();
@@ -369,4 +387,63 @@ fn take_after(app: &mut App, f: impl FnOnce(&mut App)) -> HashMap<String, JsonVa
     f(app);
     app.tick();
     take(app)
+}
+
+// ------------------------------------------------------------------------------------------
+// The Push 1, 2 and 3 (one table)
+
+const PUSH_VIEWS: [Views; 16] = [
+    Views::Play, Views::Chords, Views::Piano, Views::PrgChange, Views::ClipLength, Views::Color, Views::Session, Views::Sequencer,
+    Views::PolySequencer, Views::Drum, Views::DrumXox, Views::Drum4, Views::Drum8, Views::Raindrops, Views::ScenePlay, Views::Drum64,
+];
+
+/// The registered modes of a Push.
+fn push_modes(app: &mut App) -> Vec<Modes> {
+    let ctx = app.instance_ctx(0).unwrap();
+    Modes::ALL.iter().copied().filter(|m| ctx.modes.contains(*m)).collect()
+}
+
+#[test]
+fn push_the_table_covers_every_button_of_all_models() {
+    for model in [1, 2, 3] {
+        let mut app = start_push(model);
+        let modes = push_modes(&mut app);
+        assert!(modes.len() > 30, "Push {model}: {} modes", modes.len());
+        check_coverage(&mut app, &PUSH_VIEWS, &modes);
+    }
+}
+
+#[test]
+fn push3_texts_in_every_view_and_mode() {
+    let mut app = start_push(3);
+    let entries = take(&mut app);
+    assert!(short(&entries, "Play").starts_with("Start playback"));
+    assert!(short(&entries, "Row11..Row18").contains("Select the track"), "{}", short(&entries, "Row11..Row18"));
+    assert!(short(&entries, "Row21..Row28").starts_with("1 Volume, 2 Pan"));
+    assert!(entries.contains_key("Scene1..Scene8"));
+    assert!(entries.contains_key("knobs"));
+    assert!(short(&entries, "PlayPosition").starts_with("Turn: the play position"));
+    assert_eq!(short(&entries, "EncoderPush"), "Start / stop playback");
+    for view in PUSH_VIEWS {
+        let ctx = app.instance_ctx(0).unwrap();
+        ctx.set_active_view(view);
+        assert!(help::collect(ctx).iter().any(|e| e.id == "grid" && e.help.is_some()), "{view:?} describes its pads");
+        check_lengths(&mut app, view.name());
+    }
+    for mode in push_modes(&mut app) {
+        let ctx = app.instance_ctx(0).unwrap();
+        ctx.set_active_mode(mode);
+        check_lengths(&mut app, mode.name());
+    }
+}
+
+#[test]
+fn push_models_differ_where_the_code_does() {
+    let mut app = start_push(1);
+    let entries = take(&mut app);
+    assert!(short(&entries, "Mute").starts_with("The 2nd row below the display"), "{}", short(&entries, "Mute"));
+    assert!(!entries.contains_key("EncoderPush"), "no jog wheel on the Push 1");
+    let mut app = start_push(2);
+    let entries = take(&mut app);
+    assert!(short(&entries, "Mute").starts_with("Mute / unmute the selected track"));
 }
