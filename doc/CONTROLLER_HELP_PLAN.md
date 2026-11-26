@@ -3,8 +3,9 @@
 Status: phase 1 and phase 2 done for the Maschine JAM (see §6); round 2: the JAM's texts as one
 declarative table (§9, with a comparison of the two approaches), boxes coloured by scope, one box
 per row of buttons, the global boxes hideable (§10). Phase 3, the mirror (§4): done for the devices
-the core drives in-process (the JAM and the Mk2). Phase 4 started: the Maschine Mk2's table and its
-layout from a photo (§12).
+the core drives in-process (the JAM and the Mk2). Phase 4: the Maschine Mk2's table and its layout from a
+photo (§12); the Push 1/2/3 table and the Push simulator's help (§13; the Push 3 layout from a photo
+is open, no picture yet).
 
 ## 1. Goal
 
@@ -515,4 +516,71 @@ left; Control, Step and the buttons above the displays top; the knobs right (the
 row, not across the displays); the column left of the pads right (on the left their lines crossed
 the master section's; now they pass under the pads); Restart, the transport's ◂ ▸ and Grid left, Play, Rec, Erase, Shift and the pads below (the pads'
 line between the pad columns 2 and 3).
+
+## 13. Phase 4: the Push 1, 2 and 3
+
+### 13.1 The table
+
+`src/controller/push/help.rs`, installed for all three models (they share the setup): the rows
+which differ ask `push::version` (Mute / Solo / Stop Clip select the 2nd row's state on the Push 1
+and act on the selected track on the Push 2/3, Volume / Pan & Send of the Push 1, Setup / User,
+the Push 3's large knob). A row for a button a model doesn't have is never asked.
+
+- **Global buttons** with Shift, Select, Delete, Record, Duplicate, Repeat and the Push 3's Lock as
+  modifiers; Shift + Select rows where the code checks both (punch out, the alternative stop of all
+  clips, the birds-eye view).
+- **Rows** (one box each): the buttons below the display (`Row11`-`Row18`), above it
+  (`Row21`-`Row28`; the Push 1's 2nd row), the scene buttons, and the pairs the hardware groups:
+  the arrows up / down and left / right, Page ◂ ▸, Octave down / up, the Push 3's jog tilt.
+- **The knobs** (`knobs`, the 8 above the display): the mix modes (the track names in the long
+  text), the device parameters (their names), the browser, the user parameters; the other modes
+  say that their settings are on the display.
+- **The other encoders**: the small knob (tempo / shuffle, Select: loop start, browsing: the
+  column), the master knob (Select: zoom), the play position knob (Push 1/2) or the large knob
+  (Push 3, by the clip / browser / session mode), the touch strip (the ribbon mode, the session's
+  crossfader, Shift + touch).
+- **Views**: the pads, the scene buttons, Page and Octave of the play views (Play, Chords, Piano,
+  Drum 64), Session, Scenes, the sequencers (Sequencer, Poly, Drum, Drum 4 / 8, XoX), Raindrops,
+  Program Change, Clip Length, Colour.
+- **Modes**: the button rows of the mix modes (select the tracks with the held modifiers; above
+  the display the mix modes, or mute / solo / stop with the held or locked state), the device
+  modes (as the manual's list), the browser, the user mode, the view selections, scales, fixed
+  length, markers, the session mode; the rows of the other modes are summaries ("the options of
+  the … mode": the display labels the buttons).
+- Coverage: `tests/controller_help.rs` checks every button and continuous control of the Push 1, 2
+  and 3 in every view × registered mode.
+
+### 13.2 The simulator
+
+The Push simulator already uses SimWindow and SimulatorBase, so the help layer comes with
+`enable_help` (`push_simulator/qt_bridge.py`: by CC on channel 1, the touch strip by its id, the
+pads and the 8 knobs as areas) and the help arguments in `main.py`. The mirror lines of a help file
+work (the device model takes the core's MIDI); a mirror of real Push hardware isn't available (the
+core doesn't drive a Push in-process). `run_with_core.sh --model push3` starts the Push simulator
+(its own port names with the suffix, its display socket) with the core, `--sim` only.
+
+Help sides on the current drawing: the left column left, the buttons right of the display (Setup,
+User, Device, Mix, Add, Swap, Clip, Master, the master knob, Cue) on top with the knobs and the
+rows above / below the display, the right column (arrows, the jog wheel, Capture .. Help, Repeat
+.. Session, Octave, Page, Shift, Select) and the scene buttons right, the pads below. The right
+column is crowded (about 24 boxes) and has crossing lines; the layout is still the own drawing:
+**open: the Push 3 layout from a top view photo** (not found locally; asked for), then the sides
+again.
+
+### 13.3 Manual and code (Push)
+
+- **Select + Record**: a new clip (as New); not in the manual.
+- **Browse**: Shift + Browse inserts a device before the selected one, Select + Browse after it
+  (the manual names these for Add Device only); while browsing Browse confirms, Shift + Browse
+  discards (as the manual).
+- **Push 3 Lock**: the lock of Mute / Solo / Stop Clip also works with Shift (as on the Push 2);
+  the manual names Lock only.
+- **Push 3 "Show Clip Grid"** (manual: clips/scenes ↔ the mixer in the session): the code switches
+  the display between the session mode (clips and scenes) and the marker mode.
+- **Push 3 large knob, push**: start / stop playback (a toggle), as the manual; in the clip,
+  browser and session modes the mode's function.
+- **Delete + scene button**: deletes the scene in the play views, Session and Scenes (as the
+  manual); in the sequencers the scene buttons only select the resolution.
+- **Arrows**: left / right page the active mode (Shift: its item), up / down the scenes by the
+  settings "Cursor Keys Scene Option" (the manual: "the track page and the scene bank").
 

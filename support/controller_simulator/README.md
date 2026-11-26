@@ -29,6 +29,7 @@ both stop together):
 support/controller_simulator/run_with_core.sh                 # JAM; the real one if plugged in (mirrored in the simulator)
 support/controller_simulator/run_with_core.sh --sim           # the core drives the simulator
 support/controller_simulator/run_with_core.sh --model mk2 --no-help
+support/controller_simulator/run_with_core.sh --model push3   # the Push 3 simulator (--sim only), its display
 ```
 
 The simulators alone:
@@ -101,7 +102,7 @@ button, STEP LEFT is Stop".
 With the Rust core in the reference host the Maschine simulators show what each button does in
 the current state (view, mode, held Shift / Select): key **H** or the "Help" checkbox in the status
 bar. The texts come from the core (`dbm_take_control_help`, doc/CONTROLLER_HELP_PLAN.md); so far
-the JAM and the Mk2 have them. A click on a box, or pressing its button, shows the full text.
+the JAM, the Mk2 and the Push 1/2/3 have them (the Push simulator: support/push_simulator). A click on a box, or pressing its button, shows the full text.
 
 ```sh
 support/controller_simulator/run.sh --model jam --show-help &

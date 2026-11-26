@@ -12,6 +12,7 @@ from PySide6.QtQuick import QQuickImageProvider
 
 from . import display, layout
 from .device import PushDevice
+from sim_common.help import HelpTarget
 from sim_common.qt_base import SimulatorBase, hex_color as _hex_color
 
 
@@ -59,6 +60,46 @@ class Simulator(SimulatorBase):
         self._display_status = "display: off"
         self.frameReceived.connect(self._on_frame)
         self.encodersReceived.connect(self._on_encoders)
+        self._init_help()
+
+    # The help of the controls (doc/CONTROLLER_HELP_PLAN.md)
+
+    def _init_help(self) -> None:
+        """The help entries go to the controls by their MIDI binding (buttons and knobs: CCs on
+        channel 1), the touch strip by its id; the pads (``grid``) and the 8 knobs above the
+        display (``knobs``) are areas."""
+        controls = self.device.controls
+        self._help_by_binding: dict[tuple[str, int, int], tuple[int, layout.Control]] = {}
+        for index, control in enumerate(controls):
+            if control.kind in ("button", "encoder") and control.cc >= 0:
+                self._help_by_binding.setdefault(("cc", 0, control.cc), (index, control))
+        self._help_strip = next(((i, c) for i, c in enumerate(controls) if c.kind == "strip"), None)
+
+        def area(parts):
+            if not parts:
+                return None
+            x0, y0 = min(c.x for c in parts), min(c.y for c in parts)
+            return x0, y0, max(c.x + c.w for c in parts) - x0, max(c.y + c.h for c in parts) - y0
+        pads = area([c for c in controls if c.kind == "pad"])
+        knobs = area([c for c in controls if c.kind == "encoder" and 71 <= c.cc <= 78])
+        self._help_areas = {"grid": (pads, "bottom", "Pads"), "knobs": (knobs, "top", "Knobs")}
+        centre = (pads[0], pads[1], pads[0] + pads[2], pads[1] + pads[3]) if pads else (0, 0, 0, 0)
+        self.enable_help(self._help_target, centre)
+
+    def _help_target(self, entry: dict) -> HelpTarget | None:
+        if entry.get("id") in self._help_areas:
+            rect, side, label = self._help_areas[entry["id"]]
+            return HelpTarget(-1, *rect, side=side, label=label) if rect else None
+        found = None
+        if entry.get("id") == "Touchstrip":
+            found = self._help_strip
+        elif entry.get("bind") == "cc":
+            found = self._help_by_binding.get(("cc", entry.get("channel", 0), entry.get("control", -1)))
+        if found is None:
+            return None
+        index, control = found
+        label = control.help_label or (control.label if len(control.label) > 1 else "")
+        return HelpTarget(index, control.x, control.y, control.w, control.h, side=control.help_side or None, label=label)
 
     # Thread entry points (any thread)
 

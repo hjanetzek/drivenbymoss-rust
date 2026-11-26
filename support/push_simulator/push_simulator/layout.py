@@ -45,6 +45,10 @@ class Control:
     """True for a button with an RGB LED (colour from the palette), else a white/single LED."""
     base: tuple = field(default=(255, 255, 255))
     """Push 1: the colour of a single colour button LED."""
+    help_label: str = ""
+    """The name of the control in its help box (empty: the label, or the core's label)."""
+    help_side: str = ""
+    """The side of the panel for the control's help box (empty: the nearest, sim_common.help)."""
 
     def as_dict(self) -> dict:
         return {"kind": self.kind, "label": self.label, "x": self.x, "y": self.y, "w": self.w, "h": self.h,
@@ -67,24 +71,29 @@ def build_controls(model: str) -> list[Control]:
     push3 = model == "push3"
     c: list[Control] = []
 
-    def button(label, cc, x, y, w=14.0, h=6.0, rgb=False, base=(255, 255, 255)):
-        c.append(Control("button", label, x, y, w, h, cc=cc, rgb=rgb, base=base))
+    # The help boxes of the buttons right of the display go above the panel (the right column has
+    # enough boxes)
+    top_right = {30, 59, 52, 110, 112, 32, 33, 111, 113, 28, 53, 114, 115}
 
-    def encoder(label, cc, touch, x, y, size=12.0):
-        c.append(Control("encoder", label, x, y, size, size, cc=cc, note=touch))
+    def button(label, cc, x, y, w=14.0, h=6.0, rgb=False, base=(255, 255, 255), help_label=""):
+        side = "top" if cc in top_right and y < 60 else ""
+        c.append(Control("button", label, x, y, w, h, cc=cc, rgb=rgb, base=base, help_label=help_label, help_side=side))
+
+    def encoder(label, cc, touch, x, y, size=12.0, help_label="", help_side=""):
+        c.append(Control("encoder", label, x, y, size, size, cc=cc, note=touch, help_label=help_label, help_side=help_side))
 
     # The 8 encoders over the display, the small encoders on the left, master on the right
     for i in range(8):
-        encoder(f"{i + 1}", 71 + i, i, _col_x(i) + 1, 2)
+        encoder(f"{i + 1}", 71 + i, i, _col_x(i) + 1, 2, help_label=f"Knob {i + 1}")
     encoder("Tempo", 14, 10, 4, 2)
     if push3:
         # Push 3: the tempo/swing encoder can be pressed (CC 15), no second small encoder
         button("Swing", 15, 20, 5, 12, 5)
     else:
         encoder("Swing", 15, 9, 20, 2)
-    encoder("Master", 79, 8, 200, 2)
+    encoder("Master", 79, 8, 200, 2, help_side="top")
     if push3:
-        button("Cue", 111, 186, 5, 12, 5)
+        c.append(Control("button", "Cue", 186, 5, 12, 5, cc=111, help_side="top"))
     button("Pedal 1", 64, 168, 3, 13, 4)
     button("Pedal 2", 69, 168, 9, 13, 4)
 
@@ -97,15 +106,15 @@ def build_controls(model: str) -> list[Control]:
         c.append(Control("display", "Display", PAD_X0, 27, 8 * PAD_PITCH - 2, 22))
         row1_y, row2_y = 52.0, 18.0
     for i in range(8):
-        button("", 20 + i, _col_x(i), row1_y, rgb=True)
-        button("", 102 + i, _col_x(i), row2_y, rgb=True)
+        button("", 20 + i, _col_x(i), row1_y, rgb=True, help_label=f"{'Row 1' if push1 else 'Below the display'} {i + 1}")
+        button("", 102 + i, _col_x(i), row2_y, rgb=True, help_label=f"{'Row 2' if push1 else 'Above the display'} {i + 1}")
 
     # Pads and scene buttons (top scene: CC 43)
     for row in range(8):
         for col in range(8):
             c.append(Control("pad", "", _col_x(col), PAD_Y0 + row * PAD_PITCH, PAD_SIZE, PAD_SIZE, note=pad_note(col, row)))
         button(("1/4", "1/4t", "1/8", "1/8t", "1/16", "1/16t", "1/32", "1/32t")[row], 43 - row, 166,
-               PAD_Y0 + row * PAD_PITCH + 2, 12, 10, rgb=True)
+               PAD_Y0 + row * PAD_PITCH + 2, 12, 10, rgb=True, help_label=f"Scene {row + 1}")
 
     # Left side
     button("Tap", 3, 4, 18)
@@ -157,10 +166,10 @@ def build_controls(model: str) -> list[Control]:
     if push3:
         button("•", 91, 195, 54, 8, 6)
         # The jog wheel: turn (CC 70), press (CC 94), tilt left/right (CC 93/95)
-        encoder("Jog", 70, -1, 192, 72, 14)
-        button("◂", 93, 184, 76, 7, 6)
-        button("▸", 95, 207, 76, 7, 6)
-        button("Push", 94, 194, 88, 10, 5)
+        encoder("Jog", 70, -1, 192, 72, 14, help_label="Jog wheel")
+        button("◂", 93, 184, 76, 7, 6, help_label="Jog ◂")
+        button("▸", 95, 207, 76, 7, 6, help_label="Jog ▸")
+        button("Push", 94, 194, 88, 10, 5, help_label="Jog push")
         button("Capture", 65, 184, 96, 14, 6, rgb=True)
         button("Scene View", 34, 200, 96, 14, 6)
         button("Lock", 83, 184, 104, 14, 6, rgb=True)

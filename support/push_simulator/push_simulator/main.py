@@ -32,6 +32,14 @@ def parse_args(argv=None):
     parser.add_argument("--screenshot", default=None, help="grab the window to this PNG before quitting")
     parser.add_argument("--quit-after", type=float, default=0.0, help="quit after this many seconds")
     parser.add_argument("--size", default=None, help="window size WxH")
+    parser.add_argument("--help-socket", default=None, metavar="PATH",
+                        help="the socket for the help of the controls from the host (default: $DBM_SIM_HELP_SOCKET, else "
+                             "$XDG_RUNTIME_DIR/dbm-sim-help.sock; doc/CONTROLLER_HELP_PLAN.md)")
+    parser.add_argument("--show-help", action="store_true", help="start with the help boxes shown (key H toggles them)")
+    parser.add_argument("--hide-global", action="store_true", help="start with the boxes of the global functions hidden (key G)")
+    parser.add_argument("--help-file", default=None, metavar="PATH",
+                        help="help entries (and mirror lines) to show at the start (JSON lines as the host sends them; for tests "
+                             "and screenshots)")
     return parser.parse_args(argv)
 
 

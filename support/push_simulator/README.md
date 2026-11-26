@@ -58,7 +58,9 @@ backend. The runner's bridge has a method `usb_bulk_out(device_index, endpoint, 
 The help of the controls (doc/CONTROLLER_HELP_PLAN.md) goes to a simulator's help socket:
 `--help-socket PATH`, else `$DBM_SIM_HELP_SOCKET`, else `$XDG_RUNTIME_DIR/dbm-sim-help.sock` if a
 simulator listens there (`--no-help`: none; `--help-model` picks the controller with several
-`--model`). The Push simulator doesn't show it yet; the Maschine simulators do. With a Maschine
+`--model`). The Push simulator shows it (key H, `--show-help`, `--hide-global`, `--help-file`, as
+the Maschine simulators; `support/controller_simulator/run_with_core.sh --model push3` starts the
+simulator, the core and the help together). With a Maschine
 driven in-process (`--transport hid`) the same socket mirrors the device to the simulator (its
 LEDs, strips, displays and presses; the simulator's clicks come back as the device's input,
 `--no-mirror-input` ignores them, `--no-mirror` sends no mirror; doc/CONTROLLER_HELP_PLAN.md §4).
@@ -214,6 +216,9 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   split reads, the parser before the side channel, and the server's encoder callback.
 - `test_alsa.py`: an ALSA loopback between simulator ports and a test client (skipped without
   ALSA).
+- `test_help.py`: the help boxes: the core's entries to the controls (by CC, the touch strip by
+  its id), the areas (pads, the 8 knobs) and rows (the buttons above / below the display, the
+  scene buttons), the sides, and the real Push 3 core's entries in the states every button makes.
 - `test_smoke.py`: the app offscreen, fed by `demo_feed.py` (with encoder values), grabbed to a PNG
   (in `PUSH_SIM_SCREENSHOT`, if set), and checked for the colours of the test frame and the rings
   (skipped without PySide6 or ALSA).

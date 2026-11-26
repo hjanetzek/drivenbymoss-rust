@@ -2,14 +2,15 @@
 # Start a Maschine simulator together with the Rust core (tools/dbm_host_alsa.py, with its
 # simulated DAW) and the help boxes (doc/CONTROLLER_HELP_PLAN.md):
 #
-#   run_with_core.sh [--model jam|mk2|mk3|mikromk3] [--hw|--sim] [--suffix " (sim)"] [--no-help]
+#   run_with_core.sh [--model jam|mk2|mk3|mikromk3|push3] [--hw|--sim] [--suffix " (sim)"] [--no-help]
 #                    [--no-mirror-input] [--release]
 #
 # --hw (the default while the model's device is plugged in; the Mk2 and the JAM): the
 #   core drives the real device in-process; the simulator mirrors it (its LEDs, strips, level
 #   meters and displays, the presses on the hardware highlighted) and shows the help boxes.
 #   Clicks in the simulator act on the core as the device's input (--no-mirror-input: ignored).
-# --sim (the default without one): the core drives the simulator.
+# --sim (the default without one): the core drives the simulator. The Push 3 (push_simulator, with
+#   its display socket) runs in --sim only.
 # The core library is built when it is missing (cargo build --lib); --release uses
 # target/release. Both processes stop together (Ctrl+C, or closing the simulator window).
 set -u
@@ -38,9 +39,13 @@ while [ $# -gt 0 ]; do
     shift
 done
 case "$model" in
-    jam|mk2|mk3|mikromk3) ;;
-    *) echo "--model: jam, mk2, mk3 or mikromk3 (other simulators: run.sh)" >&2; exit 2 ;;
+    jam|mk2|mk3|mikromk3|push3) ;;
+    *) echo "--model: jam, mk2, mk3, mikromk3 or push3 (other simulators: run.sh)" >&2; exit 2 ;;
 esac
+if [ "$model" = push3 ]; then
+    [ "$hw" = 1 ] && { echo "--hw: the core drives the Mk2 and the JAM in-process only (--sim for the push3)" >&2; exit 2; }
+    hw=0
+fi
 
 library="$repo/target/$profile/libdrivenbymoss.so"
 if [ ! -f "$library" ]; then
@@ -54,8 +59,23 @@ fi
 
 # An own socket per run, so a second setup or another simulator doesn't get in the way
 socket="${XDG_RUNTIME_DIR:-/tmp}/dbm-sim-help-$model-$$.sock"
-sim_args=(--model "$model" --suffix "$suffix" --help-socket "$socket")
-host_args=(--model "$model" --suffix "$suffix" --bindings "$repo/bindings/python" --library "$library")
+if [ "$model" = push3 ]; then
+    # The Push simulator: its own client and port names with the suffix, its display socket
+    display_socket="${XDG_RUNTIME_DIR:-/tmp}/dbm-push-display-$$.sock"
+    client="Ableton Push 3$suffix"
+    sim_package=push_simulator
+    sim_dir="$repo/support/push_simulator"
+    sim_args=(--model push3 --client-name "$client" --live-port-name "$client Live Port" --user-port-name "$client User Port"
+              --display-socket "$display_socket" --help-socket "$socket")
+    host_args=(--model push3 --port "$client Live Port" --display-socket "$display_socket" --bindings "$repo/bindings/python"
+               --library "$library")
+else
+    display_socket=
+    sim_package=maschine_simulator
+    sim_dir="$here"
+    sim_args=(--model "$model" --suffix "$suffix" --help-socket "$socket")
+    host_args=(--model "$model" --suffix "$suffix" --bindings "$repo/bindings/python" --library "$library")
+fi
 if [ "$hw" = auto ]; then
     # The model's device on USB (Native Instruments 17cc: the Mk2 1140, the JAM 1500)
     case "$model" in
@@ -84,17 +104,22 @@ else
     host_args+=(--no-help)
 fi
 if [ "$hw" = 0 ]; then
-    echo "The core drives the simulator (--hw: the real device)"
-    host_args+=(--transport midi)
+    if [ "$model" = push3 ]; then
+        echo "The core drives the simulator"
+    else
+        echo "The core drives the simulator (--hw: the real device)"
+        host_args+=(--transport midi)
+    fi
 fi
 
-(cd "$here" && exec python3 -m maschine_simulator "${sim_args[@]}") &
+(cd "$sim_dir" && exec python3 -m "$sim_package" "${sim_args[@]}") &
 sim=$!
 host=
 cleanup() {
     [ -n "$host" ] && kill "$host" 2>/dev/null
     kill "$sim" 2>/dev/null
     rm -f "$socket"
+    [ -n "$display_socket" ] && rm -f "$display_socket"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
