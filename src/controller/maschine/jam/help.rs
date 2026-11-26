@@ -483,11 +483,20 @@ pub fn control_button(ctx: &Ctx, current: Modes) -> Option<Help> {
 
 /// The group buttons: select the tracks (their names in the long text).
 fn track_row(ctx: &Ctx) -> Help {
-    Help::new("Select the track (a selected group track: expand / collapse)").with_long(lines(&[
-        &group_track_names(ctx, 8),
+    let names = group_track_names(ctx, 8);
+    let mut long = vec![
+        names.as_str(),
         "Hold Rec / Solo / Mute / Clear / Duplicate and press A-H: record arm / solo / mute / delete / duplicate the track.",
         "Hold Aux + A-H: the send. Hold Grid + A-H: the resolution of the sequencer.",
-    ]))
+    ];
+    if ctx.views.is_any_active(&SEQUENCER_VIEWS) {
+        long.push(if MaschineJamConfiguration::is_keep_sequencer_on_track_change(&ctx.config) {
+            "The sequencer stays on the new track (setting \"Keep the sequencer on track change\" on): a view stored for the track with Step / Pad Mode + scene wins, an audio track gets the audio view."
+        } else {
+            "The new track gets its stored view (Step / Pad Mode + scene), else the startup view; the setting \"Keep the sequencer on track change\" keeps the sequencer."
+        });
+    }
+    Help::new("Select the track (a selected group track: expand / collapse)").with_long(lines(&long))
 }
 
 /// Aux + the group buttons: the sends.

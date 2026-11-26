@@ -452,3 +452,77 @@ fn led_brightness_raises_the_palette_levels_and_re_sends_all_leds() {
     let (unchanged, _) = led_states(&backend.take_calls());
     assert!(unchanged.len() < 8, "{unchanged:?}");
 }
+
+/// The host selects the second track (the reply to a group button).
+fn select_second_track(app: &mut App) {
+    press(app, (jam::GROUP_A + 1) as u8);
+    app.update_model("track/0/select 0\ntrack/1/select 1\n");
+    app.tick();
+}
+
+#[test]
+fn track_change_from_a_sequencer_recalls_the_startup_view_by_default() {
+    let (mut app, _backend) = start();
+    assert!(!MaschineJamConfiguration::is_keep_sequencer_on_track_change(&ctx(&mut app).config));
+    press(&mut app, jam::STEP as u8);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Sequencer));
+    select_second_track(&mut app);
+    // As in Java: the track has no stored view, the startup view (Play) is recalled
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+}
+
+#[test]
+fn keep_the_sequencer_on_track_change() {
+    let (mut app, _backend) = start();
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::KEEP_SEQUENCER_ON_TRACK_CHANGE, "On");
+    press(&mut app, jam::STEP as u8);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Sequencer));
+    // A sentinel table: the note mapping is updated for the new track
+    ctx(&mut app).surface.set_key_translation_table(vec![99; 128]);
+    select_second_track(&mut app);
+    assert_eq!(ctx(&mut app).model.cursor_track().position(), 1);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Sequencer));
+    assert!(!ctx(&mut app).surface.key_translation_table().contains(&99), "the note mapping is updated");
+}
+
+#[test]
+fn keep_the_sequencer_but_a_stored_view_wins() {
+    let (mut app, _backend) = start();
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::KEEP_SEQUENCER_ON_TRACK_CHANGE, "On");
+    // Store Chords (PAD MODE + Scene 2) for the second track
+    select_second_track(&mut app);
+    cc(&mut app, jam::PAD_MODE as u8, 127);
+    press(&mut app, (jam::SCENE1 + 1) as u8);
+    cc(&mut app, jam::PAD_MODE as u8, 0);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Chords));
+    // Back to the first track, a sequencer there, then the second track again
+    press(&mut app, jam::GROUP_A as u8);
+    app.update_model("track/1/select 0\ntrack/0/select 1\n");
+    app.tick();
+    press(&mut app, jam::STEP as u8);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Sequencer));
+    select_second_track(&mut app);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Chords));
+}
+
+#[test]
+fn keep_the_sequencer_but_not_on_an_audio_track() {
+    let (mut app, _backend) = start();
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::KEEP_SEQUENCER_ON_TRACK_CHANGE, "On");
+    app.update_model("track/1/canHoldNotes 0\n");
+    press(&mut app, jam::STEP as u8);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Sequencer));
+    select_second_track(&mut app);
+    assert!(!ctx(&mut app).model.cursor_track().can_hold_notes());
+    let audio_view = ctx(&mut app).config.preferred_audio_view();
+    assert_eq!(ctx(&mut app).views.active_id(), Some(audio_view));
+}
+
+#[test]
+fn keep_the_sequencer_leaves_the_play_view_as_before() {
+    let (mut app, _backend) = start();
+    ctx(&mut app).config.set_value(MaschineJamConfiguration::KEEP_SEQUENCER_ON_TRACK_CHANGE, "On");
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+    select_second_track(&mut app);
+    assert_eq!(ctx(&mut app).views.active_id(), Some(Views::Play));
+}

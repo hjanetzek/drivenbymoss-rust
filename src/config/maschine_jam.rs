@@ -6,7 +6,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_WORKFLOW};
+use super::configuration::{Configuration, NoteRepeatCapabilities, CATEGORY_PLAY_AND_SEQUENCE, CATEGORY_WORKFLOW};
 use super::setting::{Scope, SettingId};
 use super::values::{to_options, ArpeggiatorMode, ON_OFF_OPTIONS};
 use crate::framework::ids::{Modes, Views};
@@ -61,6 +61,10 @@ impl MaschineJamConfiguration {
     /// and single-colour values, not in the Java version; see
     /// [`crate::controller::maschine::core::brightness`]).
     pub const LED_BRIGHTNESS: SettingId = SettingId::NEXT_SETTING_ID.offset(2);
+    /// Setting whether a sequencer view (the views of STEP) stays active on a track change
+    /// instead of recalling the preferred view of the new track (not in the Java version): a view
+    /// stored for the track still wins, a track which can't hold notes still gets the audio view.
+    pub const KEEP_SEQUENCER_ON_TRACK_CHANGE: SettingId = SettingId::NEXT_SETTING_ID.offset(3);
 
     /// Create the configuration and activate all settings (the former `init`).
     pub fn new(arpeggiator_modes: &[ArpeggiatorMode], note_repeat: NoteRepeatCapabilities, has_drum_device: bool) -> Self {
@@ -89,6 +93,15 @@ impl MaschineJamConfiguration {
         base.activate_accent_value_setting(global);
         base.activate_quantize_amount_setting(global);
         base.activate_startup_view_setting(global, &STARTUP_VIEWS);
+        base.activate_enum_setting(
+            Self::KEEP_SEQUENCER_ON_TRACK_CHANGE,
+            global,
+            CATEGORY_PLAY_AND_SEQUENCE,
+            "Keep the sequencer on track change",
+            to_options(&ON_OFF_OPTIONS),
+            ON_OFF_OPTIONS[0],
+            false,
+        );
         base.activate_start_with_session_view_setting(global);
         base.activate_turn_off_scale_pads_setting(global);
         base.activate_show_played_chords_setting(global);
@@ -137,6 +150,12 @@ impl MaschineJamConfiguration {
         config.custom_bool(Self::SLOW_FADER_CHANGE)
     }
 
+    /// Does a sequencer view stay active on a track change? Works on a configuration created by
+    /// [`MaschineJamConfiguration::new`].
+    pub fn is_keep_sequencer_on_track_change(config: &Configuration) -> bool {
+        config.custom_bool(Self::KEEP_SEQUENCER_ON_TRACK_CHANGE)
+    }
+
     /// Toggle the slow fader change.
     pub fn toggle_slow_fader_change(config: &mut Configuration) {
         let is_slow = Self::is_slow_fader_change(config);
@@ -172,5 +191,6 @@ mod tests {
         assert_eq!(c.startup_view(), Views::Play);
         assert!(c.is_setting_active(SettingId::FOOTSWITCH_1));
         assert_eq!(c.value(MaschineJamConfiguration::LED_BRIGHTNESS).as_deref(), Some("Normal"));
+        assert!(!MaschineJamConfiguration::is_keep_sequencer_on_track_change(&c));
     }
 }

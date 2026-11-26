@@ -187,6 +187,17 @@ see FRAMEWORK_MAP.md, "Roles"): there an inactive item is medium and stays mediu
 while a disabled or covered one (dim) becomes medium too, so Bright merges disabled and
 inactive. On Bitwig the roles do not apply (Java's tables).
 
+**JAM: keep the sequencer on track change (not in the Java version, 2026-11-26).** The JAM has
+the global setting "Keep the sequencer on track change" (Play and Sequence, after "Startup view";
+`MaschineJamConfiguration::KEEP_SEQUENCER_ON_TRACK_CHANGE`), default Off. Off is Java's
+behaviour: a track change recalls the view stored for the track's position (STEP / PAD MODE +
+Scene), else the startup view (an audio track: the audio view), so a plain STEP view becomes Play
+on a track without a stored view. On: while a sequencer view (the STEP views) is active, a track
+change keeps it and only updates its note mapping for the new track; a view stored for the
+track still wins, and a track which can't hold notes still gets the audio view
+(`keeps_sequencer` in `jam/setup.rs`; tests `keep_the_sequencer_*`). The Mk2 has no such
+setting (its STEP is a flag of the drum view). The conformance runs use Off and are unchanged.
+
 **Repeated values.** The extension reports the values of a track again after a command to it
 (see the takeover mode); the core handles a track selection only when it changes, otherwise a
 repeated `select 1` recalled the preferred view of the track (Maschine Mk2: the Shift view

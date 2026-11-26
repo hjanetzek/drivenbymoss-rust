@@ -331,8 +331,10 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
     }
 
     // Former recallLastView; the page surface and the snapshot view stay too (a track change,
-    // e.g. another zynthian chain, changes the host's page, it doesn't leave it)
-    if !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project, Views::SurfaceLink, Views::Snapshots]) {
+    // e.g. another zynthian chain, changes the host's page, it doesn't leave it); with the setting
+    // "Keep the sequencer on track change" a sequencer view stays as well
+    let keep_sequencer = keeps_sequencer(ctx);
+    if !keep_sequencer && !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project, Views::SurfaceLink, Views::Snapshots]) {
         ctx.recall_preferred_view();
     }
 
@@ -343,13 +345,24 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
     let Ok(mut view) = view.try_borrow_mut() else {
         return;
     };
-    if ctx.views.is_any_active(&[Views::Drum, Views::Play]) {
+    if keep_sequencer || ctx.views.is_any_active(&[Views::Drum, Views::Play]) {
         view.update_note_mapping(ctx);
     } else if let Some(drum64) = view.as_any_mut().downcast_mut::<Drum64View>() {
         drum64.reset_octave(ctx);
     }
     // Former updateMode: there is no master mode (and the host page strips stay: the mode is
     // not touched)
+}
+
+/// Does the active sequencer view stay on a track change (not in the Java version)? Only with the
+/// setting on, a sequencer view active, and a new track which can hold notes and has no view
+/// stored for its position (a stored view and the audio view are recalled as before).
+fn keeps_sequencer(ctx: &Ctx) -> bool {
+    if !MaschineJamConfiguration::is_keep_sequencer_on_track_change(&ctx.config) || !ctx.views.is_any_active(&SEQUENCER_VIEWS) {
+        return false;
+    }
+    let track = ctx.model.cursor_track();
+    track.does_exist() && track.can_hold_notes() && ctx.views.preferred(track.position()).is_none()
 }
 
 /// Update the touch strips from the active mode (former `updateFaders`).

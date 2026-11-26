@@ -452,6 +452,9 @@ All paths are under `rust/`.
   Launchpad Pro Mk3, LCXL; a right click latches a button; guide: CONTROLLER_SIMULATORS.md); the
   Maschines in-process over libdbm_nihost on Linux; the Maschine LED brightness, the JAM palette
   and the colour roles.
+- **JAM setting "Keep the sequencer on track change"** (Play and Sequence, default Off = Java):
+  a STEP view stays on a track change unless the track has a stored view or can't hold notes
+  (BITWIG_DIVERGENCES.md §6).
 - **The surface link** (SURFACE_LINK.md): a generic page model between two controller instances
   in one process. Providers: the Electra controller with the DrivenByMoss preset, and the generic
   provider for any other preset on the Electra Mk2 emulator (electra-one §6b/§6c, agreed and
