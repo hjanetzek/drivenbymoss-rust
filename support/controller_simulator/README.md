@@ -136,7 +136,9 @@ Each control's box goes to the side of the panel it is on (left / right of the p
 below them), or the side its layout names (`help_side`). The Mk2: the upper left block and the
 master section left, Control, Step and the buttons above the displays on top, the knobs and the
 column left of the pads right (their lines pass under the pads instead of across the left half's),
-the transport and the pads below. Neighbours whose lines would cross change places (columns and
+the transport's upper row left, its lower row and the pads below. The columns and rows sit a few
+millimetres from the panel whatever the window's size. A click on a box (or its control's press)
+shows the full text in a panel over the pads; a click on the panel closes it. Neighbours whose lines would cross change places (columns and
 the staggered rows), and the rows above / below the panel use the corners the columns leave free.
 
 ### The layouts

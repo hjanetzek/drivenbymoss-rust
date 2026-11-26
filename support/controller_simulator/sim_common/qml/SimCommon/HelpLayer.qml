@@ -24,6 +24,9 @@ Item {
     property real sideWidth: 230
     property real boxHeight: 34
     property real gap: 6
+    // The distance of the columns and rows from the panel: a few millimetres, the free space of
+    // the window stays outside the boxes, so the leader lines are short
+    property real panelGap: Math.max(10, 3 * k)
     property real fontSize: 11
     property var items: sim.helpItems
     property string hoveredId: ""
@@ -127,13 +130,15 @@ Item {
         var sides = { "left": [], "right": [], "top": [], "bottom": [] }
         for (var i = 0; i < items.length; i++)
             sides[items[i].side].push(i)
-        // Columns: the full height of the window
+        // Columns: tight to the panel, the full height of the window
         var columns = ["left", "right"]
+        var columnX = {}
         for (var c = 0; c < 2; c++) {
             var column = sides[columns[c]]
             var wishes = column.map(function (index) { return sy + items[index].ay * scale - boxHeight / 2 })
             var ys = spread(wishes, boxHeight, gap / 2, gap, h - gap)
-            var x = columns[c] === "left" ? gap : w - gap - sideWidth
+            var x = columns[c] === "left" ? Math.max(gap, sx - panelGap - sideWidth) : Math.min(w - gap - sideWidth, sx + surface.width + panelGap)
+            columnX[columns[c]] = x
             var portX = columns[c] === "left" ? x + sideWidth : x
             var order = uncross(column.length, function (slot, box) {
                 return leader(items[column[box]], [portX, ys[slot] + boxHeight / 2], -1, sx, sy, scale)
@@ -154,15 +159,16 @@ Item {
             var row = sides[rows[r]]
             if (row.length === 0)
                 continue
-            var rowsTop = rows[r] === "top" ? sy - 2 * (gap + boxHeight) : sy + surface.height + gap
+            var rowsTop = rows[r] === "top" ? sy - panelGap - 2 * boxHeight - gap : sy + surface.height + panelGap
             var rowsBottom = rowsTop + 2 * boxHeight + gap
-            var left = columnFree("left", rowsTop, rowsBottom) ? gap : sideWidth + 2 * gap
-            var right = columnFree("right", rowsTop, rowsBottom) ? w - gap : w - sideWidth - 2 * gap
+            // Between the columns; a free corner up to the column's outer edge
+            var left = columnFree("left", rowsTop, rowsBottom) ? columnX["left"] : columnX["left"] + sideWidth + gap
+            var right = columnFree("right", rowsTop, rowsBottom) ? columnX["right"] + sideWidth : columnX["right"] - gap
             var boxWidth = Math.min(sideWidth, (right - left - (row.length - 1) * gap) / ((row.length + 1) / 2))
             var half = boxWidth / 2
             var xWishes = row.map(function (index) { return sx + items[index].ax * scale - boxWidth / 2 })
             var xs = spread(xWishes, half, gap, left, right - half)
-            var innerY = rows[r] === "top" ? sy - gap - boxHeight : sy + surface.height + gap
+            var innerY = rows[r] === "top" ? sy - panelGap - boxHeight : sy + surface.height + panelGap
             var outerY = rows[r] === "top" ? innerY - boxHeight - gap : innerY + boxHeight + gap
             var slots = xs.map(function (bx, m) {
                 var outer = m % 2 === 1
@@ -180,6 +186,49 @@ Item {
             }
         }
         return result
+    }
+
+    // The expanded entry (its full text in HelpDetail), -1 for none
+    readonly property int expandedIndex: {
+        for (var i = 0; i < items.length; i++)
+            if (items[i].expanded)
+                return i
+        return -1
+    }
+
+    // The rectangle of HelpDetail: centred over the central area (the pads), at its top edge; at
+    // its bottom edge if the described control is in the top part of the area, above the area if
+    // the control is the area itself (the pads' box). Within the window.
+    readonly property real detailWidth: {
+        var c = sim.helpCentre
+        if (!surface || c[2] <= c[0])
+            return Math.min(480, width - 2 * gap)
+        return Math.min(Math.max((c[2] - c[0]) * k - 2 * panelGap, 380), 620, width - 2 * gap)
+    }
+
+    function detailRect(item, height) {
+        var c = sim.helpCentre
+        var w = detailWidth
+        if (!surface || !item || c[2] <= c[0])
+            return Qt.rect(gap, gap, w, height)
+        var x0 = surfaceX(c[0]), y0 = surfaceY(c[1]), x1 = surfaceX(c[2]), y1 = surfaceY(c[3])
+        var x = Math.max(gap, Math.min((x0 + x1) / 2 - w / 2, width - gap - w))
+        var margin = panelGap / 2
+        // The control's rectangle(s)
+        var parts = item.parts.length > 0 ? item.parts : [item]
+        function hides(top) {
+            return parts.some(function (p) {
+                var px0 = surfaceX(p.x), py0 = surfaceY(p.y), px1 = surfaceX(p.x + p.w), py1 = surfaceY(p.y + p.h)
+                return px0 < x + w && px1 > x && py0 < top + height && py1 > top
+            })
+        }
+        var coversArea = item.area && item.w * item.h >= 0.8 * (c[2] - c[0]) * (c[3] - c[1])
+        var top = y0 + margin
+        if (coversArea)
+            top = y0 - margin - height
+        else if (hides(top))
+            top = y1 - margin - height
+        return Qt.rect(x, Math.max(gap, Math.min(top, height > 0 ? helpLayer.height - gap - height : top)), w, height)
     }
 
     // The end of the line at the box: the middle of the edge facing the panel
@@ -259,7 +308,6 @@ Item {
             box: helpLayer.boxes[index] || { "x": 0, "y": 0, "w": 0, "h": 0 }
             hovered: modelData.id === helpLayer.hoveredId
             fontSize: helpLayer.fontSize
-            bounds: Qt.rect(helpLayer.gap, helpLayer.gap, helpLayer.width - 2 * helpLayer.gap, helpLayer.height - 2 * helpLayer.gap)
             onHoverChanged: (inside) => {
                 if (inside)
                     helpLayer.hoveredId = modelData.id
@@ -268,6 +316,23 @@ Item {
             }
             onClicked: sim.helpToggleExpanded(modelData.id)
         }
+    }
+
+    // The full text of the expanded box, over the pads; a click (or another click on its box)
+    // closes it
+    HelpDetail {
+        id: detail
+        readonly property var entry: helpLayer.expandedIndex >= 0 ? helpLayer.items[helpLayer.expandedIndex] : null
+        readonly property rect place: helpLayer.detailRect(entry, height)
+        visible: entry !== null
+        item: entry || ({ "id": "", "label": "", "short": "", "long": "" })
+        accent: helpLayer.scopeColor(entry ? entry.scope : "global")
+        fontSize: helpLayer.fontSize
+        x: place.x
+        y: place.y
+        width: helpLayer.detailWidth
+        z: 20
+        onClicked: if (entry) sim.helpToggleExpanded(entry.id)
     }
 
     Text {

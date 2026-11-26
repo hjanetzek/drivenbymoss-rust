@@ -9,3 +9,4 @@ Fader 1.0 Fader.qml
 HelpLayer 1.0 HelpLayer.qml
 HelpBox 1.0 HelpBox.qml
 HelpLines 1.0 HelpLines.qml
+HelpDetail 1.0 HelpDetail.qml

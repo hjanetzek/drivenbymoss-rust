@@ -96,8 +96,13 @@ it:
   half a box apart and alternate between the rows, so an outer box's middle lies above the gap
   between its inner neighbours; its line goes straight through that gap (an elbow) and then to the
   control.
-- **Expanded:** drawn on top of its neighbours (wider and taller), not pushing them: the layout
-  of the others stays still, which reads better than boxes jumping around on every press.
+- **Expanded:** the box stays in its place, highlighted (white frame and line); the full text is
+  shown in one fixed place, a panel centred over the pads (`HelpDetail.qml`) with the name and the
+  scope's colour. It doesn't hide the control it describes: a control in the top part of the pads
+  moves it to their bottom edge, the pads' own box puts it above them. A click on the panel or on
+  the box again closes it. (Round 1 grew the box in place, over the buttons.)
+- **Tight to the panel:** the columns and rows keep a fixed gap of a few millimetres from the
+  panel; a wider window leaves its free space outside the boxes, so the leader lines stay short.
 - A control without help in the current state gets no box.
 - Boxes update live (the host's changes come in on every tick).
 
@@ -246,6 +251,9 @@ See the end of the work's report and the commits; kept up to date here:
   `support/controller_simulator/tests/test_mirror.py` (the real core's stream in a mirroring JAM
   and Mk2 simulator equals a simulator on the port, the presses, the simulator's input, a
   reconnect over the real socket, a simulator which doesn't read).
+- Round 5 (both controllers): the expanded text in a fixed panel over the pads, the columns and
+  rows tight to the panel (§2.4); the Mk2's upper transport row moved to the left column (the
+  bottom row had 9 boxes fanning out).
 - Phase 4, the Mk2 (§12): its table (`src/controller/maschine/mk/help.rs`), the layout from a photo,
   the boxes' sides and the uncrossing of lines. Tests: `tests/controller_help.rs` (the Mk2's
   first call, modifiers with the emulated and the real Shift, views and modes, coverage),
@@ -505,6 +513,6 @@ Duplicate, Select, Solo, Mute, A-H), not NI's secondary labels. Deviations from 
 Help sides: the upper left block (Browse, Sampling, All, Auto), the master section and the groups
 left; Control, Step and the buttons above the displays top; the knobs right (the line along their
 row, not across the displays); the column left of the pads right (on the left their lines crossed
-the master section's; now they pass under the pads); the transport and the pads below (the pads'
+the master section's; now they pass under the pads); Restart, the transport's ◂ ▸ and Grid left, Play, Rec, Erase, Shift and the pads below (the pads'
 line between the pad columns 2 and 3).
 

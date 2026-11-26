@@ -320,6 +320,12 @@ class SimulatorBase(QObject):
     def helpItems(self):
         return self.help_model.items() if self.help_model is not None else []
 
+    @Property("QVariantList", notify=helpChanged)
+    def helpCentre(self):
+        """The central area (the pads): x0, y0, x1, y1 in surface units; the expanded text is shown
+        over it."""
+        return list(self.help_model.centre) if self.help_model is not None else [0, 0, 0, 0]
+
     @Property(int, notify=helpChanged)
     def helpRevision(self):
         return self.help_model.revision if self.help_model is not None else 0

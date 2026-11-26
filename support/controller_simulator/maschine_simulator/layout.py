@@ -108,11 +108,13 @@ def _mk2() -> list[Control]:
     for i in range(8):
         button(chr(ord("A") + i), "Group" + chr(ord("A") + i), px((left, 311, 459, 607)[i % 4], (1023.5, 1141.5)[i // 4], 106, 78), rgb=True,
                help_label="Group " + chr(ord("A") + i))
-    # TRANSPORT: Restart, ◂, ▸, Grid / Play, Rec, Erase, Shift (the help boxes below the panel)
+    # TRANSPORT: Restart, ◂, ▸, Grid (their help boxes left: below the panel 9 boxes would fan out
+    # far) / Play, Rec, Erase, Shift (the help boxes below the panel)
     for i, (label, template, help_label) in enumerate((("Restart", "Restart", ""), ("◂", "StepL", "◂ (Stop)"), ("▸", "StepR", "▸ (Tap)"),
                                                       ("Grid", "Grid", ""), ("Play", "Play", ""), ("Rec", "Rec", ""), ("Erase", "Erase", ""))):
         x = (163.5, 311.5, 459, 606.5)[i % 4]
-        button(label, template, px(x, 1329.5, 111, 47) if i < 4 else px(x, 1424, 109, 70), help_label=help_label, help_side="bottom")
+        button(label, template, px(x, 1329.5, 111, 47) if i < 4 else px(x, 1424, 109, 70), help_label=help_label,
+               help_side="left" if i < 4 else "bottom")
     # Shift: not in the template, sent as the DrivenByMoss SysEx 12
     button("Shift", "", px(606.5, 1424, 109, 70), help_side="bottom")
     # The column left of the pads (the help boxes right of the panel: on the left they would cross
