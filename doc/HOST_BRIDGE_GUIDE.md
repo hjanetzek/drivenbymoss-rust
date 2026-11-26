@@ -301,9 +301,10 @@ features: the Bitwig extension before it reported its features); a host which re
 | `deviceCommands` | Commands to the device itself instead of the sibling index | `device\|primary\|drum\|eq window/toggle\|expand/toggle\|bypass\|remove\|duplicate\|select`, `device sibling/<i+1>/bypass\|remove\|duplicate\|select` (`device <index+1>/…`, `device window <0\|1>`), `drum\|primary pad/<p>/select` (nothing) |
 | `layoutStep` | Previous/next panel layout of the host | `application layout/-\|+` (`application layout <index>`) |
 | `clipLauncherNavigator` | The host's clip launcher navigator (only reported if the model setup has `wantsClipLauncherNavigator`; Bitwig: `ClipLauncherNavigatorImpl` of the Java version, a bank of one track following its own cursor track with one scene, its slot selected, the scene window following its scene) | `navigator selectTrack <position>` (then `track <p>/select`), `navigator tracks\|clips\|scenes/-\|+` (the core selects the slot of the new track itself, as the Reaper version) |
-| `hostPages` | The host provides parameter pages (doc/HOST_PAGE_PLAN.md): a page surface (the Maschine JAM, Select + SONG) shows them; binary hosts only | `hostpage show\|cell/<c>/turn\|press\|touch\|reset\|row\|page\|set\|section` (§4.12; nothing without) |
+| `hostPages` | The host provides parameter pages (doc/HOST_PAGE_PLAN.md): a page surface (the Maschine JAM, Select + CONTROL) shows them; binary hosts only | `hostpage show\|cell/<c>/turn\|press\|touch\|reset\|row\|page\|set\|section` (§4.12; nothing without) |
 | `controllerViews` | The host follows the view the user picks on the controller (zynthian switches its screen); binary hosts only | `controller view <kind>` (§4.13; nothing without) |
 | `clipEditWindow` | The host shows the visible window of the controller's step sequencer (zynthian scrolls its editor); binary hosts only | `clip editWindow "<start> <length> <low> <high>"` (§4.13; nothing without) |
+| `snapshots` | The host keeps a set of snapshots (zynthian's ZS3): a snapshot view (the Maschine JAM, Select + SONG) loads, stores and removes them; binary hosts only | `snapshot <i>/load\|store\|remove` (§3.11, §4.14; without: the view shows all pads off, "No snapshots", nothing is sent) |
 
 Features detected from their own reports need no name (table above): paging, the automation and
 overdub switches, punch/fill/ticks state, pinned track, cursor track neighbours, project solo and
@@ -559,6 +560,27 @@ the control sets (`/hostpage/set/count`, `/hostpage/set/<s>/name|section|color`,
 `/hostpage/section/<s>/name|color`, `/hostpage/section/selected`), `/hostpage/row`,
 `/hostpage/cell/selected`. **The selection is the host's**: the core shows only what is reported
 (doc/HOST_PAGE_PLAN.md §D.4, §3.5; the hand-over for zynthian in §12).
+
+### 3.11 The host's snapshots
+
+*Reference host:* `bindings/python/dbm_host/snapshots.py` (`Snapshots.report`, only with
+`SimDaw.snapshots`).
+
+Only for a binary host with the `snapshots` feature (§2, §4.14). Block 0x0E, change-only, again
+after `refresh`:
+
+| ID | Address | Value |
+| --- | --- | --- |
+| 0x0E01 | `/snapshot/count` | i32: the total number of slots, may exceed the bank window (appendOnly: the stored snapshots) |
+| 0x0E02 | `/snapshot/active` | i32: the active (last loaded or stored) snapshot, -1 none |
+| 0x0E03 | `/snapshot/appendOnly` | bool: a dense list, a new snapshot is always stored at index = count |
+| 0x0E10 | `/snapshot/<i>/exists` | bool |
+| 0x0E11 | `/snapshot/<i>/name` | text |
+| 0x0E12 | `/snapshot/<i>/color` | an optional colour as the scene colour (`r g b`, `-1 -1 -1`: none of its own) |
+
+`<i>` is the slot in the bank window of 64 (offset 0 for now; a later bank offset will move the
+window as the scene bank's). Report `exists` for each of the 64 slots (also false for a gap),
+`name` and `color` for the stored ones.
 
 ## 4. Command reference (core → host)
 
@@ -829,7 +851,7 @@ them (its handled-commands bitset). *Reference host:* `ControllerFollower` in
 | 0x8750 | `ClipEditWindow`, `clip editWindow` | struct `f64 start, f64 length, i32 low, i32 high` (text: `"<start> <length> <low> <high>"`) | the visible window of the step sequencer: right after a sequencer's `ControllerView` (also unchanged), then on every change of the window (page, step size, octave, scale, drum offset) or of the edited clip (track, slot) while the last picked view is a sequencer and a sequencer view is active; only real changes |
 
 `kind` (`ControllerViewKind`, append only): 0 `Launcher`, 1 `Play`, 2 `Sequencer`, 3
-`DrumSequencer`, 4 `Mixer`, 5 `Device`, 6 `Other`. It is a plain int on the wire and in the
+`DrumSequencer`, 4 `Mixer`, 5 `Device`, 6 `Other`, 7 `Snapshots`. It is a plain int on the wire and in the
 generated bindings (Python `view.value` is an `int`, compare it with
 `protocol.ControllerViewKind.SEQUENCER`); a host treats a number it does not know as `Other`
 (do not convert it with `ControllerViewKind(value)`, which raises for a newer kind).
@@ -845,13 +867,59 @@ with them), and the rows come only from the core (scale, octave, drum offset). P
 
 On the Maschine JAM: SONG → `Launcher`; STEP and STEP + scene → `Sequencer` (note, poly,
 raindrops) or `DrumSequencer` (drum, Drum 4, Drum 8), then the window; PAD MODE and PAD MODE +
-scene → `Play` (also Drum 64: it plays); LEVEL, AUX → `Mixer`; CONTROL → `Device`. Another
+scene → `Play` (also Drum 64: it plays); LEVEL, AUX → `Mixer`; CONTROL → `Device`; Select + SONG
+→ `Snapshots` (§4.14; Select + SONG again: the kind of the view it returns to). Another
 controller calls `Ctx::report_controller_view` from its view buttons
 (`ViewMultiSelectCommand::reporting`) and forwards `View::clip_edit_window` of its sequencer
 views (`src/framework/controller_view.rs`).
 
 The Bitwig bridge does not handle them (in `CommandHandler.UNHANDLED`): in the Java original the
 modes and views never switch Bitwig's panels, and the API has no scrolling of an editor.
+
+### 4.14 The host's snapshots (`snapshot`, feature `snapshots`)
+
+A set of stored states of the host (zynthian's ZS3: a snapshot of the chains, presets and
+controller values). **The host owns the numbering, the names, the colours and the
+persistence**: the core only sends these commands and shows what the host reports (§3.11); it
+never changes its model itself. Command feature `snapshots`: the core sends them only to a binary
+host which handles them. *Reference host:* `bindings/python/dbm_host/snapshots.py`,
+`CommandHandler._snapshot` (only with `SimDaw.snapshots`). The reference `CommandHandler` and
+`Reporter` take a DAW attribute named `snapshots` (a `dbm_host.Snapshots`) as the simulation and
+register the commands for it: a host which subclasses them and keeps its own snapshot object
+names it differently (zynthian: `zs3_snapshots`) and registers its own handler.
+
+| ID | Command | Host action |
+| --- | --- | --- |
+| 0x8E01 | `SnapshotLoad {index}`, `snapshot <i>/load` | recall the snapshot (it becomes the active one) |
+| 0x8E02 | `SnapshotStore {index}`, `snapshot <i>/store` | store the current state into the slot; an occupied slot is overwritten (no confirmation on the controller) |
+| 0x8E03 | `SnapshotRemove {index}`, `snapshot <i>/remove` | remove the snapshot (no confirmation on the controller) |
+
+Two kinds of hosts, told by `/snapshot/appendOnly`:
+
+- **Sparse** (`appendOnly` false; zynthian: slot i is the snapshot of program change i): count is
+  informational only, the size of the host's slot range, which may exceed the window (zynthian:
+  128, the window shows the first 64); gaps are `exists` false, a store goes into the given slot
+  (also a gap). The store targets and colours come from `exists` per slot.
+- **appendOnly** (true): a dense list 0..count-1. The core stores a new snapshot always with
+  index = count (whichever empty pad was pressed); the host appends it. After a remove the host
+  numbers its list again and reports it.
+
+On the Maschine JAM: Select + SONG opens the snapshot view (on every host; `ControllerView
+{Snapshots}`), the 8 × 8 pads are the slots 0-63 from the top left. Pad: load; Shift + pad: store
+(appendOnly: an empty pad stores a new one); Clear + pad: remove. Colours: empty off, stored the
+snapshot's colour dimmed (dim white without one), active bright green, pressed white; while Shift
+is held the store targets dim red (appendOnly: only the pad at count, sparse: every empty pad),
+while Clear is held the stored pads dim red. Select + SONG again or another view button leaves
+it. The generic part (`framework::snapshot_grid::SnapshotGrid`, the model
+`daw::snapshot::SnapshotBank`) is for the snapshot views of other controllers.
+
+The Bitwig bridge does not handle them (in `CommandHandler.UNHANDLED`): Bitwig has no snapshots.
+
+A Python adapter (the binding of `drivenbymoss.protocol`): it handles `Cmd.SNAPSHOT_LOAD`,
+`Cmd.SNAPSHOT_STORE`, `Cmd.SNAPSHOT_REMOVE` (the record view's `.index`, no value) and reports
+with the generated `Writer` methods `snapshot_append_only(v)`, `snapshot_count(n)`,
+`snapshot_active(i)`, `snapshot_exists(i, v)`, `snapshot_name(i, text)`,
+`snapshot_color(i, (r, g, b) | None)` (or `put(Msg.SNAPSHOT_…, i, 0, 0, 0, value)`).
 
 ## 5. MIDI and note inputs
 

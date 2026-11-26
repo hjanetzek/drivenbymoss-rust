@@ -18,7 +18,6 @@ use crate::daw::events::ParameterBankId;
 use crate::framework::commands::mv_helper;
 use crate::framework::ctx::Ctx;
 use crate::framework::feature::Mode;
-use crate::framework::ids::Modes;
 use crate::framework::mode::device::{ParameterMode, ProjectParamsMode};
 use crate::framework::mode::track::{TrackMode, TrackPanMode, TrackSendMode, TrackVolumeMode};
 use crate::framework::parameterprovider::{resolve_mut, ParamRef};
@@ -426,18 +425,5 @@ pub fn setup_faders_of_active_mode(ctx: &Ctx) -> Option<[FaderConfig; 8]> {
         any.downcast_ref::<MaschineJamUserMode>()?
     };
     Some(std::array::from_fn(|i| jam_mode.setup_fader(ctx, i)))
-}
-
-/// Toggle the project/track mode of the user mode (former cast in `MaschineJamControlCommand`).
-pub fn toggle_user_mode(ctx: &mut Ctx) {
-    let Some(mode) = ctx.modes.get(Modes::User) else {
-        return;
-    };
-    let Ok(mut mode) = mode.try_borrow_mut() else {
-        return;
-    };
-    if let Some(user_mode) = mode.as_any_mut().downcast_mut::<MaschineJamUserMode>() {
-        user_mode.toggle_mode(ctx);
-    }
 }
 

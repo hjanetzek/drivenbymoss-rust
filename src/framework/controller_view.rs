@@ -41,6 +41,7 @@ pub fn kind_of_view(view: Views) -> ControllerViewKind {
         Views::Play | Views::Chords | Views::Piano | Views::Drum64 => ControllerViewKind::Play,
         Views::Mix | Views::TrackVolume | Views::TrackPan | Views::TrackSends => ControllerViewKind::Mixer,
         Views::Device => ControllerViewKind::Device,
+        Views::Snapshots => ControllerViewKind::Snapshots,
         _ => ControllerViewKind::Other,
     }
 }

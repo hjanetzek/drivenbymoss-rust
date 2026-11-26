@@ -23,6 +23,7 @@
 //! | 0x8B | note repeat, groove |
 //! | 0x8C | the host's parameter pages (doc/HOST_PAGE_PLAN.md) |
 //! | 0x8D | the controller: the view the user picked (doc/HOST_BRIDGE_GUIDE.md §4.13) |
+//! | 0x8E | the host's snapshots (doc/HOST_BRIDGE_GUIDE.md §4.14) |
 
 #![allow(clippy::enum_variant_names)]
 
@@ -464,6 +465,19 @@ commands! {
     /// refresh. `kind` is the number of a [`ControllerViewKind`]: a host treats an unknown
     /// number as `Other`.
     ControllerView = 0x8D01 {} @ Controller ["view"] => kind: ControllerViewKind, feature = ControllerViews;
+
+    // --------------------------------------------------------------------------------------
+    // 0x8E The host's snapshots (doc/HOST_BRIDGE_GUIDE.md §4.14). The host owns them: it
+    // applies these and reports the result (`/snapshot/…`). The index is the slot in the bank
+    // window of 64 (offset 0).
+
+    /// Load (recall) the snapshot.
+    SnapshotLoad = 0x8E01 { index: usize } @ Snapshot [index "load"], feature = Snapshots;
+    /// Store the current state in the slot (overwrite an occupied one); with appendOnly the
+    /// core sends index = count (a new snapshot).
+    SnapshotStore = 0x8E02 { index: usize } @ Snapshot [index "store"], feature = Snapshots;
+    /// Remove the snapshot.
+    SnapshotRemove = 0x8E03 { index: usize } @ Snapshot [index "remove"], feature = Snapshots;
 }
 
 impl Cmd<'_> {

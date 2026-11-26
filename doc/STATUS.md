@@ -201,9 +201,9 @@ in one process ([SURFACE_LINK.md](SURFACE_LINK.md)).
   pads and touches. With the emulator's capability (electra-one `docs/surface-link.md` §6b) it
   also sets the active row and the selection highlight on the device (`surface_ext.rs`);
   otherwise it only switches the control set.
-- **The Maschine JAM** is the first surface: Select + SONG, the 6x6 slots on the grid, the rows
-  and pages on the outer columns, the strips for the active row, left/right for the value
-  (handle) of the selected slot.
+- **The Maschine JAM** is the first surface: Select + CONTROL (Select + SONG until 2026-11-26),
+  the 6x6 slots on the grid, the rows and pages on the outer columns, the strips for the active
+  row, left/right for the value (handle) of the selected slot.
 - **The generic provider** (Electra One Mk2 emulator only, electra-one §6c): while another preset
   than DrivenByMoss's is active, the Electra provides that preset's current page (`02 52`, one
   slot per cell = knob, `7E 62`/`7E 63`) and the surfaces turn its knobs (`14 53`-`14 56`); the
@@ -444,7 +444,7 @@ All paths are under `rust/`.
 
 ## Next steps and open issues
 
-**Where to pick up (2026-11-25):**
+**Where to pick up (2026-11-26):**
 - **Done and merged:** the typed binary protocol (all hosts but Reaper); the ports of Beatstep,
   Launchkey, OSC (typed address table), Push 1/2/3 (USB display: C ABI, Bitwig, usbdevfs, the
   simulator socket), Maschine Mk3/Mikro Mk3/Plus (registered), Electra One (Mk1/Mk2, Mini); the
@@ -460,15 +460,16 @@ All paths are under `rust/`.
 - **Host-provided pages** (HOST_PAGE_PLAN.md): `framework::page_surface` with a `PageSource`
   trait (the surface link, or the host's `/hostpage/…` reports and `hostpage …` commands, feature
   `hostPages`; the host owns the values and the selection). On the JAM:
-  - **Select + SONG** (and **Select + CONTROL** with host pages): the full surface, cycling the
-    sources (page list in grid row 1, cells in rows 2-7 up to 8 wide, sections in row 8).
+  - **Select + CONTROL** (on every host, instead of Java's project / track toggle): the full
+    surface, cycling the sources (page list in grid row 1, cells in rows 2-7 up to 8 wide,
+    sections in row 8).
   - **CONTROL** with host pages: device parameters → host page strips (`Modes::HostStrips`: the
     host's active row on the 8 strips, the grid keeps its view) → device parameters. `<` `>` step
     through the sets and pages (at a window's first set `<` sends `HostPagePage {end: last}`),
     Select + `<` `>` the rows; Select + strip n = `HostPageCellAssign {cell, slot n}` (the host's
     remote control pages, 4 slots a page, slots 4-7 on the next page).
   - **Shift + CONTROL** with host pages: the strips on the first control page (`HostPageSection
-    0`: the remote pages if the chain has any). Without host pages CONTROL, Select/Shift + CONTROL
+    0`: the remote pages if the chain has any). Without host pages CONTROL and Shift + CONTROL
     keep Java's functions.
   - A track change keeps the page surface and the strips (provisional: the user decides later).
   - The reference host simulates zynthian-like pages (`dbm_host_alsa.py --host-pages`).
@@ -478,6 +479,18 @@ All paths are under `rust/`.
   core's sequencer window; only to a host which handles them. The JAM sends them; Bitwig, the
   reference host (unless `controller_follower`) and the zynthian adapter list them unhandled
   until the zynthian side implements them.
+- **The host's snapshots** (HOST_BRIDGE_GUIDE §3.11, §4.14; agreed with the zynthian side,
+  zynthian's ZS3 the first host): reports `/snapshot/count|active|appendOnly`,
+  `/snapshot/<i>/exists|name|color` (block 0x0E, the slot in a bank window of 64, offset 0),
+  commands `SnapshotLoad|Store|Remove {index}` (0x8E01-0x8E03, feature `snapshots`),
+  `ControllerViewKind::Snapshots` (7). The host owns numbering, names, colours and persistence;
+  sparse (zynthian: slot i = program change i) or appendOnly (a new one at index = count). Model
+  `daw::snapshot::SnapshotBank`, the generic grid `framework::snapshot_grid` (for a Launchpad or
+  Push view later). On the JAM **Select + SONG** (every host) toggles the snapshot view: pad
+  load, Shift + pad store, Clear + pad remove; without the feature all off and "No snapshots".
+  Bitwig lists the commands unhandled; the reference host simulates both kinds
+  (`SimDaw.snapshots = Snapshots(append_only=…)`). Open: the zynthian adapter (in zynthian-ui),
+  a bank offset beyond 64.
 - **The zynthian side** (by the zynthian-ui session "electra-grid"): zynthian-ui branch
   `electra-grid` (control grid; zynthian's Chain Controllers as named pages of 4 slots,
   `zctrl_pages`, which are the host's remote control pages; shared selection; opening chain

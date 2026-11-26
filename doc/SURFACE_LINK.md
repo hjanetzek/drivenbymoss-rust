@@ -342,17 +342,19 @@ sequencer client receives it only with a larger input pool than the default (200
 
 ## 7. The JAM as a surface (`src/controller/maschine/jam/surface_link.rs`)
 
-**Entry:** **Select + SONG** cycles through the available sources: off → the next available one →
-… → off (the Electra's pages over the link, then the host's pages, HOST_PAGE_PLAN.md; with one
-source it switches the surface on and off).
-- Select + X is the JAM's pattern for second functions (Select + CONTROL, AUX, LEVEL, MACRO), and
-  Select + SONG was free.
+**Entry:** **Select + CONTROL** cycles through the available sources: off → the next available
+one → … → off (the Electra's pages over the link, then the host's pages, HOST_PAGE_PLAN.md; with
+one source it switches the surface on and off), on every host.
+- Select + X is the JAM's pattern for second functions (Select + AUX, LEVEL, MACRO). Select +
+  CONTROL replaces Java's project / track toggle of the user mode; until 2026-11-26 the surface was
+  on Select + SONG, which is now the host's snapshots (HOST_BRIDGE_GUIDE.md §4.14; it leaves the
+  surface for the snapshot view).
 - Any other view or mode button (SONG, STEP, PAD MODE, MACRO, LEVEL, AUX, CONTROL) leaves the
   surface for its view or mode.
 - A detach of the source leaves it too. The view and the mode from before come back.
 - A temporary view (the Shift view while Shift is held) keeps the surface.
 - From the **host page strips** (CONTROL's second slot with host pages, HOST_PAGE_PLAN.md §5.1)
-  Select + SONG starts with the host source (then the Electra, then off); off returns to the
+  Select + CONTROL starts with the host source (then the Electra, then off); off returns to the
   strips, and CONTROL from the surface goes to the strips too (the last of CONTROL's modes).
 
 **Mapping** (one layout for all sources, HOST_PAGE_PLAN.md §5):
@@ -379,7 +381,7 @@ the link at every tick, also while its own modes are active.
 
 **Bitwig:** add both controllers, the Electra One and the Maschine JAM, as two DrivenByMoss
 (Rust) extensions in one Bitwig. Both must run the same library (see §4); with
-`DBM_DEV_LIBRARY`, restart both after a rebuild. Select + SONG on the JAM.
+`DBM_DEV_LIBRARY`, restart both after a rebuild. Select + CONTROL on the JAM.
 
 **The reference host:** several `--model`s run several controllers in one process, on one
 simulated DAW:

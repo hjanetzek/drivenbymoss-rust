@@ -25,6 +25,7 @@ pub mod parameter_bank;
 pub mod project;
 pub mod scene;
 pub mod slot;
+pub mod snapshot;
 pub mod track;
 pub mod track_bank;
 pub mod transport;

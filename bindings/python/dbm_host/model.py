@@ -813,6 +813,9 @@ class SimDaw:
         self.controller_follower = None
         """Follows the controller's view and sequencer window (``ControllerFollower``,
         HOST_BRIDGE_GUIDE §4.13), None: the host does not (as Bitwig)."""
+        self.snapshots = None
+        """The host's snapshots (``snapshots.Snapshots``, HOST_BRIDGE_GUIDE §4.14), None: the
+        host has none (as Bitwig)."""
         """The cue markers of the arranger (marker.py)."""
         self.master = MasterTrack(self)
         self._time_listeners: list[Callable[[float], None]] = []

@@ -320,8 +320,10 @@ support/controller_simulator/tools/dbm_host_alsa.py --model jam --library target
 `--model push1|push2|push3|mk2|jam|mk3|mikromk3|apc40mk2|lppromk3|lcxl|electra|electramini`, `--controller UUID` for others, `--bindings` and `--library`
 for another checkout (e.g. a port in a worktree), `--verbose` prints the MIDI. `--host-pages`: the
 simulated DAW provides parameter pages (zynthian-like, `dbm_host/host_page.py`,
-HOST_PAGE_PLAN.md); the JAM shows them with Select + SONG, and SIGUSR1 / SIGUSR2 to the runner
-move the selection of the host's simulated screen (printed as `host screen: …`).
+HOST_PAGE_PLAN.md); the JAM shows them with Select + CONTROL, and SIGUSR1 / SIGUSR2 to the runner
+move the selection of the host's simulated screen (printed as `host screen: …`). `--snapshots
+dense|sparse`: the simulated DAW keeps snapshots (`dbm_host/snapshots.py`, HOST_BRIDGE_GUIDE.md
+§4.14); the JAM shows them with Select + SONG.
 
 **The Electra One** has no simulator of ours: the emulator of its real firmware (the electra-one
 project, `build/electra`, an ALSA client "Electra Controller") stands in for it. The runner then

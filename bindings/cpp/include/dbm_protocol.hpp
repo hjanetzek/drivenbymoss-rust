@@ -297,6 +297,12 @@ enum class Msg : uint16_t
     HostSectionSelected = DBM_MSG_HOST_SECTION_SELECTED,
     HostPageRow = DBM_MSG_HOST_PAGE_ROW,
     HostCellSelected = DBM_MSG_HOST_CELL_SELECTED,
+    SnapshotCount = DBM_MSG_SNAPSHOT_COUNT,
+    SnapshotActive = DBM_MSG_SNAPSHOT_ACTIVE,
+    SnapshotAppendOnly = DBM_MSG_SNAPSHOT_APPEND_ONLY,
+    SnapshotExists = DBM_MSG_SNAPSHOT_EXISTS,
+    SnapshotName = DBM_MSG_SNAPSHOT_NAME,
+    SnapshotColor = DBM_MSG_SNAPSHOT_COLOR,
 };
 
 /** The IDs of the commands (core -> host). */
@@ -551,6 +557,9 @@ enum class Cmd : uint16_t
     HostPageSection = DBM_CMD_HOST_PAGE_SECTION,
     HostPageCellAssign = DBM_CMD_HOST_PAGE_CELL_ASSIGN,
     ControllerView = DBM_CMD_CONTROLLER_VIEW,
+    SnapshotLoad = DBM_CMD_SNAPSHOT_LOAD,
+    SnapshotStore = DBM_CMD_SNAPSHOT_STORE,
+    SnapshotRemove = DBM_CMD_SNAPSHOT_REMOVE,
 };
 
 /** A record of a buffer (the payload points into the buffer, valid as long as it). */
@@ -1226,6 +1235,18 @@ public:
     void hostPageRow (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_PAGE_ROW, idx, value); }
     /** /hostpage/cell/selected */
     void hostCellSelected (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_HOST_CELL_SELECTED, idx, value); }
+    /** /snapshot/count */
+    void snapshotCount (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_SNAPSHOT_COUNT, idx, value); }
+    /** /snapshot/active */
+    void snapshotActive (int32_t value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putInt (DBM_MSG_SNAPSHOT_ACTIVE, idx, value); }
+    /** /snapshot/appendOnly */
+    void snapshotAppendOnly (bool value) { const uint16_t idx[4] = { 0, 0, 0, 0 }; this->putBool (DBM_MSG_SNAPSHOT_APPEND_ONLY, idx, value); }
+    /** /snapshot/{index}/exists */
+    void snapshotExists (uint16_t index, bool value) { const uint16_t idx[4] = { index, 0, 0, 0 }; this->putBool (DBM_MSG_SNAPSHOT_EXISTS, idx, value); }
+    /** /snapshot/{index}/name */
+    void snapshotName (uint16_t index, const std::string & value) { const uint16_t idx[4] = { index, 0, 0, 0 }; this->putText (DBM_MSG_SNAPSHOT_NAME, idx, value); }
+    /** /snapshot/{index}/color */
+    void snapshotColor (uint16_t index, Color value) { const uint16_t idx[4] = { index, 0, 0, 0 }; this->putColor (DBM_MSG_SNAPSHOT_COLOR, idx, value); }
 
 private:
     void putI64 (uint16_t id, uint8_t type, const uint16_t idx[4], int64_t v)
@@ -3459,6 +3480,30 @@ struct ControllerView
     Record record;
     int32_t value () const { return this->record.intValue (); }
     uint8_t op () const { return this->record.op (); }
+};
+
+/** snapshot {index}/load */
+struct SnapshotLoad
+{
+    static constexpr Cmd id = Cmd::SnapshotLoad;
+    Record record;
+    uint16_t index () const { return this->record.idx (0); }
+};
+
+/** snapshot {index}/store */
+struct SnapshotStore
+{
+    static constexpr Cmd id = Cmd::SnapshotStore;
+    Record record;
+    uint16_t index () const { return this->record.idx (0); }
+};
+
+/** snapshot {index}/remove */
+struct SnapshotRemove
+{
+    static constexpr Cmd id = Cmd::SnapshotRemove;
+    Record record;
+    uint16_t index () const { return this->record.idx (0); }
 };
 
 } // namespace cmd

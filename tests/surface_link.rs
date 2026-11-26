@@ -37,7 +37,6 @@ const J_IN: i32 = 13;
 const J_OUT: i32 = 15;
 
 const JAM_SELECT: u8 = 50;
-const JAM_SONG: u8 = 30;
 const JAM_KNOB_TURN: u8 = 57;
 const JAM_KNOB_PUSH: u8 = 58;
 const JAM_LEVEL: u8 = 37;
@@ -187,10 +186,10 @@ impl Rig {
         jam_surface::client(self.jam_ctx()).borrow_mut().select_row(row);
     }
 
-    /// Select + SONG.
+    /// Select + CONTROL.
     fn toggle_surface(&mut self) {
         self.jam_cc(JAM_SELECT, 127);
-        self.jam_press(JAM_SONG);
+        self.jam_press(JAM_CONTROL);
         self.jam_cc(JAM_SELECT, 0);
         self.advance(30);
     }
@@ -858,7 +857,7 @@ fn jam_slot_roles() {
     assert_eq!(palette_index_for_role(ctx, Rgb::new(0, 0, 0), ColorRole::Normal), 0, "black is off");
 }
 
-/// The host page strips use the host source with the Electra there too; Select + SONG from them
+/// The host page strips use the host source with the Electra there too; Select + CONTROL from them
 /// goes host pages → Electra pages → off (back to the strips); `Shown` follows.
 #[test]
 fn host_page_strips_with_the_electra() {
@@ -882,7 +881,7 @@ fn host_page_strips_with_the_electra() {
     assert_eq!((client.borrow().current_source(), client.borrow().is_shown()), (jam_surface::HOST_SOURCE, true));
     assert_eq!(host_shows(&rig), [true]);
 
-    // Select + SONG: the full surface with the host source
+    // Select + CONTROL: the full surface with the host source
     rig.toggle_surface();
     rig.advance(30);
     assert!(jam_surface::is_active(rig.jam_ctx()));
@@ -902,7 +901,7 @@ fn host_page_strips_with_the_electra() {
     assert_eq!((client.borrow().current_source(), client.borrow().is_shown()), (jam_surface::HOST_SOURCE, true));
     assert_eq!(host_shows(&rig), [true]);
 
-    // Without the strips Select + SONG starts with the Electra (as before)
+    // Without the strips Select + CONTROL starts with the Electra (as before)
     rig.jam_press(JAM_LEVEL);
     rig.advance(30);
     assert_eq!(host_shows(&rig), [false]);

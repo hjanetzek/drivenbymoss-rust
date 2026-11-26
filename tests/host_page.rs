@@ -23,7 +23,6 @@ const J_IN: i32 = 13;
 const J_OUT: i32 = 15;
 
 const JAM_SELECT: u8 = 50;
-const JAM_SONG: u8 = 30;
 const JAM_KNOB_TURN: u8 = 57;
 const JAM_KNOB_PUSH: u8 = 58;
 const JAM_NAV_UP: u8 = 41;
@@ -156,9 +155,9 @@ impl Rig {
         self.ctx().surface.grid_ref().light_info(note).color
     }
 
-    fn select_song(&mut self) {
+    fn select_control(&mut self) {
         self.cc(JAM_SELECT, 127);
-        self.press(JAM_SONG);
+        self.press(JAM_CONTROL);
         self.cc(JAM_SELECT, 0);
         self.advance(30);
     }
@@ -183,8 +182,8 @@ fn without_the_feature_there_is_no_host_source() {
     let mut rig = Rig::new(false);
     let client = jam_surface::client(rig.ctx());
     assert_eq!(client.borrow().source_state(1), LinkState::Missing);
-    // Select + SONG with no source at all: the surface with the cross (as before)
-    rig.select_song();
+    // Select + CONTROL with no source at all: the surface with the cross (as before)
+    rig.select_control();
     assert!(jam_surface::is_active(rig.ctx()));
     assert_eq!(client.borrow().current_source(), 0);
     assert!(rig.host_commands().is_empty());
@@ -197,8 +196,8 @@ fn shows_the_host_page_and_sends_the_input() {
     assert_eq!(client.borrow().source_state(1), LinkState::Attached);
     rig.commands();
 
-    // Select + SONG: the Electra is not there, so the host's pages; the host is told
-    rig.select_song();
+    // Select + CONTROL: the Electra is not there, so the host's pages; the host is told
+    rig.select_control();
     assert!(rig.ctx().views.is_active(Views::SurfaceLink));
     assert_eq!(client.borrow().current_source(), 1);
     assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: true })]);
@@ -319,8 +318,8 @@ fn shows_the_host_page_and_sends_the_input() {
     rig.advance(30);
     assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageCellTurn { cell: 0, epoch: 2, unit: TurnUnit::Detent, resolution: Resolution::Normal, delta: -1 })]);
 
-    // Select + SONG again: no further source, off; the host is told
-    rig.select_song();
+    // Select + CONTROL again: no further source, off; the host is told
+    rig.select_control();
     assert!(!jam_surface::is_active(rig.ctx()));
     assert_eq!(rig.host_commands(), [cmd_text(Cmd::HostPageShow { columns: 8, rows: 6, encoders: 8, rows_per_set: 1, value: false })]);
 }
@@ -332,7 +331,7 @@ fn a_track_change_keeps_the_host_page() {
     let mut rig = Rig::new(true);
     rig.app.update_model("track/count 4\ntrack/1/exists 1\ntrack/1/name Drums\ntrack/2/exists 1\ntrack/2/name Bass\ntrack/3/exists 1\ntrack/3/name Keys\n");
     rig.advance(60);
-    rig.select_song();
+    rig.select_control();
     rig.app.update_model(&page_report(1, 1, 4));
     rig.advance(60);
     assert!(jam_surface::is_active(rig.ctx()));
@@ -348,14 +347,14 @@ fn a_track_change_keeps_the_host_page() {
 #[test]
 fn the_notification_shows_the_new_title_after_switching_on() {
     let mut rig = Rig::new(true);
-    rig.select_song();
+    rig.select_control();
     rig.app.update_model(&page_report(1, 1, 4));
     rig.advance(60);
     assert!(rig.app.take_notifications().contains("Surface: Host · Synth"));
     // Off, another chain in the host, on again: the client still has the old title at first
-    rig.select_song();
+    rig.select_control();
     assert!(!jam_surface::is_active(rig.ctx()));
-    rig.select_song();
+    rig.select_control();
     rig.app.take_notifications();
     rig.app.update_model(&(page_report(2, 1, 4) + "hostpage/title Host · Bass\n"));
     rig.advance(60);
@@ -370,7 +369,7 @@ fn the_notification_shows_the_new_title_after_switching_on() {
 #[test]
 fn select_and_a_strip_touch_assign_a_cell_to_a_remote_slot() {
     let mut rig = Rig::new(true);
-    rig.select_song();
+    rig.select_control();
     rig.app.update_model(&page_report(1, 1, 4));
     rig.advance(60);
     rig.app.take_notifications();
@@ -620,22 +619,22 @@ fn the_page_buttons_select_the_device_parameter_pages_in_the_device_mode() {
 #[test]
 fn the_full_surface_from_the_host_page_strips_and_back() {
     let mut rig = Rig::strips();
-    // Select + SONG: the full surface with the host source; the host keeps its one show
-    rig.select_song();
+    // Select + CONTROL: the full surface with the host source; the host keeps its one show
+    rig.select_control();
     assert!(jam_surface::is_active(rig.ctx()));
     assert!(rig.ctx().views.is_active(Views::SurfaceLink));
     assert_eq!(jam_surface::client(rig.ctx()).borrow().current_source(), jam_surface::HOST_SOURCE);
     rig.advance(60);
     assert!(shows(&rig).is_empty());
-    // Select + SONG again: no Electra, so off: back to the strips and the chords view
-    rig.select_song();
+    // Select + CONTROL again: no Electra, so off: back to the strips and the chords view
+    rig.select_control();
     rig.advance(60);
     assert!(!jam_surface::is_active(rig.ctx()));
     assert_eq!(rig.mode(), Some(Modes::HostStrips));
     assert!(rig.ctx().views.is_active(Views::Chords));
     assert!(shows(&rig).is_empty());
     // The full surface again, then CONTROL leaves it: the last of CONTROL's modes, the strips
-    rig.select_song();
+    rig.select_control();
     rig.control();
     rig.advance(30);
     assert!(!jam_surface::is_active(rig.ctx()));
@@ -647,7 +646,7 @@ fn the_full_surface_from_the_host_page_strips_and_back() {
     rig.advance(60);
     assert_eq!(shows(&rig), [show(false)]);
     // The full surface on its own, then CONTROL from it: the strips, still one show
-    rig.select_song();
+    rig.select_control();
     rig.advance(30);
     assert_eq!(shows(&rig), [show(true)]);
     rig.control();

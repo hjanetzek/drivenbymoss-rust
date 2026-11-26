@@ -153,8 +153,8 @@ class EndToEndTest(unittest.TestCase):
     def test_shared_selection(self):
         pages = self.daw.host_pages
         self.bridge.commands.log.clear()
-        # Select + SONG: no Electra, so the host's pages
-        for control, value in ((50, 127), (30, 127), (30, 0), (50, 0)):
+        # Select + CONTROL: no Electra, so the host's pages
+        for control, value in ((50, 127), (39, 127), (39, 0), (50, 0)):
             self.cc(control, value)
         self.bridge.advance(200)
         self.assertIn("Surface: Host", self.bridge.notifications)

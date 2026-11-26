@@ -53,7 +53,7 @@ it runs, else the first model).
 Several controllers in one process (``--model electra --model jam``): each gets its own ALSA
 client ("DrivenByMoss dbm_host MODEL") and its own controller instance of the same library, on
 one simulated DAW. That is how the surface link (doc/SURFACE_LINK.md) is tried: the Electra One
-provides its pages, the JAM shows them (Select + SONG).
+provides its pages, the JAM shows them (Select + CONTROL).
 """
 
 import argparse
@@ -402,9 +402,12 @@ def main() -> int:
     parser.add_argument("--transport", choices=("auto", "hid", "midi"), default="auto",
                         help="Maschine Mk2/JAM: auto (default): the simulator's ports if they are there, else the real device "
                              "in-process (libdbm_nihost); hid: the real device in-process; midi: the ports only")
+    parser.add_argument("--snapshots", choices=("dense", "sparse"), default=None,
+                        help="the host keeps snapshots (dbm_host/snapshots.py, HOST_BRIDGE_GUIDE §4.14): dense (appendOnly) or "
+                             "sparse (slot i = program change i, as zynthian); the JAM shows them with Select + SONG")
     parser.add_argument("--host-pages", action="store_true",
                         help="the host provides parameter pages (dbm_host/host_page.py, doc/HOST_PAGE_PLAN.md): the JAM shows them "
-                             "with Select + SONG; the simulated screen's selection moves with SIGUSR1 (next page) and SIGUSR2 "
+                             "with Select + CONTROL; the simulated screen's selection moves with SIGUSR1 (next page) and SIGUSR2 "
                              "(previous page), and is printed when it changes")
     parser.add_argument("--help-socket", default=None, metavar="PATH",
                         help="the simulator's socket for the help of the controls (default: $DBM_SIM_HELP_SOCKET, else "
@@ -428,7 +431,7 @@ def main() -> int:
         os.environ["DBM_LIBRARY"] = os.path.abspath(args.library)
     sys.path.insert(0, os.path.abspath(args.bindings))
     import drivenbymoss
-    from dbm_host import Bridge, HostPages, SimDaw
+    from dbm_host import Bridge, HostPages, SimDaw, Snapshots
 
     known = {c.get("id", c.get("uuid", "")).upper() for c in drivenbymoss.list_controllers()}
     for model in models:
@@ -462,6 +465,10 @@ def main() -> int:
     screen_steps = []
     if args.host_pages:
         daw.host_pages = HostPages(daw)
+    if args.snapshots == "dense":
+        daw.snapshots = Snapshots(names=["Intro", "Verse", "Chorus"])
+    elif args.snapshots == "sparse":
+        daw.snapshots = Snapshots(append_only=False, names={0: "Intro", 5: "Verse", 40: "Chorus"}, slot_count=128)
         # The simulated screen of the host: its own encoders move the selection
         signal.signal(signal.SIGUSR1, lambda *_: screen_steps.append(1))
         signal.signal(signal.SIGUSR2, lambda *_: screen_steps.append(-1))

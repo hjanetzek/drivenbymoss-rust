@@ -48,6 +48,7 @@ from .banks import Banks
 from .clip import ATTRIBUTES, NoteGrid, set_attribute, update_from_wire
 from .device import EQ_NUM_BANDS, PARAMS_PER_PAGE, eq_plus
 from .host_page import HOST_PAGE_COMMANDS, HostPageView
+from .snapshots import SNAPSHOT_COMMANDS, Snapshots
 from .model import ARRANGER_TOGGLES, MIXER_TOGGLES, PANEL_LAYOUTS, PREROLLS, Channel, SimDaw, Track, color_from_command
 from .navigator import ClipLauncherNavigator
 from .parameter import Parameter
@@ -356,6 +357,8 @@ class CommandHandler:
         # The controller's view and edit window: handled only by a SimDaw with a
         # controller_follower (as Bitwig, the default host does not follow the controller)
         Cmd.CONTROLLER_VIEW, Cmd.CLIP_EDIT_WINDOW,
+        # The snapshots: handled only by a SimDaw with snapshots (snapshots.py)
+        Cmd.SNAPSHOT_LOAD, Cmd.SNAPSHOT_STORE, Cmd.SNAPSHOT_REMOVE,
     ))
     """The CmdIds without a handler in the model setup of the coverage test (later steps: the
     application and project commands, the browser, groove, the clip notes, …). A snapshot: the
@@ -390,6 +393,11 @@ class CommandHandler:
         self.controller_follower: ControllerFollower | None = getattr(daw, "controller_follower", None)
         if self.controller_follower is not None:
             self.register_typed(CONTROLLER_COMMANDS, self._controller)
+        self.snapshots: Snapshots | None = getattr(daw, "snapshots", None)
+        """The host's snapshots (HOST_BRIDGE_GUIDE §4.14), if the DAW has them
+        (``SimDaw.snapshots``): their commands are handled only then."""
+        if self.snapshots is not None:
+            self.register_typed(SNAPSHOT_COMMANDS, self._snapshot)
 
     def register_commands(self) -> None:
         """Register the handlers of the commands (a host replaces them)."""
@@ -571,6 +579,19 @@ class CommandHandler:
         else:
             follower.windows.append(view.value)
             logger.debug("Clip edit window: %s", view.value)
+        return True
+
+    def _snapshot(self, view, cmd: ViewCommand) -> bool:
+        """Load, store or remove a snapshot; the reporter reports the result."""
+        snapshots = self.snapshots
+        id_ = view.h[0]
+        if id_ == Cmd.SNAPSHOT_LOAD:
+            done = snapshots.load(view.index)
+        elif id_ == Cmd.SNAPSHOT_STORE:
+            done = snapshots.store(view.index)
+        else:
+            done = snapshots.remove(view.index)
+        logger.debug("Snapshot %s %d: %s", Cmd(id_).name, view.index, done)
         return True
 
     def _bank_scroll(self, view, cmd: ViewCommand) -> bool:

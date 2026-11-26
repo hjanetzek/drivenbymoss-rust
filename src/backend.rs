@@ -56,6 +56,8 @@ pub enum Processor {
     HostPage,
     /// The controller itself: what the user does on the surface (`controller view`).
     Controller,
+    /// The host's snapshots (`snapshot <index>/load|store|remove`).
+    Snapshot,
 }
 
 impl Processor {
@@ -102,12 +104,13 @@ impl Processor {
             Processor::FxTrack => "fxtrack",
             Processor::HostPage => "hostpage",
             Processor::Controller => "controller",
+            Processor::Snapshot => "snapshot",
         }
     }
 
     /// All processors. The position is the number of the processor in the binary protocol
     /// (`protocol::bin`): append only.
-    pub const ALL: [Processor; 40] = [
+    pub const ALL: [Processor; 41] = [
         Processor::Transport,
         Processor::Project,
         Processor::Track,
@@ -148,6 +151,7 @@ impl Processor {
         Processor::FxTrack,
         Processor::HostPage,
         Processor::Controller,
+        Processor::Snapshot,
     ];
 
     /// The processor with the given name (see [`Processor::id`]).

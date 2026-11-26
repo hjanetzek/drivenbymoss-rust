@@ -246,6 +246,9 @@ pub fn create_views(ctx: &mut Ctx) {
     ctx.register_view(Views::Browser, view);
     let view = AccentView::new(ctx);
     ctx.register_view(Views::Control, view);
+    // The host's snapshots (not part of Java)
+    let view = super::view::snapshot_view::SnapshotView::new(ctx);
+    ctx.register_view(Views::Snapshots, view);
 }
 
 // ------------------------------------------------------------------------------------------
@@ -327,9 +330,9 @@ fn handle_track_change(ctx: &mut Ctx, is_selected: bool) {
         return;
     }
 
-    // Former recallLastView; the page surface stays too (a track change, e.g. another
-    // zynthian chain, changes the host's page, it doesn't leave it)
-    if !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project, Views::SurfaceLink]) {
+    // Former recallLastView; the page surface and the snapshot view stay too (a track change,
+    // e.g. another zynthian chain, changes the host's page, it doesn't leave it)
+    if !ctx.views.is_any_active(&[Views::Session, Views::Mix, Views::Project, Views::SurfaceLink, Views::Snapshots]) {
         ctx.recall_preferred_view();
     }
 

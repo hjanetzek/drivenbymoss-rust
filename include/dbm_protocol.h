@@ -15,7 +15,7 @@
 
 #define DBM_PROTOCOL_VERSION_MAJOR 1
 #define DBM_PROTOCOL_VERSION_MINOR 0
-#define DBM_PROTOCOL_HASH 0x6bf61e04e0b4e6f9ULL
+#define DBM_PROTOCOL_HASH 0xf8748b86fdcf4eaeULL
 #define DBM_HEADER_SIZE 8
 #define DBM_RECORD_SIZE 24
 
@@ -82,6 +82,7 @@ enum DbmProcessor
     DBM_PROCESSOR_FX_TRACK = 37,
     DBM_PROCESSOR_HOST_PAGE = 38,
     DBM_PROCESSOR_CONTROLLER = 39,
+    DBM_PROCESSOR_SNAPSHOT = 40,
 };
 
 /* Dev */
@@ -275,6 +276,7 @@ enum DbmControllerViewKind
     DBM_CONTROLLER_VIEW_KIND_MIXER = 4,
     DBM_CONTROLLER_VIEW_KIND_DEVICE = 5,
     DBM_CONTROLLER_VIEW_KIND_OTHER = 6,
+    DBM_CONTROLLER_VIEW_KIND_SNAPSHOTS = 7,
 };
 
 /* Resolution */
@@ -847,6 +849,18 @@ enum DbmMsgId
     DBM_MSG_HOST_PAGE_ROW = 0x0C40,
     /* /hostpage/cell/selected; idx: -; i32 */
     DBM_MSG_HOST_CELL_SELECTED = 0x0C41,
+    /* /snapshot/count; idx: -; i32 */
+    DBM_MSG_SNAPSHOT_COUNT = 0x0E01,
+    /* /snapshot/active; idx: -; i32 */
+    DBM_MSG_SNAPSHOT_ACTIVE = 0x0E02,
+    /* /snapshot/appendOnly; idx: -; bool */
+    DBM_MSG_SNAPSHOT_APPEND_ONLY = 0x0E03,
+    /* /snapshot/{index}/exists; idx: index; bool */
+    DBM_MSG_SNAPSHOT_EXISTS = 0x0E10,
+    /* /snapshot/{index}/name; idx: index; text */
+    DBM_MSG_SNAPSHOT_NAME = 0x0E11,
+    /* /snapshot/{index}/color; idx: index; color */
+    DBM_MSG_SNAPSHOT_COLOR = 0x0E12,
 };
 
 /* Commands (core -> host): ID = text template; indices; value type */
@@ -1350,6 +1364,12 @@ enum DbmCmdId
     DBM_CMD_HOST_PAGE_CELL_ASSIGN = 0x8C0A,
     /* controller view; idx: -; i32 */
     DBM_CMD_CONTROLLER_VIEW = 0x8D01,
+    /* snapshot {index}/load; idx: index; none */
+    DBM_CMD_SNAPSHOT_LOAD = 0x8E01,
+    /* snapshot {index}/store; idx: index; none */
+    DBM_CMD_SNAPSHOT_STORE = 0x8E02,
+    /* snapshot {index}/remove; idx: index; none */
+    DBM_CMD_SNAPSHOT_REMOVE = 0x8E03,
 };
 
 /* A record of a buffer (the payload points into the buffer). */

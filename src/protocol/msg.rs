@@ -26,6 +26,7 @@
 //! | 0x09 | markers |
 //! | 0x0B | note repeat, quantize, groove |
 //! | 0x0C | the host's parameter pages (doc/HOST_PAGE_PLAN.md) |
+//! | 0x0E | the host's snapshots (doc/HOST_BRIDGE_GUIDE.md §4.14) |
 
 #![allow(clippy::enum_variant_names)]
 
@@ -821,6 +822,22 @@ messages! {
     HostPageRow = 0x0C40 {} ["hostpage" "row"] => value: i32 = int;
     /// The selected cell (-1: none).
     HostCellSelected = 0x0C41 {} ["hostpage" "cell" "selected"] => value: i32 = int;
+
+    // --------------------------------------------------------------------------------------
+    // 0x0E The host's snapshots (doc/HOST_BRIDGE_GUIDE.md §4.14): a set of stored states of the
+    // host (zynthian's ZS3), which the host numbers, names, colours and keeps. The index is the
+    // slot in the bank window of 64 (offset 0).
+
+    /// The total number of slots (may exceed the window); with appendOnly the stored snapshots.
+    SnapshotCount = 0x0E01 {} ["snapshot" "count"] => value: i32 = int;
+    /// The active (last loaded or stored) snapshot, -1: none.
+    SnapshotActive = 0x0E02 {} ["snapshot" "active"] => value: i32 = int;
+    /// The host keeps a dense list: a new snapshot is always stored at index = count.
+    SnapshotAppendOnly = 0x0E03 {} ["snapshot" "appendOnly"] => value: bool = flag;
+    SnapshotExists = 0x0E10 { index: usize } ["snapshot" index "exists"] => value: bool = flag;
+    SnapshotName = 0x0E11 { index: usize } ["snapshot" index "name"] => value: &'a str = text;
+    /// An optional colour (none: the controller's own).
+    SnapshotColor = 0x0E12 { index: usize } ["snapshot" index "color"] => value: Option<[f64; 3]> = color;
 }
 
 /// The trie of the table.

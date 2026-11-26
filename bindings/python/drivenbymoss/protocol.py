@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 VERSION_MAJOR = 1
 VERSION_MINOR = 0
-HASH = 0x6bf61e04e0b4e6f9
+HASH = 0xf8748b86fdcf4eae
 HEADER_SIZE = 8
 RECORD_SIZE = 24
 
@@ -87,6 +87,7 @@ class Processor(IntEnum):
     FX_TRACK = 37
     HOST_PAGE = 38
     CONTROLLER = 39
+    SNAPSHOT = 40
 
 
 class Dev(IntEnum):
@@ -238,6 +239,7 @@ class ControllerViewKind(IntEnum):
     MIXER = 4
     DEVICE = 5
     OTHER = 6
+    SNAPSHOTS = 7
 
 
 class Resolution(IntEnum):
@@ -550,6 +552,12 @@ class Msg(IntEnum):
     HOST_SECTION_SELECTED = 0x0C33
     HOST_PAGE_ROW = 0x0C40
     HOST_CELL_SELECTED = 0x0C41
+    SNAPSHOT_COUNT = 0x0E01
+    SNAPSHOT_ACTIVE = 0x0E02
+    SNAPSHOT_APPEND_ONLY = 0x0E03
+    SNAPSHOT_EXISTS = 0x0E10
+    SNAPSHOT_NAME = 0x0E11
+    SNAPSHOT_COLOR = 0x0E12
 
 
 class Cmd(IntEnum):
@@ -804,6 +812,9 @@ class Cmd(IntEnum):
     HOST_PAGE_SECTION = 0x8C09
     HOST_PAGE_CELL_ASSIGN = 0x8C0A
     CONTROLLER_VIEW = 0x8D01
+    SNAPSHOT_LOAD = 0x8E01
+    SNAPSHOT_STORE = 0x8E02
+    SNAPSHOT_REMOVE = 0x8E03
 
 
 class Info(NamedTuple):
@@ -1068,6 +1079,12 @@ MSG_INFO: dict[int, Info] = {
     Msg.HOST_SECTION_SELECTED: Info("HostSectionSelected", "/hostpage/section/selected", (), 2, "i32"),
     Msg.HOST_PAGE_ROW: Info("HostPageRow", "/hostpage/row", (), 2, "i32"),
     Msg.HOST_CELL_SELECTED: Info("HostCellSelected", "/hostpage/cell/selected", (), 2, "i32"),
+    Msg.SNAPSHOT_COUNT: Info("SnapshotCount", "/snapshot/count", (), 2, "i32"),
+    Msg.SNAPSHOT_ACTIVE: Info("SnapshotActive", "/snapshot/active", (), 2, "i32"),
+    Msg.SNAPSHOT_APPEND_ONLY: Info("SnapshotAppendOnly", "/snapshot/appendOnly", (), 1, "bool"),
+    Msg.SNAPSHOT_EXISTS: Info("SnapshotExists", "/snapshot/{index}/exists", ((("index", 0, 16, False),),), 1, "bool"),
+    Msg.SNAPSHOT_NAME: Info("SnapshotName", "/snapshot/{index}/name", ((("index", 0, 16, False),),), 4, "text"),
+    Msg.SNAPSHOT_COLOR: Info("SnapshotColor", "/snapshot/{index}/color", ((("index", 0, 16, False),),), 5, "color"),
 }
 
 CMD_INFO: dict[int, Info] = {
@@ -1320,6 +1337,9 @@ CMD_INFO: dict[int, Info] = {
     Cmd.HOST_PAGE_SECTION: Info("HostPageSection", "hostpage section", (), 2, "i32"),
     Cmd.HOST_PAGE_CELL_ASSIGN: Info("HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", ((("cell", 0, 16, False),), (("epoch", 0, 16, False),),), 2, "i32"),
     Cmd.CONTROLLER_VIEW: Info("ControllerView", "controller view", (), 2, "i32"),
+    Cmd.SNAPSHOT_LOAD: Info("SnapshotLoad", "snapshot {index}/load", ((("index", 0, 16, False),),), 0, "none"),
+    Cmd.SNAPSHOT_STORE: Info("SnapshotStore", "snapshot {index}/store", ((("index", 0, 16, False),),), 0, "none"),
+    Cmd.SNAPSHOT_REMOVE: Info("SnapshotRemove", "snapshot {index}/remove", ((("index", 0, 16, False),),), 0, "none"),
 }
 
 MSG_IDS = frozenset(MSG_INFO)
@@ -2801,6 +2821,30 @@ class Writer(_WriterBase):
     def host_cell_selected(self, value):
         """/hostpage/cell/selected"""
         self.put_i32(3137, 0, 0, 0, 0, value)
+
+    def snapshot_count(self, value):
+        """/snapshot/count"""
+        self.put_i32(3585, 0, 0, 0, 0, value)
+
+    def snapshot_active(self, value):
+        """/snapshot/active"""
+        self.put_i32(3586, 0, 0, 0, 0, value)
+
+    def snapshot_append_only(self, value):
+        """/snapshot/appendOnly"""
+        self.put_bool(3587, 0, 0, 0, 0, value)
+
+    def snapshot_exists(self, index, value):
+        """/snapshot/{index}/exists"""
+        self.put_bool(3600, index, 0, 0, 0, value)
+
+    def snapshot_name(self, index, value):
+        """/snapshot/{index}/name"""
+        self.put_text(3601, index, 0, 0, 0, value)
+
+    def snapshot_color(self, index, value):
+        """/snapshot/{index}/color"""
+        self.put_color(3602, index, 0, 0, 0, value)
 
 
 # The views of the reports
@@ -5055,6 +5099,57 @@ class MsgHostCellSelected(Record):
     value = _value("i32")
 
 
+class MsgSnapshotCount(Record):
+    """/snapshot/count"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgSnapshotActive(Record):
+    """/snapshot/active"""
+
+    __slots__ = ()
+    KIND = "i32"
+    value = _value("i32")
+
+
+class MsgSnapshotAppendOnly(Record):
+    """/snapshot/appendOnly"""
+
+    __slots__ = ()
+    KIND = "bool"
+    value = _value("bool")
+
+
+class MsgSnapshotExists(Record):
+    """/snapshot/{index}/exists"""
+
+    __slots__ = ()
+    KIND = "bool"
+    index = _i0
+    value = _value("bool")
+
+
+class MsgSnapshotName(Record):
+    """/snapshot/{index}/name"""
+
+    __slots__ = ()
+    KIND = "text"
+    index = _i0
+    value = _value("text")
+
+
+class MsgSnapshotColor(Record):
+    """/snapshot/{index}/color"""
+
+    __slots__ = ()
+    KIND = "color"
+    index = _i0
+    value = _value("color")
+
+
 MSG_VIEWS: dict[int, type] = {
     0x0101: MsgPlay,
     0x0102: MsgStop,
@@ -5306,6 +5401,12 @@ MSG_VIEWS: dict[int, type] = {
     0x0C33: MsgHostSectionSelected,
     0x0C40: MsgHostPageRow,
     0x0C41: MsgHostCellSelected,
+    0x0E01: MsgSnapshotCount,
+    0x0E02: MsgSnapshotActive,
+    0x0E03: MsgSnapshotAppendOnly,
+    0x0E10: MsgSnapshotExists,
+    0x0E11: MsgSnapshotName,
+    0x0E12: MsgSnapshotColor,
 }
 
 
@@ -7547,6 +7648,33 @@ class CmdControllerView(Record):
     value = _value("i32")
 
 
+class CmdSnapshotLoad(Record):
+    """snapshot {index}/load"""
+
+    __slots__ = ()
+    KIND = "none"
+    index = _i0
+    value = _value("none")
+
+
+class CmdSnapshotStore(Record):
+    """snapshot {index}/store"""
+
+    __slots__ = ()
+    KIND = "none"
+    index = _i0
+    value = _value("none")
+
+
+class CmdSnapshotRemove(Record):
+    """snapshot {index}/remove"""
+
+    __slots__ = ()
+    KIND = "none"
+    index = _i0
+    value = _value("none")
+
+
 CMD_VIEWS: dict[int, type] = {
     0x8101: CmdTransportPlay,
     0x8102: CmdTransportRestart,
@@ -7797,6 +7925,9 @@ CMD_VIEWS: dict[int, type] = {
     0x8C09: CmdHostPageSection,
     0x8C0A: CmdHostPageCellAssign,
     0x8D01: CmdControllerView,
+    0x8E01: CmdSnapshotLoad,
+    0x8E02: CmdSnapshotStore,
+    0x8E03: CmdSnapshotRemove,
 }
 
 VIEWS: dict[int, type] = {**MSG_VIEWS, **CMD_VIEWS}

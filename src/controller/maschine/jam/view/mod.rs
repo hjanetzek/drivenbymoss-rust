@@ -14,6 +14,7 @@ pub mod play_views;
 pub mod sequencer_views;
 pub mod session_view;
 pub mod shift_view;
+pub mod snapshot_view;
 pub mod utility_views;
 
 use crate::controller::maschine::core::encoder_mode_manager::EncoderMode;

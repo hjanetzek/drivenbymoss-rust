@@ -318,6 +318,7 @@ class Reporter:
             Reporter.collect_clip,
             Reporter.collect_grids,
             Reporter.collect_host_page,
+            Reporter.collect_snapshots,
         ]
         self.host_page_view = None
         """The host's pages of this bridge (``host_page.HostPageView``; set by the command handler
@@ -607,6 +608,12 @@ class Reporter:
         """The host's parameter pages (HOST_BRIDGE_GUIDE §3.10), while a surface shows them."""
         if self.host_page_view is not None:
             self.host_page_view.report(self.put)
+
+    def collect_snapshots(self) -> None:
+        """The host's snapshots (HOST_BRIDGE_GUIDE §4.14), if the DAW has them."""
+        snapshots = getattr(self.daw, "snapshots", None)
+        if snapshots is not None:
+            snapshots.report(self.put)
 
     def forget_host_page(self) -> None:
         """Report the host's pages again (a dump of them)."""

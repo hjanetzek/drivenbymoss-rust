@@ -206,6 +206,7 @@ domain! {
         Mixer = "mixer",
         Device = "device",
         Other = "other",
+        Snapshots = "snapshots",
     }
 }
 

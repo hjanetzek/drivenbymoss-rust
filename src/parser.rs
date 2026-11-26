@@ -715,6 +715,14 @@ impl Parser {
             Msg::HostSectionSelected { value } => model.host_page_mut().section = value,
             Msg::HostPageRow { value } => model.host_page_mut().row = value,
             Msg::HostCellSelected { value } => model.host_page_mut().selected_cell = value,
+            // ------------------------------------------------------------------------------
+            // The host's snapshots (doc/HOST_BRIDGE_GUIDE.md §4.14)
+            Msg::SnapshotCount { value } => model.snapshots_mut().set_count(value),
+            Msg::SnapshotActive { value } => model.snapshots_mut().set_active(value),
+            Msg::SnapshotAppendOnly { value } => model.snapshots_mut().set_append_only(value),
+            Msg::SnapshotExists { index, value } => snapshot(model, index, |s| s.exists = value),
+            Msg::SnapshotName { index, value } => snapshot(model, index, |s| s.name = value.to_string()),
+            Msg::SnapshotColor { index, value } => snapshot(model, index, |s| s.color = value),
         }
     }
 
@@ -728,7 +736,6 @@ impl Parser {
     }
 }
 
-/// Apply `f` to the track of a channel report (it is created if necessary).
 /// Change a cell of the host's parameter pages (ignored beyond the largest page).
 fn host_cell(model: &mut Model, cell: usize, f: impl FnOnce(&mut crate::daw::host_page::HostCell)) {
     if let Some(cell) = model.host_page_mut().cell_mut(cell) {
@@ -736,6 +743,14 @@ fn host_cell(model: &mut Model, cell: usize, f: impl FnOnce(&mut crate::daw::hos
     }
 }
 
+/// Change a slot of the host's snapshots (ignored beyond the window).
+fn snapshot(model: &mut Model, index: usize, f: impl FnOnce(&mut crate::daw::snapshot::Snapshot)) {
+    if let Some(item) = model.snapshots_mut().item_mut(index) {
+        f(item);
+    }
+}
+
+/// Apply `f` to the track of a channel report (it is created if necessary).
 fn channel(model: &mut Model, ch: Ch, f: impl FnOnce(&mut crate::daw::track::Track)) {
     let (tb, r) = channel_mut(model, ch);
     f(tb.track_mut(r));
@@ -2386,5 +2401,41 @@ mod tests {
         assert_eq!(page.cells.len(), 10, "a cell beyond 8x8 is ignored");
         assert_eq!((page.sets.len(), page.sets[2].name.as_str(), page.sets[2].section, page.set), (3, "Osc 1", 1, 2));
         assert_eq!((page.sections[1].name.as_str(), page.section, page.row, page.selected_cell), ("Helm", 1, 1, 9));
+    }
+
+    #[test]
+    fn snapshots() {
+        let (mut model, mut parser, _backend, log) = create(ModelSetup::default());
+        let generation = model.snapshots().generation();
+        assert_eq!((model.snapshots().count(), model.snapshots().active(), model.snapshots().is_append_only()), (0, -1, false));
+        feed(
+            &mut model,
+            &mut parser,
+            &[
+                "/snapshot/count 64",
+                "/snapshot/active 5",
+                "/snapshot/appendOnly 0",
+                "/snapshot/0/exists 1",
+                "/snapshot/0/name Intro",
+                "/snapshot/0/color 255 80 0",
+                "/snapshot/5/exists 1",
+                "/snapshot/5/name Verse",
+                "/snapshot/5/color -1 -1 -1",
+                "/snapshot/40/exists 1",
+                "/snapshot/99/exists 1",
+            ],
+        );
+        assert!(log.lines.borrow().is_empty(), "{:?}", log.lines.borrow());
+        let bank = model.snapshots();
+        assert!(bank.generation() > generation);
+        assert_eq!((bank.count(), bank.active(), bank.is_append_only(), bank.offset()), (64, 5, false, 0));
+        assert_eq!((bank.item(0).name.as_str(), bank.item(0).color), ("Intro", Some([1.0, 80.0 / 255.0, 0.0])));
+        assert_eq!((bank.exists(5), bank.item(5).color, bank.is_active(5)), (true, None, true));
+        assert!(bank.exists(40) && !bank.exists(1) && !bank.exists(41), "the gaps stay empty");
+        assert_eq!(bank.display_name(40), "Snapshot 41");
+        feed(&mut model, &mut parser, &["/snapshot/appendOnly 1", "/snapshot/count 3", "/snapshot/active -1"]);
+        let bank = model.snapshots();
+        assert!(bank.is_append_only() && bank.exists(0) && !bank.exists(5) && !bank.exists(40), "the slots beyond the count are cleared");
+        assert_eq!(bank.active(), -1);
     }
 }

@@ -29,8 +29,6 @@ use crate::framework::ids::{ButtonId, Modes, Views};
 use crate::midi::ButtonEvent;
 use crate::protocol::ControllerViewKind;
 
-use super::mode::toggle_user_mode;
-
 /// Former `MaschineJamAutomationCommand`.
 pub struct MaschineJamAutomationCommand {
     inner: AutomationCommand,
@@ -92,7 +90,8 @@ impl TriggerCommand for MaschineJamAuxCommand {
 
 /// Former `MaschineJamControlCommand`: selects the parameter and the user mode. With the host's
 /// pages (not part of Java) the host page strips take the user mode's place (zynthian has no
-/// user parameters): device parameters → host page strips → device parameters.
+/// user parameters): device parameters → host page strips → device parameters. Select + CONTROL
+/// is the page surface (not part of Java: there the project / track toggle of the user mode).
 pub struct MaschineJamControlCommand {
     inner: ModeMultiSelectCommand,
     host: ModeMultiSelectCommand,
@@ -113,14 +112,10 @@ impl TriggerCommand for MaschineJamControlCommand {
             return;
         }
         if ctx.surface.is_pressed(ButtonId::Select) {
-            // With the host's pages as Select + SONG (the full surface; may get its own function
-            // later); else the project / track toggle of the user mode, as Java
-            if super::surface_link::has_host_pages(ctx) {
-                super::surface_link::toggle(ctx);
-                ctx.surface.set_trigger_consumed(ButtonId::Select);
-            } else {
-                toggle_user_mode(ctx);
-            }
+            // The page surface on / the next source / off (not part of Java, which toggles the
+            // project / track parameters of the user mode)
+            super::surface_link::toggle(ctx);
+            ctx.surface.set_trigger_consumed(ButtonId::Select);
             return;
         }
         if ctx.surface.is_shift_pressed() {
@@ -421,9 +416,9 @@ impl TriggerCommand for MaschineJamSessionViewCommand {
     fn execute(&mut self, ctx: &mut Ctx, event: ButtonEvent, _velocity: i32) {
         match event {
             ButtonEvent::Up => {
-                // Select + SONG: the surface link (not part of Java)
+                // Select + SONG: the host's snapshots (not part of Java)
                 if ctx.surface.is_pressed(ButtonId::Select) {
-                    super::surface_link::toggle(ctx);
+                    super::view::snapshot_view::toggle(ctx);
                     return;
                 }
                 if ctx.surface.is_shift_pressed() {

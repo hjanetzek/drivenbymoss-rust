@@ -6,7 +6,7 @@
 //! Java): the pages of a source (the Electra One over the surface link, the host's pages) on the
 //! grid and the touch strips.
 //!
-//! - **Entry and exit:** Select + SONG cycles: off → the next available source → … → off (the
+//! - **Entry and exit:** Select + CONTROL cycles: off → the next available source → … → off (the
 //!   sources in their order, missing ones skipped; with one source it switches the surface on and
 //!   off). Any other view or mode button (SONG, STEP, PAD MODE, MACRO, LEVEL, AUX, CONTROL) leaves
 //!   it for its view or mode; a detach of the source leaves it too. The JAM's own modes and views
@@ -31,7 +31,7 @@
 //! strips take the user mode's place). Only the strips show the host's active row; the grid keeps
 //! its view. PAGE LEFT/RIGHT step the control set (at the first / last set of a page, the page),
 //! Select + PAGE LEFT/RIGHT the row, Select + a strip touch assigns the cell to a remote slot.
-//! Select + SONG opens the full surface with the host source first (then the next sources, then
+//! Select + CONTROL opens the full surface with the host source first (then the next sources, then
 //! off); leaving it returns to the strips. [`sync`] keeps `Shown` on while either shows the host.
 
 use std::rc::Rc;
@@ -61,7 +61,7 @@ pub struct JamSurface {
     /// notification shows the new title, not the one the client had before. With the number of
     /// polls left (about 2 s): later changes (e.g. another page) are no reason to notify.
     pending_text: Option<(String, u32)>,
-    /// The source the surface was switched on with: Select + SONG cycles from it through the
+    /// The source the surface was switched on with: Select + CONTROL cycles from it through the
     /// others and then switches off.
     start: usize,
 }
@@ -99,7 +99,7 @@ pub fn mapping() -> SurfaceMapping {
     mapping
 }
 
-/// The sources of the JAM, in the order of Select + SONG: the surface link (the Electra One),
+/// The sources of the JAM, in the order of Select + CONTROL: the surface link (the Electra One),
 /// the host's pages.
 fn sources(mapping: &SurfaceMapping) -> Vec<Box<dyn PageSource>> {
     vec![Box::new(LinkSource::new(DEFAULT_LINK, mapping.capabilities())), Box::new(HostSource::new(mapping.capabilities()))]
@@ -267,7 +267,7 @@ fn next_source(ctx: &Ctx) -> Option<usize> {
     (1..count).map(|step| (current + step) % count).take_while(|&index| index != start).find(|&index| client.source_state(index) == LinkState::Attached)
 }
 
-/// Select + SONG: off → the next available source → … → off.
+/// Select + CONTROL: off → the next available source → … → off.
 pub fn toggle(ctx: &mut Ctx) {
     if !is_active(ctx) {
         enter(ctx);

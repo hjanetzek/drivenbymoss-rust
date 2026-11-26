@@ -111,8 +111,8 @@ it:
 
 Sources: the JAM manual (DrivenByMoss-Documentation), the Java original, and the port's own code,
 including its additions (the host page strips on CONTROL's second slot, Shift + CONTROL to the
-first remote page, Select + CONTROL / Select + SONG for the page surface, doc/HOST_PAGE_PLAN.md
-§5.1, doc/SURFACE_LINK.md). **The code wins** where they differ; the differences are in §7.
+first remote page, Select + CONTROL for the page surface, doc/HOST_PAGE_PLAN.md
+§5.1, doc/SURFACE_LINK.md; Select + SONG for the host's snapshots, doc/HOST_BRIDGE_GUIDE.md §4.14). **The code wins** where they differ; the differences are in §7.
 
 ## 4. Mirror
 
@@ -272,13 +272,13 @@ The differences found while writing the texts (the texts follow the code):
   alternative launch (Java and the port; `StartSceneCommand`'s own Shift function is overridden).
 - **Note repeat configuration, bottom row** (manual: the octave range): the port's settings have no
   note repeat octave (`SUPPORTS_OCTAVES = false`), the row is off.
-- **SELECT + CONTROL** (manual: project/track parameters): with the host's pages it toggles the page
-  surface (as Select + SONG); without them as the manual.
+- **SELECT + CONTROL** (manual: project/track parameters): the page surface on / the next source /
+  off, on every host (the user's decision, 2026-11-26).
+- **SELECT + SONG**: the host's snapshots on the pads (a port addition, on every host).
 - **CONTROL** cycles device parameters ↔ host page strips with the host's pages (manual: device ↔
   project/track parameters); **SHIFT + CONTROL** goes to the first remote control page with the
   host's pages (manual: the device window).
-- **SELECT + SONG**, the arrows and PAGE LEFT/RIGHT on the page surface / host page strips: port
-  additions.
+- The arrows and PAGE LEFT/RIGHT on the page surface / host page strips: port additions.
 - **SHIFT + PLAY** with SELECT held: punch out (manual: SELECT+SHIFT+PLAY, same).
 - **Piano: left/right** change the scale layout as in the Play view, which the piano doesn't use.
 - **DUPLICATE + scene** (manual: duplicate the scene): the JAM's scene buttons don't look at

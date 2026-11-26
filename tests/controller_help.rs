@@ -150,7 +150,8 @@ fn modifiers_change_the_texts() {
     let entries = take(&mut app);
     assert!(short(&entries, "Play").starts_with("Punch in"));
     assert_eq!(short(&entries, "Track"), "Add an instrument track");
-    assert!(short(&entries, "Session").starts_with("Page surface"));
+    assert!(short(&entries, "Session").starts_with("Snapshots"), "{}", short(&entries, "Session"));
+    assert!(short(&entries, "Device").starts_with("Page surface"), "{}", short(&entries, "Device"));
     check_lengths(&mut app, "Select");
     cc(&mut app, jam::SELECT, 0);
 
@@ -199,9 +200,10 @@ fn views_and_modes_describe_the_pads_and_strips() {
     }
 }
 
-const VIEWS: [Views; 18] = [
+const VIEWS: [Views; 19] = [
     Views::Play, Views::Chords, Views::Piano, Views::Drum64, Views::Drum, Views::Drum4, Views::Drum8, Views::Sequencer, Views::PolySequencer,
     Views::Raindrops, Views::Session, Views::Shift, Views::RepeatNote, Views::Tempo, Views::Shuffle, Views::Browser, Views::Control, Views::SurfaceLink,
+    Views::Snapshots,
 ];
 const MODES: [Modes; 15] = [
     Modes::Track, Modes::Volume, Modes::Pan, Modes::Send1, Modes::Send2, Modes::Send3, Modes::Send4, Modes::Send5, Modes::Send6, Modes::Send7,
@@ -446,4 +448,36 @@ fn push_models_differ_where_the_code_does() {
     let mut app = start_push(2);
     let entries = take(&mut app);
     assert!(short(&entries, "Mute").starts_with("Mute / unmute the selected track"));
+}
+
+/// The snapshot view (Select + SONG): the pads load, Shift + pad stores, Clear + pad removes; a
+/// host without snapshots says so.
+#[test]
+fn the_snapshot_view_describes_its_pads() {
+    let mut app = start();
+    take(&mut app);
+    cc(&mut app, jam::SELECT, 127);
+    cc(&mut app, jam::SONG, 127);
+    cc(&mut app, jam::SONG, 0);
+    cc(&mut app, jam::SELECT, 0);
+    app.tick();
+    assert!(app.instance_ctx(0).unwrap().views.is_active(Views::Snapshots));
+    let entries = take(&mut app);
+    assert_eq!(short(&entries, "grid"), "The host has no snapshots");
+    check_lengths(&mut app, "Snapshots");
+    cc(&mut app, jam::CLEAR, 127);
+    app.tick();
+    assert_eq!(short(&take(&mut app), "grid"), "Remove the snapshot (red: the stored ones)");
+    cc(&mut app, jam::CLEAR, 0);
+    app.tick();
+    take(&mut app);
+    cc(&mut app, jam::SELECT, 127);
+    app.tick();
+    assert_eq!(short(&take(&mut app), "Session"), "Snapshots: back to the view before");
+    cc(&mut app, jam::SELECT, 0);
+    app.tick();
+    take(&mut app);
+    app.on_midi_event(IN, &SHIFT_DOWN);
+    app.tick();
+    assert!(short(&take(&mut app), "grid").starts_with("Store the current state"));
 }

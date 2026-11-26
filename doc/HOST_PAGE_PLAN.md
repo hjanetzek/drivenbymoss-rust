@@ -45,7 +45,7 @@ assumption, not checked in code; **[P]** = proposed here.
   press selects it and its row, pads only switch). Strips 1-8 the active row; with 6-wide pages
   strips 7-8 keep the selected slot / the extra. The main encoder the selected cell. UP/DOWN the row;
   LEFT/RIGHT the handle of the Electra's generic provider, or the previous / next control set of a
-  model with control sets (zynthian). **Select + SONG cycles** through the available sources
+  model with control sets (zynthian). **Select + CONTROL cycles** through the available sources
   (off → the next available → … → off).
 - **Phases:** P1 page_surface + `PageSource` + the new JAM layout for the Electra + model 1.2;
   P2 the protocol entries; P3 the host source; P4 the JAM with both sources and 8 columns; P5 the
@@ -96,7 +96,7 @@ assumption, not checked in code; **[P]** = proposed here.
   column 8, strips 1-6 the row, 7 the selected slot fine, 8 the extra, the main encoder
   two's complement) [V src/controller/maschine/jam/surface_link.rs:46-73]; it attaches to
   `DEFAULT_LINK` at start [V surface_link.rs:77]; enter/leave keep the previous view and mode
-  [V surface_link.rs:124-152]; Select + SONG toggles it [V src/controller/maschine/jam/command/mod.rs:383-387];
+  [V surface_link.rs:124-152]; Select + SONG toggled it [V src/controller/maschine/jam/command/mod.rs:383-387] (now Select + CONTROL);
   PAGE LEFT/RIGHT, the arrows and the encoder push go through `SurfaceOr`
   [V src/controller/maschine/jam/setup.rs:391-392, 490-493, 573-584].
 - **The group buttons A-H** select tracks in every view (no surface check)
@@ -420,7 +420,7 @@ Done by the zynthian-ui session (§D.5); the exact contract is the hand-over in 
 | PAGE LEFT / RIGHT | the previous / next page |
 | CONTROL | with host pages: device parameters → the host page strips (§5.1) → device parameters |
 | group buttons A-H | the tracks (zynthian: the chains), unchanged |
-| Select + SONG | off → the next available source → … → off (sources in the order: Electra pages, host pages; missing ones are skipped; with one source the toggle of before) |
+| Select + CONTROL | off → the next available source → … → off (sources in the order: Electra pages, host pages; missing ones are skipped; with one source the toggle of before). Until 2026-11-26 Select + SONG; Select + SONG is now the snapshot view (HOST_BRIDGE_GUIDE §4.14) |
 
 There is no row-selector column any more; rows are selected by a cell press or UP/DOWN. Entering a
 source sends `Shown { on: true }` to it, leaving or switching away `Shown { on: false }`.
@@ -434,7 +434,7 @@ JAM's client, in `src/controller/maschine/jam/surface_link.rs`).
 | JAM | Function |
 | --- | --- |
 | CONTROL | with the host's pages (`hostPages`): device parameters → host page strips → device parameters (the strips take the user mode's slot; zynthian has no user parameters). Without them (Bitwig, a stock zynthian) device parameters ↔ user mode, as in Java. From another mode the last of the two (Java's `ModeMultiSelectCommand`) |
-| Select + CONTROL | with the host's pages: as Select + SONG (the full surface; may get its own function later); without them the user mode's project / track toggle, as before |
+| Select + CONTROL | always (also without the host's pages) the full surface (see Select + CONTROL below); replaces Java's project / track toggle of the user mode (the user's decision, 2026-11-26) |
 | Shift + CONTROL | with the host's pages: the host page strips on the first remote control page (`HostPageSection 0`, zynthian's "Chain Controllers"; notification "Remote Controls"); without them the device window, as before |
 | strips 1-8 | the 8 cells of the host's active row (zynthian grid8x6: two zynthian pages of 4), values and colours on the LEDs; a swipe is `HostPageCellTurn` by the travel, the touch `HostPageCellTouch`. Turning never selects: the selection stays the host's |
 | Select + strip n | `HostPageCellAssign {cell, slot: n}` (n = 0..7; the host maps 4-7 onto the next remote page) |
@@ -442,7 +442,7 @@ JAM's client, in `src/controller/maschine/jam/surface_link.rs`).
 | Select + PAGE LEFT / RIGHT | the previous / next row (`HostPageRow`) |
 | Shift + PAGE LEFT / RIGHT | metronome / loop, as before |
 | arrows, main encoder, grid, scene buttons | the grid's view and the encoder modes, unchanged |
-| Select + SONG | the full surface, with the host source first, then the next sources (the Electra), then off; off returns to the strips. CONTROL on the full surface leaves it for the strips too |
+| Select + CONTROL (from the strips) | the full surface, with the host source first, then the next sources (the Electra), then off; off returns to the strips. CONTROL on the full surface leaves it for the strips too |
 
 **Why not the arrows:** every grid view of the JAM uses them (play, chords, drum and sequencer
 views: the octave; session: scrolling; Shift view: bank pages), so on the strips they stay with
@@ -466,7 +466,7 @@ parameters.
   (`dbm_zynthian`), fed by the shared grid model; **the host owns** acceleration and fine steps.
 - **Coexistence:** the Electra controller provides on the surface link (its DrivenByMoss pages, or
   the generic provider for another preset) and reaches the JAM through the link source; the host's
-  pages reach it through the host source of its own instance. The JAM cycles with Select + SONG (§5).
+  pages reach it through the host source of its own instance. The JAM cycles with Select + CONTROL (§5).
 - **The Electra as a surface of the host's pages (P7, optional):** an Electra mode in DrivenByMoss
   which uses a host source (in its own instance) as a surface (capabilities 6×6, 6 encoders a row, rows per set 2) and
   renders the cells into the DrivenByMoss preset's 36 controls with what the Electra provider
@@ -515,7 +515,7 @@ a unique name suffix (`" (hp-<pid>)"`) and selects ALSA clients by PID, never by
 | **P1** | `framework::page_surface` (model, `PageSource`, client, view), `LinkSource`; model 1.2 (sizes, sets, sections, units, `Shown`); the JAM's new layout for the Electra | all tests green; the Electra's bytes in `tests/surface_link.rs` unchanged |
 | **P2** | `Msg` 0x0C, `Cmd` 0x8C, `TurnUnit`/`Resolution` domains, `Processor::HostPage`, `HostFeature::HostPages`; the generated files; unhandled in Bitwig and the zynthian adapter | `cargo test` (round trip, staleness); Maven builds; conformance unchanged |
 | **P3** | `daw::host_page`, `Parser::apply`, `HostSource` | unit tests: reports → model, input → `Cmd`s, epochs, no local selection |
-| **P4** | The JAM with both sources (Select + SONG cycling) and 8 columns | `tests/host_page.rs` |
+| **P4** | The JAM with both sources (Select + CONTROL cycling) and 8 columns | `tests/host_page.rs` |
 | **P5** | The simulated host pages in the reference host, `dbm_host_alsa.py --host-pages` | Python tests; end-to-end runs with the JAM simulator (screenshots), with the emulator for the Electra |
 | P6 | zynthian (the zynthian-ui session; §12) | its tests; a Qt desktop run |
 | P7, P8 (opt.) | the Electra as a surface of host pages; Bitwig host pages | |
@@ -654,7 +654,7 @@ that row's n-th cell to slot n. The adapter handles it (`ZynHostPages.assign`, t
 
 ### 12.5 zynthian's screen follows the surface (2026-11-25)
 
-No protocol change. `HostPageShow` on (the JAM's CONTROL strips, Shift + CONTROL, Select + SONG /
+No protocol change. `HostPageShow` on (the JAM's CONTROL strips, Shift + CONTROL, Select + CONTROL /
 CONTROL) opens chain control of the active chain on zynthian's screen if it isn't shown
 (`shared_selection.request_show`, applied in the GUI thread; not over a menu, a dialog, the
 keyboard, the file selector, a move or the busy screen), on the page the surface shows (its
@@ -670,7 +670,7 @@ JAM's `<` `>` in CONTROL) move chain control's selection while it is shown.
 | P1 | `framework::page_surface` (model 1.2, `PageSource`, `SurfaceClient` with several sources, `PageSurfaceView`/`Mode`), `surface_link::LinkSource`, the JAM's new layout for the Electra | `src/framework/page_surface/`, `src/framework/surface_link/source.rs`, `src/controller/maschine/jam/surface_link.rs`; `tests/surface_link.rs` (the Electra's bytes unchanged, the JAM's pad positions moved) |
 | P2 | `Msg` 0x0C (29 reports), `Cmd` 0x8C (9 commands), the domains `TurnUnit`, `Resolution`, `Processor::HostPage`, `HostFeature::HostPages`; `daw::host_page::HostPage` and `Parser::apply`; the generated bindings; unhandled in Bitwig, the reference host (without host pages) and the zynthian adapter | `src/protocol/msg.rs`, `cmd.rs`, `types.rs`, `src/daw/host_page.rs`, `src/parser.rs`; HOST_BRIDGE_GUIDE.md §3.10, §4.12 |
 | P3 | `HostSource`: available with `hostPages`, the host page → page model, input → commands (epochs, steps from the reported selection, no local selection) | `src/framework/page_surface/host.rs` |
-| P4 | The JAM's sources: the surface link, then the host's pages; Select + SONG cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
+| P4 | The JAM's sources: the surface link, then the host's pages; Select + CONTROL cycles | `src/controller/maschine/jam/surface_link.rs`, `tests/host_page.rs` |
 | P5 | The simulated host pages (chains per track, sections, grid8x6 / grid4x6, a screen), `dbm_host_alsa.py --host-pages` (SIGUSR1 / SIGUSR2 move the screen's selection) | `bindings/python/dbm_host/host_page.py`, `bindings/python/tests/test_host_page.py`, `support/push_simulator/tools/dbm_host_alsa.py` |
 | JAM strips | The host page strips (§5.1): CONTROL's second slot with host pages, the host's active row on the strips with the grid in its view; `<` `>` sets / pages, Select + `<` `>` rows, Select + strip assign; one `HostPageShow` across the strips and the full surface | `src/controller/maschine/jam/surface_link.rs`, `command/mod.rs`, `Modes::HostStrips`, `SurfaceClient::step_set_or_page`; `tests/host_page.rs`, `tests/surface_link.rs` (`host_page_strips_with_the_electra`) |
 | P6 | zynthian: the shared page list, section colours, the shared selection (page, cell, window, zynsigman signals), `turn_travel` in zynthian-ui `electra-grid` (`zyngui/zynthian_control_grid_data.py`, `zynqt/screens/control.py`, docs/qt-control-grid.md); the adapter's `ZynHostPages` (its own paged `ControlGrid` on the tick thread, reports full / fast, typed 0x8C handlers with the epoch, declared only with the grid module) and `ZYNTHIAN_DBM_DEVICE_<MODEL>` | `zynthian-ui/zyngine/ctrldev/dbm_zynthian/host_page.py`, `zynthian-ui/tests/dbm/test_host_page.py` |
@@ -697,7 +697,7 @@ cargo build
 support/controller_simulator/run.sh --model jam --suffix " (hp)" &
 support/controller_simulator/tools/dbm_host_alsa.py --model jam --host-pages --suffix " (hp)" \
     --library target/debug/libdrivenbymoss.so
-# Select + SONG on the simulator; kill -USR1 <the runner's pid> moves the host's screen
+# Select + CONTROL on the simulator; kill -USR1 <the runner's pid> moves the host's screen
 ```
 
 With the Electra emulator as well (`--model electra --model jam --electra-client <n>`), Select +

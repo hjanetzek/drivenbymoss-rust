@@ -33,7 +33,7 @@ public final class Protocol
 {
     public static final int  VERSION_MAJOR = 1;
     public static final int  VERSION_MINOR = 0;
-    public static final long HASH          = 0x6bf61e04e0b4e6f9L;
+    public static final long HASH          = 0xf8748b86fdcf4eaeL;
     public static final int  HEADER_SIZE   = 8;
     public static final int  RECORD_SIZE   = 24;
 
@@ -107,6 +107,7 @@ public final class Protocol
         public static final int FX_TRACK = 37;
         public static final int HOST_PAGE = 38;
         public static final int CONTROLLER = 39;
+        public static final int SNAPSHOT = 40;
 
 
         private Processor ()
@@ -447,6 +448,7 @@ public final class Protocol
         public static final int MIXER = 4;
         public static final int DEVICE = 5;
         public static final int OTHER = 6;
+        public static final int SNAPSHOTS = 7;
 
 
         private ControllerViewKind ()
@@ -1069,6 +1071,18 @@ public final class Protocol
         public static final int HOST_PAGE_ROW = 0x0C40;
         /** /hostpage/cell/selected; -; i32 */
         public static final int HOST_CELL_SELECTED = 0x0C41;
+        /** /snapshot/count; -; i32 */
+        public static final int SNAPSHOT_COUNT = 0x0E01;
+        /** /snapshot/active; -; i32 */
+        public static final int SNAPSHOT_ACTIVE = 0x0E02;
+        /** /snapshot/appendOnly; -; bool */
+        public static final int SNAPSHOT_APPEND_ONLY = 0x0E03;
+        /** /snapshot/{index}/exists; index; bool */
+        public static final int SNAPSHOT_EXISTS = 0x0E10;
+        /** /snapshot/{index}/name; index; text */
+        public static final int SNAPSHOT_NAME = 0x0E11;
+        /** /snapshot/{index}/color; index; color */
+        public static final int SNAPSHOT_COLOR = 0x0E12;
 
 
         private Msg ()
@@ -1079,10 +1093,10 @@ public final class Protocol
 
 
     /** The value types of the reports by ID, -1 for none. */
-    private static final byte [] MSG_TYPES = new byte [3138];
-    private static final String [] MSG_NAMES = new String [3138];
-    private static final String [] MSG_TEMPLATES = new String [3138];
-    private static final String [] MSG_SLOTS = new String [3138];
+    private static final byte [] MSG_TYPES = new byte [3603];
+    private static final String [] MSG_NAMES = new String [3603];
+    private static final String [] MSG_TEMPLATES = new String [3603];
+    private static final String [] MSG_SLOTS = new String [3603];
 
     static
     {
@@ -1339,6 +1353,12 @@ public final class Protocol
             Integer.valueOf (0x0C33), Integer.valueOf (2), "HostSectionSelected", "/hostpage/section/selected", "",
             Integer.valueOf (0x0C40), Integer.valueOf (2), "HostPageRow", "/hostpage/row", "",
             Integer.valueOf (0x0C41), Integer.valueOf (2), "HostCellSelected", "/hostpage/cell/selected", "",
+            Integer.valueOf (0x0E01), Integer.valueOf (2), "SnapshotCount", "/snapshot/count", "",
+            Integer.valueOf (0x0E02), Integer.valueOf (2), "SnapshotActive", "/snapshot/active", "",
+            Integer.valueOf (0x0E03), Integer.valueOf (1), "SnapshotAppendOnly", "/snapshot/appendOnly", "",
+            Integer.valueOf (0x0E10), Integer.valueOf (1), "SnapshotExists", "/snapshot/{index}/exists", "index",
+            Integer.valueOf (0x0E11), Integer.valueOf (4), "SnapshotName", "/snapshot/{index}/name", "index",
+            Integer.valueOf (0x0E12), Integer.valueOf (5), "SnapshotColor", "/snapshot/{index}/color", "index",
         };
         for (int i = 0; i < table.length; i += 5)
         {
@@ -1851,10 +1871,16 @@ public final class Protocol
         /** hostpage cell/{cell}/assign/{epoch} */
         HOST_PAGE_CELL_ASSIGN(0x8C0A, "HostPageCellAssign", "hostpage cell/{cell}/assign/{epoch}", "cell,epoch", 2, "i32"),
         /** controller view */
-        CONTROLLER_VIEW(0x8D01, "ControllerView", "controller view", "", 2, "i32");
+        CONTROLLER_VIEW(0x8D01, "ControllerView", "controller view", "", 2, "i32"),
+        /** snapshot {index}/load */
+        SNAPSHOT_LOAD(0x8E01, "SnapshotLoad", "snapshot {index}/load", "index", 0, "none"),
+        /** snapshot {index}/store */
+        SNAPSHOT_STORE(0x8E02, "SnapshotStore", "snapshot {index}/store", "index", 0, "none"),
+        /** snapshot {index}/remove */
+        SNAPSHOT_REMOVE(0x8E03, "SnapshotRemove", "snapshot {index}/remove", "index", 0, "none");
 
 
-        private static final Cmd [] BY_ID = new Cmd [3330];
+        private static final Cmd [] BY_ID = new Cmd [3588];
 
         static
         {
@@ -3007,6 +3033,17 @@ public final class Protocol
             {
                 case 0x8C07 -> this.idx (0);
                 default -> throw new IllegalStateException ("No field end in the command " + Integer.toHexString (this.id ()));
+            };
+        }
+
+
+        /** @return The index field "index" of the command */
+        public int index ()
+        {
+            return switch (this.id ())
+            {
+                case 0x8E01, 0x8E02, 0x8E03 -> this.idx (0);
+                default -> throw new IllegalStateException ("No field index in the command " + Integer.toHexString (this.id ()));
             };
         }
     }

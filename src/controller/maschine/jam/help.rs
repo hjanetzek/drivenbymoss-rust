@@ -22,6 +22,7 @@ use crate::framework::ctx::Ctx;
 use crate::framework::help::{automation, browsing, group_track_names, help, help_long, lines, next_mode, on_off, play_button, scene_names, view_name, Help};
 use crate::framework::help_table::{HelpKey, IntoRes, NoHelp, Res};
 use crate::framework::ids::{ButtonId, Modes, Views};
+use crate::framework::snapshot_grid;
 use crate::scale::Scales;
 
 use super::setup::{PLAY_VIEWS, SEQUENCER_VIEWS};
@@ -85,12 +86,10 @@ crate::help! {
         Select + Sends => "Add an effect track",
         Sends + Sends => "Held: a group button A-H selects that send",
         Sends => command, long AUX_LONG,
-        Select + Device => |ctx| if !surface_link::has_host_pages(ctx) {
-            "Toggle project / track parameters"
-        } else if surface_link::is_active(ctx) {
+        Select + Device => |ctx| if surface_link::is_active(ctx) {
             "Page surface: the next source, or off"
         } else {
-            "Page surface on (the host's pages, then the next sources)"
+            "Page surface on (the pages of the Electra One / the host)"
         },
         Shift + Device => |ctx| if surface_link::has_host_pages(ctx) {
             "Strips: the host's first remote control page"
@@ -116,10 +115,12 @@ crate::help! {
         Scene1 .. Scene8 => |ctx| scene_row(ctx, "Launch the scene"),
 
         // Views
-        Select + Session => |ctx| if surface_link::is_active(ctx) {
-            "Page surface: the next source, or off"
+        Select + Session => |ctx| if ctx.views.is_active_ignore_temporary(&[Views::Snapshots]) {
+            "Snapshots: back to the view before"
+        } else if snapshot_grid::has_snapshots(ctx) {
+            "The host's snapshots on the pads"
         } else {
-            "Page surface on (the pages of the Electra One / the host)"
+            "Snapshots (the host has none)"
         },
         Shift + Session => |ctx| format!("Show the {} panel", if ctx.model.application().panel_layout() == PANEL_LAYOUT_ARRANGE { "mix" } else { "arrange" }),
         Session => "Session view: the clips on the pads (long press: birds-eye view)" long SONG_LONG,
@@ -293,6 +294,14 @@ crate::help! {
     view Control {
         grid => |ctx| format!("Bottom right 4×4: the fixed accent velocity (now {})", ctx.config.fixed_accent_value()), long ACCENT_LONG,
     }
+    view Snapshots {
+        Shift + grid => |ctx| snapshot_grid::help_store(ctx),
+        Delete + grid => |_ctx| snapshot_grid::HELP_REMOVE,
+        grid => |ctx| snapshot_grid::help_load(ctx), long SNAPSHOTS_LONG,
+        Shift => "Hold + pad: store the current state into the slot",
+        Delete => "Hold + pad: remove the snapshot",
+        Session => "Leave the snapshots for the Session view (Select + SONG: back to the view before)",
+    }
     view SurfaceLink {
         grid => "Row 1: the pages (last 2: previous / next); rows 2-7: the cells; row 8: the sections" long SURFACE_LONG,
         ArrowUp => "Page surface: the previous row",
@@ -361,7 +370,7 @@ crate::help! {
 // The long texts
 
 const SHIFT_LONG: &str = "Hold Shift and press a button: its second function (each box shows it while Shift is held).\nA tap of Shift opens the Shift view on the pads (undo, redo, quantize, transpose); Shift again closes it.\nWith the setting \"Shift Pads While Holding Shift\" the Shift view is shown while Shift is held.\nShift + strips and Shift + encoder: fine changes. Shift + Select: slow fader change on/off.";
-const SELECT_LONG: &str = "Hold Select and press a button: its Select function (each box shows it while Select is held).\nSelect + scene: select the scene; + pad (Session): select the clip; + MACRO/LEVEL/AUX: add an instrument/audio/effect track.\nSelect + SOLO/MUTE: clear solo/mute of all tracks; + PLAY: punch in; + NOTE REPEAT: fill mode; + AUTO: automation mode.\nSelect + SONG: the page surface (doc/SURFACE_LINK.md). Shift + Select: slow fader change on/off.";
+const SELECT_LONG: &str = "Hold Select and press a button: its Select function (each box shows it while Select is held).\nSelect + scene: select the scene; + pad (Session): select the clip; + MACRO/LEVEL/AUX: add an instrument/audio/effect track.\nSelect + SOLO/MUTE: clear solo/mute of all tracks; + PLAY: punch in; + NOTE REPEAT: fill mode; + AUTO: automation mode.\nSelect + SONG: the host's snapshots. Select + CONTROL: the page surface (doc/SURFACE_LINK.md). Shift + Select: slow fader change on/off.";
 const CLEAR_LONG: &str = "Hold Clear and press a scene button: delete the scene; a group button: delete the track.\nSession: Clear + pad deletes the clip. Play/Chords: Clear + pad deletes the notes of the pad's note in the clip.\nDrum: Delete the notes of the drum pad in the clip.";
 const DUPLICATE_LONG: &str = "Hold Duplicate and press a group button: duplicate the track.\nSession: hold Duplicate, press a clip with content (the source), then an empty slot (the copy); release.\nShift + Duplicate: double the content of the selected clip.";
 const PLAY_LONG: &str = "Play: start / stop (the setting \"Behaviour on Pause\"); a double click returns to zero (setting).\nShift + Play: restart from the beginning. Select + Play: punch in. Select + Shift + Play: punch out.";
@@ -375,7 +384,7 @@ const MACRO_LONG: &str = "Macro: the strips control the selected track: volume, 
 const LEVEL_LONG: &str = "Level: the strips control the volume of 8 tracks, press again: the panorama.\nSelect + Level: add an audio track.";
 const AUX_LONG: &str = "Aux: the strips control one send of 8 tracks; press again: the next send.\nHold Aux and press a group button A-H: that send.\nShift + Aux: effect tracks / instrument and audio tracks. Select + Aux: add an effect track.";
 const SCENE_LONG: &str = "Scene 1-8: launch the scene. Select + scene: select it without launching. Shift + scene: the alternative launch.\nClear + scene: delete it. Hold Step / Pad Mode + a scene button: select a sequencer / play view.";
-const SONG_LONG: &str = "Song: the Session view (the clips on the pads); press again: flip the clips' orientation. Long press: the birds-eye view.\nShift + Song: the arrange / mix panel.\nSelect + Song: the page surface on, the next source, off (doc/SURFACE_LINK.md).";
+const SONG_LONG: &str = "Song: the Session view (the clips on the pads); press again: flip the clips' orientation. Long press: the birds-eye view.\nShift + Song: the arrange / mix panel.\nSelect + Song: the host's snapshots on the pads; again: back to the view before.";
 const STEP_LONG: &str = "Step: the next sequencer (Sequencer, Poly Sequencer, Raindrops, Drum, Drum 4, Drum 8).\nHold Step and press scene 1-6 to select one directly.";
 const PAD_MODE_LONG: &str = "Pad Mode: the next play view (Play, Chords, Piano, Drum 64).\nHold Pad Mode and press scene 1-4 to select one directly.";
 const BROWSE_LONG: &str = "Browse: the browser for the selected device (replace it), without a device: add one to the selected track.\nShift + Browse: insert a device before the selected one; Select + Browse: after it.\nWhile browsing: the encoder selects (Shift: the tab, Select: before / after), its push confirms, Browse discards.";
@@ -399,7 +408,8 @@ const SHIFT_VIEW_LONG: &str = "The top row of the Shift view: undo, redo, quanti
 const NOTE_REPEAT_LONG: &str = "The note repeat configuration (long press or Shift + Note Repeat; Note Repeat closes it).\nThe left pair of coloured columns: the repeat period; the right pair: the note length. The two green pads: the previous / next arpeggiator mode.";
 const BROWSER_LONG: &str = "Columns 1-6: the first 6 filter columns of the browser, column 8 (yellow): the results.\nRow 1: the selection up by 1, row 2: up by 8, row 3: down by 8, row 4: down by 1.\nRed: discard and close, green: confirm and close; the orange pads at the bottom preview the presets.";
 const ACCENT_LONG: &str = "While Lock is held: the 16 pads at the bottom right set the velocity of the fixed accent. A short press of Lock switches the fixed accent on/off.";
-const SURFACE_LONG: &str = "The page surface (Select + SONG): row 1 the page list, its last two pads the previous / next page; rows 2-7 the cells of the page (a knob cell selects its row for the strips, a pad cell is pressed); row 8 the sections of the source.\nPAGE LEFT/RIGHT: the page, up / down: the row, left / right: the control set or the value of the selected cell. Without a source the grid shows a red cross.";
+const SURFACE_LONG: &str = "The page surface (Select + CONTROL): row 1 the page list, its last two pads the previous / next page; rows 2-7 the cells of the page (a knob cell selects its row for the strips, a pad cell is pressed); row 8 the sections of the source.\nPAGE LEFT/RIGHT: the page, up / down: the row, left / right: the control set or the value of the selected cell. Without a source the grid shows a red cross.";
+const SNAPSHOTS_LONG: &str = "The host's snapshots (Select + SONG; again or another view button: back): the pads are the slots 1-64 from the top left.\nPad: load it (green: the active one). Shift + pad: store the current state into the slot (overwrite a stored one; a host with a list: a new one at the red pad). Clear + pad: remove it (no confirmation).\nThe host keeps the numbers, names, colours and the files.";
 const STRIPS_SURFACE_LONG: &str = "Swipe a strip: the value (relative, no jumps); Shift: fine. Select + touch a strip: assign the cell to that remote slot of the host.";
 
 // ------------------------------------------------------------------------------------------
@@ -444,13 +454,13 @@ pub fn control_button(ctx: &Ctx, current: Modes) -> Option<Help> {
             "Control: the strips switch between the device parameters and the host's pages (the host page strips).",
             "Page Left/Right: the parameter pages; on the host page strips the control set (Select: the row).",
             "Shift + Control: the host page strips on the first remote control page.",
-            "Select + Control: the page surface on / to the next source (as Select + SONG).",
+            "Select + Control: the page surface on / to the next source / off.",
         ])
     } else {
         lines(&[
             "Control: the strips switch between the device's remote controls (coloured) and the project (white) / track (amber) parameters.",
             "Page Left/Right: the parameter pages (Select + Page: the device).",
-            "Select + Control: project / track parameters. Shift + Control: the window of the selected device.",
+            "Select + Control: the page surface on / to the next source / off. Shift + Control: the window of the selected device.",
         ])
     };
     let modes = if host { [Modes::DeviceParams, Modes::HostStrips] } else { [Modes::DeviceParams, Modes::User] };

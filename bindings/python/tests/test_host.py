@@ -24,6 +24,7 @@ from dbm_host.device import EQ_PLUS, Equalizer, eq_plus, format_eq_frequency, fo
 from dbm_host.parameter import VOLUME_0DB, format_pan, format_three_digits, format_volume, limit_text  # noqa: E402
 from dbm_host.coverage import run_command, unhandled_commands  # noqa: E402
 from dbm_host.reporter import format_beats, format_time  # noqa: E402
+from dbm_host.snapshots import SNAPSHOT_COMMANDS as SNAPSHOT_IDS  # noqa: E402
 from dbm_host import reporter as reporter_module  # noqa: E402
 import drivenbymoss  # noqa: E402
 from drivenbymoss import protocol  # noqa: E402
@@ -391,6 +392,62 @@ class ControllerFollowerTest(unittest.TestCase):
         self.assertEqual(host.commands.unhandled, [])
         self.assertEqual(len(host.commands.log), 3)
         self.assertFalse({protocol.Cmd.CONTROLLER_VIEW, protocol.Cmd.CLIP_EDIT_WINDOW} & Host().commands.handled_commands())
+
+
+
+class SnapshotsTest(unittest.TestCase):
+
+    @staticmethod
+    def send(host, *commands):
+        w = protocol.Writer()
+        for id_, index in commands:
+            w.put(id_, index, 0, 0, 0, None)
+        host.commands.process_commands(w.buffer())
+
+    def test_a_dense_list(self):
+        """appendOnly (the default): the reports, a store at count appends, a remove closes the
+        gap; without SimDaw.snapshots no snapshot command is handled and nothing reported."""
+        from dbm_host.snapshots import Snapshots
+        Cmd = protocol.Cmd
+        daw = project()
+        daw.snapshots = Snapshots(names=["A", "B"])
+        daw.snapshots.items[0].color = (255, 80, 0)
+        host = Host(daw)
+        self.assertLessEqual(set(SNAPSHOT_IDS), host.commands.handled_commands())
+        report = host.report()
+        self.assertEqual((report["/snapshot/appendOnly"], report["/snapshot/count"], report["/snapshot/active"]), ("1", "2", "-1"))
+        self.assertEqual((report["/snapshot/0/exists"], report["/snapshot/0/name"], report["/snapshot/0/color"]), ("1", "A", "255 80 0"))
+        self.assertEqual((report["/snapshot/1/name"], report["/snapshot/2/exists"]), ("B", "0"))
+        self.send(host, (Cmd.SNAPSHOT_LOAD, 1), (Cmd.SNAPSHOT_STORE, 2))
+        report = host.report()
+        self.assertEqual((report["/snapshot/count"], report["/snapshot/active"], report["/snapshot/2/exists"]), ("3", "2", "1"))
+        self.assertEqual(report["/snapshot/2/name"], "Snapshot 3")
+        self.send(host, (Cmd.SNAPSHOT_REMOVE, 0))
+        report = host.report()
+        self.assertEqual((report["/snapshot/count"], report["/snapshot/active"], report["/snapshot/0/name"], report["/snapshot/2/exists"]), ("2", "1", "B", "0"))
+        self.assertEqual(host.commands.unhandled, [])
+        plain = Host()
+        self.assertFalse(set(SNAPSHOT_IDS) & plain.commands.handled_commands())
+        self.assertFalse([line for line in plain.lines() if line.startswith("/snapshot/")])
+
+    def test_a_sparse_set(self):
+        """Not appendOnly (zynthian: slot i = program change i, 128 slots): count 128, gaps, a store into a
+        gap, a remove leaves a gap."""
+        from dbm_host.snapshots import Snapshots
+        Cmd = protocol.Cmd
+        daw = project()
+        daw.snapshots = Snapshots(append_only=False, names={0: "Intro", 5: "Verse", 40: "Chorus"}, slot_count=128)
+        host = Host(daw)
+        report = host.report()
+        self.assertEqual((report["/snapshot/appendOnly"], report["/snapshot/count"]), ("0", "128"))
+        self.assertNotIn("/snapshot/64/exists", report, "the window: the first 64")
+        self.assertEqual([report[f"/snapshot/{i}/exists"] for i in (0, 1, 5, 6, 40, 63)], ["1", "0", "1", "0", "1", "0"])
+        self.send(host, (Cmd.SNAPSHOT_STORE, 7), (Cmd.SNAPSHOT_REMOVE, 5), (Cmd.SNAPSHOT_LOAD, 40))
+        report = host.report()
+        self.assertEqual((report["/snapshot/7/exists"], report["/snapshot/5/exists"], report["/snapshot/active"]), ("1", "0", "40"))
+        self.assertNotIn("/snapshot/count", report, "change-only: still 128")
+        last = host.reporter.snapshot()
+        self.assertEqual((last["/snapshot/count"], last["/snapshot/40/name"], last["/snapshot/7/name"]), ("128", "Chorus", "Snapshot 4"))
 
 
 class ReporterTest(unittest.TestCase):

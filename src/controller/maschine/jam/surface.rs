@@ -106,6 +106,8 @@ pub struct JamExt {
     pub browser_active: bool,
     /// The surface of the surface link (not part of Java).
     pub surface: super::surface_link::JamSurface,
+    /// The view before the snapshot view (Select + SONG returns to it; not part of Java).
+    pub snapshot_previous: Option<crate::framework::ids::Views>,
     /// The LED brightness setting (not in the Java version).
     pub brightness: SharedBrightness,
 }
@@ -123,6 +125,7 @@ impl JamExt {
             encoder_manager: Rc::new(RefCell::new(EncoderModeManager::new())),
             browser_active: false,
             surface: super::surface_link::JamSurface::new(),
+            snapshot_previous: None,
             brightness: SharedBrightness::default(),
         }
     }

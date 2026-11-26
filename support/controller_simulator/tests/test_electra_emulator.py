@@ -244,8 +244,8 @@ class ElectraEmulatorTest(unittest.TestCase):
         self.assertTrue(run(3, lambda: any("Surface link: a surface attached." in log for log in electra.logs)), electra.logs)
         run(0.5)
 
-        # Select + SONG: the JAM shows the Electra's mixer page
-        for control, value in ((50, 127), (30, 127), (30, 0), (50, 0)):
+        # Select + CONTROL: the JAM shows the Electra's mixer page
+        for control, value in ((50, 127), (39, 127), (39, 0), (50, 0)):
             jam.receive(bytes([0xB0, control, value]))
         self.assertTrue(run(2, lambda: "Surface: Electra One - Mixer" in jam.notifications), jam.notifications)
 

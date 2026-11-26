@@ -31,6 +31,7 @@ from .model import Application, Arranger, Channel, MasterTrack, Mixer, NoteInput
 from .navigator import ClipLauncherNavigator
 from .parameter import TAKEOVER_CATCH, TAKEOVER_IMMEDIATE, Parameter, Preferences
 from .reporter import Reporter
+from .snapshots import Snapshot, Snapshots
 
 __all__ = [
     "Application",
@@ -58,6 +59,8 @@ __all__ = [
     "Preferences",
     "RemoteControl",
     "Reporter",
+    "Snapshot",
+    "Snapshots",
     "Scene",
     "Send",
     "SimDaw",
