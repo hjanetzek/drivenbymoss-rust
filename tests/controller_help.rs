@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Hannes Janetzek
 // Licensed under LGPLv3 - http://www.gnu.org/licenses/lgpl-3.0.txt
 
-//! The help of the controls (doc/CONTROLLER_HELP_PLAN.md) on the Maschine JAM: the changes since
-//! the last call, the texts in the states the modifiers and the views make.
+//! The help of the controls (doc/CONTROLLER_HELP_PLAN.md) on the Maschine JAM and the Mk2: the
+//! changes since the last call, the texts in the states the modifiers and the views make, the
+//! tables' coverage of every button in every view and mode.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -14,7 +15,7 @@ use drivenbymoss::backend::RecordingBackend;
 use drivenbymoss::controller::maschine::jam::surface as jam;
 use drivenbymoss::framework::help;
 use drivenbymoss::framework::help_table::HelpKey;
-use drivenbymoss::framework::ids::{ButtonId, Modes, Views};
+use drivenbymoss::framework::ids::{ButtonId, ContinuousId, Modes, Views};
 use drivenbymoss::json::JsonValue;
 
 const IN: i32 = 3;
@@ -23,13 +24,21 @@ const SHIFT_DOWN: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x
 const SHIFT_UP: [u8; 13] = [0xF0, 0x00, 0x21, 0x09, 0x15, 0x00, 0x4D, 0x50, 0x00, 0x01, 0x4D, 0x00, 0xF7];
 
 fn start() -> App {
+    start_controller("jam.MaschineJamControllerInstance", "Maschine Jam - 1", "Maschine Jam - 1")
+}
+
+fn start_mk2() -> App {
+    start_controller("mk3.MaschineMk2ControllerInstance", "Maschine MK2 In", "Maschine MK2 Out")
+}
+
+fn start_controller(class: &str, input: &str, output: &str) -> App {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("dbm-test-help-{}-{count}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("DrivenByMoss4Reaper.config"), "CONTROLLER_INSTANCE0=de.mossgrabers.reaper.controller.ni.maschine.jam.MaschineJamControllerInstance\n").unwrap();
-    let backend = Rc::new(RecordingBackend { inputs: vec![(IN, "Maschine Jam - 1".into())], outputs: vec![(OUT, "Maschine Jam - 1".into())], ..Default::default() });
+    std::fs::write(dir.join("DrivenByMoss4Reaper.config"), format!("CONTROLLER_INSTANCE0=de.mossgrabers.reaper.controller.ni.maschine.{class}\n")).unwrap();
+    let backend = Rc::new(RecordingBackend { inputs: vec![(IN, input.into())], outputs: vec![(OUT, output.into())], ..Default::default() });
     let mut app = App::new(backend, dir.to_str().unwrap(), 7, 22);
     app.start_infrastructure();
     app.update_model("track/count 2\ntrack/0/exists 1\ntrack/0/name Drums\ntrack/0/select 1\ntrack/1/exists 1\ntrack/1/name Bass\nscene/count 1\nscene/0/exists 1\nscene/0/name Verse\nplay 0\n");
@@ -181,26 +190,33 @@ const MODES: [Modes; 15] = [
     Modes::Send8, Modes::DeviceParams, Modes::User, Modes::HostStrips, Modes::SurfaceLink,
 ];
 
-/// The table has a row (a text, `none` or `command`) for every button with a command in every
-/// view and mode of the JAM, and for the pads and the strips.
+/// The table has a row (a text, `none` or `command`) for every button and continuous control
+/// with a command in every view and mode of the JAM, and for the pads and the strips.
 #[test]
 fn the_table_covers_every_button() {
     let mut app = start();
+    check_coverage(&mut app, &VIEWS, &MODES);
+}
+
+/// The table has a row for every button and continuous control with a command in every view and
+/// mode of the JAM (or the Mk2), and for the pads and the mode's controls (strips, knobs).
+fn check_coverage(app: &mut App, views: &[Views], modes: &[Modes]) {
     let ctx = app.instance_ctx(0).unwrap();
-    let table = ctx.help_table.expect("the JAM has a help table");
+    let table = ctx.help_table.expect("the controller has a help table");
     let rows = table.button_rows();
     let buttons: Vec<ButtonId> = ctx.surface.button_ids().into_iter().filter(|id| ctx.surface.button(*id).unwrap().command().is_some()).collect();
+    let continuous: Vec<HelpKey> = ContinuousId::ALL.iter().filter(|id| ctx.surface.continuous(**id).is_some_and(|c| c.command.is_some())).map(|id| HelpKey::Continuous(*id)).collect();
     let mut missing = Vec::new();
-    for view in VIEWS {
-        for mode in MODES {
+    for view in views {
+        for mode in modes {
             for button in &buttons {
                 let key = rows.iter().copied().find(|row| row.buttons().contains(button)).unwrap_or(HelpKey::Button(*button));
-                if !table.has_entry(Some(view), Some(mode), key) {
+                if !table.has_entry(Some(*view), Some(*mode), key) {
                     missing.push(format!("{view:?}/{mode:?}: {button:?}"));
                 }
             }
-            for key in [HelpKey::Grid, HelpKey::Controls] {
-                if !table.has_entry(Some(view), Some(mode), key) {
+            for key in continuous.iter().copied().chain([HelpKey::Grid, HelpKey::Controls]) {
+                if !table.has_entry(Some(*view), Some(*mode), key) {
                     missing.push(format!("{view:?}/{mode:?}: {key:?}"));
                 }
             }
@@ -208,4 +224,149 @@ fn the_table_covers_every_button() {
     }
     missing.dedup();
     assert!(missing.is_empty(), "{} without a row, e.g. {:?}", missing.len(), &missing[..missing.len().min(10)]);
+}
+
+// ------------------------------------------------------------------------------------------
+// The Maschine Mk2
+
+const MK2_VIEWS: [Views; 7] = [Views::ScenePlay, Views::Session, Views::Drum, Views::Play, Views::Device, Views::RepeatNote, Views::Shift];
+const MK2_MODES: [Modes; 21] = [
+    Modes::Browser, Modes::Volume, Modes::Pan, Modes::Send1, Modes::Send2, Modes::Send3, Modes::Send4, Modes::Send5, Modes::Send6, Modes::Send7,
+    Modes::Send8, Modes::Tempo, Modes::Position, Modes::LoopStart, Modes::LoopLength, Modes::RepeatNote, Modes::Scales, Modes::PlayOptions,
+    Modes::Note, Modes::DeviceParams, Modes::User,
+];
+
+const MK2_STOP: i32 = 59;
+const MK2_SELECT: i32 = 90;
+const MK2_PAD_MODE: i32 = 81;
+const MK2_STEP: i32 = 83;
+const MK2_VOLUME: i32 = 44;
+const MK2_SCENE: i32 = 85;
+const MK2_ERASE: i32 = 54;
+const MK2_HOST_SENDS_SHIFT: [u8; 8] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x11, 0x01, 0xF7];
+const MK2_SHIFT_DOWN: [u8; 8] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x12, 0x01, 0xF7];
+const MK2_SHIFT_UP: [u8; 8] = [0xF0, 0x7D, 0x44, 0x42, 0x4D, 0x12, 0x00, 0xF7];
+
+#[test]
+fn mk2_the_first_call_has_the_rows_knobs_and_pads() {
+    let mut app = start_mk2();
+    let entries = take(&mut app);
+    assert_eq!(short(&entries, "Play"), "Start playback (double click: to zero)");
+    assert_eq!(entries["Play"].get("control").unwrap().as_int(), 57);
+    // The knobs and the buttons above the displays: one box each, the details in the long text
+    assert_eq!(short(&entries, "knobs"), "The volume of 8 tracks");
+    assert!(entries["knobs"].get("long").unwrap().as_text().contains("1: Drums, 2: Bass"));
+    assert_eq!(entries["knobs"].get("scope").unwrap().as_text(), "mode");
+    assert!(short(&entries, "Row21..Row28").starts_with("Knobs: Volume, Pan"));
+    let members = entries["Row21..Row28"].get("members").unwrap().elements();
+    assert_eq!(members.len(), 8);
+    // The 7th button above the displays is a note (the MCU display needs one)
+    assert_eq!(members[6].get("bind").unwrap().as_text(), "note");
+    assert!(short(&entries, "Row31..Row38").starts_with("Select the track"));
+    assert!(entries["Row31..Row38"].get("long").unwrap().as_text().contains("A: Drums (selected)"));
+    assert!(!entries.contains_key("Knob1"), "the knobs have no boxes of their own");
+    assert!(short(&entries, "MasterKnob").contains("volume of the selected track (Drums)"));
+    assert_eq!(short(&entries, "ArrowLeft..ArrowRight"), "Select the previous / next track (the encoder's)");
+    assert!(short(&entries, "grid").starts_with("Play"), "{}", short(&entries, "grid"));
+    assert_eq!(short(&entries, "@mode"), "Volume");
+    // The Mk3's buttons, which the Mk2 doesn't have: no boxes
+    for id in ["Accent", "PageLeft", "F1", "Crossfader"] {
+        assert!(!entries.contains_key(id), "{id}");
+    }
+}
+
+#[test]
+fn mk2_modifiers_change_the_texts() {
+    let mut app = start_mk2();
+    take(&mut app);
+    // With NI's driver the transport's left arrow (Stop) is Shift
+    let entries = take_after(&mut app, |app| cc(app, MK2_STOP, 127));
+    assert_eq!(short(&entries, "Play"), "Loop: turn it on");
+    assert_eq!(entries["Play"].get("scope").unwrap().as_text(), "modifier");
+    assert!(short(&entries, "Stop").starts_with("Hold: Shift"));
+    assert_eq!(short(&entries, "ArrowLeft..ArrowRight"), "The previous / next 8 tracks");
+    check_lengths(&mut app, "Mk2 Stop as Shift");
+    cc(&mut app, MK2_STOP, 0);
+    app.tick();
+    take(&mut app);
+
+    // dbm-nihost sends the Shift button: the left arrow is Stop
+    app.on_midi_event(IN, &MK2_HOST_SENDS_SHIFT);
+    app.on_midi_event(IN, &MK2_SHIFT_DOWN);
+    app.tick();
+    let entries = take(&mut app);
+    assert_eq!(short(&entries, "Play"), "Loop: turn it on");
+    assert!(!entries.contains_key("Row31..Row38"), "the group buttons don't change with Shift");
+    assert!(short(&entries, "Select").starts_with("Edit note mode"));
+    assert!(short(&entries, "Row21..Row28").starts_with("Send − / +"));
+    check_lengths(&mut app, "Mk2 Shift");
+    app.on_midi_event(IN, &MK2_SHIFT_UP);
+    app.tick();
+    take(&mut app);
+    let stop = help::collect(app.instance_ctx(0).unwrap()).into_iter().find(|e| e.id == "Stop").and_then(|e| e.help).unwrap();
+    assert!(stop.short.starts_with("Stopped: back to the start"), "{}", stop.short);
+
+    let entries = take_after(&mut app, |app| cc(app, MK2_SELECT, 127));
+    assert!(short(&entries, "Play").starts_with("Punch in"));
+    cc(&mut app, MK2_SELECT, 0);
+    let entries = take_after(&mut app, |app| cc(app, MK2_ERASE, 127));
+    assert_eq!(short(&entries, "Row31..Row38"), "Delete the track");
+    cc(&mut app, MK2_ERASE, 0);
+}
+
+#[test]
+fn mk2_views_and_modes_describe_the_pads_and_knobs() {
+    let mut app = start_mk2();
+    take(&mut app);
+    // SCENE: the scene view
+    cc(&mut app, MK2_SCENE, 127);
+    let entries = take_after(&mut app, |_| {});
+    assert!(short(&entries, "MasterKnob").contains("16 scenes"), "{}", short(&entries, "MasterKnob"));
+    cc(&mut app, MK2_SCENE, 0);
+    app.tick();
+    assert!(app.instance_ctx(0).unwrap().views.is_active(Views::ScenePlay));
+    let entries = take(&mut app);
+    assert!(short(&entries, "grid").starts_with("Launch the 16 scenes"));
+    // PAD MODE: the drum view, STEP: its sequencer
+    cc(&mut app, MK2_PAD_MODE, 127);
+    cc(&mut app, MK2_PAD_MODE, 0);
+    cc(&mut app, MK2_STEP, 127);
+    cc(&mut app, MK2_STEP, 0);
+    app.tick();
+    assert!(app.instance_ctx(0).unwrap().views.is_active(Views::Drum));
+    let entries = take(&mut app);
+    assert!(short(&entries, "grid").starts_with("The 16 steps of drum pad"), "{}", short(&entries, "grid"));
+    // VOLUME: the panorama next
+    let entries = take_after(&mut app, |app| {
+        cc(app, MK2_VOLUME, 127);
+        cc(app, MK2_VOLUME, 0);
+    });
+    assert_eq!(short(&entries, "knobs"), "The panorama of 8 tracks");
+    assert!(short(&entries, "Volume").contains("send 1"), "{}", short(&entries, "Volume"));
+
+    for view in MK2_VIEWS {
+        let ctx = app.instance_ctx(0).unwrap();
+        ctx.set_active_view(view);
+        assert!(help::collect(ctx).iter().any(|e| e.id == "grid" && e.help.is_some()), "{view:?} describes its pads");
+        check_lengths(&mut app, view.name());
+    }
+    for mode in MK2_MODES {
+        let ctx = app.instance_ctx(0).unwrap();
+        ctx.set_active_mode(mode);
+        assert!(help::collect(ctx).iter().any(|e| e.id == "knobs" && e.help.is_some()), "{mode:?} describes the knobs");
+        check_lengths(&mut app, mode.name());
+    }
+}
+
+#[test]
+fn mk2_the_table_covers_every_button() {
+    let mut app = start_mk2();
+    check_coverage(&mut app, &MK2_VIEWS, &MK2_MODES);
+}
+
+/// The changes after the function (and a tick).
+fn take_after(app: &mut App, f: impl FnOnce(&mut App)) -> HashMap<String, JsonValue> {
+    f(app);
+    app.tick();
+    take(app)
 }

@@ -161,6 +161,10 @@ pub fn create(definition: MaschineDefinition, host: Host, sender: Sender, ports:
         ctx.notify_view_change = false;
     }
     ctx.sysex_handler = Some(Rc::new(move |ctx: &mut Ctx, data: &str| handle_maschine_sysex(ctx, maschine, data)));
+    // The help texts of the controls (doc/CONTROLLER_HELP_PLAN.md; the Mk2 only so far)
+    if maschine == Maschine::Mk2 {
+        ctx.help_table = Some(&super::help::TABLE);
+    }
     install_trigger_sender(&mut ctx);
     ctx.create_pads();
 

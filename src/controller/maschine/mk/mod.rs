@@ -7,6 +7,7 @@
 //! Studio misses its monitor-encoder section.
 
 pub mod definition;
+pub mod help;
 pub mod mode;
 pub mod surface;
 pub mod view;

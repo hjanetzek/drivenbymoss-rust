@@ -122,6 +122,15 @@ impl EditNoteMode {
         self.active_note_attribute = attribute;
     }
 
+    /// The name of the page of the knobs: "Note", "Expressions" or "Repeat" (for the help).
+    pub fn page_name(&self) -> &'static str {
+        match self.page {
+            Page::Note => "Note",
+            Page::Expressions => "Expressions",
+            Page::Repeat => "Repeat",
+        }
+    }
+
     /// Former `host.supports (NoteAttribute)`.
     fn supports(&self, ctx: &Ctx, attribute: NoteAttribute) -> bool {
         attribute.is_supported(self.note_editor.is_host_grid(&ctx.model))
