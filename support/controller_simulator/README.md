@@ -150,7 +150,8 @@ devices (the photo's pixels times 0.264 / 0.172 mm; the logo strip cut off), wit
 of the hardware; NI's small secondary labels (the Maschine software's Shift functions: MIDI, SAVE,
 TAP, UNDO, ...) are left out, the help boxes take that role. The Mk2's arrows under BROWSE are
 drawn but send nothing (they are not in the template in the MIDI mode); its encoder push is a
-small button under the encoder. The Mk3 and the Mikro Mk3 are still the own drawings.
+small button under the encoder. The Mk3 and the Mikro Mk3 are still the own drawings. The Push 3
+(support/push_simulator) is placed from Ableton's labelled diagram (378 × 314).
 
 ### With Bitwig
 

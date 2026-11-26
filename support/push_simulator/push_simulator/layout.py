@@ -9,7 +9,8 @@ CCs on channel 1 (127 pressed, 0 released), the encoders relative CCs with a tou
 the notes 36..99 (36 bottom left), the touch strip pitch bend with the touch note 12.
 
 Positions are in surface units (about millimetres, origin top left); the QML view scales them.
-The drawing is an own arrangement after the hardware, not Ableton's artwork.
+The Push 1 and 2 are an own arrangement after the hardware; the Push 3 is placed from Ableton's
+labelled top view diagram (``_push3``).
 """
 
 from dataclasses import dataclass, field
@@ -27,6 +28,14 @@ PAD_PITCH = 16.0
 PAD_SIZE = 14.0
 SURFACE_WIDTH = 218.0
 SURFACE_HEIGHT = 194.0
+# The Push 3 is placed from Ableton's labelled top view diagram (see _push3)
+PUSH3_SCALE = 0.237
+PUSH3_SURFACE = (1594 * PUSH3_SCALE, 1325 * PUSH3_SCALE)
+
+
+def surface(model: str) -> tuple[float, float]:
+    """The size of a model's surface in surface units (about millimetres)."""
+    return PUSH3_SURFACE if model == "push3" else (SURFACE_WIDTH, SURFACE_HEIGHT)
 
 
 @dataclass
@@ -67,6 +76,8 @@ def build_controls(model: str) -> list[Control]:
     """All controls of a model."""
     if model not in MODELS:
         raise ValueError(f"unknown model {model!r}")
+    if model == "push3":
+        return _push3()
     push1 = model == "push1"
     push3 = model == "push3"
     c: list[Control] = []
@@ -195,6 +206,96 @@ def build_controls(model: str) -> list[Control]:
     button("Oct Down", 54, 192, oct_y + 16, 14, 6)
     button("Shift", 49, 184, 180, 14, 9)
     button("Select", 48, 200, 180, 14, 9)
+    return c
+
+
+def _push3() -> list[Control]:
+    """The Push 3 as in Ableton's labelled top view diagram (the panel 1594 × 1325 px of a 2061 px
+    wide image, 0.237 mm per pixel, the Push 3 being about 378 mm wide): `px(cx, cy, w, h)` places a
+    control by its centre and size in the diagram's pixels. The CCs are those of the drawing before
+    (the hardware's controls with an icon get short names). Not on the panel, kept for their CCs:
+    the pedal inputs (on the back) and Add Device (CC 52, a Push 2 button), small in the bottom
+    margin; the jog wheel's nudge left / right and its press, and the press of the two left knobs,
+    are small buttons next to the knobs (the hardware moves / presses the knob itself)."""
+    c: list[Control] = []
+    scale, x0, y0 = PUSH3_SCALE, 229, 54
+
+    def px(cx, cy, w, h):
+        return ((cx - x0 - w / 2) * scale, (cy - y0 - h / 2) * scale, w * scale, h * scale)
+
+    def button(label, cc, rect, rgb=False, help_label="", help_side=""):
+        c.append(Control("button", label, *rect, cc=cc, rgb=rgb, help_label=help_label, help_side=help_side))
+
+    def encoder(label, cc, touch, rect, help_label="", help_side=""):
+        c.append(Control("encoder", label, *rect, cc=cc, note=touch, help_label=help_label, help_side=help_side))
+
+    columns = (595, 716.5, 838, 959.5, 1081, 1203, 1324.5, 1446)
+    rows = (647.5, 738.5, 830, 921.5, 1013, 1104, 1195, 1287)
+    cells = lambda left: [left + 29.4 + i * 58.75 for i in range(4)]  # noqa: E731 - the 4 cells of a block
+    # The encoders, the display and its buttons
+    for i, x in enumerate(columns):
+        encoder(f"{i + 1}", 71 + i, i, px(x, 144, 50, 50), help_label=f"Knob {i + 1}")
+    c.append(Control("display", "Display", *px(1020.5, 390.5, 969, 173)))
+    for i, x in enumerate(columns):
+        button("", 20 + i, px(x, 548.5, 107, 51), rgb=True, help_label=f"Below the display {i + 1}", help_side="left")
+        button("", 102 + i, px(x, 232.5, 107, 51), rgb=True, help_label=f"Above the display {i + 1}", help_side="top")
+    # Upper left: Sets, Setup, Learn, User; upper right: Device, Mix, Clip, Session (show the clips)
+    for x, (label, cc) in zip(cells(261), (("Sets", 80), ("Setup", 30), ("Learn", 81), ("User", 59))):
+        button(label, cc, px(x, 232.5, 55, 51), help_side="top")
+    for x, (label, cc) in zip(cells(1545), (("Device", 110), ("Mix", 112), ("Clip", 113), ("Session", 34))):
+        button(label, cc, px(x, 232, 55, 51), help_label="Session (clips)" if cc == 34 else "", help_side="top")
+    # The display row: the volume knob (its press under it), Undo / Save; Add / Swap, the jog wheel
+    encoder("Volume", 79, 8, px(317.5, 390, 99, 100), help_label="Volume knob")
+    button("Cue", 111, px(317.5, 468, 64, 24), help_label="Volume knob press")
+    button("Undo", 119, px(470, 329.5, 52, 51))
+    button("Save", 82, px(470, 451.5, 52, 51))
+    button("+", 32, px(1570.5, 328.5, 51, 51), help_label="Add")
+    button("Swap", 33, px(1570.5, 451.5, 51, 51))
+    encoder("Jog", 70, -1, px(1707, 390, 158, 158), help_label="Jog wheel")
+    button("◂", 93, px(1650, 496, 40, 26), help_label="Jog ◂")
+    button("Push", 94, px(1707, 496, 50, 26), help_label="Jog push")
+    button("▸", 95, px(1764, 496, 40, 26), help_label="Jog ▸")
+    # Below the display: Lock, Stop Clip, Mute, Solo; Master Track; the session d-pad
+    for x, (label, cc, rgb) in zip(cells(261), (("Lock", 83, True), ("Stop", 29, True), ("M", 60, True), ("S", 61, True))):
+        button(label, cc, px(x, 548.5, 55, 51), rgb=rgb, help_label={29: "Stop Clip", 60: "Mute", 61: "Solo"}.get(cc, ""))
+    button("Master", 28, px(1570.5, 548.5, 51, 51), rgb=True, help_label="Master Track")
+    button("▴", 46, px(1707, 545, 44, 32), help_label="Up")
+    button("◂", 44, px(1650, 605, 40, 40), help_label="Left")
+    button("•", 91, px(1707, 605, 44, 44), help_label="Center")
+    button("▸", 45, px(1764, 605, 40, 40), help_label="Right")
+    button("▾", 47, px(1707, 665, 44, 32), help_label="Down")
+    # The left column: the swing & tempo knob (its press right of it), Tap Tempo / Metronome /
+    # Quantize, Fixed Length / Automate, New / Capture / Record, Play; the touch strip
+    encoder("Tempo", 14, 10, px(317, 641, 66, 66), help_label="Swing & tempo knob")
+    button("Swing", 15, px(380, 641, 44, 26), help_label="Swing & tempo press")
+    for label, cc, y, h, rgb in (("Tap Tempo", 3, 727, 54, False), ("Metronome", 9, 784, 54, False), ("Quantize", 116, 841, 54, False),
+                                 ("Fixed Length", 90, 944.5, 44, False), ("Automate", 89, 990.5, 44, True),
+                                 ("New", 92, 1093, 54, False), ("Capture", 65, 1150, 54, True), ("Record", 86, 1207, 54, True),
+                                 ("Play", 85, 1287, 78, True)):
+        button(label, cc, px(317.5, y, 113, h), rgb=rgb)
+    c.append(Control("strip", "", *px(453, 966, 84, 722), note=STRIP_TOUCH_NOTE))
+    # The pads and the scene buttons (top: 1/32t, CC 43)
+    for row, y in enumerate(rows):
+        for col, x in enumerate(columns):
+            c.append(Control("pad", "", *px(x, y, 110, 80), note=pad_note(col, row)))
+        button(("1/32t", "1/32", "1/16t", "1/16", "1/8t", "1/8", "1/4t", "1/4")[row], 43 - row, px(1570.5, y, 51, 78), rgb=True,
+               help_label=f"Scene {row + 1}")
+    # The right column: Note / Session, Scale / Layout; Repeat / Accent; Double Loop / Duplicate,
+    # Convert / Delete; Octave up, Page ◂ ▸, Octave down; Shift / Select
+    left, right = 1666, 1748
+    for label, cc, x, y, h in (("Note", 50, left, 727, 54), ("Session", 51, right, 727, 54), ("Scale", 58, left, 784, 44),
+                               ("Layout", 31, right, 784, 44), ("Repeat", 56, left, 921, 76), ("Accent", 57, right, 921, 76),
+                               ("Double Loop", 117, left, 1004, 60), ("Duplicate", 88, right, 1004, 60), ("Convert", 35, left, 1067, 60),
+                               ("Delete", 118, right, 1067, 60), ("Shift", 49, left, 1307, 38), ("Select", 48, right, 1307, 38)):
+        button(label, cc, px(x, y, 80, h))
+    button("Octave ▴", 55, px(1707, 1140, 84, 34))
+    button("Page ◂", 62, px(1652, 1192, 56, 40))
+    button("Page ▸", 63, px(1762, 1192, 56, 40))
+    button("Octave ▾", 54, px(1707, 1245, 84, 34))
+    # Not on the panel (kept for their CCs): the pedals, Add Device
+    button("Pedal 1", 64, px(290, 1353, 56, 22))
+    button("Pedal 2", 69, px(350, 1353, 56, 22))
+    button("Add Device", 52, px(453, 1353, 80, 22))
     return c
 
 

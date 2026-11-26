@@ -4,8 +4,8 @@ Status: phase 1 and phase 2 done for the Maschine JAM (see §6); round 2: the JA
 declarative table (§9, with a comparison of the two approaches), boxes coloured by scope, one box
 per row of buttons, the global boxes hideable (§10). Phase 3, the mirror (§4): done for the devices
 the core drives in-process (the JAM and the Mk2). Phase 4: the Maschine Mk2's table and its layout from a
-photo (§12); the Push 1/2/3 table and the Push simulator's help (§13; the Push 3 layout from a photo
-is open, no picture yet).
+photo (§12); the Push 1/2/3 table, the Push simulator's help and the Push 3 layout from Ableton's
+labelled diagram (§13).
 
 ## 1. Goal
 
@@ -559,13 +559,28 @@ work (the device model takes the core's MIDI); a mirror of real Push hardware is
 core doesn't drive a Push in-process). `run_with_core.sh --model push3` starts the Push simulator
 (its own port names with the suffix, its display socket) with the core, `--sim` only.
 
-Help sides on the current drawing: the left column left, the buttons right of the display (Setup,
-User, Device, Mix, Add, Swap, Clip, Master, the master knob, Cue) on top with the knobs and the
-rows above / below the display, the right column (arrows, the jog wheel, Capture .. Help, Repeat
-.. Session, Octave, Page, Shift, Select) and the scene buttons right, the pads below. The right
-column is crowded (about 24 boxes) and has crossing lines; the layout is still the own drawing:
-**open: the Push 3 layout from a top view photo** (not found locally; asked for), then the sides
-again.
+**The Push 3 layout** (`push_simulator/layout.py`, `_push3()`) is placed from Ableton's labelled top
+view diagram and a description of a photo: the panel is 1594 × 1325 px of the diagram, 0.237 mm per
+pixel (about 378 mm wide), so the surface is 378 × 314 units (the Push 1 and 2 keep the own drawing,
+218 × 194). The arrangement of the hardware: the encoders; below them Sets / Setup / Learn / User,
+the upper display buttons, Device / Mix / Clip / Session; the display row with the volume knob,
+Undo / Save, the display, Add / Swap, the jog wheel; below the display Lock / Stop Clip / Mute /
+Solo, the lower display buttons, Master Track, the d-pad; the left column (swing & tempo knob, Tap
+Tempo / Metronome / Quantize, Fixed Length / Automate, New / Capture / Record, Play), the touch
+strip, the pads (as wide as in the diagram: 110 × 80 px), the scene buttons (1/32t at the top, CC
+43; the drawing before had the labels the other way round), the right column (Note / Session,
+Scale / Layout, Repeat / Accent, Double Loop / Duplicate, Convert / Delete, Octave / Page, Shift /
+Select). The CCs, notes and LED kinds are those of the drawing before (compared). Deviations: the
+presses of the volume and the swing & tempo knob and the jog wheel's nudge ◂ ▸ and press are small
+buttons next to the knobs; the pedal inputs (on the back) and Add Device (CC 52, a Push 2 button
+the core registers) are small buttons in the bottom margin. Icon buttons get the diagram's names
+(Sets, Learn, Session, Lock, Stop, M, S, +; the help boxes say Stop Clip, Mute, Solo, Add).
+
+Help sides: left the left column, the volume knob, Undo / Save and the Lock block with the lower
+display buttons (their line enters through the Lock block's row); top the encoders' box, the upper
+display buttons and the two upper blocks; right the right column, the jog wheel, Add / Swap,
+Master Track, the d-pad (▴▾ and ◂▸ as rows) and the scene buttons; below the pads. The lines don't
+cross except under buttons; both columns hold about 24 boxes.
 
 ### 13.3 Manual and code (Push)
 

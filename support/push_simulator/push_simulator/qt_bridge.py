@@ -51,7 +51,7 @@ class Simulator(SimulatorBase):
 
     def __init__(self, device: PushDevice, image_provider: DisplayImageProvider, parent=None):
         names = {"push1": "Push 1", "push2": "Push 2", "push3": "Push 3"}
-        super().__init__(device, [c.as_dict() for c in device.controls], (layout.SURFACE_WIDTH, layout.SURFACE_HEIGHT),
+        super().__init__(device, [c.as_dict() for c in device.controls], layout.surface(device.model),
                          names[device.model] + " Simulator", parent)
         self.image_provider = image_provider
         self._frame_revision = 0

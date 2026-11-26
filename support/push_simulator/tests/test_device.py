@@ -289,8 +289,8 @@ class LayoutTest(unittest.TestCase):
             self.assertEqual(pads, list(range(36, 100)))
             ccs = [c.cc for c in controls if c.kind == "button"]
             self.assertEqual(len(ccs), len(set(ccs)), model)
-            self.assertTrue(all(0 <= c.x and c.x + c.w <= layout.SURFACE_WIDTH and c.y + c.h <= layout.SURFACE_HEIGHT
-                                for c in controls), model)
+            width, height = layout.surface(model)
+            self.assertTrue(all(0 <= c.x and 0 <= c.y and c.x + c.w <= width and c.y + c.h <= height for c in controls), model)
         p3 = layout.button_by_cc("push3")
         self.assertIn(92, p3)  # New
         self.assertIn(94, p3)  # jog wheel press
