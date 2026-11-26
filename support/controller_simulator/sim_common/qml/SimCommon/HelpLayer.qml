@@ -60,6 +60,66 @@ Item {
         return positions
     }
 
+    // As sim_common/help.py segments_cross(), lines_cross() and uncross(): neighbours on a side
+    // whose leader lines (`line(slot, box)`: the polyline if the box took the slot) cross change
+    // places
+    function segmentsCross(a, b, c, d) {
+        function side(p, q, r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]) }
+        return side(c, d, a) * side(c, d, b) < 0 && side(a, b, c) * side(a, b, d) < 0
+    }
+
+    function linesCross(first, second) {
+        for (var i = 0; i < first.length - 1; i++)
+            for (var j = 0; j < second.length - 1; j++)
+                if (segmentsCross(first[i], first[i + 1], second[j], second[j + 1]))
+                    return true
+        return false
+    }
+
+    function uncross(count, line) {
+        var order = []
+        for (var n = 0; n < count; n++)
+            order.push(n)
+        function crossing(i) { return linesCross(line(i, order[i]), line(i + 1, order[i + 1])) }
+        for (var pass = 0; pass < count; pass++) {
+            var changed = false
+            for (var i = 0; i < count - 1; i++) {
+                if (!crossing(i))
+                    continue
+                var swap = order[i]; order[i] = order[i + 1]; order[i + 1] = swap
+                if (crossing(i)) {
+                    swap = order[i]; order[i] = order[i + 1]; order[i + 1] = swap
+                } else {
+                    changed = true
+                }
+            }
+            if (!changed)
+                break
+        }
+        return order
+    }
+
+    // The leader line of a box as HelpLines draws it: from the box's port (and its elbow) to the
+    // control's centre; to an area along the panel's edge to the anchor and straight in
+    function leader(item, port, elbow, sx, sy, scale) {
+        var points = [port]
+        if (elbow >= 0)
+            points.push([port[0], elbow])
+        var ax = sx + item.ax * scale, ay = sy + item.ay * scale
+        if (!item.area) {
+            points.push([ax, ay])
+        } else if (item.side === "top" || item.side === "bottom") {
+            var edge = item.side === "top" ? sy - 3 : sy + surface.height + 3
+            var by = item.side === "top" ? sy + item.y * scale - 4 : sy + (item.y + item.h) * scale + 4
+            points.push([port[0], edge], [ax, edge], [ax, by])
+        } else {
+            var edgeX = item.side === "left" ? sx - 3 : sx + surface.width + 3
+            var bx = item.side === "left" ? sx + item.x * scale - 4 : sx + (item.x + item.w) * scale + 4
+            points.push([edgeX, port[1]], [edgeX, ay], [bx, ay])
+        }
+        return points
+    }
+
     function computeLayout(items, w, h, sx, sy, scale) {
         var result = new Array(items.length)
         if (!surface || items.length === 0)
@@ -74,30 +134,49 @@ Item {
             var wishes = column.map(function (index) { return sy + items[index].ay * scale - boxHeight / 2 })
             var ys = spread(wishes, boxHeight, gap / 2, gap, h - gap)
             var x = columns[c] === "left" ? gap : w - gap - sideWidth
+            var portX = columns[c] === "left" ? x + sideWidth : x
+            var order = uncross(column.length, function (slot, box) {
+                return leader(items[column[box]], [portX, ys[slot] + boxHeight / 2], -1, sx, sy, scale)
+            })
             for (var n = 0; n < column.length; n++)
-                result[column[n]] = { "x": x, "y": ys[n], "w": sideWidth, "h": boxHeight }
+                result[column[order[n]]] = { "x": x, "y": ys[n], "w": sideWidth, "h": boxHeight }
+        }
+        // A corner is free for the rows when the column's boxes stay out of the rows' height
+        function columnFree(side, top, bottom) {
+            return sides[side].every(function (index) { return result[index].y + boxHeight + gap <= top || result[index].y - gap >= bottom })
         }
         // Rows: between the columns, two staggered rows (lane 0 next to the panel). All boxes of
         // a side are spread together at half a box apart, then alternate between the lanes: an
         // outer box's middle is above the gap between its inner neighbours, its line goes down
         // through that gap (`elbow`) and then to the control.
-        var left = sideWidth + 2 * gap
-        var right = w - sideWidth - 2 * gap
         var rows = ["top", "bottom"]
         for (var r = 0; r < 2; r++) {
             var row = sides[rows[r]]
             if (row.length === 0)
                 continue
+            var rowsTop = rows[r] === "top" ? sy - 2 * (gap + boxHeight) : sy + surface.height + gap
+            var rowsBottom = rowsTop + 2 * boxHeight + gap
+            var left = columnFree("left", rowsTop, rowsBottom) ? gap : sideWidth + 2 * gap
+            var right = columnFree("right", rowsTop, rowsBottom) ? w - gap : w - sideWidth - 2 * gap
             var boxWidth = Math.min(sideWidth, (right - left - (row.length - 1) * gap) / ((row.length + 1) / 2))
             var half = boxWidth / 2
             var xWishes = row.map(function (index) { return sx + items[index].ax * scale - boxWidth / 2 })
             var xs = spread(xWishes, half, gap, left, right - half)
             var innerY = rows[r] === "top" ? sy - gap - boxHeight : sy + surface.height + gap
             var outerY = rows[r] === "top" ? innerY - boxHeight - gap : innerY + boxHeight + gap
-            for (var m = 0; m < row.length; m++) {
+            var slots = xs.map(function (bx, m) {
                 var outer = m % 2 === 1
-                var elbow = outer ? (rows[r] === "top" ? innerY + boxHeight + gap / 2 : innerY - gap / 2) : -1
-                result[row[m]] = { "x": xs[m], "y": outer ? outerY : innerY, "w": boxWidth, "h": boxHeight, "elbow": elbow }
+                var y = outer ? outerY : innerY
+                return { "x": bx, "y": y, "elbow": outer ? (rows[r] === "top" ? innerY + boxHeight + gap / 2 : innerY - gap / 2) : -1,
+                         "portY": rows[r] === "top" ? y + boxHeight : y }
+            })
+            var rowOrder = uncross(row.length, function (slot, box) {
+                var s = slots[slot]
+                return leader(items[row[box]], [s.x + boxWidth / 2, s.portY], s.elbow, sx, sy, scale)
+            })
+            for (var m = 0; m < row.length; m++) {
+                var slot = slots[m]
+                result[row[rowOrder[m]]] = { "x": slot.x, "y": slot.y, "w": boxWidth, "h": boxHeight, "elbow": slot.elbow }
             }
         }
         return result

@@ -8,7 +8,7 @@ Akai APC40 mkII, the Novation Launchpad Pro Mk3 and the Novation Launch Control 
 touchscreen controller that is meant to grow out of them. It covers the architecture, where to
 find a controller's protocol, and the pitfalls we hit.
 
-The help boxes (what each button does in the current state, texts from the core, the JAM first)
+The help boxes (what each button does in the current state, texts from the core: the JAM and the Mk2)
 are planned and documented in [CONTROLLER_HELP_PLAN.md](CONTROLLER_HELP_PLAN.md). Its §4 is the
 mirror: a simulator shows what a real device which the core drives in-process shows (LEDs,
 strips, meters, displays, presses), over the help socket; a device model takes the mirror's

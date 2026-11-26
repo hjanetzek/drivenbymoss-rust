@@ -264,6 +264,46 @@ def spread(desired: list[float], size: float, gap: float, low: float, high: floa
     return [min(position, high - (count - index) * step + gap) for index, position in enumerate(positions)]
 
 
+def segments_cross(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float], d: tuple[float, float]) -> bool:
+    """True if the segments a-b and c-d cross (touching ends don't count)."""
+    def side(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    d1, d2, d3, d4 = side(c, d, a), side(c, d, b), side(a, b, c), side(a, b, d)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def lines_cross(first: list[tuple[float, float]], second: list[tuple[float, float]]) -> bool:
+    """True if two polylines (lists of points) cross."""
+    return any(segments_cross(a, b, c, d) for a, b in zip(first, first[1:]) for c, d in zip(second, second[1:]))
+
+
+def uncross(count: int, line: Callable[[int, int], list[tuple[float, float]]]) -> list[int]:
+    """The boxes of a side to its slots (the positions ``spread`` found, in the order of the
+    controls): ``line(slot, box)`` is the polyline of a box's leader if it took the slot. Returns
+    for every slot the box which takes it: the order of the controls, except that neighbours whose
+    lines cross change places (a control a little lower but farther in, whose line would pass
+    above its neighbour's: the columns of buttons of the JAM and the Mk2; two rows of buttons
+    under the staggered boxes below the panel). HelpLayer.qml does the same; this one is
+    tested."""
+    order = list(range(count))
+
+    def crossing(i: int) -> bool:
+        return lines_cross(line(i, order[i]), line(i + 1, order[i + 1]))
+
+    for _ in range(count):
+        changed = False
+        for i in range(count - 1):
+            if crossing(i):
+                order[i], order[i + 1] = order[i + 1], order[i]
+                if crossing(i):
+                    order[i], order[i + 1] = order[i + 1], order[i]
+                else:
+                    changed = True
+        if not changed:
+            break
+    return order
+
+
 class HelpServer:
     """Listens on a UNIX stream socket, one connection at a time; hands every line to
     ``on_line`` (from its thread) and calls ``on_connect(True/False)``."""

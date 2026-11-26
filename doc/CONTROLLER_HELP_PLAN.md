@@ -3,7 +3,8 @@
 Status: phase 1 and phase 2 done for the Maschine JAM (see §6); round 2: the JAM's texts as one
 declarative table (§9, with a comparison of the two approaches), boxes coloured by scope, one box
 per row of buttons, the global boxes hideable (§10). Phase 3, the mirror (§4): done for the devices
-the core drives in-process (the JAM and the Mk2).
+the core drives in-process (the JAM and the Mk2). Phase 4 started: the Maschine Mk2's table and its
+layout from a photo (§12).
 
 ## 1. Goal
 
@@ -68,9 +69,10 @@ sent. The simulator listens on `--help-socket` or `$DBM_SIM_HELP_SOCKET`, defaul
 them.
 
 The simulator maps an entry to its control by the MIDI binding (the template id of the control →
-the template's CC, `maschine_simulator/templates.py`). The JAM's Shift has no MIDI binding (NI's
-SysEx), it is matched by its id `Shift`; `grid` goes to the pads and `strips` to the touch
-strips, the encoder's entry `MasterKnob` to the encoder (CC 57).
+the template's CC, `maschine_simulator/templates.py`). The Shift of the JAM and the Mk2 has no MIDI
+binding (NI's or DrivenByMoss' SysEx), it is matched by its id `Shift`; `grid` goes to the pads,
+`strips` to the JAM's touch strips and `knobs` to the Mk2's 8 knobs, the encoder's entry
+`MasterKnob` to the encoder (JAM CC 57, Mk2 CC 7).
 
 ### 2.4 Drawing
 
@@ -208,7 +210,7 @@ change only outside the surface's lights and text display.
    the page surface and the host page strips.
 3. The mirror (§4): done (in-process devices).
 4. The other simulators (Mk2, Mk3, the MIDI simulators, the Push): their commands' texts; the QML
-   is shared already.
+   is shared already. The Mk2: done (§12).
 
 ## 6. State
 
@@ -244,6 +246,11 @@ See the end of the work's report and the commits; kept up to date here:
   `support/controller_simulator/tests/test_mirror.py` (the real core's stream in a mirroring JAM
   and Mk2 simulator equals a simulator on the port, the presses, the simulator's input, a
   reconnect over the real socket, a simulator which doesn't read).
+- Phase 4, the Mk2 (§12): its table (`src/controller/maschine/mk/help.rs`), the layout from a photo,
+  the boxes' sides and the uncrossing of lines. Tests: `tests/controller_help.rs` (the Mk2's
+  first call, modifiers with the emulated and the real Shift, views and modes, coverage),
+  `support/controller_simulator/tests/test_help.py` (`UncrossTest`, `Mk2MappingTest`,
+  `Mk2CoreHelpTest`).
 - Open: §8.
 
 ## 7. Manual and code
@@ -279,8 +286,10 @@ The differences found while writing the texts (the texts follow the code):
 ## 8. Open points
 
 - The mirror of the daemon setups (dbm-nihost over ALSA, §4.1): not implemented.
-- The other simulators (Mk2, Mk3, Mikro Mk3, the MIDI simulators, the Push): the QML and the
-  socket are shared; they need their commands' texts and a resolver (`enable_help`).
+- The other simulators (Mk3, Mikro Mk3, the MIDI simulators, the Push): the QML and the socket are
+  shared; they need their commands' texts and a resolver (`enable_help`). The Mk3 and the Mikro Mk3
+  share the Mk2's setup: their tables can start from the Mk2's (their own buttons instead of the
+  `none` rows; the Mk3's touch strip, PAGE ◂▸, the 4-D encoder) and their layouts from photos.
 - The texts of the sequencers' finer grid functions (the base views' combinations: loop, page
   copy, velocity with Lock) are summaries, not state dependent per pad.
 - The Footswitches have no text (the simulator has no footswitch).
@@ -388,3 +397,114 @@ crate::help! {
   Major…", "Strips · The volume of 8 tracks"). The mode and view toggles say what a press does:
   "Press: the strips back to the device parameters", "Press: the strips to the panorama of 8
   tracks", "Press: the Chords view (hold + scene 1-4: pick one)"; MACRO while active: "Active: …".
+
+## 12. Phase 4: the Maschine Mk2
+
+### 12.1 The table
+
+`src/controller/maschine/mk/help.rs`, installed by the shared Maschine setup for the Mk2 only
+(`ctx.help_table` in `mk/setup.rs`). The Mk2's buttons have the shared setup's `ButtonId`s (the
+template's CCs): CONTROL `Drum`, STEP `Row14`, SAMPLING `DeviceOnOff`, ALL `AddTrack`, AUTO
+`Automation`, ENTER `Overdub`, the encoder's ◂ ▸ `ArrowLeft`/`ArrowRight`, its push `FaderTouch1`,
+RESTART `Loop`, the transport's ◂ `Stop` and ▸ `TapTempo`, GRID `Flip`, ERASE `Delete`, SCENE
+`Scene1`, PATTERN `Clip`, PAD MODE `Row11`, NAVIGATE `ToggleDevice`, the buttons above the displays
+`Row21`-`Row28`, the group buttons `Row31`-`Row38`.
+
+- **Global buttons** with Shift, Select and the held buttons the code looks at (Erase, Duplicate,
+  Rec, Solo, Mute, the transport's ◂ = Stop for CONTROL, SCENE / PATTERN / SOLO / MUTE for the
+  encoder). Shift is `is_shift_pressed`: dbm-nihost's Shift, or the transport's ◂ with NI's driver
+  (Stop's own text says which).
+- **Rows** (one box each, the details in the long text): the buttons above the displays (the modes
+  of the knobs; Pin / Active the track or, in the device mode, the device; with Shift the previous
+  send), the group buttons (plain, Rec, Solo, Mute, Erase, Duplicate), the encoder's ◂ ▸ (per mode:
+  the track, the parameter, the column, the setting, the note attribute; with Shift the page).
+- **The knobs** (`knobs`, one box): every mode: Volume, Pan, Send 1-8 (the track names in the long
+  text), the device parameters (their names), User, the browser, Tempo, Position, Loop Start /
+  Length, the note repeat configuration, the scale and drum settings, the edit note mode (by its
+  page). The single knobs are `none`.
+- **The encoder**: by the mode (the selected track, parameter, column, setting), the held buttons
+  (pages of scenes, clips, tracks) and "last touched parameter" (the push).
+- **The pads** of every view: Scene (+ Scene, Duplicate, Erase, Select, Shift), Clip (+ Duplicate,
+  Pattern, Browse, Erase, Select, Shift), Play and Drum (the notes / drum pads, the step sequencer,
+  the grid editor, the chords; Mute, Duplicate, Select, Erase, Solo, Browse), the parameter view
+  (NAVIGATE), the note repeat view (not used by the Mk2, which configures it on the knobs) and the
+  Shift view.
+- **The Mk3's buttons** the Mk2 doesn't have (MACRO, PITCH / MOD / PERFORM / NOTES, PLUG-IN,
+  SETTINGS, FIXED VEL, EVENTS, KEYBOARD, CHORDS, the 4-D encoder's up / down, PAGE ◂▸, ARRANGER,
+  MIXER, the footswitches, the touch strip): `none`, so the coverage test sees them.
+- **Escape hatch**: not needed. VOLUME and SWING (`ModeMultiSelectCommand`) name the next mode when
+  one of theirs is active, else "the last used" (the command's own state).
+- Left: the finer combinations of the step sequencer (long press + step: length) are in the long
+  texts, not per pad; the edit note mode's pages show the Bitwig attributes also where the host has
+  no step grid (Reaper: only length and velocity).
+
+### 12.2 Generalisations
+
+- `framework/help.rs`: the texts the shared commands need: `on_off`, `view_name`, `browsing`,
+  `play_button` (PlayCommand), `automation` (AutomationCommand), `shift_button(ctx, setting)`
+  (ToggleShiftViewCommand with its hold setting), `group_track_names`, `scene_names`, `next_mode`
+  (ModeMultiSelectCommand). The JAM's table uses them (its copies are gone).
+- `help_table.rs`: the key `knobs` (as `strips`) for the active mode's controls.
+- The JAM's table names its strips' faders (`Fader1`-`Fader8 => none`); the coverage test now also
+  checks the continuous controls (`check_coverage(app, views, modes)`, for both controllers).
+- Simulator (`HelpLayer.qml`, `sim_common/help.py`): **neighbours whose lines cross change places**
+  (`uncross`: columns and the staggered rows, with the real polyline of an area's line along the
+  edge), and **the rows above / below the panel use the corners** when the columns' boxes leave
+  them free. `qt_bridge.py`: the area `knobs` (the encoders of the template's `Knob1`-`Knob8`),
+  the pads' side by model, the Mk2's area anchors.
+
+### 12.3 Manual and code (Mk2)
+
+The texts follow the code; the manual (`Native-Instruments-Maschine-Mk3.md`, its Mk2 section and
+the common parts) differs here:
+
+- **Shift**: the manual says Shift doesn't work in the MIDI mode and STEP LEFT (the transport's ◂)
+  is Stop and Shift. With dbm-nihost (which sends the Shift button as a SysEx) Shift is Shift and
+  the ◂ is Stop; with NI's driver it is as in the manual.
+- **BROWSE while browsing**: the manual's first sentence says it accepts the selection; the code
+  discards it (as the manual's later line); the encoder's push confirms.
+- **SELECT + group button** (manual, "Pad Modes": rec arm): the code selects the track; REC + group
+  button arms it (as the manual's "Group buttons").
+- **User Params**: the project / track switch is on PAGE ◂▸, which the Mk2 doesn't send in the
+  MIDI mode: the mode stays on the project parameters. The pages of the scenes and clips are on
+  SCENE / PATTERN + encoder (not in the manual), not on PAGE ◂▸.
+- **Drum configuration** (manual: PAD MODE again, pads 15/16 transpose): on the Mk2 (a display)
+  Shift + PAD MODE puts the drum pads' offset on the knobs 7-8; PAD MODE switches Drum → Play →
+  chords. PAD MODE closes the settings opened with Shift + PAD MODE (a port addition).
+- **TEMPO** (manual: press again for fine tune): the tempo mode is selected; fine changes with
+  Shift held.
+- **Events** (manual: STEP LEFT + Select): Shift + Select (dbm-nihost's Shift).
+- **VOLUME / SWING / TEMPO in the edit note mode** switch the encoder's attribute (velocity /
+  gain, panorama / duration, pitch / pressure); on the Mk2 the knobs edit the attributes and the
+  encoder the selected one, so this only notifies. Not in the manual.
+- **CONTROL** (manual: a new instrument channel): with the transport's ◂ (Stop) held an audio
+  track.
+- Not in the manual: Select + PLAY punch in (+ Shift: punch out), Select + AUTO the automation write
+  mode, Select + ENTER clip launcher automation writing, Shift + NOTE REPEAT the configuration,
+  SOLO / MUTE + encoder the page of 8 tracks, DUPLICATE + pad in the scene view (duplicate the
+  scene).
+- **Note repeat octave**: not supported (the knobs 7-8 do nothing in the configuration).
+
+### 12.4 The layout
+
+`_mk2()` is redone from a top view photo (1864 × 1521 px): the device is 32 cm wide, so 0.172 mm per
+pixel; the photo starts below the logo strip, the surface is 321 × 262 units. Positions and sizes
+are the photo's (button centres measured by brightness segmentation). The template ids, kinds and
+keys are unchanged (compared with the old drawing; `Mk2MappingTest.test_layout_keeps_the_templates`).
+Labels: the hardware's main labels (Control, Step, Browse, Sampling, All, Auto, Volume, Swing, Tempo,
+Note Repeat, Enter, Restart, Grid, Play, Rec, Erase, Shift, Scene, Pattern, Pad Mode, Navigate,
+Duplicate, Select, Solo, Mute, A-H), not NI's secondary labels. Deviations from the photo:
+
+- the encoder's push is a small "Push" button under the encoder (the hardware presses the encoder);
+- the arrows under BROWSE are drawn as buttons without a template (they send nothing in the MIDI
+  mode), added at the end so the keys stay;
+- the displays are a little larger than the screens (105 × 29 mm, room for 28 characters);
+- the buttons above the displays keep the numbers 1-8 (unlabelled on the hardware; the display
+  shows their labels).
+
+Help sides: the upper left block (Browse, Sampling, All, Auto), the master section and the groups
+left; Control, Step and the buttons above the displays top; the knobs right (the line along their
+row, not across the displays); the column left of the pads right (on the left their lines crossed
+the master section's; now they pass under the pads); the transport and the pads below (the pads'
+line between the pad columns 2 and 3).
+

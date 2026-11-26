@@ -6,9 +6,9 @@
 Every control has a ``key`` (its index): the QML view identifies controls by it (the ``cc`` and
 ``note`` of the control's dict), the device model maps it to the template control
 (``template``, an id of the DrivenByMoss NI template, see templates.py). Positions are in surface
-units (about millimetres, origin top left). The arrangement follows the hardware loosely; it is
-an own drawing and may diverge where it helps (the simulators are also the base of a touch
-controller).
+units (about millimetres, origin top left). The JAM and the Mk2 are placed from top view photos of
+the devices; the Mk3 and the Mikro Mk3 follow the hardware loosely (own drawings, which may diverge
+where it helps: the simulators are also the base of a touch controller).
 """
 
 from dataclasses import dataclass
@@ -43,7 +43,7 @@ class Control:
                 "cc": self.key, "note": self.key, "rgb": self.rgb, "index": self.index}
 
 
-SURFACE = {"mk2": (322.0, 200.0), "jam": (370.0, 312.0), "mk3": (350.0, 220.0), "mikromk3": (262.0, 168.0)}
+SURFACE = {"mk2": (321.0, 262.0), "jam": (370.0, 312.0), "mk3": (350.0, 220.0), "mikromk3": (262.0, 168.0)}
 
 # The client and port names of NI's driver and dbm-nihost: (client, DAW input, DAW output)
 PORT_NAMES = {
@@ -64,48 +64,71 @@ def midi_names(model: str, suffix: str = "") -> tuple[str, str, str]:
 
 
 def _mk2() -> list[Control]:
+    """The Mk2 as in a top view photo of the device (1864 × 1521 px, about 0.172 mm per pixel: the
+    device is 32 cm wide; the logo strip above the buttons cut off): `px(cx, cy, w, h)` places a
+    control by its centre and size in the photo's pixels. The controls are created in the same
+    order as before (their keys); the arrows under BROWSE (not in the template, they send nothing
+    in the MIDI mode) come last."""
     c: list[Control] = []
+    scale = 0.172
 
-    def button(label, template, x, y, w=20.0, h=7.0, rgb=False):
-        c.append(Control("button", label, x, y, w, h, template=template, rgb=rgb))
+    def px(cx, cy, w, h):
+        return ((cx - w / 2) * scale, (cy - h / 2) * scale, w * scale, h * scale)
 
-    # Left column
-    for i, (label, template) in enumerate((("Control", "Control"), ("Step", "Step"), ("Browse", "Browse"),
-                                          ("Sampling", "Sampling"), ("All", "All"), ("Auto Write", "AutoWrite"))):
-        button(label, template, 4, 4 + i * 10.5)
-    # The 8 buttons above the displays, the displays, the 8 encoders
+    def button(label, template, rect, rgb=False, help_label="", help_side=""):
+        c.append(Control("button", label, *rect, template=template, rgb=rgb, help_label=help_label, help_side=help_side))
+
+    left, right = 164, 311.5
+    # The upper left block: Control, Step (their help boxes above the panel) / Browse, Sampling /
+    # (the arrows) / All, Auto
+    for (label, template), (x, y, h) in zip((("Control", "Control"), ("Step", "Step"), ("Browse", "Browse"), ("Sampling", "Sampling"),
+                                             ("All", "All"), ("Auto", "AutoWrite")),
+                                            ((left, 86, 48), (right, 86, 48), (left, 220.5, 69), (right, 220.5, 69), (left, 469.5, 45),
+                                             (right, 469.5, 45))):
+        button(label, template, px(x, y, 111, h), help_side="top" if y < 100 else "")
+    # The 8 buttons above the displays, the displays, the 8 knobs under them (in the same columns)
+    columns = (492, 666, 839.5, 1012, 1185, 1359, 1533.5, 1707.5)
+    for i, x in enumerate(columns):
+        button(f"{i + 1}", f"Button{i + 1}", px(x, 86.5, 110, 47), help_label=f"Display button {i + 1}", help_side="top")
+        c.append(Control("encoder", "", *px(x, 467, 102, 102), template=f"Knob{i + 1}", help_label=f"Knob {i + 1}"))
+    c.append(Control("display", "", *px(752, 275, 610, 170), index=0))
+    c.append(Control("display", "", *px(1447, 275, 610, 170), index=1))
+    # MASTER: Volume, Swing, Tempo in a column; the encoder (its push under it), Note Repeat;
+    # ◂ ▸ Enter in the row under the encoder
+    button("Volume", "Volume", px(left, 671.5, 111, 43))
+    button("Swing", "Swing", px(left, 753.5, 111, 42))
+    button("Tempo", "Tempo", px(left, 836, 111, 42))
+    button("◂", "MasterL", px(right, 836, 111, 42), help_label="Encoder ◂")
+    button("▸", "MasterR", px(459, 836, 110, 42), help_label="Encoder ▸")
+    button("Enter", "Enter", px(606.5, 836, 109, 42))
+    button("Note Repeat", "NoteRep", px(606.5, 689, 109, 76))
+    c.append(Control("encoder", "", *px(385, 706, 156, 156), template="Dial", help_label="Encoder"))
+    button("Push", "Push", px(385, 800, 90, 20), help_label="Encoder push")
+    # GROUPS: A-D, E-H
     for i in range(8):
-        button(f"{i + 1}", f"Button{i + 1}", 32 + i * 30.5, 4, 26, 6)
-        c.append(Control("encoder", "", 32 + i * 30.5 + 6, 48, 14, 14, template=f"Knob{i + 1}"))
-    c.append(Control("display", "", 32, 12, 118, 32, index=0))
-    c.append(Control("display", "", 154.5, 12, 118, 32, index=1))
-    # Master section
-    button("Volume", "Volume", 280, 4, 12, 7)
-    button("Swing", "Swing", 294, 4, 12, 7)
-    button("Tempo", "Tempo", 308, 4, 12, 7)
-    button("◂", "MasterL", 280, 14, 12, 7)
-    button("▸", "MasterR", 294, 14, 12, 7)
-    button("Enter", "Enter", 308, 14, 12, 7)
-    button("Note Rep.", "NoteRep", 280, 24, 12, 9)
-    c.append(Control("encoder", "Master", 296, 24, 22, 22, template="Dial"))
-    button("Push", "Push", 280, 38, 12, 7)
-    # Groups and transport
-    for i in range(8):
-        button(chr(ord("A") + i), "Group" + chr(ord("A") + i), 4 + (i % 4) * 18, 74 + (i // 4) * 15, 16, 12, rgb=True)
-    for i, (label, template) in enumerate((("Restart", "Restart"), ("◂", "StepL"), ("▸", "StepR"), ("Grid", "Grid"),
-                                          ("Play", "Play"), ("Rec", "Rec"), ("Erase", "Erase"))):
-        button(label, template, 4 + (i % 4) * 18, 112 + (i // 4) * 15, 16, 12)
+        button(chr(ord("A") + i), "Group" + chr(ord("A") + i), px((left, 311, 459, 607)[i % 4], (1023.5, 1141.5)[i // 4], 106, 78), rgb=True,
+               help_label="Group " + chr(ord("A") + i))
+    # TRANSPORT: Restart, ◂, ▸, Grid / Play, Rec, Erase, Shift (the help boxes below the panel)
+    for i, (label, template, help_label) in enumerate((("Restart", "Restart", ""), ("◂", "StepL", "◂ (Stop)"), ("▸", "StepR", "▸ (Tap)"),
+                                                      ("Grid", "Grid", ""), ("Play", "Play", ""), ("Rec", "Rec", ""), ("Erase", "Erase", ""))):
+        x = (163.5, 311.5, 459, 606.5)[i % 4]
+        button(label, template, px(x, 1329.5, 111, 47) if i < 4 else px(x, 1424, 109, 70), help_label=help_label, help_side="bottom")
     # Shift: not in the template, sent as the DrivenByMoss SysEx 12
-    button("Shift", "", 4 + 3 * 18, 112 + 15, 16, 12)
-    # The column left of the pads
+    button("Shift", "", px(606.5, 1424, 109, 70), help_side="bottom")
+    # The column left of the pads (the help boxes right of the panel: on the left they would cross
+    # the lines of the master section and the groups)
     for i, (label, template) in enumerate((("Scene", "Scene"), ("Pattern", "Pattern"), ("Pad Mode", "PadMode"),
                                           ("Navigate", "Navigate"), ("Duplicate", "Duplicate"), ("Select", "Select"),
                                           ("Solo", "Solo"), ("Mute", "Mute"))):
-        button(label, template, 84, 74 + i * 15.5, 26, 12)
-    # Pads 1..16 from the bottom left
+        button(label, template, px(806.5, (683.5, 788.5, 894.5, 1000, 1105.5, 1212, 1318, 1424)[i], 107, 66), help_side="right")
+    # PADS: 1..16 from the bottom left, square
     for n in range(16):
         row, col = divmod(n, 4)
-        c.append(Control("pad", f"{n + 1}", 126 + col * 47, 74 + (3 - row) * 31, 43, 28, template=f"Pad{n + 1}", rgb=True))
+        c.append(Control("pad", f"{n + 1}", *px((1038, 1250, 1461, 1672.5)[col], (1370, 1157.5, 947.5, 734)[row], 165, 165),
+                         template=f"Pad{n + 1}", rgb=True))
+    # The arrows under BROWSE: they send nothing in the MIDI mode (dbm-nihost: not in the template)
+    button("◂", "", px(left, 326.5, 111, 69))
+    button("▸", "", px(right, 326.5, 111, 69))
     return c
 
 

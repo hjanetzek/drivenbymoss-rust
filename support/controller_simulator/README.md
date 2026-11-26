@@ -101,7 +101,7 @@ button, STEP LEFT is Stop".
 With the Rust core in the reference host the Maschine simulators show what each button does in
 the current state (view, mode, held Shift / Select): key **H** or the "Help" checkbox in the status
 bar. The texts come from the core (`dbm_take_control_help`, doc/CONTROLLER_HELP_PLAN.md); so far
-the JAM has them. A click on a box, or pressing its button, shows the full text.
+the JAM and the Mk2 have them. A click on a box, or pressing its button, shows the full text.
 
 ```sh
 support/controller_simulator/run.sh --model jam --show-help &
@@ -128,7 +128,26 @@ The boxes are coloured by what their text depends on: grey global, blue the view
 (strips, Page ◂▸), purple a held modifier (Shift, Select, ...); the status bar shows the legend with
 the active view and mode. Key **G** (the "Globals" checkbox, `--hide-global`) hides the global
 boxes: what remains changes with the view, the mode or the modifiers. A row of buttons with one
-function (the JAM's scenes, the group buttons) is one box with a bracket along the row.
+function (the JAM's scenes, the group buttons, the Mk2's buttons above the displays and the
+encoder's ◂ ▸) is one box with a bracket along the row; the pads, the JAM's strips and the Mk2's
+knobs are one box each (their details in the full text).
+
+Each control's box goes to the side of the panel it is on (left / right of the pads, else above or
+below them), or the side its layout names (`help_side`). The Mk2: the upper left block and the
+master section left, Control, Step and the buttons above the displays on top, the knobs and the
+column left of the pads right (their lines pass under the pads instead of across the left half's),
+the transport and the pads below. Neighbours whose lines would cross change places (columns and
+the staggered rows), and the rows above / below the panel use the corners the columns leave free.
+
+### The layouts
+
+`maschine_simulator/layout.py` places the controls in surface units of about a millimetre. The
+JAM (`_jam()`, 370 × 312) and the Mk2 (`_mk2()`, 321 × 262) are drawn from top view photos of the
+devices (the photo's pixels times 0.264 / 0.172 mm; the logo strip cut off), with the main labels
+of the hardware; NI's small secondary labels (the Maschine software's Shift functions: MIDI, SAVE,
+TAP, UNDO, ...) are left out, the help boxes take that role. The Mk2's arrows under BROWSE are
+drawn but send nothing (they are not in the template in the MIDI mode); its encoder push is a
+small button under the encoder. The Mk3 and the Mikro Mk3 are still the own drawings.
 
 ### With Bitwig
 
@@ -314,9 +333,11 @@ QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
   with `src/controller/launchcontrol` (the constants, the template header, the knob LED formula,
   the UUID, the discovery name and the startup template).
 - `test_midi_alsa.py`: an ALSA loopback with ` (test)` names.
-- `test_help.py`: the help boxes: the layout along a side, the model (sides, expanding on a press),
-  the socket, the JAM's mapping of the core's entries (every entry of the real core in the states
-  every button makes goes to a control), the boxes drawn offscreen, the host's writer.
+- `test_help.py`: the help boxes: the layout along a side, the crossing lines changing places, the
+  model (sides, expanding on a press), the socket, the JAM's and the Mk2's mapping of the core's
+  entries (every entry of the real core in the states every button makes goes to a control; the
+  Mk2's sides, rows and areas; its layout keeps the template ids), the boxes drawn offscreen, the
+  host's writer.
 - `test_midi_smoke.py`: all three offscreen with ` (smoke)` names, started through the Push `run.sh`,
   fed by `midi_feed.py`, grabbed to PNGs (into `MIDI_SIM_SCREENSHOTS`), checked for the fed colours
   and the LED rings.
