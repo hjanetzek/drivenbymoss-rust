@@ -20,7 +20,8 @@
 //! ```
 //!
 //! - **Keys:** a `ButtonId` or `ContinuousId` name (checked at compile time: an unknown name stops
-//!   the build), `grid` (the pads), `strips` (the active mode's knobs or strips), `A | B` (the same
+//!   the build), `grid` (the pads), `strips` or `knobs` (the active mode's strips or knobs, the
+//!   entry [`Ctx::help_controls_id`](super::ctx::Ctx::help_controls_id)), `A | B` (the same
 //!   text for several), `First .. Last` (a row of buttons: one box for all of them, see
 //!   [`HelpKey::Row`]). Modifiers come first: `Shift + Select + Play`; a modifier is held when its
 //!   button is (Shift and Select as the surface sees them).
@@ -79,13 +80,14 @@ const fn button_named(name: &str) -> Option<ButtonId> {
 }
 
 impl HelpKey {
-    /// The key of a `ButtonId` or `ContinuousId` name (or `grid`, `strips`); panics for an unknown
+    /// The key of a `ButtonId` or `ContinuousId` name (or `grid`, `strips` / `knobs`); panics for an unknown
     /// name, which stops the build when evaluated in the table (a `static`).
     pub const fn named(name: &str) -> HelpKey {
         if same(name, "grid") {
             return HelpKey::Grid;
         }
-        if same(name, "strips") {
+        // The active mode's controls: the JAM's strips, the knobs of the Mk2
+        if same(name, "strips") || same(name, "knobs") {
             return HelpKey::Controls;
         }
         if let Some(button) = button_named(name) {
@@ -504,6 +506,7 @@ mod tests {
         assert_eq!(HelpKey::named("Play"), HelpKey::Button(ButtonId::Play));
         assert_eq!(HelpKey::named("MasterKnob"), HelpKey::Continuous(ContinuousId::MasterKnob));
         assert_eq!(HelpKey::named("grid"), HelpKey::Grid);
+        assert_eq!(HelpKey::named("knobs"), HelpKey::named("strips"));
         let row = HelpKey::row("Scene1", "Scene8");
         assert_eq!(row.buttons().len(), 8);
         assert_eq!(row.index_of(ButtonId::Scene3), Some(2));

@@ -13,14 +13,13 @@
 //! are listed in doc/CONTROLLER_HELP_PLAN.md §7).
 
 use crate::config::maschine_jam::MaschineJamConfiguration;
-use crate::config::values::{TransportBehavior, NEW_CLIP_LENGTH_VALUES};
+use crate::config::values::NEW_CLIP_LENGTH_VALUES;
 use crate::controller::maschine::core::encoder_mode_manager::{EncoderMode, EncoderTarget};
 use crate::daw::application::PANEL_LAYOUT_ARRANGE;
-use crate::daw::bank::BankItem;
 use crate::daw::constants::{GrooveParameterId, Resolution};
 use crate::framework::commands::mode::is_send_mode;
 use crate::framework::ctx::Ctx;
-use crate::framework::help::{help, help_long, lines, Help};
+use crate::framework::help::{automation, browsing, group_track_names, help, help_long, lines, next_mode, on_off, play_button, scene_names, view_name, Help};
 use crate::framework::help_table::{HelpKey, IntoRes, NoHelp, Res};
 use crate::framework::ids::{ButtonId, Modes, Views};
 use crate::scale::Scales;
@@ -32,7 +31,7 @@ use super::surface_link;
 crate::help! {
     global {
         // Modifiers
-        Shift => |ctx| shift_button(ctx), long SHIFT_LONG,
+        Shift => |ctx| crate::framework::help::shift_button(ctx, MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD), long SHIFT_LONG,
         Shift + Select => |ctx| {
             let slow = MaschineJamConfiguration::is_slow_fader_change(&ctx.config);
             format!("Slow fader change: turn it {} (now {})", on_off(!slow), on_off(slow))
@@ -139,6 +138,8 @@ crate::help! {
             "Browser: add a device to the selected track"
         }, long BROWSE_LONG,
         Footswitch1 | Footswitch2 => none,
+        // The strips are one box (`strips`, the modes below)
+        Fader1 | Fader2 | Fader3 | Fader4 | Fader5 | Fader6 | Fader7 | Fader8 => none,
 
         // The encoder section
         Mastertrack => |ctx| monitor_button(ctx, EncoderMode::MasterVolume), long MONITOR_LONG,
@@ -404,22 +405,6 @@ const STRIPS_SURFACE_LONG: &str = "Swipe a strip: the value (relative, no jumps)
 // ------------------------------------------------------------------------------------------
 // The state dependent texts
 
-fn on_off(state: bool) -> &'static str {
-    if state {
-        "on"
-    } else {
-        "off"
-    }
-}
-
-fn view_name(ctx: &Ctx, view: Views) -> String {
-    ctx.views.get(view).and_then(|v| v.try_borrow().ok().map(|v| v.name().to_string())).unwrap_or_else(|| view.name().to_string())
-}
-
-fn browsing(ctx: &Ctx) -> bool {
-    ctx.model.browser().is_some_and(|b| b.is_active())
-}
-
 fn birds_eye(ctx: &Ctx) -> bool {
     ctx.views.get(Views::Session).and_then(|v| v.try_borrow().ok().map(|v| v.is_birds_eye_active())).unwrap_or(false)
 }
@@ -431,56 +416,9 @@ fn is_project_mode(ctx: &Ctx) -> bool {
         .unwrap_or(true)
 }
 
-fn shift_button(ctx: &Ctx) -> &'static str {
-    if ctx.views.is_active(Views::Shift) && !ctx.surface.is_pressed(ButtonId::Shift) {
-        return "Shift view is open: press Shift to close it";
-    }
-    if ctx.surface.is_pressed(ButtonId::Shift) {
-        return "Held: the buttons do their Shift function (see their boxes)";
-    }
-    let id = MaschineJamConfiguration::SHIFT_VIEW_WHILE_HELD;
-    if ctx.config.is_setting_active(id) && ctx.config.custom_bool(id) {
-        return "Hold: the Shift view on the pads and the Shift functions of the buttons";
-    }
-    "Hold: the Shift functions of the buttons; tap: the Shift view on the pads"
-}
-
-fn play_button(ctx: &Ctx) -> String {
-    let short = if ctx.model.transport().is_playing() {
-        match ctx.config.behaviour_on_pause() {
-            TransportBehavior::ReturnToZero => "Stop playback and return to zero",
-            TransportBehavior::Stop => "Stop playback",
-            TransportBehavior::Pause => "Pause playback",
-        }
-    } else {
-        "Start playback"
-    };
-    let double = if ctx.config.is_play_double_click_return_to_zero() { " (double click: to zero)" } else { "" };
-    format!("{short}{double}")
-}
-
-fn automation(ctx: &Ctx, is_launcher: bool) -> String {
-    let transport = ctx.model.transport();
-    if is_launcher {
-        format!("Clip launcher automation writing: turn it {}", on_off(!transport.is_writing_clip_launcher_automation()))
-    } else {
-        format!("Arranger automation writing: turn it {}", on_off(!transport.is_writing_arranger_automation()))
-    }
-}
-
-/// The mode which a `ModeMultiSelectCommand` selects next: the next one after the active one if
-/// it was the last selected, else the last selected.
-pub fn next_of(ctx: &Ctx, modes: &[Modes], current: Modes) -> Modes {
-    if ctx.modes.active_id() != Some(current) {
-        return current;
-    }
-    let index = modes.iter().position(|m| *m == current).unwrap_or(0);
-    modes[(index + 1) % modes.len()]
-}
-
 /// LEVEL (the escape hatch: the command knows the mode it selects next).
 pub fn level_button(ctx: &Ctx, current: Modes) -> Option<Help> {
-    let next = next_of(ctx, &[Modes::Volume, Modes::Pan], current);
+    let next = next_mode(ctx, &[Modes::Volume, Modes::Pan], current);
     let short = match (ctx.modes.active_id(), next) {
         (Some(Modes::Volume), _) => "Press: the strips to the panorama of 8 tracks",
         (Some(Modes::Pan), _) => "Press: the strips back to the volume of 8 tracks",
@@ -493,7 +431,7 @@ pub fn level_button(ctx: &Ctx, current: Modes) -> Option<Help> {
 /// AUX (the escape hatch).
 pub fn aux_button(ctx: &Ctx, current: Modes) -> Option<Help> {
     let modes: Vec<Modes> = (0..8).map(|i| Modes::get(Modes::Send1, i)).collect();
-    let next = next_of(ctx, &modes, current);
+    let next = next_mode(ctx, &modes, current);
     let to = if ctx.modes.active_id().is_some_and(is_send_mode) { "the next send" } else { "send" };
     help(format!("Press: the strips to {to} {} of 8 tracks; hold + A-H: a send", next.ordinal() - Modes::Send1.ordinal() + 1))
 }
@@ -518,7 +456,7 @@ pub fn control_button(ctx: &Ctx, current: Modes) -> Option<Help> {
     let modes = if host { [Modes::DeviceParams, Modes::HostStrips] } else { [Modes::DeviceParams, Modes::User] };
     let current = if modes.contains(&current) { current } else { Modes::DeviceParams };
     let back = if ctx.modes.is_any_active(&modes) { "back " } else { "" };
-    let short = match next_of(ctx, &modes, current) {
+    let short = match next_mode(ctx, &modes, current) {
         Modes::HostStrips => "Press: the strips to the host's pages (host page strips)".to_string(),
         Modes::User => "Press: the strips to the project / track parameters".to_string(),
         _ => {
@@ -535,15 +473,8 @@ pub fn control_button(ctx: &Ctx, current: Modes) -> Option<Help> {
 
 /// The group buttons: select the tracks (their names in the long text).
 fn track_row(ctx: &Ctx) -> Help {
-    let bank = ctx.model.current_track_bank();
-    let names: Vec<String> = (0..8)
-        .filter_map(|i| {
-            let track = bank.item(i);
-            track.does_exist().then(|| format!("{}: {}{}", (b'A' + i as u8) as char, track.name(), if track.is_selected() { " (selected)" } else { "" }))
-        })
-        .collect();
     Help::new("Select the track (a selected group track: expand / collapse)").with_long(lines(&[
-        &names.join(", "),
+        &group_track_names(ctx, 8),
         "Hold Rec / Solo / Mute / Clear / Duplicate and press A-H: record arm / solo / mute / delete / duplicate the track.",
         "Hold Aux + A-H: the send. Hold Grid + A-H: the resolution of the sequencer.",
     ]))
@@ -584,14 +515,7 @@ fn resolution_row(ctx: &Ctx) -> Resolutions {
 
 /// The scene buttons: the text, the scene names in the long text.
 fn scene_row(ctx: &Ctx, text: &str) -> Help {
-    let bank = ctx.model.scene_bank();
-    let names: Vec<String> = (0..8)
-        .filter_map(|i| {
-            let scene = bank.item(i);
-            scene.does_exist().then(|| format!("{}: {}", i + 1, scene.name()))
-        })
-        .collect();
-    Help::new(text).with_long(lines(&[&names.join(", "), SCENE_LONG]))
+    Help::new(text).with_long(lines(&[&scene_names(ctx, 8), SCENE_LONG]))
 }
 
 const SCENE_SEQUENCER_VIEWS: [Option<Views>; 8] =

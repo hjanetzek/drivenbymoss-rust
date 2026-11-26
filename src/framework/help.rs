@@ -313,6 +313,109 @@ pub fn lines(lines: &[&str]) -> String {
     lines.join("\n")
 }
 
+// ------------------------------------------------------------------------------------------
+// Texts which several controllers' tables share (the state the shared commands read)
+
+/// "on" / "off".
+pub fn on_off(state: bool) -> &'static str {
+    if state {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+/// The name of a view as the view gives it (else the id's name).
+pub fn view_name(ctx: &Ctx, view: super::ids::Views) -> String {
+    ctx.views.get(view).and_then(|v| v.try_borrow().ok().map(|v| v.name().to_string())).unwrap_or_else(|| view.name().to_string())
+}
+
+/// Is the browser of the host active?
+pub fn browsing(ctx: &Ctx) -> bool {
+    ctx.model.browser().is_some_and(|b| b.is_active())
+}
+
+/// PLAY ([`super::commands::transport::PlayCommand`]): start, or stop / pause by the setting
+/// "Behaviour on Pause", and whether a double click returns to zero.
+pub fn play_button(ctx: &Ctx) -> String {
+    use crate::config::values::TransportBehavior;
+    let short = if ctx.model.transport().is_playing() {
+        match ctx.config.behaviour_on_pause() {
+            TransportBehavior::ReturnToZero => "Stop playback and return to zero",
+            TransportBehavior::Stop => "Stop playback",
+            TransportBehavior::Pause => "Pause playback",
+        }
+    } else {
+        "Start playback"
+    };
+    let double = if ctx.config.is_play_double_click_return_to_zero() { " (double click: to zero)" } else { "" };
+    format!("{short}{double}")
+}
+
+/// AUTO ([`super::commands::transport_ext::AutomationCommand`]): the arranger or the clip
+/// launcher automation writing (`is_launcher`: Shift held, flipped by the setting).
+pub fn automation(ctx: &Ctx, is_launcher: bool) -> String {
+    let transport = ctx.model.transport();
+    if is_launcher {
+        format!("Clip launcher automation writing: turn it {}", on_off(!transport.is_writing_clip_launcher_automation()))
+    } else {
+        format!("Arranger automation writing: turn it {}", on_off(!transport.is_writing_arranger_automation()))
+    }
+}
+
+/// SHIFT with the Shift view ([`super::commands::view::ToggleShiftViewCommand`]): a tap opens
+/// the Shift view on the pads, the On/Off setting `hold_setting` shows it while Shift is held.
+pub fn shift_button(ctx: &Ctx, hold_setting: crate::config::SettingId) -> &'static str {
+    use super::ids::{ButtonId, Views};
+    if ctx.views.is_active(Views::Shift) && !ctx.surface.is_pressed(ButtonId::Shift) {
+        return "Shift view is open: press Shift to close it";
+    }
+    if ctx.surface.is_pressed(ButtonId::Shift) {
+        return "Held: the buttons do their Shift function (see their boxes)";
+    }
+    if ctx.config.is_setting_active(hold_setting) && ctx.config.custom_bool(hold_setting) {
+        return "Hold: the Shift view on the pads and the Shift functions of the buttons";
+    }
+    "Hold: the Shift functions of the buttons; tap: the Shift view on the pads"
+}
+
+/// The names of the tracks of the current bank page by their group buttons: "A: Drums
+/// (selected), B: Bass".
+pub fn group_track_names(ctx: &Ctx, count: usize) -> String {
+    use crate::daw::bank::BankItem;
+    let bank = ctx.model.current_track_bank();
+    let names: Vec<String> = (0..count)
+        .filter_map(|i| {
+            let track = bank.item(i);
+            track.does_exist().then(|| format!("{}: {}{}", (b'A' + i as u8) as char, track.name(), if track.is_selected() { " (selected)" } else { "" }))
+        })
+        .collect();
+    names.join(", ")
+}
+
+/// The names of the scenes of the current bank page: "1: Verse, 2: Chorus".
+pub fn scene_names(ctx: &Ctx, count: usize) -> String {
+    use crate::daw::bank::BankItem;
+    let bank = ctx.model.scene_bank();
+    let names: Vec<String> = (0..count)
+        .filter_map(|i| {
+            let scene = bank.item(i);
+            scene.does_exist().then(|| format!("{}: {}", i + 1, scene.name()))
+        })
+        .collect();
+    names.join(", ")
+}
+
+/// The mode which a `ModeMultiSelectCommand` selects next: the next one after the active one if
+/// it was the last selected (`current`), else the last selected.
+pub fn next_mode(ctx: &Ctx, modes: &[super::ids::Modes], current: super::ids::Modes) -> super::ids::Modes {
+    if ctx.modes.active_id() != Some(current) {
+        return current;
+    }
+    let index = modes.iter().position(|m| *m == current).unwrap_or(0);
+    modes[(index + 1) % modes.len()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
